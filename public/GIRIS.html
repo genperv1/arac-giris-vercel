@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="tr">
+    <head>
+        <link rel="icon" type="image/png" href="logo.png">
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            (function(){
+                // Do not auto-show the app just because localStorage.contains isLoggedIn.
+                // The session must be validated by the server before showing the main UI.
+            })();
+        </script>
+        <style>
+            /* Default: show login screen immediately */
+            body { visibility: visible; }
+            #loginScreen { display: flex !important; }
+            #mainApp { display: none !important; }
+            #loginLoading { display: none !important; }
+            #iceridekiAraclar, #iceridekiAraclarContainer { display: none; }
+
+            /* When logged-in, show main app and Íçerideki Araçlar */
+            .logged-in #loginScreen{ display: none !important; }
+            .logged-in #mainApp{ display: block !important; }
+            .logged-in #loginLoading{ display: none !important; }
+            .logged-in #iceridekiAraclar, .logged-in #iceridekiAraclarContainer { display: block !important; }
+        </style>
+        <style>
+            /* Gradient for İçerideki Araçlar header: from slate-800 to custom blue */
+            #iceridekiAraclar{
+                --tw-gradient-from: #1e293b;
+                --tw-gradient-to: #4338ca;
+                background-image: linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to));
+            }
+            /* Apply same gradient to the list container */
+            #iceridekiAraclarContainer{
+                --tw-gradient-from: #1e293b;
+                --tw-gradient-to: #4338ca;
+                background-image: linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to));
+            }
+        </style>
+        <meta name="description" content="Araç plaka giriş-çıkış ve sevkiyat takibi">
+        <meta name="theme-color" content="#4f46e5">
+        <link rel="manifest" href="manifest.webmanifest">
+        <title>Araç Plaka Takip Sistemi</title>
+        <link rel="stylesheet" href="tailwind-built.css">
+        <link rel="stylesheet" href="styles.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    </head>
+    <body class="bg-gray-50 min-h-screen text-gray-700">
+        <a class="app-skip-link" href="#loginId">İçeriğe atla</a>
+
+        <!-- Top header: İçerideki Araçlar -->
+        
+
+        <!-- Modal: Plate actions -->
+        <div id="iceridekiPlateModal" class="hidden fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+            <div class="bg-white rounded-lg w-full max-w-md mx-auto shadow-lg">
+                <div class="p-4 border-b flex items-center justify-between">
+                    <div class="font-bold" id="iceridekiPlateModalTitle">Plaka</div>
+                    <button id="iceridekiPlateModalClose" class="text-gray-500">Kapat</button>
+                </div>
+                <div class="p-4">
+                    <div class="mb-4 text-sm text-gray-600">Şu anki saat:</div>
+                    <div id="iceridekiPlateClock" class="text-2xl font-mono mb-6">--:--:--</div>
+                    <div class="flex gap-2">
+                        <button id="iceridekiPlateCikisBtn" class="flex-1 bg-red-600 text-white py-2 rounded">Çıkış Yap</button>
+                        <button id="iceridekiPlateCancelBtn" class="flex-1 bg-gray-200 text-gray-700 py-2 rounded">İptal</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <main id="main-region" tabindex="-1" aria-label="Ana uygulama">
+
+        <!-- Giriş Ekranı -->
+        <div id="loginScreen" class="min-h-screen flex items-center justify-center p-6">
+            <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+                <div class="text-center mb-6">
+                    <img src="logo.png" alt="logo" class="mx-auto mb-4 w-36 h-28 object-contain" width="144" height="112" decoding="async">
+                    <h1 class="text-2xl font-bold text-gray-800 mb-1">Araç Plaka Takip</h1>
+                    <p class="text-sm text-gray-500">Sisteme giriş yapın</p>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Kullanıcı ID</label>
+                        <input type="text" id="loginId" name="username" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400" placeholder="ID giriniz" autocomplete="username" aria-describedby="loginHelp">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Şifre</label>
+                        <input type="password" id="loginPassword" name="password" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400" placeholder="Şifre giriniz" autocomplete="current-password" aria-describedby="loginHelp">
+                    </div>
+
+                    <button id="loginButton" class="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 font-semibold">Giriş Yap</button>
+                </div>
+
+                <div id="loginError" class="mt-4 text-center text-sm text-red-600 hidden" role="alert" aria-live="polite">Hatalı ID veya Şifre!</div>
+
+                <div id="loginHelp" class="mt-6 text-center text-xs text-gray-500">🔐 Güvenli Giriş Sistemi</div>
+                <button type="button" id="uiMotionToggle" class="mt-3 w-full text-xs text-indigo-600 hover:underline bg-transparent border-0 cursor-pointer">Arayüz geçişleri</button>
+            </div>
+        </div>
+
+        <!-- Ana Uygulama -->
+        <div id="mainApp" style="display: none;" class="p-4"></div>
+
+        </main>
+        
+        <!-- Takip Formu Modal -->
+        <div id="takipFormuModal" class="takip-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="takipModalTitle">
+            <div class="takip-modal">
+                <header class="takip-modal__header">
+                    <div class="takip-modal__header-main">
+                        <span class="takip-modal__icon" aria-hidden="true"><i class="fas fa-clipboard-list"></i></span>
+                        <div>
+                            <h2 id="takipModalTitle" class="takip-modal__title">Sevkiyat Yüklemesi Takip Formu</h2>
+                            <p class="takip-modal__subtitle">Yükleme bilgilerini girin ve yazdırın</p>
+                        </div>
+                    </div>
+                    <div class="takip-modal__actions">
+                        <button type="button" id="yazdirButton" class="takip-modal__btn takip-modal__btn--primary">
+                            <i class="fas fa-print" aria-hidden="true"></i> Yazdır
+                        </button>
+                        <button type="button" id="onizlemeButton" class="takip-modal__btn takip-modal__btn--secondary">
+                            <i class="fas fa-eye" aria-hidden="true"></i> Önizleme
+                        </button>
+                        <div class="takip-modal__page-size" aria-label="Kağıt boyutu">
+                            <button type="button" id="btnPageSizeA5" class="takip-modal__btn takip-modal__btn--size" title="A5 boyut">A5</button>
+                            <button type="button" id="btnPageSizeA4" class="takip-modal__btn takip-modal__btn--size" title="A4 boyut">A4</button>
+                        </div>
+                        <button type="button" id="kapatButton" class="takip-modal__btn takip-modal__btn--ghost">
+                            <i class="fas fa-times" aria-hidden="true"></i> Kapat
+                        </button>
+                    </div>
+                </header>
+                <div id="takipFormu" class="takip-modal__body"></div>
+            </div>
+        </div>
+
+        <!-- Firma Yönetim Modal -->
+        <div id="firmaYonetimModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden no-print">
+            <div class="bg-white rounded-lg max-w-2xl w-full max-h-[92vh] overflow-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+                    <h2 class="text-xl font-bold">Firma Yönetimi</h2>
+                    <button id="firmaModalKapatButton" class="bg-gray-600 text-white px-4 py-2 rounded">Kapat</button>
+                </div>
+                <div class="p-6">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-bold mb-2">Yeni Firma Ekle</h3>
+                        <div class="flex gap-2">
+                            <input type="text" id="yeniFirmaInput" class="flex-grow px-3 py-2 border rounded" placeholder="Firma adı giriniz">
+                            <button id="firmaEkleButton" class="bg-indigo-600 text-white px-4 py-2 rounded">Ekle</button>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold mb-2">Kayıtlı Firmalar</h3>
+                        <div id="firmaListesi" class="border rounded-lg p-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOGIN LOADING OVERLAY -->
+        <div id="loginLoading" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+            <div class="bg-white rounded-2xl shadow-2xl p-6 flex items-center gap-4">
+                <div class="spinner"></div>
+                <div>
+                    <div class="font-bold text-gray-800">Giriş yapılıyor…</div>
+                    <div class="text-sm text-gray-500">Lütfen bekleyin</div>
+                </div>
+            </div>
+        </div>
+
+        <script src="core-dom.js"></script>
+        <script src="asset-version.js"></script>
+        <script src="asset-loader.js"></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var b = document.getElementById('uiMotionToggle');
+                if (!b || typeof window.toggleUiMotion !== 'function') return;
+                function label() {
+                    var on = document.documentElement.classList.contains('allow-ui-motion');
+                    b.textContent = on ? 'Arayüz geçişleri: açık (daha yavaş olabilir)' : 'Arayüz geçişleri: kapalı (önerilen)';
+                }
+                label();
+                b.addEventListener('click', function () {
+                    window.toggleUiMotion();
+                    label();
+                });
+            });
+        </script>
+        <script src="idb.js"></script>
+        <script src="dailyStore.js"></script>
+        <script src="modules/report-events.js"></script>
+        <script src="errorReporter.js"></script>
+        <script src="storage.js"></script>
+        <script src="session-manager.js"></script>
+        <script src="sync-manager.js"></script>
+        <script src="network-banner.js"></script>
+        <script src="issues-sync-bus.js"></script>
+        <script src="operation-notes-alert.js?v=20260517a"></script>
+        <script src="rp-dialog.js?v=20260516g"></script>
+        <script src="signatures-registry.js"></script>
+        <script src="ayarlar-gate.js"></script>
+        <script src="app.js?v=20260516i"></script>
+        <script src="piyasa.js?v=20260516i"></script>
+        <!-- Session management disabled for instant loading -->
+    </body>
+</html>

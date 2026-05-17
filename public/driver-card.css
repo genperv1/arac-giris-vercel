@@ -1,0 +1,40 @@
+:root{
+  --bg:#f5f7fa;
+  --card:#ffffff;
+  --muted:#6b7280;
+  --accent:#0ea5a4;
+  --ok:#10b981;
+}
+*{box-sizing:border-box;font-family:Arial, Helvetica, sans-serif}
+body{background:var(--bg);padding:24px}
+.card-wrap{max-width:480px;margin:18px auto}
+.card{background:var(--card);border-radius:10px;box-shadow:0 6px 18px rgba(15,23,42,0.08);overflow:hidden}
+.card-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #eef2f7}
+.plate-wrap{display:flex;align-items:center;gap:10px}
+.dots{display:flex;gap:4px}
+.dot{width:6px;height:6px;border-radius:999px;background:#6366f1;box-shadow:0 0 0 2px rgba(129,140,248,.25)}
+.plate{font-weight:700;color:#4f46e5;font-size:20px}
+.issue-pill{padding:4px 10px;border-radius:999px;background:#f3f4ff;color:#4b5563;font-size:11px;font-weight:600;letter-spacing:.04em}
+.actions{display:flex;gap:8px}
+.btn{background:transparent;border:0;cursor:pointer;font-size:16px}
+.btn.icon{padding:6px;border-radius:6px}
+.btn.icon.copy{font-size:22px}
+.btn.icon:hover{background:#f3f4f6}
+.btn.icon.whatsapp img{width:23px;height:23px;object-fit:contain;display:block}
+.contact-label{display:flex;align-items:center;gap:6px}
+.card-body{display:flex;justify-content:space-between;padding:14px 16px}
+.left,.right{width:48%}
+.label{font-size:12px;color:var(--muted);margin-top:6px}
+.value{font-size:15px;color:#0f172a;font-weight:600}
+.card-footer{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-top:1px solid #eef2f7}
+.status-ok{background:rgba(16,185,129,0.12);border:0;padding:6px 10px;border-radius:6px;color:var(--ok);font-weight:600}
+.controls{display:flex;align-items:center;gap:8px}
+.btn.small{font-size:14px;padding:6px;border-radius:6px}
+.timestamp{font-size:12px;color:var(--muted)}
+
+@media (max-width:420px){
+  .card-wrap{padding:8px}
+  .card-body{flex-direction:column;gap:8px}
+  .left,.right{width:100%}
+  .actions{gap:6px}
+}

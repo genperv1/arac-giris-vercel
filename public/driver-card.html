@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sürücü Kartı - Örnek</title>
+  <link rel="stylesheet" href="driver-card.css">
+</head>
+<body>
+  <div class="card-wrap">
+    <div class="card">
+      <div class="card-header">
+        <div class="plate-wrap">
+          <div class="dots">
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+          <div class="plate">43 HP 433</div>
+          <div class="issue-pill">SORUN 0</div>
+        </div>
+        <div class="actions">
+          <button class="btn icon copy" title="Takip Formu">📋</button>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <div class="left">
+          <div class="label">Dorse</div>
+          <div class="value">34 ZFP 78</div>
+
+          <div class="label contact-label">
+            <span>İletişim</span>
+            <button class="btn icon whatsapp" title="WhatsApp">
+              <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WhatsApp" />
+            </button>
+          </div>
+          <div class="value">0542 508 43 02</div>
+        </div>
+
+        <div class="right">
+          <div class="label">Şoför</div>
+          <div class="value">ZÜLFÜ USLU</div>
+
+          <div class="label">TC</div>
+          <div class="value" id="tc">3023*****40</div>
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <div class="status">
+          <button id="okBtn" class="status-ok">✅ Sorun yok</button>
+        </div>
+
+        <div class="controls">
+          <button class="btn small delete" title="Sil">🗑️</button>
+          <button class="btn small edit" title="Düzenle">✏️</button>
+          <div class="timestamp">14.11.2025 03:26:53</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="driver-card.js"></script>
+</body>
+</html>
