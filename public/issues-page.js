@@ -172,6 +172,423 @@
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
   }
 
+  const DELETE_PASSWORD = '2026genper';
+
+  function vehicleToRejectionInfo(vehicle) {
+    if (!vehicle) return null;
+    const status = vehicle.rejection_status || (vehicle.rejection && vehicle.rejection.status);
+    if (status !== 'rejected') return null;
+    let endTs = vehicle.rejection_end_ts != null ? Number(vehicle.rejection_end_ts) : NaN;
+    if (!Number.isFinite(endTs) && vehicle.rejection && vehicle.rejection.endTs != null) endTs = Number(vehicle.rejection.endTs);
+    const hasEnd = Number.isFinite(endTs);
+    if (hasEnd && Date.now() > endTs) return null;
+    let startTs = vehicle.rejection_start_ts != null ? Number(vehicle.rejection_start_ts) : NaN;
+    if (!Number.isFinite(startTs) && vehicle.rejection && vehicle.rejection.startTs != null) startTs = Number(vehicle.rejection.startTs);
+    const duration = vehicle.rejection_duration || (vehicle.rejection && vehicle.rejection.duration) || 'Reddedildi';
+    return {
+      duration,
+      endTs: hasEnd ? endTs : null,
+      startTs: Number.isFinite(startTs) ? startTs : null,
+      rejectedAtLocal: Number.isFinite(startTs) ? new Date(startTs).toLocaleString('tr-TR') : ''
+    };
+  }
+
+  function vehicleToDriverInfo(vehicle) {
+    if (!vehicle) return null;
+    const first = String(vehicle.soforAdi || vehicle.isim || vehicle.adi || vehicle.name || '').trim();
+    const last = String(vehicle.soforSoyadi || vehicle.soyisim || vehicle.soyad || '').trim();
+    const name = [first, last].filter(Boolean).join(' ');
+    const phone = String(vehicle.iletisim || vehicle.telefon || vehicle.phone || '').trim();
+    if (!name && !phone) return null;
+    return { name, phone };
+  }
+
+  function formatDriverBlockHTML(driver) {
+    if (!driver || (!driver.name && !driver.phone)) return '';
+    const namePart = driver.name
+      ? `<span class="issue-record-card__driver-name">${escHtml(driver.name)}</span>`
+      : '';
+    const phonePart = driver.phone
+      ? `<span class="issue-record-card__driver-phone">${escHtml(driver.phone)}</span>`
+      : '';
+    return `<div class="issue-record-card__driver">${namePart}${phonePart}</div>`;
+  }
+
+  function formatNoteHTML(note) {
+    const raw = String(note || '').trim();
+    if (!raw) return '<p class="issue-record-card__note issue-record-card__note--empty">—</p>';
+    const escaped = escHtml(raw);
+    const linked = escaped.replace(
+      /(https?:\/\/[^\s<]+)/gi,
+      '<a href="$1" target="_blank" rel="noopener noreferrer" class="issue-record-card__link">Bağlantıyı aç</a>'
+    );
+    return `<p class="issue-record-card__note">${linked}</p>`;
+  }
+
+  async function loadVehicleMetaForPlates(plates) {
+    const rejectionMap = new Map();
+    const driverMap = new Map();
+    const unique = [...new Set((plates || []).map((p) => _normPlate(p)).filter(Boolean))];
+    await Promise.all(unique.map(async (p) => {
+      try {
+        const res = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(p));
+        if (!res.ok) return;
+        const vehicle = await res.json();
+        if (!vehicle) return;
+        const rej = vehicleToRejectionInfo(vehicle);
+        if (rej) rejectionMap.set(p, rej);
+        const drv = vehicleToDriverInfo(vehicle);
+        if (drv) driverMap.set(p, drv);
+      } catch (e) { /* ignore */ }
+    }));
+    return { rejectionMap, driverMap };
+  }
+
+  function issueSnapshotRejection(parsed) {
+    if (!parsed || (!parsed.rejectionApplied && !parsed.rejectionDuration)) return null;
+    return {
+      duration: parsed.rejectionDuration || 'Reddedildi',
+      endTs: parsed.rejectionEndTs != null && Number.isFinite(Number(parsed.rejectionEndTs)) ? Number(parsed.rejectionEndTs) : null,
+      startTs: null,
+      rejectedAtLocal: parsed.rejectedAtLocal || ''
+    };
+  }
+
+  function resolveRejectionForCard(parsed, plate, plateRejectionMap) {
+    return issueSnapshotRejection(parsed) || (plateRejectionMap && plateRejectionMap.get(_normPlate(plate))) || null;
+  }
+
+  function formatRejectionHTML(info) {
+    if (!info) return '';
+    const duration = escHtml(info.duration || 'Reddedildi');
+    const rejectedAt = info.rejectedAtLocal
+      ? escHtml(info.rejectedAtLocal)
+      : (info.startTs ? escHtml(new Date(info.startTs).toLocaleString('tr-TR')) : '');
+    let endLine = '';
+    if (info.endTs) {
+      const end = new Date(info.endTs);
+      endLine = `<div class="issue-record-rejection__line"><span>Red bitiş:</span> ${escHtml(end.toLocaleDateString('tr-TR'))} ${escHtml(end.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }))}</div>`;
+    } else if (/süresiz/i.test(String(info.duration || ''))) {
+      endLine = '<div class="issue-record-rejection__line"><span>Red bitiş:</span> Süresiz</div>';
+    }
+    return `
+      <div class="issue-record-rejection">
+        <div class="issue-record-rejection__title">Araç reddedildi</div>
+        <div class="issue-record-rejection__line"><span>Red süresi:</span> ${duration}</div>
+        ${rejectedAt ? `<div class="issue-record-rejection__line"><span>Reddedildi:</span> ${rejectedAt}</div>` : ''}
+        ${endLine}
+      </div>
+    `;
+  }
+
+  function getRpUi() {
+    return (window.rpUi && window.rpDialog && window.rpDialog._ready) ? window.rpUi : null;
+  }
+
+  async function editIssueViaPrompt(curData) {
+    const ui = getRpUi();
+    if (!ui) {
+      if (!window.confirm('Bu kaydı düzenlemek istiyor musunuz?')) return null;
+      const newNote = window.prompt('Olay notu:', curData.note || '');
+      if (newNote === null) return null;
+      if (!String(newNote).trim()) { window.alert('Sorun notu boş olamaz.'); return null; }
+      const newType = window.prompt('Sorun tipi:', curData.type || '');
+      if (newType === null) return null;
+      const newDate = window.prompt('Tarih/saat:', curData.dateLocal || '');
+      if (newDate === null) return null;
+      return Object.assign({}, curData, {
+        type: String(newType || '').trim(),
+        note: String(newNote || '').trim(),
+        dateLocal: newDate ? String(newDate).trim() : (curData.dateLocal || ''),
+        dateISO: (() => {
+          if (!newDate) return curData.dateISO || '';
+          const tryD = new Date(newDate);
+          if (!isNaN(tryD.getTime())) return tryD.toISOString();
+          return curData.dateISO || '';
+        })()
+      });
+    }
+
+    const ok = await ui.confirm('Bu kaydı düzenlemek istiyor musunuz?', { okLabel: 'Düzenle', cancelLabel: 'İptal' });
+    if (!ok) return null;
+
+    const newNote = await ui.prompt('Olay notu:', {
+      type: 'reason',
+      defaultValue: curData.note || '',
+      placeholder: 'Olay açıklaması'
+    });
+    if (newNote === null || newNote === false) return null;
+    if (!String(newNote).trim()) {
+      await ui.alert('Sorun notu boş olamaz.', 'danger');
+      return null;
+    }
+
+    const newType = await ui.prompt('Sorun tipi:', {
+      type: 'info',
+      defaultValue: curData.type || '',
+      placeholder: 'Örn: Kantar tartışması'
+    });
+    if (newType === null || newType === false) return null;
+
+    const newDate = await ui.prompt('Tarih / saat:', {
+      type: 'info',
+      defaultValue: curData.dateLocal || '',
+      placeholder: '14.05.2026 04:12:00'
+    });
+    if (newDate === null || newDate === false) return null;
+
+    return Object.assign({}, curData, {
+      type: String(newType || '').trim(),
+      note: String(newNote || '').trim(),
+      dateLocal: newDate ? String(newDate).trim() : (curData.dateLocal || ''),
+      dateISO: (() => {
+        if (!newDate) return curData.dateISO || '';
+        const tryD = new Date(newDate);
+        if (!isNaN(tryD.getTime())) return tryD.toISOString();
+        return curData.dateISO || '';
+      })()
+    });
+  }
+
+  async function confirmDeleteIssue() {
+    const ui = getRpUi();
+    if (ui && typeof ui.confirmSecureDelete === 'function') {
+      const r = await ui.confirmSecureDelete({
+        message: 'Bu kaydı silmek istediğinize emin misiniz?',
+        passwordMessage: 'Silme işlemini onaylamak için şifreyi girin:',
+        okLabel: 'Sil'
+      });
+      return !!r.ok;
+    }
+    if (!window.confirm('Bu kaydı silmek istediğinize emin misiniz?')) return false;
+    const password = window.prompt('Silme işlemini onaylamak için şifreyi girin:');
+    if (password === null) return false;
+    if (password !== DELETE_PASSWORD) {
+      window.alert('Hatalı şifre. Silme işlemi iptal edildi.');
+      return false;
+    }
+    return true;
+  }
+
+  function escHtml(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function parseIssueItem(it) {
+    let dataObj = {};
+    if (it.data && typeof it.data === 'object') dataObj = it.data;
+    else if (typeof it.data === 'string') {
+      try { dataObj = JSON.parse(it.data || '{}'); } catch (e) { dataObj = {}; }
+    } else if (typeof it === 'object') dataObj = it;
+    return {
+      id: it.id || '',
+      plate: _normPlate(it.plate || it.addedPlate || ''),
+      dt: dataObj.dateLocal || dataObj.dateISO || it.dateISO || '',
+      type: dataObj.type || it.type || '',
+      note: dataObj.note || it.note || '',
+      addedBy: dataObj.addedBy || it.addedBy || '',
+      isClosed: dataObj.status === 'closed' || it.status === 'closed',
+      hasPhoto: !!(dataObj.photo || it.photo),
+      photo: dataObj.photo || it.photo || '',
+      closedAtLocal: dataObj.closedAtLocal || '',
+      closedBy: dataObj.closedBy || '',
+      rejectionApplied: !!(dataObj.rejectionApplied || dataObj.rejectionDuration),
+      rejectionDuration: dataObj.rejectionDuration || '',
+      rejectionEndTs: dataObj.rejectionEndTs != null ? Number(dataObj.rejectionEndTs) : null,
+      rejectedAtLocal: dataObj.rejectedAtLocal || ''
+    };
+  }
+
+  function renderIssueCardHTML(parsed, plateKey, opts) {
+    const showPlate = !!(opts && opts.showPlate);
+    const k = escHtml(plateKey || parsed.plate);
+    const plateLabel = escHtml(String(plateKey || parsed.plate || '').toUpperCase());
+    const { id, dt, type, note, isClosed, hasPhoto, photo, closedAtLocal, closedBy } = parsed;
+    const cardCls = isClosed
+      ? 'vehicle-card issue-record-card issue-record-card--closed'
+      : 'vehicle-card vehicle-card--issues issue-record-card';
+    const statusBadge = isClosed
+      ? '<span class="issue-record-badge issue-record-badge--closed">Kapatıldı</span>'
+      : '<span class="issue-record-badge issue-record-badge--open">Açık</span>';
+    const typeBadge = type
+      ? `<span class="issue-record-badge issue-record-badge--type">${escHtml(type)}</span>`
+      : '';
+    const closedMeta = (isClosed && (closedAtLocal || closedBy))
+      ? `<div class="issue-record-card__closed-meta">
+          <span class="vehicle-card__label">Kapanış</span>
+          <span>${escHtml(closedAtLocal)}${closedBy ? ' · ' + escHtml(closedBy) : ''}</span>
+        </div>`
+      : '';
+    const driverHTML = formatDriverBlockHTML(opts && opts.driver);
+    const identityPrimary = showPlate && plateLabel
+      ? `<span class="vehicle-card__plate">${plateLabel}</span>`
+      : `<span class="issue-record-card__datetime">${escHtml(dt) || '—'}</span>`;
+    const dateMeta = showPlate
+      ? `<div class="issue-record-card__meta">
+          <span class="issue-record-card__meta-label">Tarih</span>
+          <time>${escHtml(dt) || '—'}</time>
+        </div>`
+      : '';
+    const rejectionHTML = formatRejectionHTML(opts && opts.rejection);
+    const photoHTML = hasPhoto
+      ? `<a class="issue-record-card__photo-thumb" href="${escHtml(photo)}" target="_blank" rel="noopener noreferrer" title="Fotoğrafı aç">
+          <img src="${escHtml(photo)}" alt="Sorun fotoğrafı" loading="lazy">
+        </a>`
+      : '';
+    const contentCls = hasPhoto
+      ? 'issue-record-card__content issue-record-card__content--with-photo'
+      : 'issue-record-card__content';
+
+    return `
+      <article class="${cardCls}">
+        <header class="vehicle-card__header issue-record-card__header">
+          <div class="issue-record-card__top">
+            <div class="issue-record-card__identity">
+              ${identityPrimary}
+              ${driverHTML}
+            </div>
+            <div class="issue-record-card__badges">
+              ${statusBadge}
+              ${typeBadge}
+            </div>
+          </div>
+        </header>
+        <div class="issue-record-card__body">
+          ${dateMeta}
+          ${rejectionHTML}
+          <div class="${contentCls}">
+            <div class="issue-record-card__note-block">
+              <span class="vehicle-card__label">Olay notu</span>
+              ${formatNoteHTML(note)}
+            </div>
+            ${photoHTML}
+          </div>
+          ${closedMeta}
+        </div>
+        <footer class="vehicle-card__footer">
+          <div class="vehicle-card__toolbar">
+            <button type="button" class="vehicle-card__tool vehicle-card__tool--primary issueEditBtn" data-plate="${k}" data-id="${escHtml(id)}">Düzenle</button>
+            <button type="button" class="vehicle-card__tool issueToggleBtn" data-plate="${k}" data-id="${escHtml(id)}">${isClosed ? 'Aç' : 'Kapat'}</button>
+            <button type="button" class="vehicle-card__tool vehicle-card__tool--danger issueDelBtn" data-plate="${k}" data-id="${escHtml(id)}">Sil</button>
+          </div>
+        </footer>
+      </article>
+    `;
+  }
+
+  function issuesEmptyHTML(message) {
+    return `
+      <div class="issues-empty">
+        <div class="issues-empty__icon" aria-hidden="true">✅</div>
+        <p>${escHtml(message)}</p>
+      </div>
+    `;
+  }
+
+  function attachIssueCardHandlers(scopeEl, handlers) {
+    const root = scopeEl || document.getElementById('issuesPageRoot');
+    if (!root || !handlers) return;
+    const { apiUpdateProblem, apiDeleteProblem, refreshList } = handlers;
+
+    root.querySelectorAll('.issueEditBtn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id || '';
+        const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
+        if (id) {
+          try {
+            const res = await fetch('/api/problems/' + encodeURIComponent(id));
+            if (!res.ok) throw new Error('no');
+            const cur = await res.json();
+            const curData = (cur && cur.data) ? (typeof cur.data === 'object' ? cur.data : JSON.parse(cur.data)) : cur;
+            const patch = await editIssueViaPrompt(curData);
+            if (!patch) return;
+            await apiUpdateProblem(id, p, patch);
+            refreshList(p);
+            await syncProblemsToDriverCards(p);
+            return;
+          } catch (e) { /* fallback */ }
+        }
+        const pi = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
+        const i = Number(btn.dataset.idx);
+        const itemsNow = getIssues(pi);
+        const cur = itemsNow[i] || {};
+        const patch = await editIssueViaPrompt(cur);
+        if (!patch) return;
+        updateIssue(pi, i, patch);
+        refreshList(pi);
+        await syncProblemsToDriverCards(pi);
+      });
+    });
+
+    root.querySelectorAll('.issueDelBtn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!(await confirmDeleteIssue())) return;
+        const id = btn.dataset.id || '';
+        const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
+        if (id) {
+          await apiDeleteProblem(id, p);
+          refreshList(p);
+          await clearRejectionAndSyncCards(p);
+          return;
+        }
+        const i = Number(btn.dataset.idx);
+        deleteIssue(p, i);
+        refreshList(p);
+        await clearRejectionAndSyncCards(p);
+      });
+    });
+
+    root.querySelectorAll('.issueToggleBtn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id || '';
+        const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
+        if (id) {
+          try {
+            const res = await fetch('/api/problems/' + encodeURIComponent(id));
+            if (!res.ok) throw new Error('no');
+            const curRaw = await res.json();
+            const cur = (curRaw && curRaw.data) ? (typeof curRaw.data === 'object' ? curRaw.data : JSON.parse(curRaw.data)) : curRaw;
+            const isClosed = (cur.status === 'closed');
+            const actor = (getActorName() || '').trim();
+            if (isClosed) {
+              cur.status = 'open';
+              cur.closedAtISO = '';
+              cur.closedAtLocal = '';
+              cur.closedBy = '';
+            } else {
+              const d = new Date();
+              cur.status = 'closed';
+              cur.closedAtISO = d.toISOString();
+              cur.closedAtLocal = d.toLocaleString('tr-TR');
+              cur.closedBy = actor;
+            }
+            await apiUpdateProblem(id, p, cur);
+            refreshList(p);
+            await syncProblemsToDriverCards(p);
+            return;
+          } catch (e) { /* fallback */ }
+        }
+        const i = Number(btn.dataset.idx);
+        const itemsNow = getIssues(p);
+        const cur2 = itemsNow[i] || {};
+        const isClosed2 = (cur2.status === 'closed');
+        const actor2 = (getActorName() || '').trim();
+        if (isClosed2) {
+          updateIssue(p, i, { status: 'open', closedAtISO: '', closedAtLocal: '', closedBy: '' });
+        } else {
+          const d = new Date();
+          updateIssue(p, i, { status: 'closed', closedAtISO: d.toISOString(), closedAtLocal: d.toLocaleString('tr-TR'), closedBy: actor2 });
+        }
+        refreshList(p);
+        await syncProblemsToDriverCards(p);
+      });
+    });
+  }
+
   function initIssuesPage(plateOrEmpty) {
     const initialPlate = (plateOrEmpty || '').trim();
     const card = document.getElementById('issuesPageRoot');
@@ -242,7 +659,7 @@
     if (!listEl) return;
 
     const norm = _normPlate(plate);
-    const showClosed = !!document.getElementById('issuesShowClosed')?.checked;
+    const showClosed = true;
 
     // fetch helpers and API-backed rendering
     const apiFetchProblems = async (p) => {
@@ -303,440 +720,125 @@
       return false;
     };
 
+    const issueHandlers = {
+      apiUpdateProblem,
+      apiDeleteProblem,
+      refreshList: (p) => renderList(p !== undefined && p !== null ? p : (document.getElementById('issuesPlateInput')?.value || ''))
+    };
+
     if (!norm) {
       const all = await apiFetchProblems('');
       if (!Array.isArray(all) || all.length === 0) {
-        listEl.innerHTML = `<div style="opacity:.8">✅ Kayıtlı sorun bulunamadı.</div>`;
+        listEl.innerHTML = issuesEmptyHTML('Kayıtlı sorun bulunamadı.');
         return;
       }
-      const grouped = {};
-      all.forEach(it => {
-        const p = _normPlate(it.plate || it.addedPlate || '');
-        if (!p) return;
-        if (!Array.isArray(grouped[p])) grouped[p] = [];
-        grouped[p].push(it);
-      });
-      const keys = Object.keys(grouped).sort((a,b) => (grouped[b].length||0)-(grouped[a].length||0));
-      listEl.innerHTML = keys.map(k => {
-        const items = (grouped[k] || []).filter(it => showClosed ? true : ((it && it.status) !== 'closed'));
-        const headPlate = (k || '').toUpperCase();
-        const inner = items.map(it => {
-          const dt = it.dateLocal || (it.data && it.data.dateLocal) || it.dateISO || (it.data && it.data.dateISO) || '';
-          const dataObj = it.data && typeof it.data === 'object' ? it.data : (typeof it === 'object' ? it : {});
-          const type = (dataObj.type || it.type || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
-          const note = (dataObj.note || it.note || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
-          const addedBy = (dataObj.addedBy || it.addedBy || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
-          const isClosed = (dataObj.status === 'closed' || it.status === 'closed');
-          const hasPhoto = !!(dataObj.photo || it.photo);
-          const id = it.id || '';
-          const statusBadge = isClosed
-            ? `<span style="background:#16a34a;color:#fff;font-weight:900;font-size:11px;padding:3px 8px;border-radius:999px;">KAPATILDI</span>`
-            : `<span style="background:#ef4444;color:#fff;font-weight:900;font-size:11px;padding:3px 8px;border-radius:999px;">AÇIK</span>`;
-          return `
-            <div style="border:2px solid ${isClosed ? 'rgba(209,213,219,0.5)' : 'rgb(248,113,113)'};border-radius:12px;padding:12px;margin-top:10px;background:${isClosed ? 'rgb(243,244,246)' : 'white'};opacity:${isClosed ? '.75' : '1'};color:${isClosed ? 'rgb(55,65,81)' : 'black'};">
-              <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
-                <div style="min-width:0;">
-                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                    <div style="font-weight:900;color:${isClosed ? 'rgb(55,65,81)' : 'black'};">⚠️ ${dt}</div>
-                    ${statusBadge}
-                    ${type ? `<span style="background:#334155;color:#fff;font-weight:800;font-size:11px;padding:3px 8px;border-radius:999px;">${type}</span>` : ``}
-                  </div>
-                  ${addedBy ? `<div style="margin-top:6px;font-size:12px;background:${isClosed ? 'rgb(229,231,235)' : 'rgb(249,250,251)'};padding:4px 8px;border-radius:6px;color:${isClosed ? 'rgb(75,85,99)' : 'rgb(55,65,81)'};">👤 Ekleyen: <b style="color:${isClosed ? 'rgb(55,65,81)' : 'black'};">${addedBy}</b></div>` : ``}
-                  <div style="margin-top:6px;white-space:pre-wrap;background:${isClosed ? 'rgb(229,231,235)' : 'white'};padding:8px;border-radius:6px;border-left:4px solid ${isClosed ? 'rgb(34,197,94)' : 'rgb(239,68,68)'};color:${isClosed ? 'rgb(55,65,81)' : 'black'};">${note}</div>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
-                  <button class="issueEditBtn" data-plate="${k}" data-id="${id}" style="background:#374151;color:#fff;border:none;padding:8px 10px;border-radius:10px;cursor:pointer;">Düzenle</button>
-                  <button class="issueToggleBtn" data-plate="${k}" data-id="${id}" style="background:${isClosed ? '#0ea5e9' : '#16a34a'};color:#fff;border:none;padding:8px 10px;border-radius:10px;cursor:pointer;">${isClosed ? 'Aç' : 'Kapat'}</button>
-                  <button class="issueDelBtn" data-plate="${k}" data-id="${id}" style="background:#ef4444;color:#fff;border:none;padding:8px 10px;border-radius:10px;cursor:pointer;">Sil</button>
-                </div>
-              </div>
-              ${hasPhoto ? `<div style="margin-top:10px;"><img src="${dataObj.photo || it.photo}" style="max-width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.12)"></div>` : ``}
-            </div>
-          `;
-        }).join('');
-        return `
-          <div style="border:1px solid rgba(209,213,219,0.3);border-radius:14px;padding:12px;margin-bottom:12px;background:white;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-              <div style="font-weight:1000;font-size:14px;color:black;">🚗 ${headPlate}</div>
-              <div style="opacity:.85;font-size:12px;color:rgb(75,85,99);">Toplam: ${items.length}</div>
-            </div>
-            ${inner}
-          </div>
-        `;
-      }).join('');
-      Array.from(card.querySelectorAll('.issueEditBtn')).forEach(btn=>{
-        btn.addEventListener('click', async ()=>{
-          const id = btn.dataset.id || '';
-          const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
-          if (id) {
-            try {
-              const res = await fetch('/api/problems/' + encodeURIComponent(id));
-              if (!res.ok) throw new Error('no');
-              const cur = await res.json();
-              const curData = (cur && cur.data) ? (typeof cur.data === 'object' ? cur.data : JSON.parse(cur.data)) : cur;
-              const newType = prompt('Sorun Tipi:', curData.type || '');
-              const newNote = prompt('Olay Notu:', curData.note || '');
-              if (newNote == null) return;
-              const newDate = prompt('Tarih/Saat (örn: 26.12.2025 14:30):', curData.dateLocal || '');
-              const patch = Object.assign({}, curData, {
-                type: String(newType || '').trim(),
-                note: String(newNote || '').trim(),
-                dateLocal: newDate ? String(newDate).trim() : (curData.dateLocal || ''),
-                dateISO: ( ()=>{ if (!newDate) return curData.dateISO || ''; const tryD = new Date(newDate); if (!isNaN(tryD.getTime())) return tryD.toISOString(); return curData.dateISO || ''; })()
-              });
-              if (!patch.note) { alert('❗ Sorun notu boş olamaz.'); return; }
-              await apiUpdateProblem(id, p, patch);
-              renderList('');
-              await syncProblemsToDriverCards(p);
-              return;
-            } catch(e) {
-            }
-          }
-          const pi = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
-          const i = Number(btn.dataset.idx);
-          const itemsNow = getIssues(pi);
-          const cur = itemsNow[i] || {};
-          const newType = prompt('Sorun Tipi:', cur.type || '');
-          const newNote = prompt('Olay Notu:', cur.note || '');
-          if (newNote == null) return;
-          const newDate = prompt('Tarih/Saat (örn: 26.12.2025 14:30):', cur.dateLocal || '');
-          const patch = { type: String(newType || '').trim(), note: String(newNote || '').trim(), dateLocal: newDate ? String(newDate).trim() : (cur.dateLocal || ''), dateISO: ( ()=>{ if (!newDate) return cur.dateISO || ''; const tryD = new Date(newDate); if (!isNaN(tryD.getTime())) return tryD.toISOString(); return cur.dateISO || ''; })() };
-          if (!patch.note) { alert('❗ Sorun notu boş olamaz.'); return; }
-          updateIssue(pi, i, patch);
-          renderList('');
-          await syncProblemsToDriverCards(pi);
+      const filteredAll = all
+        .filter(it => {
+          const parsed = parseIssueItem(it);
+          if (!_normPlate(parsed.plate || it.plate || it.addedPlate || '')) return false;
+          return showClosed ? true : !parsed.isClosed;
+        })
+        .sort((a, b) => {
+          const da = parseIssueItem(a);
+          const db = parseIssueItem(b);
+          const ta = Date.parse(da.dt) || (da.dt ? new Date(da.dt).getTime() : 0) || 0;
+          const tb = Date.parse(db.dt) || (db.dt ? new Date(db.dt).getTime() : 0) || 0;
+          return tb - ta;
         });
-      });
-      Array.from(card.querySelectorAll('.issueDelBtn')).forEach(btn=>{
-        btn.addEventListener('click', async ()=>{
-          const password = prompt('Silme işlemini onaylamak için şifreyi girin:');
-          if (password !== '2026genper') { alert('Hatalı şifre. Silme işlemi iptal edildi.'); return; }
-          const id = btn.dataset.id || '';
-          const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
-          if (id) {
-            await apiDeleteProblem(id, p);
-            renderList('');
-            await clearRejectionAndSyncCards(p);
-            
-            return;
-          }
-          const i = Number(btn.dataset.idx);
-          deleteIssue(p, i);
-          renderList('');
-          await clearRejectionAndSyncCards(p);
-        });
-      });
-      Array.from(card.querySelectorAll('.issueToggleBtn')).forEach(btn=>{
-        btn.addEventListener('click', async ()=>{
-          const id = btn.dataset.id || '';
-          const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
-          if (id) {
-            try {
-              const res = await fetch('/api/problems/' + encodeURIComponent(id));
-              if (!res.ok) throw new Error('no');
-              const curRaw = await res.json();
-              const cur = (curRaw && curRaw.data) ? (typeof curRaw.data === 'object' ? curRaw.data : JSON.parse(curRaw.data)) : curRaw;
-              const isClosed = (cur.status === 'closed');
-              const actor = (getActorName() || '').trim();
-              if (isClosed) { cur.status='open'; cur.closedAtISO=''; cur.closedAtLocal=''; cur.closedBy=''; }
-              else { const d=new Date(); cur.status='closed'; cur.closedAtISO=d.toISOString(); cur.closedAtLocal=d.toLocaleString('tr-TR'); cur.closedBy=actor; }
-              await apiUpdateProblem(id, p, cur);
-              renderList(p);
-              await syncProblemsToDriverCards(p);
-              return;
-            } catch(e) {}
-          }
-          const i = Number(btn.dataset.idx);
-          const itemsNow = getIssues(p);
-          const cur2 = itemsNow[i] || {};
-          const isClosed2 = (cur2.status === 'closed');
-          const actor2 = (getActorName() || '').trim();
-          if (isClosed2) {
-            updateIssue(p, i, { status:'open', closedAtISO:'', closedAtLocal:'', closedBy:'' });
-          } else {
-            const d = new Date();
-            updateIssue(p, i, { status:'closed', closedAtISO:d.toISOString(), closedAtLocal:d.toLocaleString('tr-TR'), closedBy: actor2 });
-          }
-          renderList(p);
-          await syncProblemsToDriverCards(p);
-        });
-      });
+      if (!filteredAll.length) {
+        listEl.innerHTML = issuesEmptyHTML('Kayıtlı sorun bulunamadı.');
+        return;
+      }
+      const platesAll = filteredAll.map((it) => _normPlate(it.plate || it.addedPlate || parseIssueItem(it).plate));
+      const metaAll = await loadVehicleMetaForPlates(platesAll);
+      listEl.innerHTML = `<div class="issues-list-grid">${filteredAll.map(it => {
+        const parsed = parseIssueItem(it);
+        const plate = _normPlate(it.plate || it.addedPlate || parsed.plate);
+        const rejection = resolveRejectionForCard(parsed, plate, metaAll.rejectionMap);
+        const driver = metaAll.driverMap.get(plate) || null;
+        return renderIssueCardHTML(parsed, plate, { showPlate: true, rejection, driver });
+      }).join('')}</div>`;
+      attachIssueCardHandlers(card, issueHandlers);
       return;
     }
-    const items = (await apiFetchProblems(norm)).filter(it => showClosed ? true : ((it && ((it.data && it.data.status) || it.status)) !== 'closed'));
-    if (!items || items.length === 0) { 
-      listEl.innerHTML = `
-        <div class="text-center py-8">
-          <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span class="text-3xl">✅</span>
-          </div>
-          <p class="text-gray-600 font-medium">Bu plakaya kayıtlı sorun yok.</p>
-        </div>
-      `; 
-      return; 
+
+    const items = (await apiFetchProblems(norm)).filter(it => {
+      const parsed = parseIssueItem(it);
+      return showClosed ? true : !parsed.isClosed;
+    });
+    if (!items || items.length === 0) {
+      listEl.innerHTML = issuesEmptyHTML('Bu plakaya kayıtlı sorun yok.');
+      return;
     }
-    
-    listEl.innerHTML = items.map((it) => {
-      const dataObj = it.data && typeof it.data === 'object' ? it.data : (typeof it.data === 'string' ? JSON.parse(it.data || '{}') : it);
-      const dt = dataObj.dateLocal || dataObj.dateISO || it.dateISO || '';
-      const type = (dataObj.type || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const note = (dataObj.note || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const addedBy = (dataObj.addedBy || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const isClosed = (dataObj.status === 'closed' || it.status === 'closed');
-      const hasPhoto = !!(dataObj.photo || it.photo);
-      const id = it.id || '';
-      
-      const statusBadge = isClosed
-        ? `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
-            <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-            Çözüldü
-          </span>`
-        : `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
-            <span class="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></span>
-            Açık
-          </span>`;
-          
-      const typeIcon = {
-        'Baret Takmama': '🪖',
-        'Kantar Tartışması': '⚖️',
-        'Sevkiyat Personeliyle Tartışma': '👥',
-        'Saha Kuralına Uymama': '🚫',
-        'Sıra / Yoğunluk İhlali': '📝',
-        'Diğer': '📌'
-      }[type] || '📌';
-      
-      return `
-        <div class="issue-card ${isClosed ? 'issue-closed' : 'issue-open'} border-2 rounded-xl p-4 shadow-md hover:shadow-lg transition-all duration-200 mb-3">
-          <!-- DEBUG: ${isClosed ? 'CLOSED' : 'OPEN'} -->
-          <div class="flex justify-between items-start gap-4">
-            <div class="flex-1 min-w-0">
-              <!-- Header Section -->
-              <div class="flex items-center gap-3 mb-3 flex-wrap">
-                <div class="flex items-center gap-2">
-                  <span class="text-3xl">${typeIcon}</span>
-                  <div>
-                    <div class="text-base font-bold ${isClosed ? 'text-gray-700' : 'text-black'}">${dt}</div>
-                    <div class="text-xs ${isClosed ? 'text-gray-500' : 'text-gray-600'}">Tarih/Saat</div>
-                  </div>
-                </div>
-                <div class="flex gap-2">
-                  ${statusBadge}
-                  ${type ? `<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">${type}</span>` : ``}
-                </div>
-              </div>
-              
-              <!-- User Info -->
-              ${addedBy ? `
-                <div class="flex items-center gap-2 text-sm mb-3 px-3 py-2 rounded-lg ${isClosed ? 'bg-gray-200 text-gray-600' : 'bg-gray-50 text-gray-700'}">
-                  <svg class="w-4 h-4 ${isClosed ? 'text-gray-400' : 'text-gray-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                  </svg>
-                  <span class="font-medium">Ekleyen:</span>
-                  <span class="font-semibold ${isClosed ? 'text-gray-800' : 'text-black'}">${addedBy}</span>
-                </div>
-              ` : ``}
-              
-              <!-- Main Content -->
-              <div class="whitespace-pre-wrap mb-3 leading-relaxed text-sm font-medium p-3 rounded-lg border-l-4 ${isClosed ? 'bg-gray-200 text-gray-700 border-green-500' : 'bg-white text-black border-red-500'}">${note}</div>
-              
-              <!-- Status Info -->
-              ${isClosed ? `
-                <div class="flex items-center gap-2 text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                  <div>
-                    <div class="font-semibold">Çözüldü</div>
-                    <div class="text-xs text-green-600">${dataObj.closedAtLocal || ''}${dataObj.closedBy ? ` • ${dataObj.closedBy}` : ''}</div>
-                  </div>
-                </div>
-              ` : ``}
-            </div>
-            
-            <!-- Action Buttons -->
-            <div class="flex flex-col gap-2 min-w-[120px]">
-              <button class="issueEditBtn px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-all duration-200 text-sm font-medium flex items-center justify-center gap-1 shadow hover:shadow-md" data-plate="${norm}" data-id="${id}">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                </svg>
-                Düzenle
-              </button>
-              <button class="issueToggleBtn px-3 py-2 ${isClosed ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} text-white rounded-lg transition-all duration-200 text-sm font-medium flex items-center justify-center gap-1 shadow hover:shadow-md" data-plate="${norm}" data-id="${id}">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  ${isClosed 
-                    ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V2"></path>'
-                    : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>'
-                  }
-                </svg>
-                ${isClosed ? 'Aç' : 'Kapat'}
-              </button>
-              <button class="issueDelBtn px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-all duration-200 text-sm font-medium flex items-center justify-center gap-1 shadow hover:shadow-md" data-plate="${norm}" data-id="${id}">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                </svg>
-                Sil
-              </button>
-            </div>
-          </div>
-          
-          <!-- Photo Section -->
-          ${hasPhoto ? `
-            <div class="mt-4">
-              <div class="text-xs font-semibold ${isClosed ? 'text-gray-600' : 'text-gray-700'} mb-1">📸 Fotoğraf</div>
-              <img src="${dataObj.photo || it.photo}" alt="Sorun fotoğrafı" class="max-w-full h-auto rounded-lg border border-gray-200 shadow">
-            </div>
-          ` : ``}
-        </div>
-      `;
-    }).join('');
 
-    // Add custom CSS styles to force issue card styling
-    const style = document.createElement('style');
-    style.textContent = `
-      .issue-card.issue-open {
-        background-color: white !important;
-        border-color: rgb(248 113 113) !important;
-        color: black !important;
-      }
-      .issue-card.issue-open .text-black {
-        color: black !important;
-      }
-      .issue-card.issue-open .bg-white {
-        background-color: white !important;
-        color: black !important;
-      }
-      .issue-card.issue-open .bg-gray-50 {
-        background-color: rgb(249 250 251) !important;
-        color: rgb(55 65 81) !important;
-      }
-      .issue-card.issue-open .text-gray-600 {
-        color: rgb(55 65 81) !important;
-      }
-      .issue-card.issue-open .text-gray-700 {
-        color: rgb(55 65 81) !important;
-      }
-      .issue-card.issue-open .border-red-500 {
-        border-color: rgb(239 68 68) !important;
-      }
-      .issue-card.issue-closed {
-        background-color: rgb(243 244 246) !important;
-        border-color: rgb(209 213 219) !important;
-        opacity: 0.75;
-      }
-    `;
-    document.head.appendChild(style);
-
-    // Force white background on open issue cards after a short delay
-    setTimeout(() => {
-      const openCards = document.querySelectorAll('.issue-card.issue-open');
-      openCards.forEach(card => {
-        card.style.backgroundColor = 'white !important';
-        card.style.color = 'black !important';
-        card.style.borderColor = 'rgb(248 113 113) !important';
-        
-        // Force all child elements to have correct colors
-        const blackTextElements = card.querySelectorAll('.text-black, .bg-white, .text-gray-600, .text-gray-700');
-        blackTextElements.forEach(el => {
-          if (el.classList.contains('bg-white')) {
-            el.style.backgroundColor = 'white !important';
-            el.style.color = 'black !important';
-          } else {
-            el.style.color = 'black !important';
-          }
-        });
-        
-        // Force gray background elements
-        const grayBgElements = card.querySelectorAll('.bg-gray-50');
-        grayBgElements.forEach(el => {
-          el.style.backgroundColor = 'rgb(249 250 251) !important';
-          el.style.color = 'rgb(55 65 81) !important';
-        });
-      });
-    }, 100);
-
-    Array.from(card.querySelectorAll('.issueEditBtn')).forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const id = btn.dataset.id || '';
-        const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
-        if (!id) { return; }
-        try {
-          const res = await fetch('/api/problems/' + encodeURIComponent(id));
-          if (!res.ok) throw new Error('no');
-          const cur = await res.json();
-          const curData = (cur && cur.data) ? (typeof cur.data === 'object' ? cur.data : JSON.parse(cur.data)) : cur;
-          const newType = prompt('Sorun Tipi:', curData.type || '');
-          const newNote = prompt('Olay Notu:', curData.note || '');
-          if (newNote == null) return;
-          const newDate = prompt('Tarih/Saat (örn: 26.12.2025 14:30):', curData.dateLocal || '');
-          const patch = Object.assign({}, curData, { type: String(newType || '').trim(), note: String(newNote || '').trim(), dateLocal: newDate ? String(newDate).trim() : (curData.dateLocal || ''), dateISO: ( ()=>{ if (!newDate) return curData.dateISO || ''; const tryD = new Date(newDate); if (!isNaN(tryD.getTime())) return tryD.toISOString(); return curData.dateISO || ''; })() });
-          if (!patch.note) { alert('❗ Sorun notu boş olamaz.'); return; }
-          await apiUpdateProblem(id, p, patch);
-          renderList(p);
-          await syncProblemsToDriverCards(p);
-        } catch(e) {}
-      });
-    });
-    Array.from(card.querySelectorAll('.issueDelBtn')).forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const password = prompt('Silme işlemini onaylamak için şifreyi girin:');
-        if (password !== '2026genper') { alert('Hatalı şifre. Silme işlemi iptal edildi.'); return; }
-        const id = btn.dataset.id || '';
-        const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
-        if (!id) return;
-        await apiDeleteProblem(id, p);
-        renderList(p);
-        await clearRejectionAndSyncCards(p);
-        
-      });
-    });
-    Array.from(card.querySelectorAll('.issueToggleBtn')).forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const id = btn.dataset.id || '';
-        const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
-        if (!id) return;
-        try {
-          const res = await fetch('/api/problems/' + encodeURIComponent(id));
-          if (!res.ok) throw new Error('no');
-          const curRaw = await res.json();
-          const cur = (curRaw && curRaw.data) ? (typeof curRaw.data === 'object' ? curRaw.data : JSON.parse(curRaw.data)) : curRaw;
-          const isClosed = (cur.status === 'closed');
-          const actor = (getActorName() || '').trim();
-          if (isClosed) { cur.status='open'; cur.closedAtISO=''; cur.closedAtLocal=''; cur.closedBy=''; }
-          else { const d=new Date(); cur.status='closed'; cur.closedAtISO=d.toISOString(); cur.closedAtLocal=d.toLocaleString('tr-TR'); cur.closedBy=actor; }
-          await apiUpdateProblem(id, p, cur);
-          renderList(p);
-          await syncProblemsToDriverCards(p);
-          return;
-        } catch(e) {}
-      });
-    });
+    const meta = await loadVehicleMetaForPlates([norm]);
+    const driverForPlate = meta.driverMap.get(_normPlate(norm)) || null;
+    listEl.innerHTML = `<div class="issues-list-grid">${items.map(it => {
+      const parsed = parseIssueItem(it);
+      const rejection = resolveRejectionForCard(parsed, norm, meta.rejectionMap);
+      return renderIssueCardHTML(parsed, norm, { showPlate: false, rejection, driver: driverForPlate });
+    }).join('')}</div>`;
+    attachIssueCardHandlers(card, issueHandlers);
   };
 
-  const doRefresh = () => renderList(document.getElementById('issuesPlateInput').value || '');
-  card.querySelector('#issuesRefreshBtn').addEventListener('click', doRefresh);
 
-  try { card.querySelector('#issuesShowClosed')?.addEventListener('change', doRefresh); } catch(e){}
+  const doRefresh = () => renderList(document.getElementById('issuesPlateInput')?.value || '');
+
+  async function updateDriverPanel(plate) {
+    const driverInfoEl = card.querySelector('#issuesDriverInfo');
+    const emptyEl = card.querySelector('#issuesDriverEmpty');
+    const contentEl = card.querySelector('#issuesDriverContent');
+    const nameEl = card.querySelector('#issuesDriverName');
+    const phoneEl = card.querySelector('#issuesDriverPhone');
+    if (!driverInfoEl) return;
+
+    if (!_normPlate(plate)) {
+      driverInfoEl.classList.remove('is-loaded');
+      emptyEl?.classList.remove('hidden');
+      contentEl?.classList.add('hidden');
+      if (nameEl) nameEl.textContent = '';
+      if (phoneEl) phoneEl.textContent = '';
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate.trim()));
+      if (res.ok) {
+        const vehicle = await res.json();
+        const drv = vehicleToDriverInfo(vehicle);
+        if (drv && (drv.name || drv.phone)) {
+          if (nameEl) nameEl.textContent = drv.name || '—';
+          if (phoneEl) phoneEl.textContent = drv.phone || '—';
+          emptyEl?.classList.add('hidden');
+          contentEl?.classList.remove('hidden');
+          driverInfoEl.classList.add('is-loaded');
+          return;
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    driverInfoEl.classList.remove('is-loaded');
+    emptyEl?.classList.add('hidden');
+    contentEl?.classList.remove('hidden');
+    if (nameEl) nameEl.textContent = 'Kayıt bulunamadı';
+    if (phoneEl) phoneEl.textContent = '';
+  }
+
+  let plateDebounceTimer = null;
+  function schedulePlateRefresh(plate) {
+    clearTimeout(plateDebounceTimer);
+    plateDebounceTimer = setTimeout(async () => {
+      await updateDriverPanel(plate);
+      doRefresh();
+    }, 400);
+  }
 
   const clearBtn = card.querySelector('#issuesClearPlateBtn');
-  if (clearBtn){
-    clearBtn.addEventListener('click', ()=>{
-      const p = document.getElementById('issuesPlateInput')?.value || '';
-      if (!_normPlate(p)) { alert('❗ Önce plaka giriniz.'); return; }
-      const confirmOk = confirm('Bu plakanın TÜM sorun kayıtları silinsin mi?');
-      if (!confirmOk) return;
-      const password = prompt('Tüm sorunları silmek için şifreyi girin:');
-      if (password !== '2026genper') { alert('Hatalı şifre. İşlem iptal edildi.'); return; }
-      // try server delete first
-      (async ()=>{
-        try {
-          const res = await fetch('/api/problems/plate/' + encodeURIComponent(_normPlate(p)), { method: 'DELETE' });
-          if (!res.ok) throw new Error('server');
-        } catch(e) {
-          clearIssues(p);
-        }
-        doRefresh();
-        await clearRejectionAndSyncCards(p);
-      })();
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      const plateInput = document.getElementById('issuesPlateInput');
+      if (plateInput) plateInput.value = '';
+      schedulePlateRefresh('');
     });
   }
 
@@ -811,6 +913,10 @@
 
           rejectionSyncPayload = await rejectRes.json();
           console.log('Reddetme başarılı:', rejectionSyncPayload);
+          issue.rejectionApplied = true;
+          issue.rejectionDuration = (rejectionSyncPayload && rejectionSyncPayload.duration) || '';
+          issue.rejectionEndTs = (rejectionSyncPayload && rejectionSyncPayload.endTs != null) ? rejectionSyncPayload.endTs : null;
+          issue.rejectedAtLocal = new Date().toLocaleString('tr-TR');
           try { notifyMainTab(plate, { rejection: true }); } catch (e) { /* ignore */ }
 
         } catch (error) {
@@ -868,174 +974,21 @@
     await syncProblemsToDriverCards(plate, rejectionDuration ? { rejection: true } : {});
   });
 
-  // Plate input event listener for driver info - SIMPLE APPROACH
   const plateInput = card.querySelector('#issuesPlateInput');
   if (plateInput) {
     plateInput.addEventListener('input', () => {
-      const plate = plateInput.value.trim();
-      const driverInfoEl = card.querySelector('#issuesDriverInfo');
-      const driverNameEl = card.querySelector('#issuesDriverName');
-      const driverPhoneEl = card.querySelector('#issuesDriverPhone');
-      
-      if (!plate) {
-        driverInfoEl?.classList.add('hidden');
-        driverNameEl.textContent = '';
-        driverPhoneEl.textContent = '';
-        return;
-      }
-      
-      // Simple: try to find driver info from any available source
-      try {
-        let driverData = null;
-        
-        // Method 1: Try getVehicleByPlate function
-        if (typeof getVehicleByPlate === 'function') {
-          driverData = getVehicleByPlate(plate);
-        }
-        
-        // Method 2: Try state.vehicles
-        if (!driverData && window.state && window.state.vehicles) {
-          const normalizedPlate = plate.toLowerCase().trim().replace(/\s+/g, '');
-          driverData = window.state.vehicles.find(v => {
-            if (!v || !v.cekiciPlaka) return false;
-            const dbPlate = v.cekiciPlaka.toLowerCase().trim().replace(/\s+/g, '');
-            return dbPlate === normalizedPlate;
-          });
-        }
-        
-        // Method 3: Try direct search in any global arrays
-        if (!driverData) {
-          // Check if there's a global vehicles array
-          const allVehicles = window.vehicles || window.state?.vehicles || [];
-          driverData = allVehicles.find(v => {
-            if (!v) return false;
-            const plate1 = (v.cekiciPlaka || '').toLowerCase().trim().replace(/\s+/g, '');
-            const plate2 = plate.toLowerCase().trim().replace(/\s+/g, '');
-            return plate1 === plate2;
-          });
-        }
-        
-        if (driverData) {
-          const name = driverData.isim || driverData.adi || driverData.soforAdi || driverData.name || '';
-          const phone = driverData.iletisim || driverData.telefon || driverData.phone || '';
-          
-          driverNameEl.textContent = name;
-          driverPhoneEl.textContent = phone;
-          driverInfoEl?.classList.remove('hidden');
-        } else {
-          driverInfoEl?.classList.add('hidden');
-          driverNameEl.textContent = '';
-          driverPhoneEl.textContent = '';
-        }
-      } catch (error) {
-        driverInfoEl?.classList.add('hidden');
-      }
+      schedulePlateRefresh(plateInput.value.trim());
     });
-    
-    // Also load driver info on Enter key press - SIMPLE
     plateInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        
-        // Load real vehicle data from database
-        if (!window.state) window.state = {};
-        if (!window.state.vehicles) {
-          // Try to load from API
-          (async () => {
-            try {
-              const response = await fetch('/api/vehicles?limit=1000');
-              if (response.ok) {
-                const vehicles = await response.json();
-                window.state.vehicles = vehicles;
-                
-                // Now search for the plate
-                const plate = plateInput.value.trim();
-                const driverData = vehicles.find(v => {
-                  if (!v || !v.cekiciPlaka) return false;
-                  const plate1 = v.cekiciPlaka.toLowerCase().trim().replace(/\s+/g, '');
-                  const plate2 = plate.toLowerCase().trim().replace(/\s+/g, '');
-                  return plate1 === plate2;
-                });
-                
-                if (driverData) {
-                  // Try to get full name (ad + soyad)
-                  const firstName = driverData.isim || driverData.adi || driverData.soforAdi || driverData.name || '';
-                  const lastName = driverData.soyisim || driverData.soyad || '';
-                  const fullName = lastName ? (firstName + ' ' + lastName) : firstName;
-                  
-                  const phone = driverData.iletisim || driverData.telefon || driverData.phone || '';
-                  
-                  document.querySelector('#issuesDriverName').textContent = fullName;
-                  document.querySelector('#issuesDriverPhone').textContent = phone;
-                  document.querySelector('#issuesDriverInfo').classList.remove('hidden');
-                }
-              }
-            } catch (error) {
-              alert('Failed to load from database: ' + error.message);
-            }
-          })();
-        }
-        
-        const plate = plateInput.value.trim();
-        const driverInfoEl = card.querySelector('#issuesDriverInfo');
-        const driverNameEl = card.querySelector('#issuesDriverName');
-        const driverPhoneEl = card.querySelector('#issuesDriverPhone');
-        
-        if (!plate) {
-          driverInfoEl?.classList.add('hidden');
-          driverNameEl.textContent = '';
-          driverPhoneEl.textContent = '';
-          return;
-        }
-        
-        // Same simple logic as input event
-        try {
-          let driverData = null;
-          
-          if (typeof getVehicleByPlate === 'function') {
-            driverData = getVehicleByPlate(plate);
-          }
-          
-          if (!driverData && window.state && window.state.vehicles) {
-            const normalizedPlate = plate.toLowerCase().trim().replace(/\s+/g, '');
-            driverData = window.state.vehicles.find(v => {
-              if (!v || !v.cekiciPlaka) return false;
-              const dbPlate = v.cekiciPlaka.toLowerCase().trim().replace(/\s+/g, '');
-              return dbPlate === normalizedPlate;
-            });
-          }
-          
-          if (!driverData) {
-            const allVehicles = window.vehicles || window.state?.vehicles || [];
-            driverData = allVehicles.find(v => {
-              if (!v) return false;
-              const plate1 = (v.cekiciPlaka || '').toLowerCase().trim().replace(/\s+/g, '');
-              const plate2 = plate.toLowerCase().trim().replace(/\s+/g, '');
-              return plate1 === plate2;
-            });
-          }
-          
-          if (driverData) {
-            const name = driverData.isim || driverData.adi || driverData.soforAdi || driverData.name || '';
-            const phone = driverData.iletisim || driverData.telefon || driverData.phone || '';
-            
-            driverNameEl.textContent = name;
-            driverPhoneEl.textContent = phone;
-            driverInfoEl?.classList.remove('hidden');
-          } else {
-            driverInfoEl?.classList.add('hidden');
-            driverNameEl.textContent = '';
-            driverPhoneEl.textContent = '';
-          }
-        } catch (error) {
-          driverInfoEl?.classList.add('hidden');
-        }
+        clearTimeout(plateDebounceTimer);
+        schedulePlateRefresh(plateInput.value.trim());
       }
     });
   }
 
-  // initial list
-  doRefresh();
+  schedulePlateRefresh(plateInputEl?.value?.trim() || initialPlate);
   }
 
   function getPlateFromQuery() {

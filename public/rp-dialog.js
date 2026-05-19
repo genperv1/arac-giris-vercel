@@ -72,6 +72,7 @@
           input.autocomplete = 'off';
           input.setAttribute('aria-label', message);
           if (opts.placeholder) input.placeholder = opts.placeholder;
+          if (opts.defaultValue != null && opts.defaultValue !== '') input.value = String(opts.defaultValue);
           bodyEl.appendChild(input);
           input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') close(input.value);
@@ -144,7 +145,7 @@
         return openDialog(opts.type || 'reason', message, [
           { label: 'İptal', value: null, className: 'rp-dialog-btn-ghost' },
           { label: 'Tamam', value: null, submit: true, className: 'rp-dialog-btn-primary' }
-        ], { input: true, inputType: opts.inputType || 'text', placeholder: opts.placeholder || '' });
+        ], { input: true, inputType: opts.inputType || 'text', placeholder: opts.placeholder || '', defaultValue: opts.defaultValue });
       },
       actions: function (message, type, buttons) {
         return openDialog(type || 'info', message, buttons || []);
