@@ -248,7 +248,7 @@
           btn.addEventListener('click', async (ev) => {
             ev.stopPropagation();
             const id = btn.getAttribute('data-del');
-            if (!id || !confirm('Bu imzayı silmek istiyor musunuz?')) return;
+            if (!id || !(await confirm('Bu imzayı silmek istiyor musunuz?'))) return;
             const dr = await apiFetch('/api/signatures/' + encodeURIComponent(id), { method: 'DELETE' });
             if (dr.ok) {
               toast('İmza silindi.');

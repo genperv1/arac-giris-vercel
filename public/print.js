@@ -438,13 +438,13 @@ async function getNextYuklemeSirasi() {
 }
 
         // Veri dışa aktar - YENİ
-        function exportData() {
+        async function exportData() {
             if (state.vehicles.length === 0 && firmaListesi.length === 0) {
                 alert('❌ Dışa aktarılacak kayıt bulunamadı!');
                 return;
             }
             
-            if (confirm('TÜM verileri (araçlar, firmalar, eşleştirmeler, malzemeler) dışa aktarmak istiyor musunuz?')) {
+            if (await confirm('TÜM verileri (araçlar, firmalar, eşleştirmeler, malzemeler) dışa aktarmak istiyor musunuz?')) {
                 exportAllData();
             }
         }
@@ -1053,6 +1053,12 @@ const yuklemeNotu = document.getElementById('yuklemeNotu')?.value || '';
 const sevkYeri = document.getElementById('sevkYeri')?.value || '';
 const sevkYeriPrint = formatSevkYeriPrint(sevkYeri);
 const tonaj = document.getElementById('tonaj')?.value || '';
+const aracBosu = String(
+  document.getElementById('aracBosuBilgi')?.value
+  || document.getElementById('aracBosuSatir')?.textContent
+  || ''
+).trim();
+const aracBosuPrint = aracBosu ? escapeHtml(aracBosu) : '';
 const ambalajBilgisi = normalizeAmbalajBilgisi(document.getElementById('ambalajBilgisi')?.value || '');
 const ambalajBilgisiPrint = formatAmbalajBilgisiPrint(ambalajBilgisi);
 const seperatorBilgisi = document.getElementById('seperatorBilgisi')?.value || '';
@@ -1098,6 +1104,7 @@ const bosBbtText = amb.bosBbt;
 
     // ✅ A5 manzara için koordinatlar (210x148mm)
     const P_A5 = {
+        aracBos:       { left: 42, top: 15, w: 126, h: 11 },
         yuklemeSirasi: { left: 92, top: 27, w: 80 },
         tarih:         { left: 175, top: 27, w: 40 },
         sofor:         { left: 55, top: 40.5, w: 5 },
@@ -1126,6 +1133,7 @@ const bosBbtText = amb.bosBbt;
 
     // ✅ A4 dikey için koordinatlar (210x297mm) - resmin altında başlasın, orantılı yerleş
     const P_A4 = {
+        aracBos:       { left: 42, top: 15, w: 126, h: 11 },
         yuklemeSirasi: { left: 92, top: 27, w: 80 },
         tarih:         { left: 175, top: 27, w: 40 },
         sofor:         { left: 55, top: 40.5, w: 5 },
@@ -1223,6 +1231,21 @@ const bosBbtText = amb.bosBbt;
     font-weight:700;
     color:#000;
     white-space:nowrap;
+  }
+
+  .arac-bos-print{
+    position:absolute;
+    box-sizing:border-box;
+    white-space:nowrap;
+    font-size:12pt !important;
+    font-weight:700 !important;
+    color:#000 !important;
+    line-height:1.1 !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    text-align:center !important;
+    overflow:visible !important;
   }
 
   .field.wrap{
@@ -1428,6 +1451,8 @@ const bosBbtText = amb.bosBbt;
 <body><div id="printViewport"><div id="printRoot">
 <div class="page">
 <img class="bg" src="${bgUrl}" alt="">
+
+    ${aracBosuPrint ? `<div class="arac-bos-print" style="left:${P.aracBos.left}mm; top:${P.aracBos.top}mm; width:${P.aracBos.w}mm; height:${P.aracBos.h}mm;">${aracBosuPrint}</div>` : ''}
 	
     <div class="field" style="left:${P.yuklemeSirasi.left}mm; top:${P.yuklemeSirasi.top}mm; width:${P.yuklemeSirasi.w}mm;">
         ${yuklemeSirasi}
@@ -1793,6 +1818,7 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
+    __aracBosRev: '20260520-aracbos3',
   };
 })();
 

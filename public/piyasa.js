@@ -15,6 +15,7 @@
     week: null,
     sheet: null,
     loadedAt: null,
+    pendingBosOnPrint: false,
   };
 
   function saveState(){
@@ -202,9 +203,9 @@
     return inp;
   }
 
-  function askWeek(weeks){
+  async function askWeek(weeks){
     const def = (weeks && weeks.length) ? String(weeks[0]) : '';
-    const answer = prompt(`Hangi haftayı yükleyelim?\nMevcut haftalar: ${weeks.join(', ')}`, def);
+    const answer = await prompt(`Hangi haftayı yükleyelim?\nMevcut haftalar: ${weeks.join(', ')}`, def);
     if (answer === null) return null;
     const w = parseInt(String(answer).trim(), 10);
     if (!Number.isFinite(w)) return null;
@@ -659,7 +660,104 @@
     setTimeout(()=> searchEl.focus(), 0);
   }
 
+  /** Piyasa sipariş seçiminden sonra başlık altına "boş : …" yazar. Kapat = yazmaz. */
+  function promptAracBosuTonaj() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      overlay.innerHTML = `
+        <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden;">
+          <div style="padding:14px 16px;border-bottom:1px solid #eee;">
+            <div style="font-weight:900;font-size:16px;">Arabanın boşu kaç?</div>
+            <div style="font-size:12px;color:#666;margin-top:4px;">Yazdırmada form başlığının altına yazılır (ör: NET BOŞ AĞIRLIK : 14400). İsteğe bağlı — Kapat ile atlanır.</div>
+          </div>
+          <div style="padding:14px 16px;">
+            <label style="display:block;font-size:12px;color:#555;margin-bottom:6px;">Boş ağırlık (kg)</label>
+            <input id="piyasaBosTonajInput" type="text" inputmode="numeric" placeholder="ör. 14400" autocomplete="off"
+              style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:15px;box-sizing:border-box;">
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #eee;">
+            <button type="button" id="piyasaBosTonajClose" style="border:0;background:#eee;border-radius:10px;padding:10px 14px;cursor:pointer;">Kapat</button>
+            <button type="button" id="piyasaBosTonajOk" style="border:0;background:#111827;color:#fff;border-radius:10px;padding:10px 14px;cursor:pointer;">Tamam</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const input = overlay.querySelector('#piyasaBosTonajInput');
+      const okBtn = overlay.querySelector('#piyasaBosTonajOk');
+      const closeBtn = overlay.querySelector('#piyasaBosTonajClose');
+
+      const finish = (val) => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        resolve(val);
+      };
+
+      const onKey = (e) => {
+        if (e.key === 'Escape') finish(null);
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submit();
+        }
+      };
+
+      const submit = () => {
+        const raw = String(input?.value || '').trim().replace(/\s+/g, '');
+        if (!raw) {
+          input?.focus();
+          return;
+        }
+        finish(raw);
+      };
+
+      closeBtn.onclick = () => finish(null);
+      okBtn.onclick = submit;
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => input?.focus(), 0);
+    });
+  }
+
+  function formatAracBosuText(bosKg) {
+    if (bosKg == null || bosKg === '') return '';
+    return `NET BOŞ AĞIRLIK : ${bosKg}`;
+  }
+
+  function applyAracBosuToForm(bosKg) {
+    const text = formatAracBosuText(bosKg);
+    const hidden = document.getElementById('aracBosuBilgi');
+    const line = document.getElementById('aracBosuSatir');
+    if (hidden) hidden.value = text;
+    if (line) {
+      line.textContent = text;
+      line.hidden = !text;
+    }
+  }
+
+  function markPendingBosOnPrint() {
+    state.pendingBosOnPrint = true;
+  }
+
+  function clearPendingBosOnPrint() {
+    state.pendingBosOnPrint = false;
+  }
+
+  /** Piyasa siparişi seçildikten sonra Yazdır’a basınca sorulur */
+  async function maybePromptAracBosuBeforePrint() {
+    if (!state.pendingBosOnPrint) return;
+    state.pendingBosOnPrint = false;
+    const bosKg = await promptAracBosuTonaj();
+    applyAracBosuToForm(bosKg);
+  }
+
+  function applyOrderFromPicker(o) {
+    applyOrderToForm(o);
+    markPendingBosOnPrint();
+  }
+
   function applyOrderToForm(o){
+    applyAracBosuToForm(null);
+
     const firmaKodu = document.getElementById('firmaKodu');
     const firmaSelect = document.getElementById('firmaSelect');
     const malzeme = document.getElementById('malzeme');
@@ -692,7 +790,7 @@
     if (ambalaj) ambalaj.value = o.yuklemeTuru || '';
     if (notu) notu.value = o.aciklama || '';
     if (sevk) sevk.value = o.sevkYeri || o.il || '';
-    if (tonaj) tonaj.value = o.miktar || '';
+    if (tonaj) tonaj.value = o.miktar != null && o.miktar !== '' ? String(o.miktar) : '';
     
     // SEPERATÖR BİLGİSİ: ÖDEME TÜRÜ ve ORG bilgilerini ayrı ayrı belirterek yaz
     if (seperator) {
@@ -739,7 +837,7 @@
     if (ambalaj) ambalaj.value = o.yuklemeTuru || '';
     if (notu) notu.value = o.aciklama || '';
     if (sevk) sevk.value = o.sevkYeri || o.il || '';
-    if (tonaj) tonaj.value = o.miktar || '';
+    if (tonaj) tonaj.value = o.miktar != null && o.miktar !== '' ? String(o.miktar) : '';
     
     // SEPERATÖR BİLGİSİ: ÖDEME TÜRÜ ve ORG bilgilerini ayrı ayrı belirterek yaz (ikinci kez)
     if (seperator) {
@@ -920,8 +1018,8 @@
           const idx = parseInt(btn.getAttribute('data-idx'), 10);
           const selected = state.orders.find(x=>x.__idx===idx);
           if (selected){
-            applyOrderToForm(selected);
             close();
+            applyOrderFromPicker(selected);
           }
         };
       });
@@ -1269,7 +1367,7 @@
     if (typeof ui.confirm === 'function') {
       okDel = await ui.confirm('PİYASA Excel verisi silinecek.\n\nDevam edilsin mi?', { okLabel: 'Sil' });
     } else {
-      okDel = confirm('Piyasa verisini silmek istiyor musun?');
+      okDel = await confirm('Piyasa verisini silmek istiyor musun?');
     }
     if (!okDel) return;
 
@@ -1426,6 +1524,11 @@
   window.piyasa.hasOrders = ()=> (state.orders && state.orders.length > 0);
   window.piyasa.openOrderPicker = openOrderPicker;
   window.piyasa.applyOrderToForm = applyOrderToForm;
+  window.piyasa.applyOrderFromPicker = applyOrderFromPicker;
+  window.piyasa.maybePromptAracBosuBeforePrint = maybePromptAracBosuBeforePrint;
+  window.piyasa.clearPendingBosOnPrint = clearPendingBosOnPrint;
+  window.piyasa.promptAracBosuTonaj = promptAracBosuTonaj;
+  window.piyasa.applyAracBosuToForm = applyAracBosuToForm;
   window.piyasa._state = state;
 
   // Chip'ten çağrılmak için modal açma fonksiyonu

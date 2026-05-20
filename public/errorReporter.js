@@ -182,8 +182,8 @@
         alert('❌ Kopyalanamadı');
       }
     });
-    modal.querySelector('#erClear')?.addEventListener('click', ()=>{
-      if (!confirm('Hata kayıtları temizlensin mi?')) return;
+    modal.querySelector('#erClear')?.addEventListener('click', async ()=>{
+      if (!(await confirm('Hata kayıtları temizlensin mi?'))) return;
       clear();
       try{ if (window.Report && typeof Report.clearEvents === 'function') Report.clearEvents(); }catch(e){}
       open();

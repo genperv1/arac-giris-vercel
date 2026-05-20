@@ -4,7 +4,7 @@
   var VER =
     typeof window !== 'undefined' && window.__ASSET_VER != null && String(window.__ASSET_VER).trim() !== ''
       ? String(window.__ASSET_VER).trim()
-      : '20260517-print6';
+      : '20260520-aracbos3';
 
   function qs() {
     return 'v=' + encodeURIComponent(VER);
@@ -40,10 +40,22 @@
 
   var printPromise = null;
   window.ensurePrintLoaded = function () {
-    if (window.Print && typeof window.Print.yazdirForm === 'function') return Promise.resolve();
+    var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
+    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260520-aracbos3';
+    if (!needPrint && !stalePrint) return Promise.resolve();
+    if (stalePrint) {
+      try {
+        document.querySelectorAll('script[src*="print.js"]').forEach(function (n) { n.remove(); });
+      } catch (e) {}
+      window.Print = null;
+      printPromise = null;
+    }
     if (printPromise) return printPromise;
     printPromise = loadScript('/signatures-registry.js')
       .then(function () { return loadScript('/print.js'); })
+      .then(function () {
+        if (window.Print) window.Print.__aracBosRev = '20260520-aracbos3';
+      })
       .catch(function (e) {
       printPromise = null;
       throw e;
@@ -52,30 +64,14 @@
   };
 
   try {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('uiMotion') === '1') {
-      document.documentElement.classList.add('allow-ui-motion');
-    }
+    document.documentElement.classList.remove('allow-ui-motion');
+    if (typeof localStorage !== 'undefined') localStorage.setItem('uiMotion', '0');
   } catch (e) {}
   try {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       document.documentElement.classList.add('reduce-motion-os');
-      document.documentElement.classList.remove('allow-ui-motion');
-      try {
-        localStorage.setItem('uiMotion', '0');
-      } catch (e) {}
     }
   } catch (e) {}
-
-  window.toggleUiMotion = function () {
-    var root = document.documentElement;
-    var on = !root.classList.contains('allow-ui-motion');
-    if (on) root.classList.add('allow-ui-motion');
-    else root.classList.remove('allow-ui-motion');
-    try {
-      localStorage.setItem('uiMotion', on ? '1' : '0');
-    } catch (e) {}
-    return on;
-  };
 
   try {
     if ('serviceWorker' in navigator && (location.protocol === 'http:' || location.protocol === 'https:')) {

@@ -348,20 +348,14 @@
 
   async function deleteNote(id) {
     const u = ui();
-    let ok = false;
-    if (typeof u.confirm === 'function') {
-      ok = await u.confirm('Bu vardiya notu silinsin mi?', { okLabel: 'Sil' });
-    } else {
-      ok = confirm('Bu vardiya notu silinsin mi?');
-    }
+    const ok = await (typeof u.confirm === 'function'
+      ? u.confirm('Bu vardiya notu silinsin mi?', { okLabel: 'Sil' })
+      : confirm('Bu vardiya notu silinsin mi?'));
     if (!ok) return;
 
-    let pw = null;
-    if (typeof u.password === 'function') {
-      pw = await u.password('Silme şifresini giriniz:');
-    } else {
-      pw = prompt('Silme şifresini giriniz:');
-    }
+    const pw = await (typeof u.password === 'function'
+      ? u.password('Silme şifresini giriniz:')
+      : window.rpUi.password('Silme şifresini giriniz:'));
     if (pw == null || pw === false) return;
     if (String(pw).trim() !== DELETE_PASSWORD) {
       if (typeof u.alert === 'function') await u.alert('Şifre hatalı.', 'danger');

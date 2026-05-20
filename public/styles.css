@@ -2,7 +2,7 @@
 
 /* =========================================================
    PERF MODU (varsayılan): animasyon / geçiş kapalı
-   - `html.allow-ui-motion` ile (localStorage uiMotion=1) Tailwind geçişleri açılır
+   - `html.allow-ui-motion` ile Tailwind geçişleri açılabilir (varsayılan: kapalı)
    - `prefers-reduced-motion: reduce` veya `html.reduce-motion-os` her zaman kapatır
    ========================================================= */
 
@@ -1443,6 +1443,19 @@ html.allow-ui-motion:not(.reduce-motion-os) .takip-modal__btn {
   display: none;
 }
 
+#takipFormuModal .takip-form__arac-bos {
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: #b45309;
+  margin: -0.15rem 0 0.65rem;
+  letter-spacing: 0.02em;
+}
+
+#takipFormuModal .takip-form__arac-bos[hidden] {
+  display: none !important;
+}
+
 #takipFormuModal .form-warn {
   margin-bottom: 0.75rem;
   padding: 0.65rem 0.9rem;
@@ -1818,4 +1831,457 @@ html.allow-ui-motion:not(.reduce-motion-os) .takip-modal {
   max-height: 160px;
   overflow: auto;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
+}
+
+/* =========================================================
+   KURUMSAL GİRİŞ EKRANI
+   ========================================================= */
+
+#loginScreen.login-screen {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+  background: #0b1220;
+  font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Giriş sonrası: head + inline stillerin üstünde login panelini kaldır */
+html.logged-in #loginScreen.login-screen,
+.logged-in #loginScreen.login-screen {
+  display: none !important;
+}
+
+html.logged-in #mainApp,
+.logged-in #mainApp {
+  display: block !important;
+}
+
+.login-screen__mesh {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 60% at 15% 40%, rgba(79, 70, 229, 0.35), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 85% 70%, rgba(14, 165, 233, 0.18), transparent 50%),
+    linear-gradient(145deg, #0f172a 0%, #1e1b4b 42%, #0f172a 100%);
+}
+
+.login-screen__mesh::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.login-screen__layout {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  width: 100%;
+  max-width: 1100px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+}
+
+.login-screen__hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  color: #f8fafc;
+}
+
+.login-screen__hero-inner {
+  max-width: 28rem;
+  width: 100%;
+}
+
+.login-screen__hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  margin-bottom: 1.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #c7d2fe;
+}
+
+.login-screen__hero-badge i {
+  color: #a5b4fc;
+}
+
+.login-screen__hero-logo {
+  display: block;
+  width: auto;
+  max-width: 10rem;
+  height: auto;
+  max-height: 5.5rem;
+  object-fit: contain;
+  margin-bottom: 1.25rem;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
+}
+
+.login-screen__hero-title {
+  margin: 0 0 0.65rem;
+  font-size: clamp(1.75rem, 4vw, 2.35rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.login-screen__hero-lead {
+  margin: 0 0 1.75rem;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: #94a3b8;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-weight: 400;
+}
+
+.login-screen__features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.login-screen__features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: #cbd5e1;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.login-screen__features i {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  font-size: 0.85rem;
+}
+
+.login-screen__hero-foot {
+  margin: 2rem 0 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.login-screen__panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  background: rgba(248, 250, 252, 0.97);
+  box-shadow: -24px 0 64px rgba(0, 0, 0, 0.25);
+}
+
+.login-screen__card {
+  width: 100%;
+  max-width: 22rem;
+  padding: clamp(1.5rem, 3vw, 2rem);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 20px 50px rgba(15, 23, 42, 0.08);
+}
+
+.login-screen__card-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.login-screen__card-logo {
+  flex-shrink: 0;
+  width: 3.5rem;
+  height: auto;
+  object-fit: contain;
+}
+
+.login-screen__card-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.login-screen__card-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-weight: 400;
+}
+
+.login-screen__form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.login-field__label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #475569;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.login-field__wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-field__icon {
+  position: absolute;
+  left: 0.95rem;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.login-field__input {
+  width: 100%;
+  padding: 0.85rem 1rem 0.85rem 2.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 0.9375rem;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  outline: none;
+}
+
+.login-field__input::placeholder {
+  color: #94a3b8;
+}
+
+.login-field__input:hover {
+  border-color: #cbd5e1;
+  background: #fff;
+}
+
+.login-field__input:focus {
+  border-color: #6366f1;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+.login-screen__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.9rem 1.25rem;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #312e81 0%, #4f46e5 48%, #6366f1 100%);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(79, 70, 229, 0.35);
+}
+
+.login-screen__submit i {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+html.allow-ui-motion:not(.reduce-motion-os) .login-screen__submit:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 14px 36px rgba(79, 70, 229, 0.42);
+  transform: translateY(-1px);
+}
+
+html.allow-ui-motion:not(.reduce-motion-os) .login-screen__submit:active {
+  transform: translateY(0);
+}
+
+.login-screen__error {
+  margin-top: 1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+  text-align: center;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-weight: 500;
+}
+
+.login-screen__footer {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #f1f5f9;
+  text-align: center;
+}
+
+.login-screen__secure {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.login-screen__secure i {
+  color: #059669;
+}
+
+/* Giriş yükleme overlay */
+.login-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.login-loading.hidden {
+  display: none !important;
+}
+
+.login-loading__card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+.login-loading__spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 3px solid #e2e8f0;
+  border-top-color: #4f46e5;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+html.allow-ui-motion:not(.reduce-motion-os) .login-loading__spinner {
+  animation: login-spin 0.75s linear infinite;
+}
+
+@keyframes login-spin {
+  to { transform: rotate(360deg); }
+}
+
+.login-loading__title {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.login-loading__sub {
+  font-size: 0.8125rem;
+  color: #64748b;
+  font-family: system-ui, sans-serif;
+  margin-top: 0.15rem;
+}
+
+@media (max-width: 900px) {
+  .login-screen__layout {
+    grid-template-columns: 1fr;
+    max-width: 28rem;
+  }
+
+  .login-screen__hero {
+    padding: 2rem 1.5rem 1.25rem;
+    text-align: center;
+  }
+
+  .login-screen__hero-inner {
+    max-width: none;
+  }
+
+  .login-screen__hero-badge {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .login-screen__hero-logo {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .login-screen__features {
+    text-align: left;
+    max-width: 20rem;
+    margin: 0 auto;
+  }
+
+  .login-screen__hero-foot {
+    display: none;
+  }
+
+  .login-screen__panel {
+    box-shadow: none;
+    border-radius: 24px 24px 0 0;
+    margin-top: -0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-screen__card {
+    border-radius: 16px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+  }
+
+  .login-screen__card-head .login-screen__card-logo {
+    display: none;
+  }
 }

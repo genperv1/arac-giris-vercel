@@ -1578,7 +1578,7 @@ firma: (firma || '').slice(0, 40),
     const existingMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
 
     if (Array.isArray(existing) && existing.length > 0) {
-      const doAppend = confirm(
+      const doAppend = await confirm(
         `Mevcut Excel verisi var: ${existing.length} kayıt.
 
 ` +
@@ -2005,6 +2005,142 @@ async function importExcelHeadersOnly_ShowSelection(file){
 
 // Takip formu açılınca plaka ile excel satırını uygula
 
+/** Aynı plakaya ait birden fazla Excel sevkiyat kaydı — kurumsal seçim penceresi */
+function openShipmentPickForSamePlate(plate, hits, onPick, onDismiss) {
+  try {
+    const overlayId = 'shipmentPickOverlay';
+    const old = document.getElementById(overlayId);
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = overlayId;
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:1000006', 'background:rgba(0,0,0,.25)',
+      'display:flex', 'align-items:flex-start', 'justify-content:center', 'padding:16px'
+    ].join(';') + ';';
+
+    const card = document.createElement('div');
+    card.style.cssText = [
+      'width:min(680px, 96vw)', 'margin-top:8vh', 'background:#fff', 'border:1px solid #e5e7eb',
+      'border-radius:12px', 'box-shadow:0 10px 30px rgba(0,0,0,.22)', 'overflow:hidden'
+    ].join(';') + ';';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e5e7eb;background:#f8fafc;';
+    header.innerHTML = `
+      <div style="min-width:0;">
+        <strong style="font-size:14px;color:#0f172a;">${escapeHtml(plate)} — sevkiyat seçimi</strong>
+        <div style="font-size:12px;color:#64748b;margin-top:4px;">Bu plakaya ait <b>${(hits || []).length}</b> kayıt bulundu. Doğru sevkiyatı seçin.</div>
+      </div>`;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = '✕';
+    closeBtn.title = 'İlk kaydı kullan';
+    closeBtn.style.cssText = 'border:none;background:transparent;font-size:16px;cursor:pointer;opacity:.75;padding:4px 8px;';
+    closeBtn.onmouseenter = () => { closeBtn.style.opacity = '1'; };
+    closeBtn.onmouseleave = () => { closeBtn.style.opacity = '.75'; };
+    header.appendChild(closeBtn);
+
+    const list = document.createElement('div');
+    list.style.cssText = 'max-height:55vh;overflow:auto;';
+
+    const rows = (hits || []).map((h, i) => {
+      const ton = h.tonajKg != null && String(h.tonajKg).trim() !== '' ? String(h.tonajKg).trim() : '-';
+      const fir = String(h.firma || h.ydKey || '').trim() || '-';
+      const mal = String(h.malzeme || '').trim() || '-';
+      const dosya = String(h.fileName || h.id || '').trim();
+      const dosyaHtml = dosya ? `<span style="color:#94a3b8;font-size:11px;">${escapeHtml(dosya)}</span>` : '';
+      return `
+        <button type="button" data-idx="${i}"
+          style="width:100%;text-align:left;padding:12px 14px;border:none;background:transparent;cursor:pointer;border-bottom:1px solid #f3f4f6;">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
+            <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span style="background:#e0e7ff;color:#3730a3;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;">${i + 1}</span>
+                <strong style="font-size:13px;color:#0f172a;">Tonaj: ${escapeHtml(ton)} kg</strong>
+              </div>
+              <span style="color:#334155;font-size:12px;">Firma: ${escapeHtml(fir)}</span>
+              <span style="color:#64748b;font-size:12px;">Malzeme: ${escapeHtml(mal)}</span>
+              ${dosyaHtml}
+            </div>
+            <span style="flex-shrink:0;background:#111827;color:#fff;border-radius:10px;padding:8px 14px;font-weight:800;font-size:12px;">SEÇ</span>
+          </div>
+        </button>`;
+    }).join('');
+
+    list.innerHTML = rows || `<div style="padding:12px;color:#6b7280;">Kayıt bulunamadı</div>`;
+
+    const footer = document.createElement('div');
+    footer.style.cssText = 'padding:10px 14px;border-top:1px solid #e5e7eb;background:#f8fafc;font-size:11px;color:#64748b;';
+    footer.textContent = 'Kapatırsanız ilk kayıt kullanılır.';
+
+    const finish = (chosen, dismissed) => {
+      overlay.remove();
+      if (dismissed) {
+        try { onDismiss && onDismiss(); } catch (_) {}
+      } else {
+        try { onPick && onPick(chosen); } catch (_) {}
+      }
+    };
+
+    closeBtn.onclick = () => finish((hits || [])[0], true);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish((hits || [])[0], true);
+    });
+
+    list.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-idx]');
+      if (!btn) return;
+      const idx = parseInt(btn.getAttribute('data-idx'), 10);
+      const chosen = (hits || [])[idx];
+      if (chosen) finish(chosen, false);
+    });
+
+    card.appendChild(header);
+    card.appendChild(list);
+    card.appendChild(footer);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+  } catch (e) {
+    try { onPick && onPick((hits || [])[0] || null); } catch (_) {}
+  }
+}
+
+function pickShipmentFromHits(plate, hits) {
+  return new Promise((resolve) => {
+    const list = Array.isArray(hits) ? hits : [];
+    if (!list.length) { resolve(null); return; }
+    if (list.length === 1) { resolve(list[0]); return; }
+    openShipmentPickForSamePlate(
+      plate,
+      list,
+      (chosen) => resolve(chosen || list[0]),
+      () => resolve(list[0])
+    );
+  });
+}
+
+/** Seçilen Excel satırının tonaj ve irsaliye bilgisini takip formuna yazar */
+function applyShipmentTonajAndIrsaliye(chosen) {
+  if (!chosen) return;
+  try {
+    const tonajEl = document.getElementById('tonaj');
+    const t = chosen.tonajKg != null ? String(chosen.tonajKg).trim() : '';
+    if (tonajEl && t) tonajEl.value = t;
+
+    const notuEl = document.getElementById('yuklemeNotu');
+    const irs = chosen.irsaliyeNo != null ? String(chosen.irsaliyeNo).trim() : '';
+    if (notuEl && irs) {
+      const mevcut = String(notuEl.value || '').trim();
+      const irsaliyeText = 'İrsaliye No: ' + irs;
+      if (!mevcut.includes(irsaliyeText)) {
+        notuEl.value = mevcut ? mevcut + '\n' + irsaliyeText : irsaliyeText;
+      }
+    }
+  } catch (e) {}
+}
+
 // ✅ Araç varsayılanlarını takip formuna uygula (Excel'e / kullanıcı girdisine dokunmaz)
 // - Sadece ilgili alan BOŞSA doldurur.
 // - Excel import varsa applyShipmentToTakipForm zaten doldurur; burada tekrar ezmeyiz.
@@ -2081,7 +2217,7 @@ function applyVehicleDefaultsToTakipForm(vehicle) {
   }
 }
 
-function applyShipmentToTakipForm(vehicle) {
+async function applyShipmentToTakipForm(vehicle) {
   try {
     const plateNeedle = normPlate(vehicle?.cekiciPlaka || '');
     if (!plateNeedle) return;
@@ -2105,15 +2241,15 @@ function applyShipmentToTakipForm(vehicle) {
 
     let chosen = hits[0];
     if (hits.length > 1) {
-      const label = hits.map((h,i)=> `${i+1}) ${h.id || ''} | Sıra:${h.blockId || ''} | Firma:${h.firma || ''} | Mal:${h.malzeme || ''} | Sevk:${h.sevkYeri || ''}`).join('\n');
-      const ans = prompt(`Bu plakaya ait ${hits.length} kayıt var. Seç (1-${hits.length}):\n\n${label}\n\n(İptal = 1. kayıt)`);
-      const idx = parseInt(ans || '1', 10);
-      if (Number.isFinite(idx) && idx >= 1 && idx <= hits.length) chosen = hits[idx-1];
+      const picked = await pickShipmentFromHits(plateNeedle, hits);
+      if (picked) chosen = picked;
     }
 
-    
     // ✅ Firma bazlı override (örn: Liman/Sevk Yeri düzeltmesi)
     chosen = applyFirmaOverridesToShipment(chosen);
+
+    // ✅ Seçilen kaydın tonajı (çoklu sevkiyatta 2. kayıt için doğru değer)
+    applyShipmentTonajAndIrsaliye(chosen);
 
     const yuklemeNotuEl = document.getElementById('yuklemeNotu');
     if (yuklemeNotuEl && !String(yuklemeNotuEl.value || '').trim() && chosen.yuklemeNotu) {
@@ -2174,6 +2310,11 @@ function applyShipmentToTakipForm(vehicle) {
         if (bbt) bbt.value = fixed.bbt || '';
         if (palet) palet.value = fixed.palet || '';
         if (bosBbt) bosBbt.value = fixed.bosBbt || '';
+
+        const tonajEl = document.getElementById('tonaj');
+        if (tonajEl && typeof fixed.tonaj !== 'undefined') tonajEl.value = fixed.tonaj || '';
+
+        if (fixed.irsaliyeNo) applyShipmentTonajAndIrsaliye({ irsaliyeNo: fixed.irsaliyeNo });
 
         // ✅ Çuval özel mantık: 0 gelirse boş çuvalı çuval gibi göster (mevcut davranış korunur)
         if (cuval) {
@@ -2792,9 +2933,9 @@ let sonuc = {
 }
 
         // Veri dışa aktar - YENİ
-        function exportData() {
+        async function exportData() {
             closeAppToolsMenu();
-            if (confirm('✅ TAM YEDEK AL: Sistem içindeki ne var ne yok (tüm kayıtlar + ayarlar + arşivler) yedeklensin mi?')) {
+            if (await confirm('✅ TAM YEDEK AL: Sistem içindeki ne var ne yok (tüm kayıtlar + ayarlar + arşivler) yedeklensin mi?')) {
                 exportFullBackup();
             }
         }
@@ -2816,7 +2957,7 @@ let sonuc = {
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const result = importAllData(event.target.result);
       if (result !== false) {
         let message = '✅ VERİLER BAŞARIYLA İÇE AKTARILDI:\n\n';
@@ -3209,6 +3350,8 @@ function showTakipFormu(vehicle) {
 
             <div class="takip-form">
                 <h1 class="takip-form__doc-title">SEVKİYAT YÜKLEMESİ TAKİP FORMU</h1>
+                <input type="hidden" id="aracBosuBilgi" value="">
+                <p id="aracBosuSatir" class="takip-form__arac-bos" hidden></p>
 
                 <section class="takip-form__section highlight-section">
                   <h3 class="takip-form__section-title">Şoför Bilgileri</h3>
@@ -4541,43 +4684,6 @@ try {
 
             document.getElementById('takipFormuModal').classList.remove('hidden');
 
-            // ✅ İhracat Excel'den tonaj ve irsaliye no'yu takip formuna doldur
-            try {
-              const shipments = loadDailyShipments() || [];
-              const candidatePlates = [vehicle?.cekiciPlaka, vehicle?.dorsePlaka, vehicle?.plaka]
-                .map(v => String(v || '').trim())
-                .filter(Boolean);
-              const formPlaka = document.getElementById('cekiciPlakaBilgi')?.value || document.getElementById('dorsePlakaBilgi')?.value || '';
-              const plaka = candidatePlates.find(Boolean) || String(formPlaka || '').trim();
-
-              const normalize = (value) => String(normPlate(value || '')).replace(/\s+/g, ' ').trim();
-              console.log('Debug: shipments length:', shipments.length, 'plaka:', plaka, 'formPlaka:', formPlaka, 'candidatePlates:', candidatePlates);
-              if (plaka && shipments.length > 0) {
-                const shipment = shipments.find(s => normalize(s.plaka) === normalize(plaka));
-                console.log('Debug: found shipment:', shipment);
-                if (shipment) {
-                  const tonajEl = document.getElementById('tonaj');
-                  if (tonajEl && shipment.tonajKg) {
-                    tonajEl.value = shipment.tonajKg;
-                    console.log('Debug: tonaj set to:', shipment.tonajKg);
-                  }
-                  const notuEl = document.getElementById('yuklemeNotu');
-                  if (notuEl && shipment.irsaliyeNo) {
-                    const mevcut = notuEl.value.trim();
-                    const irsaliyeText = 'İrsaliye No: ' + shipment.irsaliyeNo;
-                    if (!mevcut.includes(irsaliyeText)) {
-                      notuEl.value = mevcut ? mevcut + '\n' + irsaliyeText : irsaliyeText;
-                      console.log('Debug: yuklemeNotu updated with:', irsaliyeText);
-                    }
-                  }
-                } else {
-                  console.log('Debug: no shipment matched for plate');
-                }
-              } else if (shipments.length > 0) {
-                console.log('Debug: no plate available to match shipment');
-              }
-            } catch(e) { console.warn('Excel data populate error:', e); }
-
             // ✅ A4/A5 sayfa boyutu seçim butonları
             const btnA5 = document.getElementById('btnPageSizeA5');
             const btnA4 = document.getElementById('btnPageSizeA4');
@@ -4661,7 +4767,7 @@ try {
             const ids = [
                 'firmaKodu','malzeme','sevkYeri','tonaj','ambalajBilgisi','seperatorBilgisi',
                 'bbt','bosBbt','cuval','bosCuval','palet','torba',
-                'yuklemeNotu',
+                'yuklemeNotu','aracBosuBilgi',
                 // ❌ yuklemeSirasi'i TEMIZLEME (updateQueueDisplay() çalışınca otomatik güncellenir)
                 // imzaKantarAd bilerek temizlenmiyor
                 'imzaSahaAd','imzaYukleyenAd','imzaKaliteAd'
@@ -4704,6 +4810,11 @@ try {
             // dropdown'ları da sıfırla
             try { const fs = document.getElementById('firmaSelect'); if (fs) fs.value = ''; } catch(e){}
             try { const ms = document.getElementById('malzemeSelect'); if (ms) ms.value = ''; } catch(e){}
+            try {
+              const ab = document.getElementById('aracBosuSatir');
+              if (ab) { ab.textContent = ''; ab.hidden = true; }
+            } catch(e){}
+            try { window.piyasa?.clearPendingBosOnPrint?.(); } catch(e){}
         }
 
         function validateTakipForm(){
@@ -4975,9 +5086,9 @@ try {
             
             // Event listener'ları ekle
             document.querySelectorAll('.firma-duzenle-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
+                btn.addEventListener('click', async function() {
                     const index = parseInt(this.getAttribute('data-index'));
-                    const yeniFirma = prompt('Firma adını düzenleyin:', firmaListesi[index]);
+                    const yeniFirma = await prompt('Firma adını düzenleyin:', firmaListesi[index]);
                     if (yeniFirma && yeniFirma.trim() !== '') {
                         if (firmaStorage.update(index, yeniFirma.trim())) {
                             showFirmaYonetimModal(); // Listeyi yenile
@@ -4989,9 +5100,9 @@ try {
             });
             
             document.querySelectorAll('.firma-sil-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
+                btn.addEventListener('click', async function() {
                     const index = parseInt(this.getAttribute('data-index'));
-                    if (confirm(`"${firmaListesi[index]}" firmasını silmek istediğinizden emin misiniz?`)) {
+                    if (await confirm(`"${firmaListesi[index]}" firmasını silmek istediğinizden emin misiniz?`)) {
                         if (firmaStorage.delete(index)) {
                             showFirmaYonetimModal(); // Listeyi yenile
                         } else {
@@ -5090,12 +5201,12 @@ try {
             
             // Event listener'ları ekle
             document.querySelectorAll('.eslestirme-sil-btn').forEach(btn => {
-  btn.addEventListener('click', function() {
+  btn.addEventListener('click', async function() {
     const id = this.getAttribute('data-id');
     const es = eslestirmeListesi.find(x => x.id === id);
     if (!es) return;
 
-    if (confirm(`"${es.firma}" - "${es.malzeme}" eşleştirmesini silmek istediğinizden emin misiniz?`)) {
+    if (await confirm(`"${es.firma}" - "${es.malzeme}" eşleştirmesini silmek istediğinizden emin misiniz?`)) {
       if (eslestirmeStorage.delete(id)) showEslestirmeModal();
       else alert('Eşleştirme silinirken bir hata oluştu!');
     }
@@ -5104,24 +5215,24 @@ try {
         
 
 document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
-  btn.addEventListener('click', function() {
+  btn.addEventListener('click', async function() {
     const id = this.getAttribute('data-id');
     const es = eslestirmeListesi.find(x => x.id === id);
     if (!es) return;
 
-    const yeniFirma = prompt('Firma:', es.firma);
+    const yeniFirma = await prompt('Firma:', es.firma);
     if (yeniFirma === null) return;
 
-    const yeniMalzeme = prompt('Malzeme:', es.malzeme);
+    const yeniMalzeme = await prompt('Malzeme:', es.malzeme);
     if (yeniMalzeme === null) return;
 
-    const yeniAmbalaj = prompt('Ambalaj Bilgisi (varsayılan):', es.ambalajBilgisi || '');
+    const yeniAmbalaj = await prompt('Ambalaj Bilgisi (varsayılan):', es.ambalajBilgisi || '');
     if (yeniAmbalaj === null) return;
 
-    const yeniSevk = prompt('Sevk Yeri (varsayılan):', es.sevkYeri || '');
+    const yeniSevk = await prompt('Sevk Yeri (varsayılan):', es.sevkYeri || '');
     if (yeniSevk === null) return;
 
-    const yeniNot = prompt('Yükleme Notu (varsayılan):', es.yuklemeNotu || '');
+    const yeniNot = await prompt('Yükleme Notu (varsayılan):', es.yuklemeNotu || '');
     if (yeniNot === null) return;
 
     const ok = eslestirmeStorage.update(id, {
@@ -5660,7 +5771,7 @@ function toWhatsAppPhone(input) {
                     if (window.AyarlarGate && typeof window.AyarlarGate.openAyarlarPage === 'function') {
                         await window.AyarlarGate.openAyarlarPage();
                     } else {
-                        const pw = window.prompt('Ayarlar parolası:');
+                        const pw = await window.rpUi.password('Ayarlar parolası:');
                         if (pw == null) return;
                         const r = await fetch('/api/settings/verify-access', {
                             method: 'POST',
@@ -5754,9 +5865,9 @@ function toWhatsAppPhone(input) {
                 let okDel = false;
                 if (typeof ui.confirm === 'function') {
                     okDel = await ui.confirm('İHRACAT Excel verisi silinecek.\n\nDevam edilsin mi?', { okLabel: 'Sil' });
-                } else {
-                    okDel = confirm('İHRACAT Excel verisi silinecek.\n\nDevam edilsin mi?');
-                }
+                  } else {
+                    okDel = await confirm('İHRACAT Excel verisi silinecek.\n\nDevam edilsin mi?');
+                  }
                 if (!okDel) return;
 
                 const snapshot = {
@@ -5860,12 +5971,12 @@ function toWhatsAppPhone(input) {
             // Eşleştirme ekleme butonu
 
             // ✏️/🗑️ Firma-Malzeme liste işlemleri (tek bind: render tekrarlarında takılmasın)
-            addOnce(document.getElementById('eslestirmeFirmaEditBtn'), 'click', () => {
+            addOnce(document.getElementById('eslestirmeFirmaEditBtn'), 'click', async () => {
                 const sel = document.getElementById('eslestirmeFirmaSelect');
                 const val = (sel?.value || '').trim();
                 if (!val) { alert('Önce bir firma seçin.'); return; }
 
-                const yeni = prompt('Yeni firma kodu:', val);
+                const yeni = await prompt('Yeni firma kodu:', val);
                 if (yeni === null) return;
                 const yeniKod = String(yeni).trim();
                 if (!yeniKod) return;
@@ -5887,11 +5998,11 @@ function toWhatsAppPhone(input) {
                 showEslestirmeModal();
             });
 
-            addOnce(document.getElementById('eslestirmeFirmaDeleteBtn'), 'click', () => {
+            addOnce(document.getElementById('eslestirmeFirmaDeleteBtn'), 'click', async () => {
                 const sel = document.getElementById('eslestirmeFirmaSelect');
                 const val = (sel?.value || '').trim();
                 if (!val) { alert('Önce bir firma seçin.'); return; }
-                const ok = confirm(`"${val}" firmasını silmek istiyor musunuz?\n\nBu firmaya ait eşleştirmeler de silinir.`);
+                const ok = await confirm(`"${val}" firmasını silmek istiyor musunuz?\n\nBu firmaya ait eşleştirmeler de silinir.`);
                 if (!ok) return;
 
                 // firma listesi: aynı koda sahip tüm girdileri temizle
@@ -5907,12 +6018,12 @@ function toWhatsAppPhone(input) {
                 showEslestirmeModal();
             });
 
-            addOnce(document.getElementById('eslestirmeMalzemeEditBtn'), 'click', () => {
+            addOnce(document.getElementById('eslestirmeMalzemeEditBtn'), 'click', async () => {
                 const sel = document.getElementById('eslestirmeMalzemeSelect');
                 const val = (sel?.value || '').trim();
                 if (!val) { alert('Önce bir malzeme seçin.'); return; }
 
-                const yeni = prompt('Yeni malzeme adı:', val);
+                const yeni = await prompt('Yeni malzeme adı:', val);
                 if (yeni === null) return;
                 const yeniAd = String(yeni).trim();
                 if (!yeniAd) return;
@@ -5933,11 +6044,11 @@ function toWhatsAppPhone(input) {
                 showEslestirmeModal();
             });
 
-            addOnce(document.getElementById('eslestirmeMalzemeDeleteBtn'), 'click', () => {
+            addOnce(document.getElementById('eslestirmeMalzemeDeleteBtn'), 'click', async () => {
                 const sel = document.getElementById('eslestirmeMalzemeSelect');
                 const val = (sel?.value || '').trim();
                 if (!val) { alert('Önce bir malzeme seçin.'); return; }
-                const ok = confirm(`"${val}" malzemesini silmek istiyor musunuz?\n\nBu malzemeye ait eşleştirmeler de silinir.`);
+                const ok = await confirm(`"${val}" malzemesini silmek istiyor musunuz?\n\nBu malzemeye ait eşleştirmeler de silinir.`);
                 if (!ok) return;
 
                 // malzeme listesi
@@ -5986,8 +6097,8 @@ const sevkYeri = document.getElementById('eslestirmeSevkYeriInput')?.value.trim(
             });
 
             // 🧹 Hafıza Temizle (eşleştirmeleri silmez) - sadece eski öneri/cache kayıtlarını sıfırlar
-            addOnce(document.getElementById('eslestirmeMemoryCleanButton'), 'click', function() {
-                const ok = confirm('Hafıza (öneriler) temizlenecek.\n\n• Eşleştirmeler SİLİNMEZ\n• Sadece daha önce yazdığınız son firma/malzeme/sevk yeri önerileri temizlenir\n\nDevam edilsin mi?');
+            addOnce(document.getElementById('eslestirmeMemoryCleanButton'), 'click', async function() {
+                const ok = await confirm('Hafıza (öneriler) temizlenecek.\n\n• Eşleştirmeler SİLİNMEZ\n• Sadece daha önce yazdığınız son firma/malzeme/sevk yeri önerileri temizlenir\n\nDevam edilsin mi?');
                 if (!ok) return;
                 const result = clearRecentCaches();
                 if (result) alert('✅ Hafıza temizlendi.');
@@ -6384,8 +6495,13 @@ function enterAppWithDelay(ms = 0) {
 
   // Instant transition - no loading overlay
   try {
-    if (loginScreen) loginScreen.style.display = 'none';
-    if (mainApp) mainApp.style.display = 'block';
+    try { document.documentElement.classList.add('logged-in'); } catch (e) {}
+    if (loginScreen) {
+      loginScreen.style.setProperty('display', 'none', 'important');
+    }
+    if (mainApp) {
+      mainApp.style.setProperty('display', 'block', 'important');
+    }
 
     state.vehiclesLoading = true;
     try { if (typeof render === 'function') render(); } catch (e) {}
@@ -6853,7 +6969,7 @@ async function deleteVehicle(id) {
     if (typeof ui.confirm === 'function') {
         ok = await ui.confirm('"' + plaka + '" kaydı silinsin mi?', { okLabel: 'Sil' });
     } else {
-        ok = confirm('"' + plaka + '" kaydı silinsin mi?');
+        ok = await confirm('"' + plaka + '" kaydı silinsin mi?');
     }
     if (!ok) return;
 
@@ -6861,7 +6977,7 @@ async function deleteVehicle(id) {
     if (typeof ui.password === 'function') {
         entered = await ui.password('Silme şifresini giriniz:');
     } else {
-        entered = prompt('Silme şifresini giriniz:');
+        entered = await window.rpUi.password('Silme şifresini giriniz:');
     }
     if (entered == null || entered === false) return;
     if (String(entered).trim() !== DELETE_VEHICLE_PASSWORD) {
@@ -7251,6 +7367,14 @@ function setupTakipFormButtons() {
                 console.warn('Vardiya notu uyarisi:', vnErr);
             }
 
+            try {
+                if (window.piyasa && typeof window.piyasa.maybePromptAracBosuBeforePrint === 'function') {
+                    await window.piyasa.maybePromptAracBosuBeforePrint();
+                }
+            } catch (bosErr) {
+                console.warn('Araç boş ağırlık sorusu:', bosErr);
+            }
+
             const snap = (() => {
                 try {
                     const s = {
@@ -7427,7 +7551,6 @@ if (!window.__escCloseBound) {
 
 /* ===============================
    EXCEL DÜZELTME PENCERESİ
-   (Tonaj/İrsaliye yok)
 ================================ */
 
 
@@ -7531,6 +7654,15 @@ function openExcelReviewUI({ plate, chosen, candidates, ydKey, onApply }){
           <label style="${labelStyle}">PALET</label>
           <input id="xr_palet" style="${inputStyle}" value="${safe(chosen?.palet || '')}">
         </div>
+
+        <div>
+          <label style="${labelStyle}">TONAJ (KG)</label>
+          <input id="xr_tonaj" style="${inputStyle}" value="${safe(chosen?.tonajKg || '')}">
+        </div>
+        <div>
+          <label style="${labelStyle}">İRSALİYE NO</label>
+          <input id="xr_irsaliye" style="${inputStyle}" value="${safe(chosen?.irsaliyeNo || '')}">
+        </div>
       </div>
 
       <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px;">
@@ -7618,8 +7750,10 @@ function openExcelReviewUI({ plate, chosen, candidates, ydKey, onApply }){
       cuval: (document.getElementById('xr_cuval')?.value || '').trim(),
       bosCuval: (document.getElementById('xr_bosCuval')?.value || '').trim(),
       palet: (document.getElementById('xr_palet')?.value || '').trim(),
+      tonaj: (document.getElementById('xr_tonaj')?.value || '').trim(),
+      irsaliyeNo: (document.getElementById('xr_irsaliye')?.value || '').trim(),
     };
-    
+
     // ✅ Kullanıcı düzeltmesini FIRMA bazlı hafızaya al (özellikle Sevk Yeri / Liman)
     try{
       const fk = _normFirmaKey(fixed.firma);

@@ -683,6 +683,56 @@
       font-size: 0.875rem;
     }
 
+    .issues-history-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.65rem;
+      padding: 2rem 1rem;
+      color: var(--rp-muted);
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .issues-history-loading__spinner {
+      width: 1.25rem;
+      height: 1.25rem;
+      border: 2px solid #e2e8f0;
+      border-top-color: var(--rp-accent);
+      border-radius: 50%;
+      animation: issues-spin 0.7s linear infinite;
+    }
+
+    @keyframes issues-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .issues-load-more {
+      display: flex;
+      justify-content: center;
+      padding: 0.5rem 0 0.25rem;
+    }
+
+    .issues-load-more-btn {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--rp-accent);
+      background: #fff;
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      padding: 0.5rem 1.25rem;
+      cursor: pointer;
+    }
+
+    .issues-load-more-btn:hover:not(:disabled) {
+      background: #f5f3ff;
+    }
+
+    .issues-load-more-btn:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+
     @media (max-width: 640px) {
       .issues-list-grid {
         grid-template-columns: 1fr;
@@ -813,7 +863,8 @@
     </div>
   </main>
 
-  <script src="rp-dialog.js"></script>
+  <script src="core-dom.js"></script>
+  <script src="rp-dialog.js?v=20260520-native"></script>
   <script src="issues-sync-bus.js"></script>
   <script src="issues-page.js"></script>
 </body>

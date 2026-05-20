@@ -7,7 +7,7 @@
   function uiPassword(message) {
     const u = uiHelpers();
     if (typeof u.password === 'function') return u.password(message);
-    return Promise.resolve(window.prompt(message));
+    return window.rpUi.password(message);
   }
 
   function uiAlert(message, type) {
@@ -17,10 +17,10 @@
     return Promise.resolve();
   }
 
-  function uiConfirm(message) {
+  function uiConfirm(message, opts) {
     const u = uiHelpers();
-    if (typeof u.confirm === 'function') return u.confirm(message);
-    return Promise.resolve(confirm(message));
+    if (typeof u.confirm === 'function') return u.confirm(message, opts);
+    return confirm(message);
   }
 
   // Cleanup legacy localStorage keys that may feed the reports UI
@@ -921,7 +921,7 @@ GİRİŞ YAPTI.`;
         
         const okPass = await ensureDeletePassword();
         if (!okPass) return;
-        const ok = confirm('🧹 Rapor kayıtları (yazdırma geçmişi) temizlenecek.\nAraç kayıtları silinmez. Devam edilsin mi?');
+        const ok = await uiConfirm('🧹 Rapor kayıtları (yazdırma geçmişi) temizlenecek.\nAraç kayıtları silinmez. Devam edilsin mi?');
         if (!ok) return;
         try {
           // 1) Clear server-side reports
@@ -995,7 +995,7 @@ GİRİŞ YAPTI.`;
           const okPass = await ensureDeletePassword();
           if (!okPass) return;
 
-          const ok = confirm('Seçili satırlara ait yazdırma geçmişi silinecek. Devam edilsin mi?');
+          const ok = await uiConfirm('Seçili satırlara ait yazdırma geçmişi silinecek. Devam edilsin mi?');
           if (!ok) return;
 
           try {

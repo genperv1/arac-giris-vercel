@@ -5,9 +5,30 @@
   const ISSUE_STORAGE_KEY = 'driverIssuesByPlate_v1';
   const KANTAR_PREF_PREFIX = 'pref_kantar_default_v1_';
 
+  const VEHICLE_LOOKUP_BATCH = 80;
+
   let __issuesMapCache = null;
   let __issueCountCache = new Map();
   let __normPlateCache = new Map();
+  let __vehicleMetaCache = new Map();
+  let __listRenderGen = 0;
+
+  function authHeaders(withJson) {
+    const h = { 'Cache-Control': 'no-cache' };
+    if (withJson) h['Content-Type'] = 'application/json';
+    try {
+      const token = localStorage.getItem('authToken') || '';
+      if (token) h.Authorization = 'Bearer ' + token;
+    } catch (e) { /* ignore */ }
+    return h;
+  }
+
+  function authFetch(url, opts) {
+    const o = Object.assign({ credentials: 'include' }, opts || {});
+    const jsonBody = !!(o.body && typeof o.body === 'string');
+    o.headers = Object.assign({}, authHeaders(jsonBody), o.headers || {});
+    return fetch(url, o);
+  }
 
   function _invalidateIssuesCache() {
     __issuesMapCache = null;
@@ -122,13 +143,13 @@
     const norm = _normPlate(plate || '');
     if (!norm) return;
     try {
-      const res = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+      const res = await authFetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
       if (!res.ok) return;
       const vehicle = await res.json();
       if (!vehicle || !vehicle.id) return;
       const status = vehicle.rejection_status || (vehicle.rejection && vehicle.rejection.status);
       if (status !== 'rejected') return;
-      await fetch('/api/vehicles/' + encodeURIComponent(vehicle.id) + '/remove-rejection', {
+      await authFetch('/api/vehicles/' + encodeURIComponent(vehicle.id) + '/remove-rejection', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }
       });
     } catch (e) { /* ignore */ }
@@ -146,7 +167,7 @@
     try {
       const p = plate ? _normPlate(String(plate)) : '';
       if (p) {
-        const res = await fetch('/api/problems?plate=' + encodeURIComponent(p));
+        const res = await authFetch('/api/problems?plate=' + encodeURIComponent(p));
         if (res.ok) {
           const arr = await res.json();
           const open = (Array.isArray(arr) ? arr : []).filter(function (it) {
@@ -225,23 +246,63 @@
     return `<p class="issue-record-card__note">${linked}</p>`;
   }
 
+  function applyVehicleToMetaMaps(plateNorm, vehicle, rejectionMap, driverMap) {
+    if (!plateNorm || !vehicle) return;
+    const rej = vehicleToRejectionInfo(vehicle);
+    if (rej) rejectionMap.set(plateNorm, rej);
+    const drv = vehicleToDriverInfo(vehicle);
+    if (drv) driverMap.set(plateNorm, drv);
+    __vehicleMetaCache.set(plateNorm, { rejection: rej, driver: drv });
+  }
+
   async function loadVehicleMetaForPlates(plates) {
     const rejectionMap = new Map();
     const driverMap = new Map();
     const unique = [...new Set((plates || []).map((p) => _normPlate(p)).filter(Boolean))];
-    await Promise.all(unique.map(async (p) => {
+    const missing = [];
+    unique.forEach((p) => {
+      const cached = __vehicleMetaCache.get(p);
+      if (cached) {
+        if (cached.rejection) rejectionMap.set(p, cached.rejection);
+        if (cached.driver) driverMap.set(p, cached.driver);
+      } else {
+        missing.push(p);
+      }
+    });
+    for (let i = 0; i < missing.length; i += VEHICLE_LOOKUP_BATCH) {
+      const chunk = missing.slice(i, i + VEHICLE_LOOKUP_BATCH);
       try {
-        const res = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(p));
-        if (!res.ok) return;
-        const vehicle = await res.json();
-        if (!vehicle) return;
-        const rej = vehicleToRejectionInfo(vehicle);
-        if (rej) rejectionMap.set(p, rej);
-        const drv = vehicleToDriverInfo(vehicle);
-        if (drv) driverMap.set(p, drv);
-      } catch (e) { /* ignore */ }
-    }));
+        const res = await authFetch('/api/vehicles/lookup-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plates: chunk })
+        });
+        if (!res.ok) throw new Error('batch');
+        const map = await res.json();
+        chunk.forEach((p) => {
+          applyVehicleToMetaMaps(p, map && map[p], rejectionMap, driverMap);
+        });
+      } catch (e) {
+        await Promise.all(chunk.map(async (p) => {
+          try {
+            const res = await authFetch('/api/vehicles/lookup?plate=' + encodeURIComponent(p));
+            if (!res.ok) return;
+            const vehicle = await res.json();
+            applyVehicleToMetaMaps(p, vehicle, rejectionMap, driverMap);
+          } catch (err) { /* ignore */ }
+        }));
+      }
+    }
     return { rejectionMap, driverMap };
+  }
+
+  function issuesLoadingHTML() {
+    return `
+      <div class="issues-history-loading" role="status" aria-live="polite">
+        <span class="issues-history-loading__spinner" aria-hidden="true"></span>
+        <span>Kayıtlar yükleniyor…</span>
+      </div>
+    `;
   }
 
   function issueSnapshotRejection(parsed) {
@@ -286,28 +347,7 @@
   }
 
   async function editIssueViaPrompt(curData) {
-    const ui = getRpUi();
-    if (!ui) {
-      if (!window.confirm('Bu kaydı düzenlemek istiyor musunuz?')) return null;
-      const newNote = window.prompt('Olay notu:', curData.note || '');
-      if (newNote === null) return null;
-      if (!String(newNote).trim()) { window.alert('Sorun notu boş olamaz.'); return null; }
-      const newType = window.prompt('Sorun tipi:', curData.type || '');
-      if (newType === null) return null;
-      const newDate = window.prompt('Tarih/saat:', curData.dateLocal || '');
-      if (newDate === null) return null;
-      return Object.assign({}, curData, {
-        type: String(newType || '').trim(),
-        note: String(newNote || '').trim(),
-        dateLocal: newDate ? String(newDate).trim() : (curData.dateLocal || ''),
-        dateISO: (() => {
-          if (!newDate) return curData.dateISO || '';
-          const tryD = new Date(newDate);
-          if (!isNaN(tryD.getTime())) return tryD.toISOString();
-          return curData.dateISO || '';
-        })()
-      });
-    }
+    const ui = getRpUi() || window.rpUi;
 
     const ok = await ui.confirm('Bu kaydı düzenlemek istiyor musunuz?', { okLabel: 'Düzenle', cancelLabel: 'İptal' });
     if (!ok) return null;
@@ -351,7 +391,7 @@
   }
 
   async function confirmDeleteIssue() {
-    const ui = getRpUi();
+    const ui = getRpUi() || window.rpUi;
     if (ui && typeof ui.confirmSecureDelete === 'function') {
       const r = await ui.confirmSecureDelete({
         message: 'Bu kaydı silmek istediğinize emin misiniz?',
@@ -360,11 +400,11 @@
       });
       return !!r.ok;
     }
-    if (!window.confirm('Bu kaydı silmek istediğinize emin misiniz?')) return false;
-    const password = window.prompt('Silme işlemini onaylamak için şifreyi girin:');
+    if (!(await confirm('Bu kaydı silmek istediğinize emin misiniz?'))) return false;
+    const password = await window.rpUi.password('Silme işlemini onaylamak için şifreyi girin:');
     if (password === null) return false;
     if (password !== DELETE_PASSWORD) {
-      window.alert('Hatalı şifre. Silme işlemi iptal edildi.');
+      alert('Hatalı şifre. Silme işlemi iptal edildi.');
       return false;
     }
     return true;
@@ -489,18 +529,22 @@
     `;
   }
 
-  function attachIssueCardHandlers(scopeEl, handlers) {
-    const root = scopeEl || document.getElementById('issuesPageRoot');
-    if (!root || !handlers) return;
+  function attachIssueCardHandlers(listRoot, handlers) {
+    const root = listRoot || document.getElementById('issuesList');
+    if (!root || !handlers || root._issuesDelegated) return;
+    root._issuesDelegated = true;
     const { apiUpdateProblem, apiDeleteProblem, refreshList } = handlers;
 
-    root.querySelectorAll('.issueEditBtn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+    root.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.issueEditBtn, .issueDelBtn, .issueToggleBtn');
+      if (!btn || !root.contains(btn)) return;
+
+      if (btn.classList.contains('issueEditBtn')) {
         const id = btn.dataset.id || '';
         const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
         if (id) {
           try {
-            const res = await fetch('/api/problems/' + encodeURIComponent(id));
+            const res = await authFetch('/api/problems/' + encodeURIComponent(id));
             if (!res.ok) throw new Error('no');
             const cur = await res.json();
             const curData = (cur && cur.data) ? (typeof cur.data === 'object' ? cur.data : JSON.parse(cur.data)) : cur;
@@ -510,7 +554,7 @@
             refreshList(p);
             await syncProblemsToDriverCards(p);
             return;
-          } catch (e) { /* fallback */ }
+          } catch (err) { /* fallback */ }
         }
         const pi = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
         const i = Number(btn.dataset.idx);
@@ -521,11 +565,10 @@
         updateIssue(pi, i, patch);
         refreshList(pi);
         await syncProblemsToDriverCards(pi);
-      });
-    });
+        return;
+      }
 
-    root.querySelectorAll('.issueDelBtn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      if (btn.classList.contains('issueDelBtn')) {
         if (!(await confirmDeleteIssue())) return;
         const id = btn.dataset.id || '';
         const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
@@ -539,16 +582,15 @@
         deleteIssue(p, i);
         refreshList(p);
         await clearRejectionAndSyncCards(p);
-      });
-    });
+        return;
+      }
 
-    root.querySelectorAll('.issueToggleBtn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      if (btn.classList.contains('issueToggleBtn')) {
         const id = btn.dataset.id || '';
         const p = btn.dataset.plate || document.getElementById('issuesPlateInput')?.value || '';
         if (id) {
           try {
-            const res = await fetch('/api/problems/' + encodeURIComponent(id));
+            const res = await authFetch('/api/problems/' + encodeURIComponent(id));
             if (!res.ok) throw new Error('no');
             const curRaw = await res.json();
             const cur = (curRaw && curRaw.data) ? (typeof curRaw.data === 'object' ? curRaw.data : JSON.parse(curRaw.data)) : curRaw;
@@ -585,8 +627,39 @@
         }
         refreshList(p);
         await syncProblemsToDriverCards(p);
-      });
+      }
     });
+  }
+
+  function filterAndSortProblems(all, showClosed) {
+    return (Array.isArray(all) ? all : [])
+      .filter((it) => {
+        const parsed = parseIssueItem(it);
+        if (!_normPlate(parsed.plate || it.plate || it.addedPlate || '')) return false;
+        return showClosed ? true : !parsed.isClosed;
+      })
+      .sort((a, b) => {
+        const da = parseIssueItem(a);
+        const db = parseIssueItem(b);
+        const ta = Date.parse(da.dt) || (da.dt ? new Date(da.dt).getTime() : 0) || 0;
+        const tb = Date.parse(db.dt) || (db.dt ? new Date(db.dt).getTime() : 0) || 0;
+        return tb - ta;
+      });
+  }
+
+  function renderProblemsGridHTML(items, meta, opts) {
+    const showPlate = !!(opts && opts.showPlate);
+    return `<div class="issues-list-grid">${items.map((it) => {
+      const parsed = parseIssueItem(it);
+      const plateKey = _normPlate(it.plate || it.addedPlate || parsed.plate);
+      const rejection = resolveRejectionForCard(parsed, plateKey, meta.rejectionMap);
+      const driver = meta.driverMap.get(plateKey) || null;
+      return renderIssueCardHTML(parsed, plateKey, {
+        showPlate,
+        rejection,
+        driver: showPlate ? driver : (opts && opts.driver) || driver
+      });
+    }).join('')}</div>`;
   }
 
   function initIssuesPage(plateOrEmpty) {
@@ -653,132 +726,99 @@
     });
   }
 
-  
+  const apiFetchProblems = async (p) => {
+    const q = p ? ('?plate=' + encodeURIComponent(_normPlate(p))) : '';
+    const res = await authFetch('/api/problems' + q);
+    if (!res.ok) {
+      const err = new Error('problems_fetch_failed');
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  };
+
+  const apiUpdateProblem = async (id, p, issue) => {
+    try {
+      const payload = { plate: _normPlate(p), data: issue, ts: Date.now() };
+      const res = await authFetch('/api/problems/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error('network');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  const apiDeleteProblem = async (id, p, idxFallback) => {
+    try {
+      if (id) {
+        const res = await authFetch('/api/problems/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!res.ok) throw new Error('network');
+        return true;
+      }
+    } catch (e) {
+      if (p !== undefined && idxFallback !== undefined) {
+        deleteIssue(p, idxFallback);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const issueHandlers = {
+    apiUpdateProblem,
+    apiDeleteProblem,
+    refreshList: (p) => renderList(p !== undefined && p !== null ? p : (document.getElementById('issuesPlateInput')?.value || ''))
+  };
+
   const renderList = async (plate) => {
     const listEl = document.getElementById('issuesList');
     if (!listEl) return;
 
     const norm = _normPlate(plate);
     const showClosed = true;
+    const gen = ++__listRenderGen;
+    listEl.innerHTML = issuesLoadingHTML();
 
-    // fetch helpers and API-backed rendering
-    const apiFetchProblems = async (p) => {
-      try {
-        const q = p ? ('?plate=' + encodeURIComponent(_normPlate(p))) : '';
-        const res = await fetch('/api/problems' + q);
-        if (!res.ok) throw new Error('network');
-        const data = await res.json();
-        return Array.isArray(data) ? data : [];
-      } catch (e) {
-        if (!p) {
-          const map = loadIssuesMap();
-          const keys = Object.keys(map || {}).filter(k => Array.isArray(map[k]) && map[k].length > 0);
-          const all = [];
-          keys.forEach(k => { (map[k]||[]).forEach(it => all.push(Object.assign({}, it, { plate: k }))); });
-          return all;
+    try {
+      if (!norm) {
+        const all = await apiFetchProblems('');
+        if (gen !== __listRenderGen) return;
+
+        const filteredAll = filterAndSortProblems(all, showClosed);
+        if (!filteredAll.length) {
+          listEl.innerHTML = issuesEmptyHTML('Kayıtlı sorun bulunamadı.');
+          return;
         }
-        return getIssues(p).map(it => Object.assign({}, it, { plate: _normPlate(p) }));
-      }
-    };
 
-    const apiAddProblem = async (p, issue) => {
-      try {
-        const payload = { plate: _normPlate(p), data: issue, ts: Date.now() };
-        const res = await fetch('/api/problems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!res.ok) throw new Error('network');
-        return (await res.json()).id;
-      } catch (e) {
-        addIssue(p, issue);
-        return null;
-      }
-    };
+        const platesAll = filteredAll.map((it) => _normPlate(it.plate || it.addedPlate || parseIssueItem(it).plate));
+        const metaAll = await loadVehicleMetaForPlates(platesAll);
+        if (gen !== __listRenderGen) return;
 
-    const apiUpdateProblem = async (id, p, issue) => {
-      try {
-        const payload = { plate: _normPlate(p), data: issue, ts: Date.now() };
-        const res = await fetch('/api/problems/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!res.ok) throw new Error('network');
-        return true;
-      } catch (e) {
-        return false;
-      }
-    };
-
-    const apiDeleteProblem = async (id, p, idxFallback) => {
-      try {
-        if (id) {
-          const res = await fetch('/api/problems/' + encodeURIComponent(id), { method: 'DELETE' });
-          if (!res.ok) throw new Error('network');
-          return true;
-        }
-      } catch (e) {
-        if (p !== undefined && idxFallback !== undefined) {
-          deleteIssue(p, idxFallback);
-          return true;
-        }
-      }
-      return false;
-    };
-
-    const issueHandlers = {
-      apiUpdateProblem,
-      apiDeleteProblem,
-      refreshList: (p) => renderList(p !== undefined && p !== null ? p : (document.getElementById('issuesPlateInput')?.value || ''))
-    };
-
-    if (!norm) {
-      const all = await apiFetchProblems('');
-      if (!Array.isArray(all) || all.length === 0) {
-        listEl.innerHTML = issuesEmptyHTML('Kayıtlı sorun bulunamadı.');
+        listEl.innerHTML = renderProblemsGridHTML(filteredAll, metaAll, { showPlate: true });
+        if (!listEl._issuesDelegated) attachIssueCardHandlers(listEl, issueHandlers);
         return;
       }
-      const filteredAll = all
-        .filter(it => {
-          const parsed = parseIssueItem(it);
-          if (!_normPlate(parsed.plate || it.plate || it.addedPlate || '')) return false;
-          return showClosed ? true : !parsed.isClosed;
-        })
-        .sort((a, b) => {
-          const da = parseIssueItem(a);
-          const db = parseIssueItem(b);
-          const ta = Date.parse(da.dt) || (da.dt ? new Date(da.dt).getTime() : 0) || 0;
-          const tb = Date.parse(db.dt) || (db.dt ? new Date(db.dt).getTime() : 0) || 0;
-          return tb - ta;
-        });
-      if (!filteredAll.length) {
-        listEl.innerHTML = issuesEmptyHTML('Kayıtlı sorun bulunamadı.');
+
+      const items = filterAndSortProblems(await apiFetchProblems(norm), showClosed);
+      if (gen !== __listRenderGen) return;
+      if (!items.length) {
+        listEl.innerHTML = issuesEmptyHTML('Bu plakaya kayıtlı sorun yok.');
         return;
       }
-      const platesAll = filteredAll.map((it) => _normPlate(it.plate || it.addedPlate || parseIssueItem(it).plate));
-      const metaAll = await loadVehicleMetaForPlates(platesAll);
-      listEl.innerHTML = `<div class="issues-list-grid">${filteredAll.map(it => {
-        const parsed = parseIssueItem(it);
-        const plate = _normPlate(it.plate || it.addedPlate || parsed.plate);
-        const rejection = resolveRejectionForCard(parsed, plate, metaAll.rejectionMap);
-        const driver = metaAll.driverMap.get(plate) || null;
-        return renderIssueCardHTML(parsed, plate, { showPlate: true, rejection, driver });
-      }).join('')}</div>`;
-      attachIssueCardHandlers(card, issueHandlers);
-      return;
-    }
 
-    const items = (await apiFetchProblems(norm)).filter(it => {
-      const parsed = parseIssueItem(it);
-      return showClosed ? true : !parsed.isClosed;
-    });
-    if (!items || items.length === 0) {
-      listEl.innerHTML = issuesEmptyHTML('Bu plakaya kayıtlı sorun yok.');
-      return;
+      const meta = await loadVehicleMetaForPlates([norm]);
+      if (gen !== __listRenderGen) return;
+      const driverForPlate = meta.driverMap.get(_normPlate(norm)) || null;
+      listEl.innerHTML = renderProblemsGridHTML(items, meta, { showPlate: false, driver: driverForPlate });
+      if (!listEl._issuesDelegated) attachIssueCardHandlers(listEl, issueHandlers);
+    } catch (e) {
+      if (gen !== __listRenderGen) return;
+      const msg = (e && e.status === 401)
+        ? 'Oturum süresi dolmuş olabilir. Ana sayfadan tekrar giriş yapın.'
+        : 'Kayıtlar sunucudan alınamadı. Sayfayı yenileyin veya tekrar giriş yapın.';
+      listEl.innerHTML = issuesEmptyHTML(msg);
     }
-
-    const meta = await loadVehicleMetaForPlates([norm]);
-    const driverForPlate = meta.driverMap.get(_normPlate(norm)) || null;
-    listEl.innerHTML = `<div class="issues-list-grid">${items.map(it => {
-      const parsed = parseIssueItem(it);
-      const rejection = resolveRejectionForCard(parsed, norm, meta.rejectionMap);
-      return renderIssueCardHTML(parsed, norm, { showPlate: false, rejection, driver: driverForPlate });
-    }).join('')}</div>`;
-    attachIssueCardHandlers(card, issueHandlers);
   };
 
 
@@ -802,7 +842,7 @@
     }
 
     try {
-      const res = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate.trim()));
+      const res = await authFetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate.trim()));
       if (res.ok) {
         const vehicle = await res.json();
         const drv = vehicleToDriverInfo(vehicle);
@@ -830,7 +870,12 @@
     plateDebounceTimer = setTimeout(async () => {
       await updateDriverPanel(plate);
       doRefresh();
-    }, 400);
+    }, 200);
+  }
+
+  async function loadHistoryNow(plate) {
+    await updateDriverPanel(plate);
+    await doRefresh();
   }
 
   const clearBtn = card.querySelector('#issuesClearPlateBtn');
@@ -881,7 +926,7 @@
       // Handle rejection
       try {
         // Use the same vehicle finding logic as the driver info
-        const vehiclesRes = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+        const vehiclesRes = await authFetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
         if (!vehiclesRes.ok) throw new Error('Araçlar alınamadı');
         const vehicle = await vehiclesRes.json();
         if (!vehicle) {
@@ -900,7 +945,7 @@
         
         let rejectionSyncPayload = null;
         try {
-          const rejectRes = await fetch('/api/vehicles/reject-simple', {
+          const rejectRes = await authFetch('/api/vehicles/reject-simple', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(rejectionData)
@@ -927,7 +972,7 @@
         // Save issue first
         try {
           const payload = { plate: _normPlate(plate), data: issue, ts: Date.now() };
-          const res = await fetch('/api/problems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const res = await authFetch('/api/problems', { method: 'POST', body: JSON.stringify(payload) });
           if (!res.ok) throw new Error('server');
         } catch(e) {
           addIssue(plate, issue);
@@ -945,7 +990,7 @@
         // If rejection fails, still save the issue
         try {
           const payload = { plate: _normPlate(plate), data: issue, ts: Date.now() };
-          const res = await fetch('/api/problems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const res = await authFetch('/api/problems', { method: 'POST', body: JSON.stringify(payload) });
           if (!res.ok) throw new Error('server');
         } catch(e) {
           addIssue(plate, issue);
@@ -956,7 +1001,7 @@
       // Save issue normally
       try {
         const payload = { plate: _normPlate(plate), data: issue, ts: Date.now() };
-        const res = await fetch('/api/problems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const res = await authFetch('/api/problems', { method: 'POST', body: JSON.stringify(payload) });
         if (!res.ok) throw new Error('server');
       } catch(e) {
         addIssue(plate, issue);
@@ -988,7 +1033,7 @@
     });
   }
 
-  schedulePlateRefresh(plateInputEl?.value?.trim() || initialPlate);
+  void loadHistoryNow(plateInputEl?.value?.trim() || initialPlate);
   }
 
   function getPlateFromQuery() {

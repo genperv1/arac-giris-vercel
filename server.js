@@ -1262,6 +1262,39 @@ api.get("/vehicles/lookup", async (req, res) => {
   }
 });
 
+/** Toplu plaka araması — sorunlar geçmiş listesinde N+1 lookup'u önler */
+api.post("/vehicles/lookup-batch", async (req, res) => {
+  try {
+    const raw = Array.isArray(req.body?.plates) ? req.body.plates : [];
+    const norms = [...new Set(raw.map((p) => normPlateForLookup(p)).filter(Boolean))].slice(0, 80);
+    if (!norms.length) return res.json({});
+
+    const r = await q(
+      `WITH wanted AS (SELECT unnest($1::text[]) AS pnorm)
+       SELECT DISTINCT ON (w.pnorm)
+         w.pnorm,
+         v.id, v.cekiciPlaka, v.dorseplaka, v.data,
+         v.rejection_status, v.rejection_duration, v.rejection_start_ts, v.rejection_end_ts, v.sort_ts
+       FROM wanted w
+       INNER JOIN vehicles v ON (
+         ${VEH_PLATE_NORM_SQL_CEK} = w.pnorm OR ${VEH_PLATE_NORM_SQL_DORSE} = w.pnorm
+       )
+       ORDER BY w.pnorm, v.sort_ts DESC NULLS LAST, v.id DESC`,
+      [norms]
+    );
+
+    const out = Object.fromEntries(norms.map((n) => [n, null]));
+    for (const row of r.rows || []) {
+      const key = row.pnorm;
+      if (!key || out[key]) continue;
+      out[key] = mapVehicleRowToApiVehicle(row);
+    }
+    return res.json(out);
+  } catch (err) {
+    sendApiError(res, err, 500, 'VEHICLES_LOOKUP_BATCH_FAILED');
+  }
+});
+
 api.get("/vehicles/:id", async (req, res) => {
   try {
     const id = req.params.id;

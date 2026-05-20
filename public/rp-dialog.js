@@ -2,6 +2,14 @@
 (function () {
   'use strict';
 
+  function inferAlertType(message) {
+    const s = String(message == null ? '' : message);
+    if (/❌|hata|başarısız|basarisiz|geçersiz|gecersiz/i.test(s)) return 'danger';
+    if (/✅|başarı|basari|tamamlandı|tamamlandi|kopyalandı|kopyalandi/i.test(s)) return 'success';
+    if (/⚠️|uyarı|uyari|dikkat/i.test(s)) return 'warning';
+    return 'info';
+  }
+
   function initRpDialog() {
     if (window.rpDialog && window.rpDialog._ready) return;
 
@@ -155,30 +163,28 @@
     window.rpUi = {
       alert: function (message, type) {
         initRpDialog();
-        if (window.rpDialog) return window.rpDialog.alert(message, type || 'info');
-        alert(message);
-        return Promise.resolve();
+        if (!window.rpDialog) return Promise.resolve();
+        return window.rpDialog.alert(message, type || inferAlertType(message));
       },
       confirm: function (message, opts) {
         initRpDialog();
-        if (window.rpDialog) return window.rpDialog.confirm(message, opts);
-        return Promise.resolve(confirm(message));
+        if (!window.rpDialog) return Promise.resolve(false);
+        return window.rpDialog.confirm(message, opts);
       },
       password: function (message) {
         initRpDialog();
-        if (window.rpDialog) return window.rpDialog.password(message);
-        return Promise.resolve(window.prompt(message));
+        if (!window.rpDialog) return Promise.resolve(null);
+        return window.rpDialog.password(message);
       },
       prompt: function (message, opts) {
         initRpDialog();
-        if (window.rpDialog) return window.rpDialog.prompt(message, opts);
-        return Promise.resolve(window.prompt(message));
+        if (!window.rpDialog) return Promise.resolve(null);
+        return window.rpDialog.prompt(message, opts);
       },
       alertActions: function (message, type, buttons) {
         initRpDialog();
-        if (window.rpDialog) return window.rpDialog.actions(message, type, buttons);
-        alert(message);
-        return Promise.resolve('ok');
+        if (!window.rpDialog) return Promise.resolve('ok');
+        return window.rpDialog.actions(message, type, buttons);
       },
       /** Onay + şifre (varsayılan: 2026genper) */
       confirmSecureDelete: async function (opts) {
@@ -187,21 +193,12 @@
         const pwd = opts.password || '2026genper';
         const msg = opts.message || 'Bu işlem geri alınamaz. Devam edilsin mi?';
         let ok = false;
-        if (window.rpDialog) {
-          ok = await window.rpDialog.confirm(msg, {
-            okLabel: opts.okLabel || 'Sil',
-            cancelLabel: opts.cancelLabel || 'İptal'
-          });
-        } else {
-          ok = confirm(msg);
-        }
+        ok = await window.rpDialog.confirm(msg, {
+          okLabel: opts.okLabel || 'Sil',
+          cancelLabel: opts.cancelLabel || 'İptal'
+        });
         if (!ok) return { ok: false, cancelled: true };
-        let entered = null;
-        if (window.rpDialog) {
-          entered = await window.rpDialog.password(opts.passwordMessage || 'Silme şifresini giriniz:');
-        } else {
-          entered = prompt(opts.passwordMessage || 'Silme şifresini giriniz:');
-        }
+        let entered = await window.rpDialog.password(opts.passwordMessage || 'Silme şifresini giriniz:');
         if (entered == null || entered === false) return { ok: false, cancelled: true };
         if (String(entered).trim() !== pwd) {
           await window.rpUi.alert('Şifre hatalı.', 'danger');
@@ -226,5 +223,71 @@
     };
   }
 
-  initRpDialog();
+  function whenBodyReady(fn) {
+    if (document.body) {
+      fn();
+      return;
+    }
+    document.addEventListener('DOMContentLoaded', fn, { once: true });
+  }
+
+  function patchNativeDialogs() {
+    if (window.__rpNativeDialogsPatched) return;
+    window.__rpNativeDialogsPatched = true;
+
+    window.__rpNativeAlert = window.alert;
+    window.__rpNativeConfirm = window.confirm;
+    window.__rpNativePrompt = window.prompt;
+
+    window.alert = function (message) {
+      whenBodyReady(function () {
+        initRpDialog();
+        if (!window.rpDialog) return;
+        void window.rpDialog.alert(String(message == null ? '' : message), inferAlertType(message));
+      });
+    };
+
+    window.confirm = function (message) {
+      return new Promise(function (resolve) {
+        whenBodyReady(function () {
+          initRpDialog();
+          if (!window.rpDialog) {
+            resolve(false);
+            return;
+          }
+          window.rpDialog.confirm(String(message == null ? '' : message), {
+            okLabel: 'Tamam',
+            cancelLabel: 'İptal'
+          }).then(resolve);
+        });
+      });
+    };
+
+    window.prompt = function (message, defaultValue) {
+      return new Promise(function (resolve) {
+        whenBodyReady(function () {
+          initRpDialog();
+          if (!window.rpDialog) {
+            resolve(null);
+            return;
+          }
+          window.rpDialog.prompt(String(message == null ? '' : message), {
+            defaultValue: defaultValue != null ? String(defaultValue) : '',
+            type: 'reason'
+          }).then(resolve);
+        });
+      });
+    };
+  }
+
+  function bootstrapRpDialog() {
+    initRpDialog();
+    patchNativeDialogs();
+  }
+
+  if (document.body) {
+    bootstrapRpDialog();
+  } else {
+    document.addEventListener('DOMContentLoaded', bootstrapRpDialog, { once: true });
+  }
 })();

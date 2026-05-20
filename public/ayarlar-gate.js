@@ -47,7 +47,10 @@
     if (global.rpDialog && typeof global.rpDialog.password === 'function') {
       return global.rpDialog.password(msg);
     }
-    return global.prompt(msg);
+    if (global.rpUi && typeof global.rpUi.password === 'function') {
+      return global.rpUi.password(msg);
+    }
+    return null;
   }
 
   async function verifyPassword(password) {
