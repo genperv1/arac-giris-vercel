@@ -15,7 +15,6 @@
     week: null,
     sheet: null,
     loadedAt: null,
-    pendingBosOnPrint: false,
   };
 
   function saveState(){
@@ -669,7 +668,7 @@
         <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden;">
           <div style="padding:14px 16px;border-bottom:1px solid #eee;">
             <div style="font-weight:900;font-size:16px;">Arabanın boşu kaç?</div>
-            <div style="font-size:12px;color:#666;margin-top:4px;">Yazdırmada form başlığının altına yazılır (ör: NET BOŞ AĞIRLIK : 14400). İsteğe bağlı — Kapat ile atlanır.</div>
+            <div style="font-size:12px;color:#666;margin-top:4px;">HP / hp / Hp ile başlayan tüm firmalarda yazdırırken sorulur (elle veya Piyasa Excel). İsteğe bağlı — Kapat ile atlanır.</div>
           </div>
           <div style="padding:14px 16px;">
             <label style="display:block;font-size:12px;color:#555;margin-bottom:6px;">Boş ağırlık (kg)</label>
@@ -734,25 +733,34 @@
     }
   }
 
-  function markPendingBosOnPrint() {
-    state.pendingBosOnPrint = true;
+  function firmaKodFromInput(str) {
+    try {
+      if (typeof getFirmaKodOnly === 'function') return getFirmaKodOnly(str);
+    } catch (_) {}
+    return String(str || '').split('/')[0].trim();
   }
 
-  function clearPendingBosOnPrint() {
-    state.pendingBosOnPrint = false;
+  function isHpFirma(firmaStr) {
+    const kod = firmaKodFromInput(firmaStr);
+    return /^hp/i.test(kod);
   }
 
-  /** Piyasa siparişi seçildikten sonra Yazdır’a basınca sorulur */
+  function getCurrentFirmaKodu() {
+    const inp = document.getElementById('firmaKodu');
+    const sel = document.getElementById('firmaSelect');
+    return (inp?.value || '').trim() || (sel?.value || '').trim();
+  }
+
+  /** Yazdır: HP / hp / Hp ile başlayan firmada her zaman sor (elle veya Piyasa Excel) */
   async function maybePromptAracBosuBeforePrint() {
-    if (!state.pendingBosOnPrint) return;
-    state.pendingBosOnPrint = false;
+    const firma = getCurrentFirmaKodu();
+    if (!isHpFirma(firma)) return;
     const bosKg = await promptAracBosuTonaj();
     applyAracBosuToForm(bosKg);
   }
 
   function applyOrderFromPicker(o) {
     applyOrderToForm(o);
-    markPendingBosOnPrint();
   }
 
   function applyOrderToForm(o){
@@ -1526,7 +1534,7 @@
   window.piyasa.applyOrderToForm = applyOrderToForm;
   window.piyasa.applyOrderFromPicker = applyOrderFromPicker;
   window.piyasa.maybePromptAracBosuBeforePrint = maybePromptAracBosuBeforePrint;
-  window.piyasa.clearPendingBosOnPrint = clearPendingBosOnPrint;
+  window.piyasa.isHpFirma = isHpFirma;
   window.piyasa.promptAracBosuTonaj = promptAracBosuTonaj;
   window.piyasa.applyAracBosuToForm = applyAracBosuToForm;
   window.piyasa._state = state;

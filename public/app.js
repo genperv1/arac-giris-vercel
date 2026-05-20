@@ -4814,7 +4814,6 @@ try {
               const ab = document.getElementById('aracBosuSatir');
               if (ab) { ab.textContent = ''; ab.hidden = true; }
             } catch(e){}
-            try { window.piyasa?.clearPendingBosOnPrint?.(); } catch(e){}
         }
 
         function validateTakipForm(){
