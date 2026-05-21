@@ -40,14 +40,51 @@
     return hay.includes(want) || want.includes(hay);
   }
 
-  function normMalzeme(s) {
-    return norm(s).replace(/[^A-Z0-9]/g, '');
+  function malzemeUpper(s) {
+    return String(s || '')
+      .toUpperCase()
+      .replace(/\u0130/g, 'I')
+      .replace(/İ/g, 'I');
   }
 
+  /** Acik P1 veya P2 malzeme sinifi (P1, P2, P-1, P/2 vb.) */
+  function hasExplicitP1P2Code(s) {
+    return (
+      /(?:^|[^A-Z0-9])P1(?:[^A-Z0-9]|$)/.test(s) ||
+      /(?:^|[^A-Z0-9])P2(?:[^A-Z0-9]|$)/.test(s) ||
+      /(?:^|[^A-Z0-9])P\s*[-/]\s*1(?:[^A-Z0-9]|$)/.test(s) ||
+      /(?:^|[^A-Z0-9])P\s*[-/]\s*2(?:[^A-Z0-9]|$)/.test(s)
+    );
+  }
+
+  /**
+   * P1/P2 malzeme kodu mu?
+   * - HP 1,20-2,80 gibi granulometri KODLARI sayilmaz (HP icindeki P + bosluk + 1 yanlis pozitif)
+   * - HP2 / HP11 / HP22 icindeki alt dizi sayilmaz
+   */
   function malzemeHasP1P2(malzeme) {
-    const m = normMalzeme(malzeme);
-    if (!m) return false;
-    return m.includes('P1') || m.includes('P2');
+    const s = malzemeUpper(malzeme);
+    if (!s.trim()) return false;
+
+    if (/\bHP\s*\d/.test(s)) {
+      const withoutHpGrade = s.replace(/\bHP\s*[\d.,\-/]+(?:\s*[\d.,\-/]*)*/gi, ' ');
+      if (!hasExplicitP1P2Code(withoutHpGrade)) return false;
+    }
+
+    return hasExplicitP1P2Code(s);
+  }
+
+  /** Not metni veya kurali malzemenin gercekten P1/P2 olmasini gerektiriyor mu */
+  function noteRequiresP1P2Material(note) {
+    const rules = (note && note.rules) || {};
+    if (rules.malzeme_p1p2) return true;
+    const b = normTr(note && note.body);
+    if (!b) return false;
+    return (
+      b.includes('MALZEME') &&
+      b.includes('P1') &&
+      b.includes('P2')
+    );
   }
 
   function extractYdTokens(text) {
@@ -197,7 +234,7 @@
         ydKeyMatches(ctx.ydKeys, code);
       if (!okFirma) return false;
     }
-    if (rules.malzeme_p1p2 && !malzemeHasP1P2(ctx.malzeme)) return false;
+    if (noteRequiresP1P2Material(note) && !malzemeHasP1P2(ctx.malzeme)) return false;
     if (rules.sehir && !sehirMatches(ctx.sehirHaystack, rules.sehir)) return false;
     return true;
   }
@@ -303,7 +340,13 @@
   }
 
   async function confirmBeforePrint(opts) {
-    const ctx = buildPrintContext(opts || {});
+    opts = opts || {};
+    // Yalnızca Takip Formu'nda Yazdır tıklanınca göster (form açılışı / Enter ile yanlış tetiklenmesin)
+    if (opts.source !== 'yazdir') return true;
+    const modal = document.getElementById('takipFormuModal');
+    if (!modal || modal.classList.contains('hidden')) return true;
+
+    const ctx = buildPrintContext(opts);
     const notes = await fetchActiveNotes();
     const matches = notes.filter((n) => noteMatches(n, ctx));
     if (!matches.length) return true;

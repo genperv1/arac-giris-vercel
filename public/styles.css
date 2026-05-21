@@ -2285,3 +2285,251 @@ html.allow-ui-motion:not(.reduce-motion-os) .login-loading__spinner {
     display: none;
   }
 }
+
+/* =========================================================
+   EXCEL DÜZELTME — indigo / slate (tek sayfa, kaydırmasız)
+   ========================================================= */
+
+.excel-review-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  animation: none !important;
+  transition: none !important;
+}
+
+.excel-review-modal {
+  width: min(1080px, 99vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  color: var(--text, #334155);
+  animation: none !important;
+  transition: none !important;
+}
+
+.excel-review-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.15rem;
+  background: linear-gradient(to right, #1e293b, #4338ca);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.excel-review-modal__header-main {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.excel-review-modal__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 1.35rem;
+  flex-shrink: 0;
+}
+
+.excel-review-modal__title {
+  margin: 0;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.excel-review-modal__subtitle {
+  margin: 0.2rem 0 0;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.4;
+}
+
+.excel-review-modal__subtitle b {
+  color: #fff;
+  font-weight: 700;
+}
+
+.excel-review-modal__body {
+  padding: 0.85rem 1.1rem 0.75rem;
+  flex-shrink: 0;
+}
+
+.excel-review-grid {
+  display: grid;
+  gap: 0.55rem 0.75rem;
+}
+
+.excel-review-grid--2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.excel-review-grid--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.excel-review-grid--4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.excel-review-grid + .excel-review-grid {
+  margin-top: 0.55rem;
+}
+
+.excel-review-field label {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #475569;
+  line-height: 1.25;
+}
+
+.excel-review-field input,
+.excel-review-field select {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 2.65rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #0f172a;
+  background: #fff;
+  font-family: inherit;
+  line-height: 1.35;
+}
+
+.excel-review-field select {
+  min-height: 2.35rem;
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.excel-review-field input:focus,
+.excel-review-field select:focus {
+  outline: none;
+  border-color: var(--accent, #4f46e5);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
+
+.excel-review-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+
+.excel-review-modal__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.55rem 1.25rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.excel-review-modal__btn--ghost {
+  background: #fff;
+  color: var(--text, #334155);
+  border-color: var(--border, #e2e8f0);
+}
+
+.excel-review-modal__btn--ghost:hover {
+  background: var(--surface-muted, #f8fafc);
+}
+
+.excel-review-modal__btn--apply {
+  background: var(--accent, #4f46e5);
+  color: #fff;
+  border-color: var(--accent, #4f46e5);
+}
+
+.excel-review-modal__btn--apply:hover {
+  background: #4338ca;
+  border-color: #4338ca;
+}
+
+.excel-review-modal__header .excel-review-modal__btn--ghost {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.95rem;
+}
+
+.excel-review-modal__header .excel-review-modal__btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Kiosk / büyük ekran: Excel düzeltme daha da okunaklı */
+body.kiosk-mode .excel-review-modal__title {
+  font-size: 1.5rem;
+}
+
+body.kiosk-mode .excel-review-modal__subtitle {
+  font-size: 1.05rem;
+}
+
+body.kiosk-mode .excel-review-field label {
+  font-size: 0.875rem;
+}
+
+body.kiosk-mode .excel-review-field input {
+  font-size: 1.15rem;
+  min-height: 2.85rem;
+}
+
+body.kiosk-mode .excel-review-field select {
+  font-size: 1rem;
+}
+
+body.kiosk-mode .excel-review-modal__btn {
+  font-size: 1.1rem;
+  min-height: 3rem;
+  padding: 0.65rem 1.4rem;
+}
+
+@media (max-width: 720px) {
+  .excel-review-grid--4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .excel-review-grid--3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}

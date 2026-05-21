@@ -213,7 +213,7 @@
       '</ul></div></div>' +
       '<p class="vn-excel-hint">' +
       '<b>Kurallar dosyaya bağlı değil.</b> Excel yenilense veya silinse bile notlar sunucuda kalır. ' +
-      '<b>Firma</b> ve <b>P1/P2</b> kuralları yazdırırken formdaki değerlere bakar (Excel şart değil). ' +
+      '<b>Firma</b> ve <b>P1/P2</b> kuralları yazdırırken formdaki malzeme alanına bakar (HP2 gibi kodlar P2 sayılmaz; Excel şart değil). ' +
       '<b>YD</b> kuralı: plaka ihracat listesinde o YD bloğundaysa veya formda firma/not alanında YD geçiyorsa uyarı verir.' +
       '</p>';
   }

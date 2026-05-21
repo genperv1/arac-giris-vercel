@@ -756,6 +756,63 @@ function _nz(v) {
   return s;
 }
 
+/** İhracat Excel: A sütunundaki R11… irsaliye numarası (başlık satırında "İRSALİYE NO" olmayabilir) */
+function looksLikeIrsaliyeNo(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return false;
+  if (/^YD\d+/i.test(s)) return false;
+  if (/^(SIRANO|PLAKA|TOPLAM|KALAN)$/i.test(s)) return false;
+  const compact = s.replace(/\s+/g, '');
+  return /^(R\d{1,3})\d{6,12}$/i.test(compact) || /^R\d{1,3}\s+\d{6,12}$/i.test(s);
+}
+
+function normalizeIrsaliyeNo(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  const compact = s.replace(/\s+/g, '');
+  const m = compact.match(/^(R\d{1,3})(\d{6,12})$/i);
+  if (m) return `${m[1].toUpperCase()} ${m[2]}`;
+  const m2 = s.match(/^(R\d{1,3})\s+(\d{6,12})$/i);
+  if (m2) return `${m2[1].toUpperCase()} ${m2[2]}`;
+  return s;
+}
+
+function resolveIrsaliyeFromRow(d, cols) {
+  const row = d || [];
+  if (cols && cols.irsaliyeNo !== undefined) {
+    const fromCol = row[cols.irsaliyeNo];
+    if (fromCol != null && String(fromCol).trim()) {
+      const n = normalizeIrsaliyeNo(fromCol);
+      if (n) return n;
+    }
+  }
+  const a0 = row[0];
+  if (a0 != null && looksLikeIrsaliyeNo(a0)) return normalizeIrsaliyeNo(a0);
+  return '';
+}
+
+function getShipmentIrsaliyeNo(shipment) {
+  if (!shipment) return '';
+  const direct = normalizeIrsaliyeNo(shipment.irsaliyeNo);
+  if (direct) return direct;
+  const fromId = String(shipment.id || '').trim();
+  if (looksLikeIrsaliyeNo(fromId)) return normalizeIrsaliyeNo(fromId);
+  return '';
+}
+
+function detectIrsaliyeColumnIndex(grid, headerRowIdx, cols) {
+  if (cols.irsaliyeNo !== undefined) return cols.irsaliyeNo;
+  const candidates = [0];
+  if (cols.sirano !== undefined && cols.sirano > 0) candidates.push(cols.sirano - 1);
+  for (const c of candidates) {
+    for (let r = headerRowIdx + 1; r < Math.min(grid.length, headerRowIdx + 25); r++) {
+      const row = grid[r] || [];
+      if (looksLikeIrsaliyeNo(row[c])) return c;
+    }
+  }
+  return undefined;
+}
+
 const DAILY_SHIPMENT_KEY = 'daily_shipments_current';
 
 // ✅ Firma bazlı düzeltme hafızası (özellikle Sevk Yeri / Liman)
@@ -1477,6 +1534,10 @@ async function importDailyExcel(file) {
     return { ok:false, msg:'Excel formatı tanınmadı (SIRANO veya PLAKA bulunamadı).' };
   }
 
+  // Başlıkta "İRSALİYE NO" yoksa A sütunu (R11…) otomatik tanı
+  const irsaliyeCol = detectIrsaliyeColumnIndex(grid, headerRowIdx, cols);
+  if (irsaliyeCol !== undefined) cols.irsaliyeNo = irsaliyeCol;
+
   const rowsOut = [];
 
   for (let r = 0; r < grid.length; r++) {
@@ -1520,8 +1581,9 @@ const ydKey = (((firmaFromN || '').match(/\b(YD\d{1,4})\b/i) || [])[1] || ydFrom
 // ✅ Firma = N sütunundaki TAM hücre
 const firma = String(firmaFromN || ydKey || '').trim();
 
+     const irsaliyeNo = resolveIrsaliyeFromRow(d, cols);
      rowsOut.push({
-  id: String(d[0] || '').trim(),
+  id: irsaliyeNo || String(d[0] || '').trim(),
   sira: cols.sirano !== undefined ? (d[cols.sirano] != null ? String(d[cols.sirano]).trim() : '') : '',
   plaka: normPlate(plakaRaw),
   ydKey: ydKey,
@@ -1529,7 +1591,7 @@ const firma = String(firmaFromN || ydKey || '').trim();
   fileName: String(file.name || '').trim(),
 firma: (firma || '').slice(0, 40),
 
-  irsaliyeNo: cols.irsaliyeNo !== undefined ? (d[cols.irsaliyeNo] != null ? String(d[cols.irsaliyeNo]).trim() : '') : '',
+  irsaliyeNo,
   malzeme: cols.malzeme !== undefined ? (d[cols.malzeme] != null ? String(d[cols.malzeme]).trim() : '') : '',
   tonajKg: cols.tonajKg !== undefined ? _nz(d[cols.tonajKg]) : '',
   bbt: cols.bbt !== undefined ? _nz(d[cols.bbt]) : '',
@@ -2130,7 +2192,7 @@ function applyShipmentTonajAndIrsaliye(chosen) {
     if (tonajEl && t) tonajEl.value = t;
 
     const notuEl = document.getElementById('yuklemeNotu');
-    const irs = chosen.irsaliyeNo != null ? String(chosen.irsaliyeNo).trim() : '';
+    const irs = getShipmentIrsaliyeNo(chosen);
     if (notuEl && irs) {
       const mevcut = String(notuEl.value || '').trim();
       const irsaliyeText = 'İrsaliye No: ' + irs;
@@ -3335,7 +3397,9 @@ function showTakipFormu(vehicle) {
 
                     e.preventDefault();
 
-                    const focusables = Array.from(rootEl.querySelectorAll('input, select, textarea, button'))
+                    // Sadece form alanları (Yazdır/Önizleme/Kapat butonlarına Enter ile düşmesin)
+                    const formScope = rootEl.querySelector('.takip-form') || rootEl;
+                    const focusables = Array.from(formScope.querySelectorAll('input, select, textarea'))
                         .filter(el => !el.disabled && el.type !== 'hidden' && el.offsetParent !== null);
 
                     const idx = focusables.indexOf(target);
@@ -5770,19 +5834,7 @@ function toWhatsAppPhone(input) {
                     if (window.AyarlarGate && typeof window.AyarlarGate.openAyarlarPage === 'function') {
                         await window.AyarlarGate.openAyarlarPage();
                     } else {
-                        const pw = await window.rpUi.password('Ayarlar parolası:');
-                        if (pw == null) return;
-                        const r = await fetch('/api/settings/verify-access', {
-                            method: 'POST',
-                            credentials: 'include',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                Authorization: localStorage.getItem('authToken') ? 'Bearer ' + localStorage.getItem('authToken') : ''
-                            },
-                            body: JSON.stringify({ password: pw })
-                        });
-                        if (!r.ok) { alert('Hatalı parola.'); return; }
-                        window.open('ayarlar.html', '_blank');
+                        try { window.open('ayarlar.html', '_blank'); } catch (e) { location.href = 'ayarlar.html'; }
                     }
                 } catch (e) {
                     console.warn('Ayarlar açılamadı', e);
@@ -5819,25 +5871,17 @@ function toWhatsAppPhone(input) {
               }
             });
 
-            // Plaka yazılınca: sayaç/uyarı güncelle + sorun varsa Enter/blur ile otomatik aç
+            // Yeni kayıt formu: plaka yazılınca sorun varsa Enter/blur ile modal aç (Excel düzenleme burada açılmaz)
             const _plateEl = document.getElementById('cekiciPlaka');
             if (_plateEl) {
               safeBind(_plateEl, 'keydown', (e) => {
                 if (e.key === 'Enter') {
                   const p = _plateEl.value || '';
-
-                  // ✅ Plaka elle yazılsa bile Excel'den otomatik aday/Sevkiyat seçimi çıksın
-                  try { applyShipmentToTakipForm({ cekiciPlaka: p }); } catch (e) {}
-
                   if (getIssueCount(p) > 0) openIssuesModal(p);
                 }
               }, 'issuesEnter');
               safeBind(_plateEl, 'blur', () => {
                 const p = _plateEl.value || '';
-
-                // ✅ Plaka elle yazılsa bile Excel'den otomatik aday/Sevkiyat seçimi çıksın
-                try { applyShipmentToTakipForm({ cekiciPlaka: p }); } catch (e) {}
-
                 if (getIssueCount(p) > 0) openIssuesModal(p);
               }, 'issuesBlur');
             }
@@ -6371,6 +6415,9 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
             window.__shortcutsBound = true;
             document.addEventListener('keydown', function (e) {
                 if (!isLoggedIn) return;
+                const rpOv = document.getElementById('rpDialogOverlay');
+                if (rpOv && !rpOv.hidden) return;
+                if (window.rpDialog && typeof window.rpDialog.isOpen === 'function' && window.rpDialog.isOpen()) return;
 
                 const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
                 const typingInField = tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable);
@@ -7359,7 +7406,8 @@ function setupTakipFormButtons() {
                 if (window.OperationNotesAlert && typeof window.OperationNotesAlert.confirmBeforePrint === 'function') {
                     await window.OperationNotesAlert.confirmBeforePrint({
                         plaka: plateFromForm,
-                        get
+                        get,
+                        source: 'yazdir'
                     });
                 }
             } catch (vnErr) {
@@ -7506,6 +7554,9 @@ if (!window.__escCloseBound) {
   window.__escCloseBound = true;
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'Escape') return;
+    const rpOv = document.getElementById('rpDialogOverlay');
+    if (rpOv && !rpOv.hidden) return;
+    if (window.rpDialog && typeof window.rpDialog.isOpen === 'function' && window.rpDialog.isOpen()) return;
     if (typeof isLoggedIn !== 'undefined' && !isLoggedIn) return;
 
     // Önce açık modalları kapat
@@ -7563,116 +7614,92 @@ function openExcelReviewUI({ plate, chosen, candidates, ydKey, onApply }){
 
   const overlay = document.createElement('div');
   overlay.id = 'excelReviewOverlay';
-  overlay.style.cssText = `
-    position: fixed; inset: 0; z-index: 999999;
-    background: rgba(0,0,0,.55);
-    display: flex; align-items: flex-start; justify-content: center;
-    padding: 24px;
-  `;
+  overlay.className = 'excel-review-overlay';
 
   const card = document.createElement('div');
-  card.style.cssText = `
-    width: min(820px, 98vw);
-    max-height: 92vh;
-    overflow: auto;
-    background: #101217;
-    color: #fff;
-    border: 1px solid rgba(255,255,255,.15);
-    border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0,0,0,.5);
-    padding: 18px;
-  `;
-
-  const inputStyle = `width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.18); background:#0b0d12; color:#fff;`;
-  const labelStyle = `font-size:12px; opacity:.85; margin: 10px 0 6px; display:block;`;
+  card.className = 'excel-review-modal';
 
   const safe = (v) => (v == null ? '' : String(v));
+  const esc = (v) => (typeof escapeHtml === 'function' ? escapeHtml(safe(v)) : safe(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'));
 
   card.innerHTML = `
-    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
-      <div>
-        <div style="font-size:18px; font-weight:800;">🧾 Excel Düzeltme</div>
-        <div style="opacity:.85; margin-top:6px; font-size:13px;">
-          Plaka: <b>${safe(plate||'')}</b>
-        </div>
-        <div style="opacity:.75; margin-top:6px; font-size:12px;">
-          Excel’den gelen bilgileri kontrol et. Yanlış olanı düzeltip <b>Uygula</b> de.
+    <div class="excel-review-modal__header">
+      <div class="excel-review-modal__header-main">
+        <span class="excel-review-modal__icon" aria-hidden="true">🧾</span>
+        <div>
+          <h2 class="excel-review-modal__title">Excel Düzeltme</h2>
+          <p class="excel-review-modal__subtitle">
+            Plaka: <b>${esc(plate||'')}</b>
+            · Excel’den gelen bilgileri kontrol et, düzeltip <b>Uygula</b>.
+          </p>
         </div>
       </div>
-      <button id="excelReviewCloseBtn"
-        style="background:#2b2f3a;color:#fff;border:1px solid rgba(255,255,255,.18);padding:10px 14px;border-radius:12px;cursor:pointer;">
-        Kapat
-      </button>
+      <button type="button" id="excelReviewCloseBtn" class="excel-review-modal__btn excel-review-modal__btn--ghost">Kapat</button>
     </div>
 
-    <div style="margin-top:14px; border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:14px;">
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-        <div>
-          <label style="${labelStyle}">FİRMA / MÜŞTERİ KODU</label>
-          <input id="xr_firma" style="${inputStyle}" value="${safe(chosen?.firma || '')}">
+    <div class="excel-review-modal__body">
+      <div class="excel-review-grid excel-review-grid--2">
+        <div class="excel-review-field">
+          <label for="xr_firma">FİRMA / MÜŞTERİ KODU</label>
+          <input id="xr_firma" type="text" value="${esc(chosen?.firma || '')}">
         </div>
-        <div>
-          <label style="${labelStyle}">MALZEME</label>
-          <input id="xr_malzeme" style="${inputStyle}" value="${safe(chosen?.malzeme || '')}">
+        <div class="excel-review-field">
+          <label for="xr_malzeme">MALZEME</label>
+          <input id="xr_malzeme" type="text" value="${esc(chosen?.malzeme || '')}">
         </div>
-
-        <div>
-          <label style="${labelStyle}">SEVK YERİ</label>
-          <select id="xr_sevkYeriCand" style="${inputStyle} padding:8px 10px; margin-bottom:8px;">
+        <div class="excel-review-field">
+          <label for="xr_sevkYeri">SEVK YERİ</label>
+          <select id="xr_sevkYeriCand">
             <option value="">(Aday seç / boş bırak)</option>
           </select>
-          <input id="xr_sevkYeri" style="${inputStyle}" value="${safe(chosen?.sevkYeri || '')}">
+          <input id="xr_sevkYeri" type="text" value="${esc(chosen?.sevkYeri || '')}">
         </div>
-        <div>
-          <label style="${labelStyle}">AMBALAJ BİLGİSİ</label>
-          <select id="xr_ambalajCand" style="${inputStyle} padding:8px 10px; margin-bottom:8px;">
+        <div class="excel-review-field">
+          <label for="xr_ambalaj">AMBALAJ BİLGİSİ</label>
+          <select id="xr_ambalajCand">
             <option value="">(Aday seç / boş bırak)</option>
           </select>
-          <input id="xr_ambalaj" style="${inputStyle}" value="${safe(chosen?.ambalaj || '')}">
-        </div>
-
-        <div>
-          <label style="${labelStyle}">BBT</label>
-          <input id="xr_bbt" style="${inputStyle}" value="${safe(chosen?.bbt || '')}">
-        </div>
-        <div>
-          <label style="${labelStyle}">BOŞ BBT</label>
-          <input id="xr_bosBbt" style="${inputStyle}" value="${safe(chosen?.bosBbt || '')}">
-        </div>
-
-        <div>
-          <label style="${labelStyle}">ÇUVAL</label>
-          <input id="xr_cuval" style="${inputStyle}" value="${safe(chosen?.cuval || '')}">
-        </div>
-        <div>
-          <label style="${labelStyle}">BOŞ ÇUVAL</label>
-          <input id="xr_bosCuval" style="${inputStyle}" value="${safe(chosen?.bosCuval || '')}">
-        </div>
-
-        <div>
-          <label style="${labelStyle}">PALET</label>
-          <input id="xr_palet" style="${inputStyle}" value="${safe(chosen?.palet || '')}">
-        </div>
-
-        <div>
-          <label style="${labelStyle}">TONAJ (KG)</label>
-          <input id="xr_tonaj" style="${inputStyle}" value="${safe(chosen?.tonajKg || '')}">
-        </div>
-        <div>
-          <label style="${labelStyle}">İRSALİYE NO</label>
-          <input id="xr_irsaliye" style="${inputStyle}" value="${safe(chosen?.irsaliyeNo || '')}">
+          <input id="xr_ambalaj" type="text" value="${esc(chosen?.ambalaj || '')}">
         </div>
       </div>
 
-      <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px;">
-        <button id="excelReviewCancelBtn"
-          style="background:#2b2f3a;color:#fff;border:1px solid rgba(255,255,255,.18);padding:10px 14px;border-radius:12px;cursor:pointer;">
-          İptal
-        </button>
-        <button id="excelReviewApplyBtn"
-          style="background:#22c55e;color:#0b0d12;border:none;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:900;">
-          Uygula
-        </button>
+      <div class="excel-review-grid excel-review-grid--4">
+        <div class="excel-review-field">
+          <label for="xr_bbt">BBT</label>
+          <input id="xr_bbt" type="text" value="${esc(chosen?.bbt || '')}">
+        </div>
+        <div class="excel-review-field">
+          <label for="xr_bosBbt">BOŞ BBT</label>
+          <input id="xr_bosBbt" type="text" value="${esc(chosen?.bosBbt || '')}">
+        </div>
+        <div class="excel-review-field">
+          <label for="xr_cuval">ÇUVAL</label>
+          <input id="xr_cuval" type="text" value="${esc(chosen?.cuval || '')}">
+        </div>
+        <div class="excel-review-field">
+          <label for="xr_bosCuval">BOŞ ÇUVAL</label>
+          <input id="xr_bosCuval" type="text" value="${esc(chosen?.bosCuval || '')}">
+        </div>
+      </div>
+
+      <div class="excel-review-grid excel-review-grid--3">
+        <div class="excel-review-field">
+          <label for="xr_palet">PALET</label>
+          <input id="xr_palet" type="text" value="${esc(chosen?.palet || '')}">
+        </div>
+        <div class="excel-review-field">
+          <label for="xr_tonaj">TONAJ (KG)</label>
+          <input id="xr_tonaj" type="text" value="${esc(chosen?.tonajKg || '')}">
+        </div>
+        <div class="excel-review-field">
+          <label for="xr_irsaliye">İRSALİYE NO</label>
+          <input id="xr_irsaliye" type="text" value="${esc(getShipmentIrsaliyeNo(chosen))}">
+        </div>
+      </div>
+
+      <div class="excel-review-modal__footer">
+        <button type="button" id="excelReviewCancelBtn" class="excel-review-modal__btn excel-review-modal__btn--ghost">İptal</button>
+        <button type="button" id="excelReviewApplyBtn" class="excel-review-modal__btn excel-review-modal__btn--apply">Uygula</button>
       </div>
     </div>
   `;
@@ -8635,7 +8662,7 @@ function showIhracatDetailsModal() {
         <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(s.malzeme || '')}</td>
         <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(s.tonajKg || '')}</td>
         <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(ambalaj)}</td>
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(s.irsaliyeNo || '')}</td>
+        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(getShipmentIrsaliyeNo(s))}</td>
         <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(durum)}</td>
       </tr>
     `;

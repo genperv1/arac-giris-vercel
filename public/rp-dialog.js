@@ -37,6 +37,52 @@
     if (!overlay || !iconEl || !titleEl || !bodyEl || !actionsEl) return;
 
     let resolveDialog = null;
+    let previousFocus = null;
+    let trapKeydown = null;
+
+    function isOpen() {
+      return !!resolveDialog && overlay && !overlay.hidden;
+    }
+
+    function engageTrap() {
+      if (trapKeydown) return;
+      trapKeydown = function (e) {
+        if (!isOpen()) return;
+        if (overlay.contains(e.target)) return;
+        var blockKeys = e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter' ||
+          (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey);
+        if (!blockKeys) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var inp = bodyEl.querySelector('.rp-dialog-input');
+        if (inp) inp.focus();
+        else {
+          var btn = actionsEl.querySelector('button');
+          if (btn) btn.focus();
+        }
+      };
+      document.addEventListener('keydown', trapKeydown, true);
+    }
+
+    function releaseTrap() {
+      if (trapKeydown) {
+        document.removeEventListener('keydown', trapKeydown, true);
+        trapKeydown = null;
+      }
+    }
+
+    function focusDialogField(el) {
+      if (!el || typeof el.focus !== 'function') return;
+      try {
+        el.focus({ preventScroll: true });
+      } catch (e) {
+        try { el.focus(); } catch (_e) {}
+      }
+      try {
+        if (typeof el.select === 'function') el.select();
+      } catch (e2) { /* ignore */ }
+    }
+
     const ICONS = {
       success: { cls: 'is-success', icon: 'fa-check', title: 'Başarılı' },
       warning: { cls: 'is-warning', icon: 'fa-exclamation-triangle', title: 'Uyarı' },
@@ -55,11 +101,22 @@
     }
 
     function close(result) {
+      const inp = bodyEl.querySelector('.rp-dialog-input');
+      if (inp && (inp.type === 'password' || inp.autocomplete === 'new-password')) {
+        inp.value = '';
+      }
+      releaseTrap();
       overlay.hidden = true;
       document.body.style.overflow = '';
+      overlay.removeAttribute('aria-hidden');
       const fn = resolveDialog;
       resolveDialog = null;
+      const restore = previousFocus;
+      previousFocus = null;
       if (typeof fn === 'function') fn(result);
+      if (restore && typeof restore.focus === 'function' && document.contains(restore)) {
+        try { restore.focus({ preventScroll: true }); } catch (e) { try { restore.focus(); } catch (_e) {} }
+      }
     }
 
     function openDialog(type, message, buttons, opts) {
@@ -77,7 +134,8 @@
           const input = document.createElement('input');
           input.type = opts.inputType || 'text';
           input.className = 'rp-dialog-input';
-          input.autocomplete = 'off';
+          input.autocomplete = (opts.inputType === 'password') ? 'new-password' : 'off';
+          if (opts.inputType === 'password') input.setAttribute('data-lpignore', 'true');
           input.setAttribute('aria-label', message);
           if (opts.placeholder) input.placeholder = opts.placeholder;
           if (opts.defaultValue != null && opts.defaultValue !== '') input.value = String(opts.defaultValue);
@@ -105,10 +163,15 @@
           });
           actionsEl.appendChild(el);
         });
+        previousFocus = document.activeElement;
         overlay.hidden = false;
+        overlay.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
+        engageTrap();
         const first = focusEl || actionsEl.querySelector('button');
-        if (first) first.focus();
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () { focusDialogField(first); });
+        });
       });
     }
 
@@ -130,6 +193,7 @@
 
     window.rpDialog = {
       _ready: true,
+      isOpen: isOpen,
       alert: function (message, type) {
         return openDialog(type || 'success', message, [
           { label: 'Tamam', value: true, className: 'rp-dialog-btn-primary' }

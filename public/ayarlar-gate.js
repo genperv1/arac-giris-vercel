@@ -1,9 +1,10 @@
 // Ayarlar sayfası ek parola kapısı (giriş yapmış kullanıcı + ayar parolası)
+// Parola yalnızca ayarlar sekmesinde sorulur; kilitleme sekme bazlıdır (yeni sekme = tekrar parola).
 (function (global) {
   'use strict';
 
   const STORAGE_KEY = 'ayarlar_access_v1';
-  const TTL_MS = 4 * 60 * 60 * 1000;
+  const TTL_MS = 30 * 60 * 1000; // aynı sekmede en fazla 30 dk
 
   function authHeaders(json) {
     const token = (function () {
@@ -15,9 +16,25 @@
     return h;
   }
 
+  function storage() {
+    try {
+      return global.sessionStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearLegacyUnlock() {
+    try {
+      global.localStorage.removeItem(STORAGE_KEY);
+    } catch (e) { /* ignore */ }
+  }
+
   function isUnlocked() {
     try {
-      const raw = global.sessionStorage.getItem(STORAGE_KEY);
+      const store = storage();
+      if (!store) return false;
+      const raw = store.getItem(STORAGE_KEY);
       if (!raw) return false;
       const ts = parseInt(raw, 10);
       if (!Number.isFinite(ts)) return false;
@@ -29,26 +46,30 @@
 
   function markUnlocked() {
     try {
-      global.sessionStorage.setItem(STORAGE_KEY, String(Date.now()));
+      const store = storage();
+      if (store) store.setItem(STORAGE_KEY, String(Date.now()));
     } catch (e) { /* ignore */ }
   }
 
   function clearUnlock() {
     try {
-      global.sessionStorage.removeItem(STORAGE_KEY);
+      const store = storage();
+      if (store) store.removeItem(STORAGE_KEY);
     } catch (e) { /* ignore */ }
+    clearLegacyUnlock();
   }
 
   async function askPassword(message) {
+    try {
+      const search = global.document && global.document.getElementById('searchInput');
+      if (search && typeof search.blur === 'function') search.blur();
+    } catch (e) { /* ignore */ }
     const msg = message || 'Ayarlar sayfasına girmek için parola girin.';
     if (global.rpUi && typeof global.rpUi.password === 'function') {
       return global.rpUi.password(msg);
     }
     if (global.rpDialog && typeof global.rpDialog.password === 'function') {
       return global.rpDialog.password(msg);
-    }
-    if (global.rpUi && typeof global.rpUi.password === 'function') {
-      return global.rpUi.password(msg);
     }
     return null;
   }
@@ -90,9 +111,8 @@
     return false;
   }
 
+  /** Ana sayfadan: doğrudan aç; parola ayarlar sekmesinde sorulur. */
   async function openAyarlarPage() {
-    const ok = await ensureAyarlarAccess();
-    if (!ok) return false;
     try {
       global.open('ayarlar.html', '_blank', 'noopener,noreferrer');
     } catch (e) {
@@ -100,6 +120,8 @@
     }
     return true;
   }
+
+  clearLegacyUnlock();
 
   global.AyarlarGate = {
     isUnlocked,
