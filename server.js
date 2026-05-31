@@ -332,6 +332,20 @@ async function prepareSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_signatures_role_active ON signatures(role, active);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_signatures_display_name ON signatures(upper(display_name));`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vehicle_edit_log(
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT,
+      plaka TEXT,
+      summary TEXT,
+      changes TEXT,
+      user_id TEXT,
+      edit_ts BIGINT
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vehicle_edit_log_ts ON vehicle_edit_log(edit_ts DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vehicle_edit_log_plaka_ts ON vehicle_edit_log(plaka, edit_ts DESC);`);
+
   // (opsiyonel) indexler
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_daily_rows_created_at ON daily_rows(created_at DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_problems_plate_ts ON problems(plate, ts DESC);`);
@@ -371,6 +385,12 @@ async function prepareSchema() {
   } catch (e) {
     console.warn('seedDefaultSignatures skipped:', e.message || e);
   }
+
+  try {
+    await seedDemoVehicleEditLogs();
+  } catch (e) {
+    console.warn('seedDemoVehicleEditLogs skipped:', e.message || e);
+  }
 }
 
 function plateNormSql(col) {
@@ -409,6 +429,79 @@ async function seedDefaultSignatures() {
       `INSERT INTO signatures(id, display_name, role, image_kind, image_data, active, created_at)
        VALUES($1,$2,'kantar',$3,$4,TRUE,$5)`,
       [id, item.display_name, imageKind, imageData, Date.now()]
+    );
+  }
+}
+
+/** Anlatım / demo — gerçek araç değil; Ayarlar → Bilgi sekmesinde örnek görünsün diye */
+async function seedDemoVehicleEditLogs() {
+  const now = Date.now();
+  const demos = [
+    {
+      id: 'demo_edit_plaka_001',
+      vehicle_id: 'demo_vehicle_001',
+      plaka: '43 HP 433',
+      summary: 'Çekici plaka: 43 HP 433 → 43 HP 450 · Şoför adı: MEHMET YILMAZ → ZÜLFÜ USLU',
+      changes: [
+        { field: 'cekiciPlaka', label: 'Çekici plaka', old: '43 HP 433', new: '43 HP 450' },
+        { field: 'soforAdi', label: 'Şoför adı', old: 'MEHMET', new: 'ZÜLFÜ' },
+        { field: 'soforSoyadi', label: 'Şoför soyadı', old: 'YILMAZ', new: 'USLU' },
+      ],
+      user_id: 'GENPER',
+      edit_ts: now - 2 * 60 * 60 * 1000,
+    },
+    {
+      id: 'demo_edit_isim_002',
+      vehicle_id: 'demo_vehicle_002',
+      plaka: '34 ZFP 78',
+      summary: 'Şoför adı: ALİ KAYA → HASAN ÖZTÜRK · Şoför soyadı: — → —',
+      changes: [
+        { field: 'soforAdi', label: 'Şoför adı', old: 'ALİ', new: 'HASAN' },
+        { field: 'soforSoyadi', label: 'Şoför soyadı', old: 'KAYA', new: 'ÖZTÜRK' },
+      ],
+      user_id: 'GENPER',
+      edit_ts: now - 5 * 60 * 60 * 1000,
+    },
+    {
+      id: 'demo_edit_tel_003',
+      vehicle_id: 'demo_vehicle_003',
+      plaka: '06 ABT 123',
+      summary: 'İletişim: 0532 508 43 02 → 0542 611 55 44',
+      changes: [
+        { field: 'iletisim', label: 'İletişim', old: '0532 508 43 02', new: '0542 611 55 44' },
+      ],
+      user_id: 'GENPER',
+      edit_ts: now - 26 * 60 * 60 * 1000,
+    },
+    {
+      id: 'demo_edit_karma_004',
+      vehicle_id: 'demo_vehicle_004',
+      plaka: '16 BCD 890',
+      summary: 'Dorse plaka: 34 ABC 12 → 34 ZFP 78 · İletişim: 0535 100 20 30 → 0505 777 88 99 (+1)',
+      changes: [
+        { field: 'dorsePlaka', label: 'Dorse plaka', old: '34 ABC 12', new: '34 ZFP 78' },
+        { field: 'iletisim', label: 'İletişim', old: '0535 100 20 30', new: '0505 777 88 99' },
+        { field: 'soforAdi', label: 'Şoför adı', old: 'MUSTAFA', new: 'EMRE' },
+      ],
+      user_id: 'GENPER',
+      edit_ts: now - 3 * 24 * 60 * 60 * 1000,
+    },
+  ];
+
+  for (const row of demos) {
+    await pool.query(
+      `INSERT INTO vehicle_edit_log(id, vehicle_id, plaka, summary, changes, user_id, edit_ts)
+       VALUES($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        row.id,
+        row.vehicle_id,
+        row.plaka,
+        row.summary,
+        JSON.stringify(row.changes),
+        row.user_id,
+        row.edit_ts,
+      ]
     );
   }
 }
@@ -748,6 +841,77 @@ function computeVehicleSortTs(vehicle) {
   );
 }
 
+const VEHICLE_EDIT_LABELS = {
+  cekiciPlaka: 'Çekici plaka',
+  dorsePlaka: 'Dorse plaka',
+  soforAdi: 'Şoför adı',
+  soforSoyadi: 'Şoför soyadı',
+  sofor2Adi: '2. şoför adı',
+  sofor2Soyadi: '2. şoför soyadı',
+  iletisim: 'İletişim',
+  tcKimlik: 'TC kimlik',
+  defaultFirma: 'Varsayılan firma',
+  defaultMalzeme: 'Varsayılan malzeme',
+  defaultSevkYeri: 'Varsayılan sevk yeri',
+  defaultYuklemeNotu: 'Yükleme notu',
+};
+
+function normVehicleEditVal(field, val) {
+  const s = String(val ?? '').trim();
+  if (field === 'tcKimlik' || field === 'iletisim') return s.replace(/\D/g, '');
+  if (field === 'cekiciPlaka' || field === 'dorsePlaka') return normPlateForLookup(s);
+  return s.toUpperCase();
+}
+
+function buildVehicleEditDiff(oldObj, newObj) {
+  const changes = [];
+  Object.keys(VEHICLE_EDIT_LABELS).forEach((field) => {
+    const label = VEHICLE_EDIT_LABELS[field];
+    const ov = normVehicleEditVal(field, oldObj?.[field]);
+    const nv = normVehicleEditVal(field, newObj?.[field]);
+    if (ov !== nv) {
+      changes.push({
+        field,
+        label,
+        old: String(oldObj?.[field] ?? '').trim(),
+        new: String(newObj?.[field] ?? '').trim(),
+      });
+    }
+  });
+  const summaryParts = changes.slice(0, 2).map((c) => `${c.label}: ${c.old || '—'} → ${c.new || '—'}`);
+  let summary = summaryParts.join(' · ');
+  if (changes.length > 2) summary += ` (+${changes.length - 2})`;
+  return { changes, summary: summary || 'Düzenleme' };
+}
+
+async function maybeLogVehicleEdit(vehicleId, sanitized, userId) {
+  try {
+    const existing = await q('SELECT data FROM vehicles WHERE id = $1', [vehicleId]);
+    if (!existing.rows[0]) return;
+    let oldObj = {};
+    try { oldObj = JSON.parse(existing.rows[0].data); } catch (e) { oldObj = {}; }
+    const diff = buildVehicleEditDiff(oldObj, sanitized);
+    if (!diff.changes.length) return;
+    const logId = Date.now().toString() + Math.random().toString(16).slice(2);
+    const plaka = sanitizeString(sanitized.cekiciPlaka || oldObj.cekiciPlaka || '', 50);
+    await q(
+      `INSERT INTO vehicle_edit_log(id, vehicle_id, plaka, summary, changes, user_id, edit_ts)
+       VALUES($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        logId,
+        String(vehicleId),
+        plaka,
+        sanitizeString(diff.summary, 500),
+        JSON.stringify(diff.changes),
+        sanitizeString(userId || '', 80),
+        Date.now(),
+      ]
+    );
+  } catch (e) {
+    console.warn('vehicle edit log skipped:', e.message || e);
+  }
+}
+
 const UPSERT_VEHICLE_SQL = `
   INSERT INTO vehicles(id, cekiciPlaka, dorsePlaka, data, sort_ts)
   VALUES($1,$2,$3,$4,$5)
@@ -877,16 +1041,84 @@ function getClientIp(req) {
          'unknown';
 }
 
+function normalizeClientIp(ip) {
+  const s = String(ip || '').trim();
+  if (!s) return 'unknown';
+  if (s === '::1' || s === '::ffff:127.0.0.1') return '127.0.0.1';
+  if (s.startsWith('::ffff:')) return s.slice(7);
+  return s;
+}
+
+function isLoopbackIp(ip) {
+  const n = normalizeClientIp(ip);
+  return n === '127.0.0.1' || n === 'localhost';
+}
+
+function isBanExemptApiPath(req) {
+  const p = String(req.originalUrl || req.url || '').split('?')[0];
+  return p === '/api/settings/verify-access' || p.startsWith('/api/settings/bans');
+}
+
+const SETTINGS_ACCESS_PASSWORD = String(
+  process.env.SETTINGS_ACCESS_PASSWORD || process.env.SHIFT_NOTES_DELETE_PASSWORD || '2026genper'
+);
+const SETTINGS_TOKEN_TTL_MS = 30 * 60 * 1000;
+const settingsAccessTokens = new Map();
+
+function issueSettingsToken() {
+  const token = crypto.randomBytes(24).toString('hex');
+  settingsAccessTokens.set(token, Date.now() + SETTINGS_TOKEN_TTL_MS);
+  return token;
+}
+
+function verifySettingsPassword(password) {
+  return String(password || '') === SETTINGS_ACCESS_PASSWORD;
+}
+
+function isSettingsAuthorized(req) {
+  const token = String(req.headers['x-settings-token'] || req.body?.settingsToken || '').trim();
+  const exp = settingsAccessTokens.get(token);
+  if (token && exp && Date.now() <= exp) return true;
+  if (token && exp) settingsAccessTokens.delete(token);
+  const password = String(req.body?.password || req.body?.settingsPassword || '').trim();
+  return verifySettingsPassword(password);
+}
+
+function requireSettingsAccess(req, res, next) {
+  if (isSettingsAuthorized(req)) return next();
+  return res.status(403).json({ ok: false, error: 'Ayarlar parolası gerekli' });
+}
+
+function listBannedIpsPayload() {
+  const now = Date.now();
+  const banned = Object.entries(bannedIpsList).map(([key, data]) => {
+    const ip = (data && data.ip) || key;
+    const expiresAt = data && data.expiresAt ? Number(data.expiresAt) : 0;
+    const bannedAt = data && data.bannedAt ? Number(data.bannedAt) : 0;
+    return {
+      ip,
+      reason: (data && data.reason) || '—',
+      bannedAt: bannedAt ? new Date(bannedAt).toISOString() : null,
+      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+      remainingMs: Math.max(0, expiresAt - now),
+      active: expiresAt > now,
+    };
+  }).filter((row) => row.active);
+  banned.sort((a, b) => (b.bannedAt || '').localeCompare(a.bannedAt || ''));
+  return { banned, count: banned.length };
+}
+
 // Check if IP is banned
 function isIpBanned(ip) {
   try {
-    if (!bannedIpsList[ip]) return false;
-    const banData = bannedIpsList[ip];
-    if (banData && banData.expiresAt && Date.now() < banData.expiresAt) {
+    const key = normalizeClientIp(ip);
+    const banData = bannedIpsList[key] || (key !== ip ? bannedIpsList[ip] : null);
+    if (!banData) return false;
+    if (banData.expiresAt && Date.now() < banData.expiresAt) {
       return true;
     }
-    // Ban expired, remove it
-    delete bannedIpsList[ip];
+    delete bannedIpsList[key];
+    if (key !== ip) delete bannedIpsList[ip];
     saveBannedIps();
     return false;
   } catch (e) {
@@ -898,28 +1130,57 @@ function isIpBanned(ip) {
 // Ban an IP address
 function banIp(ip, reason = 'Rate limit exceeded') {
   try {
+    const normalized = normalizeClientIp(ip);
+    if (isLoopbackIp(normalized)) {
+      console.log(`IP ban atlandi (yerel): ${ip}`);
+      return;
+    }
     const banData = {
-      ip,
+      ip: normalized,
       reason,
       bannedAt: Date.now(),
       expiresAt: Date.now() + BAN_DURATION_MS
     };
-    bannedIpsList[ip] = banData;
+    bannedIpsList[normalized] = banData;
     saveBannedIps();
-    console.log(`IP Banned: ${ip} - Reason: ${reason}`);
+    console.log(`IP Banned: ${normalized} - Reason: ${reason}`);
   } catch (e) {
     console.error("Ban IP error:", e.message);
   }
 }
 
+function unbanIp(ip) {
+  const normalized = normalizeClientIp(ip);
+  let removed = false;
+  if (bannedIpsList[normalized]) {
+    delete bannedIpsList[normalized];
+    removed = true;
+  }
+  if (normalized !== ip && bannedIpsList[ip]) {
+    delete bannedIpsList[ip];
+    removed = true;
+  }
+  if (removed) saveBannedIps();
+  const ipData = ipRequestCount.get(normalized) || ipRequestCount.get(ip);
+  if (ipData) {
+    ipData.failedLogins = 0;
+    ipRequestCount.set(normalized, ipData);
+  }
+  return removed;
+}
+
 // Rate limit middleware
 async function rateLimitMiddleware(req, res, next) {
-  const ip = getClientIp(req);
+  const ip = normalizeClientIp(getClientIp(req));
   
   // Check if IP is banned
   const banned = isIpBanned(ip);
-  if (banned) {
-    return res.status(403).json({ error: "Your IP address has been banned. Please try again later." });
+  if (banned && !isBanExemptApiPath(req)) {
+    return res.status(403).json({
+      ok: false,
+      error: 'IP adresiniz geçici olarak engellendi. Ayarlar > Ban bölümünden kaldırılabilir veya süre dolana kadar bekleyin.',
+      code: 'IP_BANNED',
+    });
   }
 
   const now = Date.now();
@@ -946,7 +1207,11 @@ async function rateLimitMiddleware(req, res, next) {
       ipData.failedLogins++;
       if (ipData.failedLogins >= FAILED_LOGIN_THRESHOLD) {
         banIp(ip, `Exceeded rate limit ${FAILED_LOGIN_THRESHOLD} times`);
-        return res.status(403).json({ error: "Your IP has been banned due to excessive rate limit violations." });
+        return res.status(403).json({
+          ok: false,
+          error: 'Çok fazla istek nedeniyle IP adresiniz geçici olarak engellendi.',
+          code: 'IP_BANNED',
+        });
       }
     }
     return res.status(429).json({ error: `Too many requests (${ipData.count}/${RATE_LIMIT_MAX}). Try again in ${Math.ceil((ipData.resetTime - now) / 1000)} seconds.` });
@@ -1016,7 +1281,7 @@ const AUTH_COOKIE_OPTIONS = {
 // Login endpoint (no public register endpoint as requested)
 api.post('/login', loginEndpointLimiter, async (req, res) => {
   try {
-    const ip = getClientIp(req);
+    const ip = normalizeClientIp(getClientIp(req));
     const body = req.body || {};
     const username = String(body.username || '').trim();
     const password = String(body.password || '');
@@ -1040,7 +1305,11 @@ api.post('/login', loginEndpointLimiter, async (req, res) => {
       // Check if should ban after failed attempt
       if (ipData.failedLogins >= FAILED_LOGIN_THRESHOLD) {
         banIp(ip, `Failed login attempts exceeded (${ipData.failedLogins})`);
-        return res.status(403).json({ ok: false, error: 'Your IP has been banned due to multiple failed login attempts.' });
+        return res.status(403).json({
+          ok: false,
+          error: 'Çok sayıda hatalı giriş nedeniyle IP adresiniz geçici olarak engellendi. Ayarlar > Ban bölümünden kaldırılabilir.',
+          code: 'IP_BANNED',
+        });
       }
       
       return res.status(401).json({ ok: false, error: 'invalid credentials' });
@@ -1362,6 +1631,9 @@ api.post("/vehicles", async (req, res) => { // requireValidSession geçici olara
   return res.status(400).json({ error: 'data field exceeds 2000 characters' });
 }
     
+    const userId = sanitizeString(v.editedBy || v.userId || '', 80);
+    await maybeLogVehicleEdit(id, sanitized, userId);
+
     // INSERT OR REPLACE -> UPSERT
     await upsertVehicleRecord({ query: (text, params) => q(text, params, { retry: true }) }, sanitized);
 
@@ -1420,6 +1692,9 @@ api.put("/vehicles/:id", requireValidSession, async (req, res) => {
     };
 
     const raw = JSON.stringify(sanitized);
+
+    const userId = sanitizeString((req.user && req.user.username) || v.editedBy || '', 80);
+    await maybeLogVehicleEdit(id, sanitized, userId);
 
     await upsertVehicleRecord({ query: (text, params) => q(text, params, { retry: true }) }, sanitized);
 
@@ -1714,6 +1989,17 @@ api.post("/daily_rows", requireValidSession, async (req, res) => {
   }
 });
 
+// Tüm günlük Excel satırlarını sil (İHRACAT Excel Sil)
+api.delete("/daily_rows", requireValidSession, async (req, res) => {
+  try {
+    await q("DELETE FROM daily_rows");
+    broadcastEvent('daily_rows_cleared', {});
+    res.json({ ok: true });
+  } catch (err) {
+    sendApiError(res, err, 500, 'DAILY_ROWS_CLEAR_FAILED');
+  }
+});
+
 api.delete("/daily_rows/:id", auth.verifyToken, async (req, res) => {
   try {
     const id = req.params.id;
@@ -1777,7 +2063,8 @@ api.post("/piyasa", auth.verifyToken, async (req, res) => {
     if (sanitized.plate) sanitized.plate = sanitizeString(sanitized.plate, 50);
     if (sanitized.firma) sanitized.firma = sanitizeString(sanitized.firma, 100);
     if (sanitized.malzeme) sanitized.malzeme = sanitizeString(sanitized.malzeme, 100);
-    
+    if (!sanitized.updatedAt) sanitized.updatedAt = Date.now();
+
     const raw = JSON.stringify(sanitized);
     await q(
       `
@@ -1787,7 +2074,11 @@ api.post("/piyasa", auth.verifyToken, async (req, res) => {
       `,
       ["piyasa_state_v1", raw]
     );
-    res.json({ ok: true });
+    broadcastEvent('piyasa_updated', {
+      updatedAt: sanitized.updatedAt,
+      orderCount: Array.isArray(sanitized.orders) ? sanitized.orders.length : 0,
+    });
+    res.json({ ok: true, updatedAt: sanitized.updatedAt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1836,21 +2127,6 @@ api.post("/kv/:key", auth.verifyToken, async (req, res) => {
 api.use(auth.verifyToken);
 
 const SHIFT_NOTES_DELETE_PASSWORD = String(process.env.SHIFT_NOTES_DELETE_PASSWORD || '2026genper');
-const SETTINGS_ACCESS_PASSWORD = String(
-  process.env.SETTINGS_ACCESS_PASSWORD || process.env.SHIFT_NOTES_DELETE_PASSWORD || '2026genper'
-);
-
-api.post('/settings/verify-access', async (req, res) => {
-  try {
-    const password = String((req.body && req.body.password) || '');
-    if (password !== SETTINGS_ACCESS_PASSWORD) {
-      return res.status(403).json({ ok: false, error: 'invalid password' });
-    }
-    return res.json({ ok: true });
-  } catch (err) {
-    sendApiError(res, err, 500, 'SETTINGS_ACCESS_VERIFY_FAILED');
-  }
-});
 
 function parseOperationNoteRules(raw) {
   try {
@@ -2722,17 +2998,11 @@ api.post("/restore-full", auth.verifyToken, async (req, res) => {
   }
 });
 
-// Admin: List banned IPs
+// Admin: List banned IPs (JWT ile; ayarlar UI aynı zamanda /settings/bans kullanır)
 api.get("/admin/banned-ips", auth.verifyToken, async (req, res) => {
   try {
-    const banned = Object.values(bannedIpsList).map(data => ({
-      ip: data.ip,
-      reason: data.reason,
-      bannedAt: new Date(data.bannedAt).toISOString(),
-      expiresAt: new Date(data.expiresAt).toISOString(),
-      remainingTime: Math.max(0, data.expiresAt - Date.now())
-    }));
-    res.json({ ok: true, banned, count: banned.length });
+    const payload = listBannedIpsPayload();
+    res.json({ ok: true, ...payload });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2742,11 +3012,9 @@ api.get("/admin/banned-ips", auth.verifyToken, async (req, res) => {
 api.post("/admin/unban-ip", auth.verifyToken, async (req, res) => {
   try {
     const ip = String(req.body.ip || '').trim();
-    if (!ip) return res.status(400).json({ ok: false, error: 'IP required' });
-    
-    delete bannedIpsList[ip];
-    saveBannedIps();
-    res.json({ ok: true, message: `IP ${ip} has been unbanned` });
+    if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli' });
+    const removed = unbanIp(ip);
+    res.json({ ok: true, removed, message: removed ? `IP ${ip} engeli kaldırıldı` : 'Bu IP listede yoktu' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2756,11 +3024,10 @@ api.post("/admin/unban-ip", auth.verifyToken, async (req, res) => {
 api.post("/admin/ban-ip", auth.verifyToken, async (req, res) => {
   try {
     const ip = String(req.body.ip || '').trim();
-    const reason = String(req.body.reason || 'Manual ban by admin');
-    if (!ip) return res.status(400).json({ ok: false, error: 'IP required' });
-    
+    const reason = String(req.body.reason || 'Manuel engel (yönetici)');
+    if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli' });
     banIp(ip, reason);
-    res.json({ ok: true, message: `IP ${ip} has been banned` });
+    res.json({ ok: true, message: `IP ${normalizeClientIp(ip)} engellendi` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2833,6 +3100,18 @@ api.get("/print_history", async (req, res) => {
     if (plaka) {
       query += " WHERE plaka = $1";
       params.push(plaka);
+    }
+    const firmaFilter = sanitizeString(req.query.firma || '', 100).trim();
+    const malzemeFilter = sanitizeString(req.query.malzeme || '', 100).trim();
+    if (firmaFilter) {
+      query += params.length ? ' AND' : ' WHERE';
+      query += ' firma = $' + (params.length + 1);
+      params.push(firmaFilter);
+    }
+    if (malzemeFilter) {
+      query += params.length ? ' AND' : ' WHERE';
+      query += ' malzeme = $' + (params.length + 1);
+      params.push(malzemeFilter);
     }
     if (basimYeri) {
       query += params.length ? " AND" : " WHERE";
@@ -3035,11 +3314,62 @@ api.get("/plaka-stats", async (req, res) => {
   }
 });
 
+// Plaka × firma × malzeme (Excel / takip formundan basılan ürünler)
+api.get("/plaka-product-stats", async (req, res) => {
+  try {
+    const search = sanitizeString(req.query.search || '', 80).trim();
+    const { limit, offset } = parsePagination(req, { defaultLimit: 100, maxLimit: 500 });
+    const searchNorm = normPlateForLookup(search);
+    const searchUpper = search.toUpperCase();
+
+    let sql = `
+      SELECT plaka,
+             firma,
+             malzeme,
+             COUNT(*)::int AS print_count,
+             MAX(tarih)::bigint AS last_print_ts
+      FROM print_history
+      WHERE plaka IS NOT NULL AND plaka <> ''
+        AND (COALESCE(firma, '') <> '' OR COALESCE(malzeme, '') <> '')
+    `;
+    const params = [];
+    if (search) {
+      params.push(`%${searchNorm}%`, `%${searchUpper}%`, `%${searchUpper}%`);
+      const i = params.length;
+      sql += ` AND (
+        ${PLATE_NORM_SQL} LIKE $${i - 2}
+        OR UPPER(COALESCE(firma, '')) LIKE $${i - 1}
+        OR UPPER(COALESCE(malzeme, '')) LIKE $${i}
+      )`;
+    }
+    sql += ` GROUP BY plaka, firma, malzeme
+      ORDER BY print_count DESC, last_print_ts DESC, plaka ASC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+
+    const r = await q(sql, params);
+    res.json({
+      items: (r.rows || []).map((row) => ({
+        plaka: row.plaka,
+        firma: row.firma || '',
+        malzeme: row.malzeme || '',
+        printCount: row.print_count,
+        lastPrintTs: row.last_print_ts,
+      })),
+      limit,
+      offset,
+    });
+  } catch (err) {
+    console.error('GET /plaka-product-stats error', err);
+    sendApiError(res, err, 500, 'PLAKA_PRODUCT_STATS_FAILED');
+  }
+});
+
 api.get("/plaka-stats/summary", async (req, res) => {
   try {
     const days = Math.min(Math.max(Number(req.query.days) || 60, 7), 365);
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    const [topR, onceR, neverR, idleR, totalPrintsR] = await Promise.all([
+    const [topR, onceR, neverR, idleR, totalPrintsR, productPairsR, editLogR] = await Promise.all([
       q(`SELECT COUNT(*)::int AS c FROM (SELECT plaka FROM print_history WHERE plaka <> '' GROUP BY plaka) t`),
       q(`SELECT COUNT(*)::int AS c FROM (SELECT plaka FROM print_history WHERE plaka <> '' GROUP BY plaka HAVING COUNT(*) = 1) t`),
       q(`
@@ -3062,7 +3392,13 @@ api.get("/plaka-stats/summary", async (req, res) => {
           )
         ) u
       `, [cutoff]),
-      q(`SELECT COUNT(*)::int AS c FROM print_history`)
+      q(`SELECT COUNT(*)::int AS c FROM print_history`),
+      q(`SELECT COUNT(*)::int AS c FROM (
+        SELECT plaka, firma, malzeme FROM print_history
+        WHERE plaka <> '' AND (COALESCE(firma,'') <> '' OR COALESCE(malzeme,'') <> '')
+        GROUP BY plaka, firma, malzeme
+      ) t`),
+      q(`SELECT COUNT(*)::int AS c FROM vehicle_edit_log WHERE edit_ts >= $1`, [cutoff]),
     ]);
     res.json({
       days,
@@ -3070,11 +3406,60 @@ api.get("/plaka-stats/summary", async (req, res) => {
       onceCount: onceR.rows[0]?.c || 0,
       neverPrintedRegistered: neverR.rows[0]?.c || 0,
       idleCount: idleR.rows[0]?.c || 0,
-      totalPrints: totalPrintsR.rows[0]?.c || 0
+      totalPrints: totalPrintsR.rows[0]?.c || 0,
+      productPairCount: productPairsR.rows[0]?.c || 0,
+      editLogCount: editLogR.rows[0]?.c || 0,
     });
   } catch (err) {
     console.error('GET /plaka-stats/summary error', err);
     sendApiError(res, err, 500, 'PLAKA_STATS_SUMMARY_FAILED');
+  }
+});
+
+// Şoför kartı düzenleme geçmişi (ayarlar → Plaka istatistikleri → Bilgi)
+api.get('/vehicle-edit-log', async (req, res) => {
+  try {
+    const search = sanitizeString(req.query.search || '', 80).trim();
+    const plakaFilter = sanitizeString(req.query.plaka || '', 50).trim();
+    const { limit, offset } = parsePagination(req, { defaultLimit: 20, maxLimit: 500 });
+    const searchNorm = normPlateForLookup(search);
+    const plakaNorm = normPlateForLookup(plakaFilter);
+
+    let sql = `SELECT id, vehicle_id, plaka, summary, changes, user_id, edit_ts FROM vehicle_edit_log WHERE 1=1`;
+    const params = [];
+
+    if (plakaNorm) {
+      params.push(plakaNorm);
+      sql += ` AND ${plateNormSql('plaka')} = $${params.length}`;
+    } else if (search) {
+      params.push(`%${searchNorm}%`, `%${search.toUpperCase()}%`);
+      sql += ` AND (${plateNormSql('plaka')} LIKE $${params.length - 1} OR UPPER(COALESCE(summary, '')) LIKE $${params.length})`;
+    }
+
+    sql += ` ORDER BY edit_ts DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+
+    const r = await q(sql, params);
+    res.json({
+      items: (r.rows || []).map((row) => {
+        let changes = [];
+        try { changes = JSON.parse(row.changes || '[]'); } catch (e) { changes = []; }
+        return {
+          id: row.id,
+          vehicleId: row.vehicle_id,
+          plaka: row.plaka,
+          summary: row.summary || '',
+          changes,
+          userId: row.user_id || '',
+          editTs: row.edit_ts,
+        };
+      }),
+      limit,
+      offset,
+    });
+  } catch (err) {
+    console.error('GET /vehicle-edit-log error', err);
+    sendApiError(res, err, 500, 'VEHICLE_EDIT_LOG_FAILED');
   }
 });
 
@@ -3273,6 +3658,67 @@ app.get('/api/heartbeat', (req, res) => {
     timestamp: Date.now(),
     clients: sseClients.size
   });
+});
+
+// Ayarlar / ban API — JWT router dışında (api.use(verifyToken) tüm isteklere uygulanıyordu)
+app.post('/api/settings/verify-access', (req, res) => {
+  try {
+    const password = String((req.body && req.body.password) || '');
+    if (!verifySettingsPassword(password)) {
+      return res.status(403).json({ ok: false, error: 'Hatalı ayarlar parolası' });
+    }
+    const settingsToken = issueSettingsToken();
+    return res.json({ ok: true, settingsToken });
+  } catch (err) {
+    sendApiError(res, err, 500, 'SETTINGS_ACCESS_VERIFY_FAILED');
+  }
+});
+
+app.get('/api/settings/bans/my-ip', (req, res) => {
+  res.json({ ok: true, ip: normalizeClientIp(getClientIp(req)) });
+});
+
+app.post('/api/settings/bans/list', requireSettingsAccess, (req, res) => {
+  try {
+    const payload = listBannedIpsPayload();
+    res.json({ ok: true, ...payload });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/settings/bans/unban', requireSettingsAccess, (req, res) => {
+  try {
+    const ip = String(req.body.ip || '').trim();
+    if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli' });
+    const removed = unbanIp(ip);
+    res.json({ ok: true, removed, message: removed ? `IP ${ip} engeli kaldırıldı` : 'Bu IP listede yoktu' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/settings/bans/add', requireSettingsAccess, (req, res) => {
+  try {
+    const ip = String(req.body.ip || '').trim();
+    const reason = String(req.body.reason || 'Manuel engel (ayarlar)');
+    if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli' });
+    banIp(ip, reason);
+    res.json({ ok: true, message: `IP ${normalizeClientIp(ip)} engellendi` });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/settings/bans/clear', requireSettingsAccess, (req, res) => {
+  try {
+    const count = Object.keys(bannedIpsList).length;
+    bannedIpsList = {};
+    saveBannedIps();
+    res.json({ ok: true, cleared: count, message: 'Tüm IP engelleri kaldırıldı' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 app.use("/api", api);

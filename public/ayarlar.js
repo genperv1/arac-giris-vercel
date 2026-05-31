@@ -5,25 +5,53 @@
   const TR_TZ = 'Europe/Istanbul';
   const PAGE_SIZE = 20;
 
-  let currentTab = 'top';
-  let idleDays = 60;
+  let currentTab = 'products';
   let plakaPage = 1;
   let plakaHasMore = false;
   let searchDebounce = null;
   let activeSection = 'section-plaka';
 
-  function authHeaders(json) {
+  const DISABLED_STORAGE_KEYS = [
+    'firmaListesi', 'malzemeListesi',
+    'firmalar', 'malzemeler',
+    'recent_firmalar', 'recent_malzemeler', 'recent_sevk_yerleri'
+  ];
+
+  function authHeaders(json, extra) {
     const token = (function () {
       try { return localStorage.getItem('authToken') || ''; } catch (e) { return ''; }
     })();
     const h = { 'Cache-Control': 'no-cache' };
     if (json) h['Content-Type'] = 'application/json';
     if (token) h.Authorization = 'Bearer ' + token;
+    const settingsToken = window.AyarlarGate && typeof window.AyarlarGate.getSettingsToken === 'function'
+      ? window.AyarlarGate.getSettingsToken()
+      : '';
+    if (settingsToken) h['X-Settings-Token'] = settingsToken;
+    if (extra) Object.assign(h, extra);
     return h;
   }
 
   function apiFetch(url, opts) {
     return fetch(url, Object.assign({ credentials: 'include', headers: authHeaders(!!(opts && opts.body)) }, opts || {}));
+  }
+
+  function settingsBanFetch(path, body) {
+    return fetch('/api/settings/bans' + path, {
+      method: 'POST',
+      credentials: 'include',
+      headers: authHeaders(true),
+      body: JSON.stringify(body || {}),
+    });
+  }
+
+  function formatRemaining(ms) {
+    const n = Math.max(0, Number(ms) || 0);
+    if (n < 60000) return Math.ceil(n / 1000) + ' sn';
+    const h = Math.floor(n / 3600000);
+    const m = Math.floor((n % 3600000) / 60000);
+    if (h > 0) return h + ' sa ' + m + ' dk';
+    return m + ' dk';
   }
 
   function fmtTs(ts) {
@@ -33,6 +61,28 @@
     } catch (e) {
       return '—';
     }
+  }
+
+  function maskTcDisplay(tc) {
+    const s = String(tc || '').trim();
+    if (s.length !== 11) return s || '—';
+    return s.slice(0, 4) + '*****' + s.slice(9);
+  }
+
+  function formatEditValue(field, val) {
+    const s = String(val || '').trim();
+    if (!s) return '—';
+    if (field === 'tcKimlik') return maskTcDisplay(s);
+    return s;
+  }
+
+  function renderEditChangesHtml(changes) {
+    const list = Array.isArray(changes) ? changes : [];
+    if (!list.length) return '<p class="ay-empty">Değişiklik detayı yok.</p>';
+    return list.map((c) => `<div class="ay-detail-row">
+      <strong>${escapeHtml(c.label || c.field || 'Alan')}</strong>
+      <span class="ay-detail-change"><s>${escapeHtml(formatEditValue(c.field, c.old))}</s> → <b>${escapeHtml(formatEditValue(c.field, c.new))}</b></span>
+    </div>`).join('');
   }
 
   function escapeHtml(s) {
@@ -91,7 +141,7 @@
 
   async function loadSummary() {
     try {
-      const r = await apiFetch('/api/plaka-stats/summary?days=' + encodeURIComponent(idleDays));
+      const r = await apiFetch('/api/plaka-stats/summary?days=60');
       if (!r.ok) return;
       const d = await r.json();
       const set = (id, val) => {
@@ -100,15 +150,177 @@
       };
       set('sumUnique', d.uniquePlates);
       set('sumTotalPrints', d.totalPrints);
-      set('sumOnce', d.onceCount);
-      set('sumNever', d.neverPrintedRegistered);
-      set('sumIdle', d.idleCount);
+      set('sumProductPairs', d.productPairCount);
+      set('sumEditLog', d.editLogCount);
     } catch (e) {
       console.warn('summary load', e);
     }
   }
 
+  function attrEsc(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;');
+  }
+
+  function updatePlakaThead(tab) {
+    const row = document.getElementById('plakaTheadRow');
+    if (!row) return;
+    if (tab === 'products') {
+      row.innerHTML = '<th>#</th><th>Plaka</th><th>Firma</th><th>Ürün (malzeme)</th><th class="col-num">Adet</th><th>Son basım</th>';
+    } else if (tab === 'edits') {
+      row.innerHTML = '<th>#</th><th>Plaka</th><th>Değişiklik</th><th>Kim</th><th>Tarih</th>';
+    } else {
+      row.innerHTML = '<th>#</th><th>Plaka</th><th>Durum</th><th>Yazdırma</th><th>Son yazdırma</th>';
+    }
+  }
+
+  async function loadPlakaProductTable() {
+    const tbody = document.getElementById('plakaTbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>';
+    const q = (document.getElementById('plakaSearch')?.value || '').trim();
+    const offset = (plakaPage - 1) * PAGE_SIZE;
+    try {
+      const url = '/api/plaka-product-stats?search=' + encodeURIComponent(q) +
+        '&limit=' + PAGE_SIZE +
+        '&offset=' + offset;
+      const r = await apiFetch(url);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const items = data.items || [];
+      plakaHasMore = items.length >= PAGE_SIZE;
+
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Kayıt bulunamadı. Takip formu yazdırıldığında plaka + firma + ürün burada görünür.</td></tr>';
+        updatePagerUi();
+        return;
+      }
+
+      const rowNumStart = offset + 1;
+      tbody.innerHTML = items.map((row, i) => {
+        const product = row.malzeme || '—';
+        const firma = row.firma || '—';
+        return `<tr data-plaka="${attrEsc(row.plaka)}" data-firma="${attrEsc(row.firma || '')}" data-malzeme="${attrEsc(row.malzeme || '')}" title="Detay için tıklayın">
+          <td class="col-num">${rowNumStart + i}</td>
+          <td class="col-plate">${escapeHtml(row.plaka)}</td>
+          <td>${escapeHtml(firma)}</td>
+          <td><strong>${escapeHtml(product)}</strong></td>
+          <td class="col-num">${row.printCount ?? 0}</td>
+          <td>${fmtTs(row.lastPrintTs)}</td>
+        </tr>`;
+      }).join('');
+
+      tbody.querySelectorAll('tr[data-plaka]').forEach((tr) => {
+        tr.addEventListener('click', () => openPlakaModal(
+          tr.getAttribute('data-plaka'),
+          {
+            firma: tr.getAttribute('data-firma') || '',
+            malzeme: tr.getAttribute('data-malzeme') || '',
+          }
+        ));
+      });
+      updatePagerUi();
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="6" class="ay-empty" style="color:#dc2626">Liste yüklenemedi.</td></tr>';
+      plakaHasMore = false;
+      updatePagerUi();
+      console.error(e);
+    }
+  }
+
+  async function loadEditLogTable() {
+    const tbody = document.getElementById('plakaTbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="ay-empty">Yükleniyor…</td></tr>';
+    const q = (document.getElementById('plakaSearch')?.value || '').trim();
+    const offset = (plakaPage - 1) * PAGE_SIZE;
+    try {
+      const url = '/api/vehicle-edit-log?search=' + encodeURIComponent(q) +
+        '&limit=' + PAGE_SIZE +
+        '&offset=' + offset;
+      const r = await apiFetch(url);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const items = data.items || [];
+      plakaHasMore = items.length >= PAGE_SIZE;
+
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="ay-empty">Henüz şoför kartı düzenlemesi yok. Ana sayfada bir kart düzenlenince burada görünür.</td></tr>';
+        updatePagerUi();
+        return;
+      }
+
+      const rowNumStart = offset + 1;
+      tbody.innerHTML = items.map((row, i) => {
+        const summary = row.summary || 'Düzenleme';
+        const who = row.userId || '—';
+        return `<tr data-edit-id="${attrEsc(row.id)}" data-plaka="${attrEsc(row.plaka)}" title="Detay için tıklayın">
+          <td class="col-num">${rowNumStart + i}</td>
+          <td class="col-plate">${escapeHtml(row.plaka || '—')}</td>
+          <td>${escapeHtml(summary)}</td>
+          <td>${escapeHtml(who)}</td>
+          <td>${fmtTs(row.editTs)}</td>
+        </tr>`;
+      }).join('');
+
+      tbody.querySelectorAll('tr[data-edit-id]').forEach((tr) => {
+        tr.addEventListener('click', () => openEditModal(tr.getAttribute('data-edit-id'), items));
+      });
+      updatePagerUi();
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="5" class="ay-empty" style="color:#dc2626">Liste yüklenemedi.</td></tr>';
+      plakaHasMore = false;
+      updatePagerUi();
+      console.error(e);
+    }
+  }
+
+  async function fetchEditLogForPlate(plaka, limit) {
+    if (!plaka) return [];
+    try {
+      const r = await apiFetch('/api/vehicle-edit-log?plaka=' + encodeURIComponent(plaka) + '&limit=' + (limit || 8));
+      if (!r.ok) return [];
+      const data = await r.json();
+      return data.items || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function openEditModal(editId, cachedItems) {
+    const modal = document.getElementById('plakaModal');
+    const body = document.getElementById('plakaModalBody');
+    const title = document.getElementById('plakaModalTitle');
+    if (!modal || !body) return;
+
+    const entry = (cachedItems || []).find((x) => String(x.id) === String(editId));
+    if (!entry) {
+      body.innerHTML = '<p class="ay-empty">Kayıt bulunamadı.</p>';
+      modal.hidden = false;
+      return;
+    }
+
+    document.querySelectorAll('#plakaTbody tr.is-selected').forEach((tr) => tr.classList.remove('is-selected'));
+    const sel = document.querySelector('#plakaTbody tr[data-edit-id="' + editId + '"]');
+    if (sel) sel.classList.add('is-selected');
+
+    title.textContent = (entry.plaka || 'Plaka') + ' · düzenleme';
+    body.innerHTML =
+      `<p style="font-size:.8125rem;color:var(--rp-muted);margin:0 0 .75rem;">${fmtTs(entry.editTs)}${entry.userId ? ' · ' + escapeHtml(entry.userId) : ''}</p>` +
+      renderEditChangesHtml(entry.changes);
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
   async function loadPlakaTable() {
+    if (currentTab === 'products') {
+      return loadPlakaProductTable();
+    }
+    if (currentTab === 'edits') {
+      return loadEditLogTable();
+    }
     const tbody = document.getElementById('plakaTbody');
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="5" class="ay-empty">Yükleniyor…</td></tr>';
@@ -116,7 +328,7 @@
     const offset = (plakaPage - 1) * PAGE_SIZE;
     try {
       const url = '/api/plaka-stats?tab=' + encodeURIComponent(currentTab) +
-        '&days=' + encodeURIComponent(idleDays) +
+        '&days=60' +
         '&search=' + encodeURIComponent(q) +
         '&limit=' + PAGE_SIZE +
         '&offset=' + offset;
@@ -137,13 +349,10 @@
         const badge = row.kayitli
           ? '<span class="ay-badge ay-badge--ok">Kayıtlı</span>'
           : '<span class="ay-badge">Kayıtsız</span>';
-        const extra = currentTab === 'idle' && row.idleKind === 'never_printed'
-          ? ' <span class="ay-badge ay-badge--warn">Hiç yazdırılmamış</span>'
-          : '';
         return `<tr data-plaka="${escapeHtml(row.plaka)}" title="Detay için tıklayın">
           <td class="col-num">${rowNumStart + i}</td>
           <td class="col-plate">${escapeHtml(row.plaka)}</td>
-          <td>${badge}${extra}</td>
+          <td>${badge}</td>
           <td class="col-num">${row.printCount ?? 0}</td>
           <td>${fmtTs(row.lastPrintTs)}</td>
         </tr>`;
@@ -168,7 +377,10 @@
     document.querySelectorAll('#plakaTbody tr.is-selected').forEach((tr) => tr.classList.remove('is-selected'));
   }
 
-  async function openPlakaModal(plaka) {
+  async function openPlakaModal(plaka, opts) {
+    opts = opts || {};
+    const firmaFilter = String(opts.firma || '').trim();
+    const malzemeFilter = String(opts.malzeme || '').trim();
     const modal = document.getElementById('plakaModal');
     const body = document.getElementById('plakaModalBody');
     const title = document.getElementById('plakaModalTitle');
@@ -178,24 +390,55 @@
       tr.classList.toggle('is-selected', tr.getAttribute('data-plaka') === plaka);
     });
 
-    title.textContent = plaka;
+    const titleParts = [plaka];
+    if (malzemeFilter) titleParts.push(malzemeFilter);
+    else if (firmaFilter) titleParts.push(firmaFilter);
+    title.textContent = titleParts.join(' · ');
     body.innerHTML = '<p class="ay-empty">Yükleniyor…</p>';
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
 
     try {
-      const r = await apiFetch('/api/print_history?plaka=' + encodeURIComponent(plaka) + '&limit=30');
+      let url = '/api/print_history?plaka=' + encodeURIComponent(plaka) + '&limit=50';
+      if (firmaFilter) url += '&firma=' + encodeURIComponent(firmaFilter);
+      if (malzemeFilter) url += '&malzeme=' + encodeURIComponent(malzemeFilter);
+      const r = await apiFetch(url);
       if (!r.ok) throw new Error('history');
       const rows = await r.json();
       if (!rows.length) {
-        body.innerHTML = '<p class="ay-empty">Bu plaka için yazdırma kaydı yok.</p>';
+        const edits = await fetchEditLogForPlate(plaka, 10);
+        if (edits.length) {
+          body.innerHTML =
+            '<p style="font-size:.8125rem;color:var(--rp-muted);margin:0 0 .75rem;">Bu plaka için yazdırma kaydı yok; şoför kartı düzenlemeleri:</p>' +
+            edits.map((e) => `<div class="ay-detail-row">
+              <strong>${fmtTs(e.editTs)}${e.userId ? ' · ' + escapeHtml(e.userId) : ''}</strong>
+              <span>${escapeHtml(e.summary || 'Düzenleme')}</span>
+            </div>`).join('');
+          return;
+        }
+        body.innerHTML = '<p class="ay-empty">Bu plaka / ürün için yazdırma kaydı yok.</p>';
         return;
       }
-      body.innerHTML = rows.map((h) => `
-        <div class="ay-detail-row">
+      const edits = await fetchEditLogForPlate(plaka, 5);
+      const editsBlock = edits.length
+        ? `<div style="margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid var(--rp-border);">
+            <p style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--rp-muted);margin:0 0 .5rem;">Şoför kartı düzenlemeleri</p>
+            ${edits.map((e) => `<div class="ay-detail-row">
+              <strong>${fmtTs(e.editTs)}</strong>
+              <span>${escapeHtml(e.summary || 'Düzenleme')}</span>
+            </div>`).join('')}
+          </div>`
+        : '';
+      const intro = (firmaFilter || malzemeFilter)
+        ? `<p style="font-size:.8125rem;color:var(--rp-muted);margin:0 0 .75rem;">${escapeHtml(plaka)} plakası · ${escapeHtml(firmaFilter || '—')} · <strong>${escapeHtml(malzemeFilter || '—')}</strong> — ${rows.length} kayıt</p>`
+        : '';
+      body.innerHTML = editsBlock + intro + rows.map((h) => {
+        const tonaj = h.tonaj ? ` · ${escapeHtml(h.tonaj)}` : '';
+        return `<div class="ay-detail-row">
           <strong>${fmtTs(h.tarih)}</strong>
-          <span>${escapeHtml(h.firma || '—')} · ${escapeHtml(h.malzeme || '—')} · ${escapeHtml(h.basim_yeri || h.basimYeri || '—')}</span>
-        </div>`).join('');
+          <span>${escapeHtml(h.firma || '—')} · ${escapeHtml(h.malzeme || '—')}${tonaj} · ${escapeHtml(h.basim_yeri || h.basimYeri || '—')}</span>
+        </div>`;
+      }).join('');
     } catch (e) {
       body.innerHTML = '<p class="ay-empty" style="color:#dc2626">Geçmiş yüklenemedi.</p>';
     }
@@ -210,12 +453,12 @@
     });
     const hints = {
       top: 'En çok yazdırılan plakalar (yüksekten düşüğe). Satıra tıklayınca detay açılır.',
-      once: 'Yalnızca bir kez yazdırılmış plakalar.',
-      never: 'Sistemde kayıtlı, hiç yazdırılmamış araçlar.',
-      idle: 'Son ' + idleDays + ' gündür yazdırılmayan veya hiç gelmeyen kayıtlı araçlar.'
+      products: 'Hangi plaka hangi ürünü bastı — adet yüksekten düşüğe sıralı. Satıra tıklayınca o ürünün yazdırma geçmişi açılır.',
+      edits: 'Ana sayfadaki şoför kartlarında yapılan düzenlemeler. Satıra tıklayınca ne değiştiği açılır.',
     };
     const hintEl = document.getElementById('tabHint');
     if (hintEl) hintEl.textContent = hints[tab] || '';
+    updatePlakaThead(tab);
     if (opts.scroll !== false) scrollToSection('section-plaka', { smooth: true });
     loadPlakaTable();
   }
@@ -302,11 +545,209 @@
     }
   }
 
+  async function loadMyIp() {
+    try {
+      const r = await fetch('/api/settings/bans/my-ip', { credentials: 'include', headers: authHeaders(false) });
+      if (!r.ok) return;
+      const d = await r.json();
+      const el = document.getElementById('banMyIp');
+      if (el && d.ip) el.textContent = d.ip;
+    } catch (e) { /* ignore */ }
+  }
+
+  async function loadBanList() {
+    const tbody = document.getElementById('banTbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>';
+    try {
+      const r = await settingsBanFetch('/list', {});
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = data.error || (r.status === 403 ? 'Ayarlar parolası gerekli — sayfayı yenileyip parolayı tekrar girin.' : 'Liste yüklenemedi');
+        tbody.innerHTML = '<tr><td colspan="6" class="ay-empty" style="color:#dc2626">' + escapeHtml(msg) + '</td></tr>';
+        return;
+      }
+      const items = data.banned || [];
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Aktif IP engeli yok.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = items.map((row) => `
+        <tr data-ban-ip="${escapeHtml(row.ip)}">
+          <td class="ay-ip-mono">${escapeHtml(row.ip)}</td>
+          <td>${escapeHtml(row.reason || '—')}</td>
+          <td>${row.bannedAt ? escapeHtml(new Date(row.bannedAt).toLocaleString('tr-TR', { timeZone: TR_TZ })) : '—'}</td>
+          <td>${row.expiresAt ? escapeHtml(new Date(row.expiresAt).toLocaleString('tr-TR', { timeZone: TR_TZ })) : '—'}</td>
+          <td>${escapeHtml(formatRemaining(row.remainingMs))}</td>
+          <td><button type="button" class="ay-btn ay-btn--danger ay-ban-unban" data-ip="${escapeHtml(row.ip)}">Kaldır</button></td>
+        </tr>`).join('');
+      tbody.querySelectorAll('.ay-ban-unban').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const ip = btn.getAttribute('data-ip');
+          if (!ip || !(await confirm('IP engelini kaldırmak istiyor musunuz?\n' + ip))) return;
+          const ur = await settingsBanFetch('/unban', { ip });
+          const ud = await ur.json().catch(() => ({}));
+          if (ur.ok) {
+            toast(ud.message || 'Engel kaldırıldı.');
+            loadBanList();
+          } else {
+            toast(ud.error || 'Kaldırılamadı.', true);
+          }
+        });
+      });
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="6" class="ay-empty" style="color:#dc2626">Liste yüklenemedi.</td></tr>';
+    }
+  }
+
+  async function submitBanAdd(ev) {
+    ev.preventDefault();
+    const ip = (document.getElementById('banAddIp')?.value || '').trim();
+    const reason = (document.getElementById('banAddReason')?.value || '').trim();
+    if (!ip) { toast('IP adresi girin.', true); return; }
+    const r = await settingsBanFetch('/add', { ip, reason: reason || 'Manuel engel (ayarlar)' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(d.error || 'Engellenemedi.', true); return; }
+    toast(d.message || 'IP engellendi.');
+    document.getElementById('banAddForm')?.reset();
+    loadBanList();
+  }
+
+  async function clearAllBans() {
+    if (!(await confirm('Tüm IP engelleri kaldırılacak. Emin misiniz?'))) return;
+    const r = await settingsBanFetch('/clear', {});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(d.error || 'Temizlenemedi.', true); return; }
+    toast(d.message || 'Tüm engeller kaldırıldı.');
+    loadBanList();
+  }
+
+  function bindBanUi() {
+    document.getElementById('banRefreshBtn')?.addEventListener('click', loadBanList);
+    document.getElementById('banClearAllBtn')?.addEventListener('click', clearAllBans);
+    document.getElementById('banAddForm')?.addEventListener('submit', submitBanAdd);
+  }
+
+  function exportFullBackup() {
+    try {
+      const storageDump = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        if (/eslestirme/i.test(k) || k === 'eslestirmeListesi') continue;
+        if (DISABLED_STORAGE_KEYS.includes(k)) continue;
+        storageDump[k] = localStorage.getItem(k);
+      }
+      const allData = {
+        __type: 'V8_FULL_BACKUP',
+        exportTarihi: new Date().toLocaleString('tr-TR'),
+        storageDump
+      };
+      const dataStr = JSON.stringify(allData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'V8_TAM_YEDEK_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.json';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  }
+
+  async function handleBackupExport() {
+    if (!(await confirm('✅ TAM YEDEK AL: Sistem içindeki ne var ne yok (tüm kayıtlar + ayarlar + arşivler) yedeklensin mi?'))) return;
+    if (exportFullBackup()) toast('Yedek indirildi.');
+    else toast('Yedek alınırken hata oluştu!', true);
+  }
+
+  async function restoreFullBackup(allData) {
+    const r = await apiFetch('/api/restore-full', {
+      method: 'POST',
+      body: JSON.stringify(allData)
+    });
+    const result = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(result.error || 'Geri yükleme başarısız');
+    return result;
+  }
+
+  function handleBackupImport() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    input.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) {
+        document.body.removeChild(input);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const allData = JSON.parse(event.target.result);
+          if (allData && allData.storageDump && typeof allData.storageDump === 'object') {
+            await restoreFullBackup(allData);
+            toast('Tam yedek geri yüklendi. Ana sayfaya yönlendiriliyorsunuz…');
+            setTimeout(() => {
+              try {
+                if (window.SessionManager?.navigateToHome) window.SessionManager.navigateToHome();
+                else location.href = 'GIRIS.html';
+              } catch (err) {
+                location.href = 'GIRIS.html';
+              }
+            }, 800);
+          } else {
+            toast('Geçersiz yedek dosyası — tam yedek (V8_FULL_BACKUP) bekleniyor.', true);
+          }
+        } catch (err) {
+          toast('Geçersiz yedek dosyası veya bozuk JSON!', true);
+        }
+        document.body.removeChild(input);
+      };
+      reader.onerror = () => {
+        toast('Dosya okunamadı!', true);
+        document.body.removeChild(input);
+      };
+      reader.readAsText(file);
+    }, { once: true });
+
+    input.click();
+  }
+
+  function bindBackupUi() {
+    document.getElementById('backupExportBtn')?.addEventListener('click', handleBackupExport);
+    document.getElementById('backupImportBtn')?.addEventListener('click', handleBackupImport);
+  }
+
+  function setupEmergencyBanOnly() {
+    ['section-plaka', 'section-imza', 'section-yedek'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    document.querySelectorAll('.ay-subnav-btn').forEach((btn) => {
+      const goto = btn.getAttribute('data-goto');
+      btn.style.display = goto === 'section-ban' ? '' : 'none';
+    });
+    const desc = document.querySelector('.rp-page-desc');
+    if (desc) desc.textContent = 'IP engeli acil kurtarma — giriş yapmadan yalnızca ayarlar parolası ile ban listesini yönetin.';
+  }
+
   function bindUi() {
     document.querySelectorAll('.ay-subnav-btn[data-goto]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-goto');
-        if (id) scrollToSection(id);
+        if (id) {
+          scrollToSection(id);
+          if (id === 'section-ban') loadBanList();
+        }
       });
     });
 
@@ -327,13 +768,6 @@
         plakaPage = 1;
         loadPlakaTable();
       }, 280);
-    });
-
-    document.getElementById('idleDays')?.addEventListener('change', (e) => {
-      idleDays = Math.min(365, Math.max(7, Number(e.target.value) || 60));
-      plakaPage = 1;
-      loadSummary();
-      if (currentTab === 'idle') loadPlakaTable();
     });
 
     document.getElementById('plakaPrev')?.addEventListener('click', () => {
@@ -385,7 +819,7 @@
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
         const id = entry.target.id;
-        if (id === 'section-plaka' || id === 'section-imza') {
+        if (id === 'section-plaka' || id === 'section-imza' || id === 'section-ban' || id === 'section-yedek') {
           activeSection = id;
           document.querySelectorAll('.ay-subnav-btn').forEach((btn) => {
             btn.classList.toggle('is-active', btn.getAttribute('data-goto') === id);
@@ -393,10 +827,13 @@
         }
       });
     }, { rootMargin: '-40% 0px -45% 0px', threshold: 0 });
-    ['section-plaka', 'section-imza'].forEach((id) => {
+    ['section-plaka', 'section-imza', 'section-ban', 'section-yedek'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) obs.observe(el);
     });
+
+    bindBanUi();
+    bindBackupUi();
   }
 
   function applyHashSection() {
@@ -405,18 +842,33 @@
       setTimeout(() => scrollToSection('section-imza'), 100);
     } else if (hash === 'plaka' || hash === 'section-plaka') {
       setTimeout(() => scrollToSection('section-plaka'), 100);
+    } else if (hash === 'ban' || hash === 'section-ban') {
+      setTimeout(() => scrollToSection('section-ban'), 100);
+    } else if (hash === 'yedek' || hash === 'section-yedek') {
+      setTimeout(() => scrollToSection('section-yedek'), 100);
     }
   }
 
+  function isEmergencyBanMode() {
+    const hash = (location.hash || '').replace('#', '');
+    return hash === 'ban' || hash === 'section-ban';
+  }
+
   async function init() {
-    const ok = await ensureSession();
-    if (!ok) {
+    const emergency = isEmergencyBanMode();
+    const sessionOk = await ensureSession();
+    if (!sessionOk && !emergency) {
       location.href = 'GIRIS.html';
       return;
     }
+    if (emergency && !sessionOk) setupEmergencyBanOnly();
+
     if (window.AyarlarGate && typeof window.AyarlarGate.ensureAyarlarAccess === 'function') {
       const allowed = await window.AyarlarGate.ensureAyarlarAccess({
-        message: 'Ayarlar sayfasına girmek için parola girin.'
+        message: emergency
+          ? 'IP engeli kurtarma — ayarlar parolasını girin.'
+          : 'Ayarlar sayfasına girmek için parola girin.',
+        force: emergency,
       });
       if (!allowed) {
         try {
@@ -428,11 +880,23 @@
         return;
       }
     }
+
     bindUi();
-    const idleSel = document.getElementById('idleDays');
-    if (idleSel) idleDays = Number(idleSel.value) || 60;
+    const plakaSearch = document.getElementById('plakaSearch');
+    if (plakaSearch) {
+      plakaSearch.value = '';
+      plakaSearch.removeAttribute('tabindex');
+    }
+    await loadMyIp();
+    loadBanList();
+
+    if (emergency && !sessionOk) {
+      scrollToSection('section-ban', { smooth: false });
+      return;
+    }
+
     await loadSummary();
-    setActiveTab('top', { scroll: false });
+    setActiveTab('products', { scroll: false });
     loadSignaturesList();
     applyHashSection();
     try {

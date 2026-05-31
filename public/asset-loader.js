@@ -31,10 +31,14 @@
   window.ensureXlsxLoaded = function () {
     if (typeof window.XLSX !== 'undefined' && window.XLSX.read) return Promise.resolve();
     if (xlsxPromise) return xlsxPromise;
-    xlsxPromise = loadScript('https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js').catch(function (e) {
-      xlsxPromise = null;
-      throw e;
-    });
+    xlsxPromise = loadScript('/vendor/xlsx.full.min.js')
+      .catch(function () {
+        return loadScript('https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js');
+      })
+      .catch(function (e) {
+        xlsxPromise = null;
+        throw e;
+      });
     return xlsxPromise;
   };
 

@@ -800,6 +800,31 @@ function getShipmentIrsaliyeNo(shipment) {
   return '';
 }
 
+function irsaliyeCollisionKey(raw) {
+  const n = normalizeIrsaliyeNo(raw);
+  if (n) return n.replace(/\s+/g, ' ').trim().toUpperCase();
+  return String(raw || '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function getIrsaliyeCollisionInfo(rows) {
+  const eu = window.ExcelUtils || {};
+  const collisions = eu.findIrsaliyeCollisions ? eu.findIrsaliyeCollisions(rows || []) : [];
+  const set = new Set();
+  collisions.forEach((c) => {
+    const k = irsaliyeCollisionKey(c.irsaliyeNo);
+    if (k) set.add(k);
+  });
+  return { collisions, set };
+}
+
+function shipmentHasIrsaliyeCollision(shipment, collisionSet) {
+  if (!collisionSet || !collisionSet.size || !shipment) return false;
+  const k = irsaliyeCollisionKey(getShipmentIrsaliyeNo(shipment));
+  return !!k && collisionSet.has(k);
+}
+
+const IHR_IRS_COLLISION_CELL_STYLE = 'background:#111210;color:#FFBF00;font-weight:bold;';
+
 function detectIrsaliyeColumnIndex(grid, headerRowIdx, cols) {
   if (cols.irsaliyeNo !== undefined) return cols.irsaliyeNo;
   const candidates = [0];
@@ -844,9 +869,14 @@ function setFirmaOverride(firma, patch){
   return saveFirmaOverrides(map);
 }
 function applyFirmaOverridesToShipment(sh){
-  // 🔒 Excel yüklüyken (veya genel kullanımda) local override kapalı.
-  // Excel ne getiriyorsa o geçerli olacak; localStorage'dan düzeltme okunmaz.
-  return sh;
+  if (!sh) return sh;
+  const firma = sh.firma || sh.ydKey || '';
+  const ov = getFirmaOverride(firma);
+  if (!ov) return sh;
+  const out = { ...sh };
+  if (ov.sevkYeri && String(ov.sevkYeri).trim()) out.sevkYeri = String(ov.sevkYeri).trim();
+  if (ov.ambalaj && String(ov.ambalaj).trim()) out.ambalaj = String(ov.ambalaj).trim();
+  return out;
 }
 
 const DAILY_SHIPMENT_META = 'daily_shipments_meta';
@@ -1082,11 +1112,10 @@ function loadDailyMeta() {
   } catch(e){ return {}; }
 }
 
-function clearDailyShipments() {
+async function clearDailyShipments() {
   try {
     if (window.DailyStore && typeof DailyStore.clear === 'function') {
-      DailyStore.clear();
-      return true;
+      return await DailyStore.clear();
     }
     localStorage.removeItem(DAILY_SHIPMENT_KEY);
     localStorage.removeItem(DAILY_SHIPMENT_META);
@@ -1143,7 +1172,37 @@ function _getExcelStatusInfo(){
     }
   } catch(e) {}
 
+  // Hafta uyumu (piyasa vs ihracat)
+  try {
+    const piyRaw = localStorage.getItem('piyasa_state_v1');
+    if (piyRaw) {
+      const piy = JSON.parse(piyRaw) || {};
+      const eu = window.ExcelUtils || {};
+      if (eu.compareExcelWeeks) {
+        const meta = (typeof loadDailyMeta === 'function') ? loadDailyMeta() : {};
+        const resolvedMeta = { ...meta, dateKey: _resolveIhracatDateKey(meta) || meta.dateKey };
+        out.warnings = (out.warnings || []).concat(eu.compareExcelWeeks(resolvedMeta, piy));
+      }
+    }
+  } catch (e) {}
+
   return out;
+}
+
+function _formatDateKeyTR(dateKey) {
+  const s = String(dateKey || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s || '-';
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
+/** İHRACAT uyarı bandı — header chip ile aynı “Yüklü …” formatı (kayıt sayısı yok) */
+function _buildIhracatWarnLabel(meta) {
+  const fileName = String(meta?.fileName || '').trim();
+  if (fileName) return `Yüklü ${fileName}`;
+  const dk = String(meta?.dateKey || '').trim();
+  if (dk) return `Yüklü ${_formatDateKeyTR(dk)}`;
+  return 'Yüklü';
 }
 
 function _buildIhracatChipText(info){
@@ -1160,6 +1219,109 @@ function _buildPiyasaChipText(info){
     return `Yüklü ${detail}`;
   }
   return 'Boş';
+}
+
+function _dateKeyFromDate(d) {
+  if (!d || !(d instanceof Date) || isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/** Dosya adından tarih: 21.05.2026.xlsx → 2026-05-21 */
+function _dateKeyFromFileName(fileName) {
+  const s = String(fileName || '').trim();
+  if (!s) return '';
+  let m = s.match(/(?:^|[^0-9])(\d{2})[.\-_](\d{2})[.\-_](\d{4})(?:[^0-9]|$)/);
+  if (m) {
+    const dd = m[1];
+    const mm = m[2];
+    const yyyy = m[3];
+    if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) return `${yyyy}-${mm}-${dd}`;
+  }
+  m = s.match(/(?:^|[^0-9])(\d{4})[.\-_](\d{2})[.\-_](\d{2})(?:[^0-9]|$)/);
+  if (m) {
+    const yyyy = m[1];
+    const mm = m[2];
+    const dd = m[3];
+    if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) return `${yyyy}-${mm}-${dd}`;
+  }
+  return '';
+}
+
+/** İHRACAT Excel'in gerçek tarihi — dosya adı öncelikli (dateKey yükleme günü olabilir) */
+function _resolveIhracatDateKey(meta) {
+  if (!meta) return '';
+  const fromFile = _dateKeyFromFileName(meta.fileName);
+  if (fromFile) return fromFile;
+  return String(meta.dateKey || '').trim();
+}
+
+function _loadPiyasaState() {
+  try {
+    const raw = localStorage.getItem('piyasa_state_v1');
+    if (!raw) return null;
+    return JSON.parse(raw) || null;
+  } catch (e) { return null; }
+}
+
+/** PİYASA uyarı bandı — header chip ile aynı “Yüklü …Hafta/tarih” formatı */
+function _buildPiyasaWarnLabel(piy) {
+  if (!piy) return 'Yüklü';
+  const weekInfo = piy.week != null ? piy.week : (piy.sheet ? piy.sheet : '');
+  let dateStr = '';
+  if (piy.loadedAt) {
+    const dt = new Date(piy.loadedAt);
+    if (!isNaN(dt)) dateStr = _formatDateKeyTR(_dateKeyFromDate(dt));
+  }
+  if (weekInfo && dateStr) return `Yüklü ${weekInfo}.Hafta/${dateStr}`;
+  if (weekInfo) return `Yüklü ${weekInfo}.Hafta`;
+  if (dateStr) return `Yüklü ${dateStr}`;
+  if (piy.sheet) return `Yüklü ${piy.sheet}`;
+  return 'Yüklü';
+}
+
+function _buildExcelDateWarnBannerHtml(title, label) {
+  const titleUpper = String(title || '').toLocaleUpperCase('tr-TR');
+  return `<div class="excel-date-warn" role="alert">
+    <span class="excel-date-warn__icon" aria-hidden="true"><i class="fas fa-exclamation"></i></span>
+    <div class="excel-date-warn__body">
+      <span class="excel-date-warn__title">${titleUpper}</span>
+      <span class="excel-date-warn__pill excel-date-warn__pill--loaded">${label}</span>
+    </div>
+  </div>`;
+}
+
+function _computeExcelDateWarnHtml() {
+  const todayKey = (typeof _todayKeyTR === 'function') ? _todayKeyTR() : '';
+  const parts = [];
+
+  try {
+    const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+    const ihrCnt = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
+    const ihrDateKey = _resolveIhracatDateKey(meta);
+    if (ihrCnt > 0 && ihrDateKey && todayKey && ihrDateKey !== todayKey) {
+      parts.push(_buildExcelDateWarnBannerHtml('ihracat güncel tarih değil', _buildIhracatWarnLabel(meta)));
+    }
+  } catch (e) {}
+
+  try {
+    const piy = _loadPiyasaState();
+    const piyCnt = Array.isArray(piy?.orders) ? piy.orders.length : 0;
+    const piyDateKey = piy?.loadedAt ? _dateKeyFromDate(new Date(piy.loadedAt)) : '';
+    if (piyCnt > 0 && piyDateKey && todayKey && piyDateKey !== todayKey) {
+      parts.push(_buildExcelDateWarnBannerHtml('piyasa güncel tarih değil', _buildPiyasaWarnLabel(piy)));
+    }
+  } catch (e) {}
+
+  return parts.join('');
+}
+
+function _refreshExcelDateWarnBanner() {
+  const container = document.getElementById('excelDateWarnContainer');
+  if (!container) return;
+  container.innerHTML = _computeExcelDateWarnHtml();
 }
 
 // PİYASA modülü gibi dış modüller Excel yükleyince, header'daki yazıları anında güncellemek için
@@ -1179,11 +1341,19 @@ function refreshHeaderExcelInfo(){
     const chipPiy = document.getElementById('chipPiyasa');
     const chipPiyText = document.getElementById('chipPiyasaText');
     if (chipPiy) {
-      chipPiy.classList.remove('chip-ok','chip-warn');
-      chipPiy.classList.add(info.piyCount > 0 ? 'chip-ok' : 'chip-warn');
+      chipPiy.classList.remove('chip-ok','chip-warn','chip-alert');
+      const piyCls = info.piyCount > 0 ? 'chip-ok' : 'chip-warn';
+      const weekWarn = (info.warnings || []).some((w) => w.code === 'week_mismatch');
+      chipPiy.classList.add(weekWarn ? 'chip-alert' : piyCls);
       chipPiy.title = info.piyCount > 0 ? `PİYASA Excel: ${info.piyLine}` : 'PİYASA Excel yüklü değil';
+      if (weekWarn) chipPiy.title += ' — Hafta uyumsuzluğu olabilir';
     }
     if (chipPiyText) chipPiyText.textContent = _buildPiyasaChipText(info);
+    try {
+      const ihrChip = document.getElementById('chipIhracat');
+      if (ihrChip && (info.warnings || []).length) ihrChip.classList.add('chip-alert');
+    } catch (e) {}
+    _refreshExcelDateWarnBanner();
   } catch(e) {}
 }
 
@@ -1490,30 +1660,23 @@ function findColumnIndices(headerRow) {
   return indices;
 }
 
-// Excel okuma (XLSX) - Dinamik header arama ile
-async function importDailyExcel(file) {
-  if (!file) return { ok:false, msg:'Dosya seçilmedi.' };
-  try {
-    if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
-  } catch (e) {
-    return { ok:false, msg:'XLSX kütüphanesi yüklenemedi. İnternet bağlantınızı kontrol edin.' };
-  }
-  if (typeof XLSX === 'undefined') {
-    return { ok:false, msg:'XLSX kütphanesi yüklenemedi. (xlsx.full.min.js)' };
-  }
+function _rowInSelectedBlocks(rowIdx, onlyBlocks) {
+  if (!onlyBlocks || !onlyBlocks.length) return true;
+  return onlyBlocks.some((b) => rowIdx >= b.startRow && rowIdx <= b.endRow);
+}
 
-  const data = await file.arrayBuffer();
-  const wb = XLSX.read(data, { type: 'array' });
-  const sheetName = wb.SheetNames && wb.SheetNames[0];
-  if (!sheetName) return { ok:false, msg:'Excel sayfası bulunamadı.' };
+function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
+  opts = opts || {};
+  const onlyBlocks = opts.onlyBlocks || null;
+  const fileLabel = opts.fileName || '';
+  if (!wb || !sheetName) return { ok: false, msg: 'Sayfa yok.', rows: [], meta: {}, stats: {} };
   const ws = wb.Sheets[sheetName];
-
   const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
 
   // ✅ Header satırını dinamik olarak bul
   const headerRowIdx = findHeaderRowIndex(grid);
   if (headerRowIdx < 0) {
-    return { ok:false, msg:'Excel başlığı bulunamadı (SIRANO + PLAKA).' };
+    return { ok: false, msg: 'Excel başlığı bulunamadı (SIRANO + PLAKA).', rows: [], meta: {}, stats: {} };
   }
 
   // ✅ Kolonna indekslerini dinamik olarak bul
@@ -1531,7 +1694,7 @@ async function importDailyExcel(file) {
 
   // Zorunlu kolonnaları kontrol et
   if (cols.sirano === undefined || cols.plaka === undefined) {
-    return { ok:false, msg:'Excel formatı tanınmadı (SIRANO veya PLAKA bulunamadı).' };
+    return { ok: false, msg: 'Excel formatı tanınmadı (SIRANO veya PLAKA bulunamadı).', rows: [], meta: {}, stats: {} };
   }
 
   // Başlıkta "İRSALİYE NO" yoksa A sütunu (R11…) otomatik tanı
@@ -1545,6 +1708,7 @@ async function importDailyExcel(file) {
     const sirano = String(row[cols.sirano] || '').toUpperCase().trim();
     const plakaHdr = String(row[cols.plaka] || '').toUpperCase().trim();
     if (!(sirano === 'SIRANO' && plakaHdr === 'PLAKA')) continue;
+    if (!_rowInSelectedBlocks(r, onlyBlocks)) continue;
 
     // ✅ Header text'i en sağlam şekilde yakala (NET/BOOKING/GEMİ içeren uzun satır)
     const headerText = findShipmentHeaderText(grid, r) || '';
@@ -1588,7 +1752,7 @@ const firma = String(firmaFromN || ydKey || '').trim();
   plaka: normPlate(plakaRaw),
   ydKey: ydKey,
   headerText: headerText,
-  fileName: String(file.name || '').trim(),
+  fileName: String(fileLabel || '').trim(),
 firma: (firma || '').slice(0, 40),
 
   irsaliyeNo,
@@ -1620,18 +1784,39 @@ firma: (firma || '').slice(0, 40),
   }
 
   const meta = {
-    dateKey: _todayKeyTR(),
+    dateKey: _dateKeyFromFileName(fileLabel) || _todayKeyTR(),
     sheetName: sheetName,
-    fileName: file.name,
+    fileName: fileLabel,
     importedAt: new Date().toISOString(),
-    count: uniq.length
+    count: uniq.length,
+    fileFingerprint: opts.fileFingerprint || null,
   };
 
-  const uniq2 = uniq; // 🔒 Excel satırları local override olmadan kaydedilir
+  const counts = new Map();
+  for (const r of uniq) {
+    const p = String(r?.plaka || '').trim();
+    if (!p) continue;
+    counts.set(p, (counts.get(p) || 0) + 1);
+  }
+  const dupPlates = Array.from(counts.values()).filter((c) => c > 1).length;
+  const eu = window.ExcelUtils || {};
+  const collisions = eu.findIrsaliyeCollisions ? eu.findIrsaliyeCollisions(uniq) : [];
 
-  // ✅ 2 Excel yükleme desteği (Excel okuma mantığına dokunmadan):
-  // - Mevcut günlük veri varsa, yeni dosya EKLEMEK isteyip istemediğini sorar.
-  // - Ekleme yapılırsa plakaya göre birden fazla kayıt oluşabilir; plaka yazınca 1/2 seçimi gelir.
+  return {
+    ok: true,
+    rows: uniq,
+    meta,
+    stats: {
+      accepted: uniq.length,
+      raw: rowsOut.length,
+      skipped: Math.max(0, rowsOut.length - uniq.length),
+      dupPlates,
+      collisions,
+    },
+  };
+}
+
+async function commitIhracatImport(uniq2, meta, file) {
   let rowsToSave = uniq2;
   let metaToSave = meta;
 
@@ -1641,74 +1826,103 @@ firma: (firma || '').slice(0, 40),
 
     if (Array.isArray(existing) && existing.length > 0) {
       const doAppend = await confirm(
-        `Mevcut Excel verisi var: ${existing.length} kayıt.
-
-` +
-        `Yeni dosya EKLENSİN mi?
-` +
-        `• OK  = Ekle (2 Excel aynı anda)
-` +
-        `• İptal = Değiştir (eskisi silinir)`
+        `Mevcut Excel verisi var: ${existing.length} kayıt.\n\nYeni dosya EKLENSİN mi?\n• OK  = Ekle (2 Excel aynı anda)\n• İptal = Değiştir (eskisi silinir)`
       );
 
       if (doAppend) {
         rowsToSave = existing.concat(uniq2);
-
-        // meta: dosya listesini tut (geriye dönük uyumlu)
         const files = []
           .concat(existingMeta.files || (existingMeta.fileName ? [existingMeta.fileName] : []))
-          .concat(file.name || meta.fileName || '')
-          .map(s => String(s || '').trim())
+          .concat((file && file.name) || meta.fileName || '')
+          .map((s) => String(s || '').trim())
           .filter(Boolean);
-
-        // uniq file names
         const seenF = new Set();
         const uniqFiles = [];
-        for (const f of files) { if (!seenF.has(f)) { seenF.add(f); uniqFiles.push(f); } }
-
+        for (const f of files) {
+          if (!seenF.has(f)) {
+            seenF.add(f);
+            uniqFiles.push(f);
+          }
+        }
         metaToSave = {
           ...existingMeta,
           ...meta,
           files: uniqFiles,
           fileName: uniqFiles.join(' + '),
           count: rowsToSave.length,
-          appendedAt: new Date().toISOString()
+          appendedAt: new Date().toISOString(),
         };
       } else {
-        // replace
         rowsToSave = uniq2;
         metaToSave = meta;
       }
     }
   } catch (e) {
-    // fail-safe: replace davranışı
     rowsToSave = uniq2;
     metaToSave = meta;
   }
 
-  // ⚠️ Aynı plaka birden fazla kayıtta mı? (Seçim çıkacağını kullanıcıya hatırlat)
-  try {
-    const counts = new Map();
-    for (const r of (rowsToSave || [])) {
-      const p = String(r?.plaka || '').trim();
-      if (!p) continue;
-      counts.set(p, (counts.get(p) || 0) + 1);
-    }
-    const dupPlates = Array.from(counts.entries()).filter(([,c]) => c > 1);
-    if (dupPlates.length && typeof showToast === 'function') {
-      showToast(`⚠️ ${dupPlates.length} plaka birden fazla kayıtta var. Plakayı yazınca 1/2 seçim sorulacak.`);
-    }
-  } catch(e){}
-
   const ok = saveDailyShipments(rowsToSave, metaToSave);
-  if (!ok) return { ok:false, msg:'Kaydetme başarısız (localStorage dolu olabilir).' };
+  if (!ok) return { ok: false, msg: 'Kaydetme başarısız (localStorage dolu olabilir).' };
 
-  // 🔒 Excel yüklendi -> Excel dışındaki local verileri tamamen temizle (eşleştirme/override/liste cache)
   purgeStrictExcelCaches();
-  // ✅ Dropdown seçeneklerini sadece Excel'den üret
   rebuildListsFromExcelRows(rowsToSave);
+  try {
+    window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
+  } catch (e) {}
 
-  return { ok:true, msg:`✅ Excel yüklendi: ${uniq.length} satır`, meta: metaToSave };
+  return { ok: true, msg: `✅ Excel yüklendi: ${uniq2.length} satır`, meta: metaToSave };
+}
+
+window.parseIhracatRowsFromWorkbook = parseIhracatRowsFromWorkbook;
+window.commitIhracatImport = commitIhracatImport;
+
+// Excel okuma (XLSX) - Dinamik header arama ile
+async function importDailyExcel(file) {
+  if (!file) return { ok: false, msg: 'Dosya seçilmedi.' };
+  try {
+    if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
+  } catch (e) {
+    return { ok: false, msg: 'XLSX kütüphanesi yüklenemedi. İnternet bağlantınızı kontrol edin.' };
+  }
+  if (typeof XLSX === 'undefined') {
+    return { ok: false, msg: 'XLSX kütphanesi yüklenemedi. (xlsx.full.min.js)' };
+  }
+
+  let fp = '';
+  try {
+    if (window.ExcelUtils && window.ExcelUtils.fingerprintFile) fp = await window.ExcelUtils.fingerprintFile(file);
+  } catch (e) {}
+
+  const existingMeta = (typeof loadDailyMeta === 'function') ? loadDailyMeta() : {};
+  if (fp && existingMeta.fileFingerprint === fp && (loadDailyShipments() || []).length) {
+    const again = confirm('Bu dosya daha önce yüklendi.\n\nYine de yüklemek istiyor musunuz?');
+    if (!again) return { ok: false, msg: 'Yükleme iptal edildi.' };
+  }
+
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: 'array' });
+  let sheetName = wb.SheetNames && wb.SheetNames[0];
+  if (window.ExcelIhracatImport && wb.SheetNames && wb.SheetNames.length > 1) {
+    const picked = await window.ExcelIhracatImport.pickIhracatSheet(wb);
+    if (!picked) return { ok: false, msg: 'Sayfa seçilmedi.' };
+    sheetName = picked;
+  }
+  if (!sheetName) return { ok: false, msg: 'Excel sayfası bulunamadı.' };
+
+  const parsed = parseIhracatRowsFromWorkbook(wb, sheetName, {
+    fileName: file.name,
+    fileFingerprint: fp,
+  });
+  if (!parsed.ok) return { ok: false, msg: parsed.msg || 'Excel okunamadı.' };
+
+  if (window.ExcelIhracatImport) {
+    const confirmed = await window.ExcelIhracatImport.showImportPreview(parsed.stats);
+    if (!confirmed) return { ok: false, msg: 'Yükleme iptal edildi.' };
+  }
+
+  const committed = await commitIhracatImport(parsed.rows, { ...parsed.meta, fileFingerprint: fp }, file);
+  return committed;
 }
 
 
@@ -2031,9 +2245,12 @@ function showShipmentSelectUI(blocks, fileName){
     if (!picks.length) { alert('Önce en az 1 sevkiyat seçmelisin.'); return; }
 
     window.__selectedShipmentBlocks = blocks.filter(b => picks.includes(b.id));
-    const msg = window.__selectedShipmentBlocks.map(b => `${b.index}) ${b.firma||'-'} | ${b.malzeme||'-'} | ${b.sevkYeri||'-'}`).join('\n');
-    alert(`✅ Seçildi (${window.__selectedShipmentBlocks.length}):\n\n${msg}\n\n(Not: Bu sürümde sadece seçim ekranı var. Sonraki adımda bu seçime göre plaka/BBT okunacak.)`);
     close();
+    if (window.ExcelIhracatImport && typeof window.ExcelIhracatImport.importSelectedBlocks === 'function') {
+      window.ExcelIhracatImport.importSelectedBlocks();
+    } else {
+      showToast(`✅ ${window.__selectedShipmentBlocks.length} sevkiyat bloğu seçildi.`);
+    }
   });
 }
 
@@ -2049,19 +2266,26 @@ async function importExcelHeadersOnly_ShowSelection(file){
 
   const data = await file.arrayBuffer();
   const wb = XLSX.read(data, { type: 'array' });
-  const sheetName = wb.SheetNames && wb.SheetNames[0];
+  let sheetName = wb.SheetNames && wb.SheetNames[0];
+  if (window.ExcelIhracatImport && wb.SheetNames && wb.SheetNames.length > 1) {
+    const picked = await window.ExcelIhracatImport.pickIhracatSheet(wb);
+    if (!picked) return { ok: false, msg: 'Sayfa seçilmedi.', blocks: [] };
+    sheetName = picked;
+  }
   const ws = wb.Sheets[sheetName];
   const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: false });
 
   const blocks = parseShipmentBlocksFromGrid(grid);
 
+  window.__ihracatImportContext = { wb, sheetName, fileName: file.name, grid, ws };
+
   if (!blocks.length) {
     showShipmentSelectUI([], file.name);
-    return { ok:false, msg:'Başlık bulunamadı (LOT NO / YDxxx).', blocks:[] };
+    return { ok: false, msg: 'Başlık bulunamadı (LOT NO / YDxxx).', blocks: [] };
   }
 
   showShipmentSelectUI(blocks, file.name);
-  return { ok:true, msg:`✅ Başlıklar bulundu: ${blocks.length} sevkiyat`, blocks };
+  return { ok: true, msg: `✅ Başlıklar bulundu: ${blocks.length} sevkiyat`, blocks };
 }
 
 
@@ -2312,15 +2536,43 @@ async function applyShipmentToTakipForm(vehicle) {
 
     // ✅ Seçilen kaydın tonajı (çoklu sevkiyatta 2. kayıt için doğru değer)
     applyShipmentTonajAndIrsaliye(chosen);
+    try {
+      window.__activeExcelShipment = chosen;
+      window.__lastChosenShipment = chosen;
+    } catch (e) {}
+
+    try {
+      if (window.piyasa && typeof window.piyasa.suggestForContext === 'function') {
+        const sug = window.piyasa.suggestForContext({
+          plate: plateNeedle,
+          firma: chosen.firma || chosen.ydKey,
+          malzeme: chosen.malzeme,
+          sevkYeri: chosen.sevkYeri,
+        });
+        if (sug.length && typeof window.piyasa.showSuggestionBar === 'function') {
+          window.piyasa.showSuggestionBar(sug, { plate: plateNeedle });
+        }
+      }
+    } catch (e) {}
 
     const yuklemeNotuEl = document.getElementById('yuklemeNotu');
     if (yuklemeNotuEl && !String(yuklemeNotuEl.value || '').trim() && chosen.yuklemeNotu) {
       yuklemeNotuEl.value = String(chosen.yuklemeNotu || '');
     }
 
-    // ✅ Not: Ambalaj/Sevk Yeri otomatik doldurma burada YAPILMIYOR.
-    // Sadece aday listesine 'son kullanılan' olarak eklenecek (yanlış override olmasın).
-// ✅ Excel okununca DÜZELTME PENCERESİ aç
+    _applyExcelShipmentFieldsToTakipForm(chosen);
+
+    const sevkFilled = String(chosen.sevkYeri || _defaultSevkForShipment(chosen)).trim();
+    const ambFilled =
+      String(chosen.ambalaj || chosen.ambalajBilgisi || '').trim() ||
+      String(chosen.bbt || '').trim() ||
+      String(chosen.cuval || '').trim() ||
+      String(chosen.palet || '').trim();
+
+    if (chosen._ihracatEdited && sevkFilled && ambFilled) {
+      return;
+    }
+
     openExcelReviewUI({
       plate: plateNeedle,
       chosen,
@@ -2830,15 +3082,21 @@ let sonuc = {
                 alert(wasEdit ? 'Kayıt güncellendi!' : 'Kayıt eklendi!');
             }
             resetForm();
+            _ihracatMaybeReopenAfterVehicleSave();
         }
 
         // Veritabanına araç kaydetme fonksiyonu - Session olmadan çalışacak
         async function saveVehicleToDatabase(vehicleData) {
             try {
+                const payload = Object.assign({}, vehicleData);
+                try {
+                    const uid = localStorage.getItem('currentUserId') || '';
+                    if (uid) payload.editedBy = String(uid).toUpperCase();
+                } catch (e) { /* ignore */ }
                 const response = await fetch('/api/vehicles', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(vehicleData)
+                    body: JSON.stringify(payload)
                 });
                 
                 if (!response.ok) {
@@ -5104,6 +5362,22 @@ try {
                     }
                 } catch(e) {}
 
+                // ✅ Piyasa siparişi yazdırma sayacı (takip formu onaylandıysa)
+                try {
+                  if (window.piyasa && typeof window.piyasa.recordOrderPrint === 'function' && pending) {
+                    const snap = pending.snapshot || {};
+                    window.piyasa.recordOrderPrint({
+                      plate: pending.plaka || '',
+                      ts: commitTs,
+                      orderIdx: pending.piyasaOrderIdx,
+                      firma: snap.firmaKodu || snap.firmaSelect || '',
+                      malzeme: snap.malzeme || snap.malzemeSelect || '',
+                    });
+                  }
+                } catch (e) {
+                  console.warn('Piyasa yazdırma sayacı güncellenemedi:', e);
+                }
+
                 try { window.__pendingPrintCommit = null; } catch(e) {}
             }
 
@@ -5372,14 +5646,10 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const visibleVehicles = shouldLimit ? filteredVehicles.slice(0, state.listLimit) : filteredVehicles;
 
             const app = document.getElementById('mainApp');
-            // ⚠️ Excel tarihi bugünün değilse uyarı göster (ASLA otomatik silme)
+            // ⚠️ Excel tarihi bugünün değilse uyarı göster (İHRACAT + PİYASA, ASLA otomatik silme)
             const _excelMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
             const _excelCnt  = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
-            const _todayKey  = (typeof _todayKeyTR === 'function') ? _todayKeyTR() : '';
-            let excelWarnHTML = '';
-            if (_excelCnt > 0 && _excelMeta && _excelMeta.dateKey && _todayKey && _excelMeta.dateKey !== _todayKey) {
-              excelWarnHTML = `<div class="excel-date-warn">⚠️ Bu Excel bugünün değil: <b>${_excelMeta.dateKey}</b> • Kayıt: <b>${_excelCnt}</b> (Otomatik silinmez)</div>`;
-            }
+            const excelWarnHTML = (typeof _computeExcelDateWarnHtml === 'function') ? _computeExcelDateWarnHtml() : '';
 
             // 🖥️ Kiosk/Status satırı (hızlı özet)
             const _kioskOn = (typeof isKioskModeOn === 'function') ? isKioskModeOn() : false;
@@ -5424,10 +5694,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             Araçlar <span class="app-nav-chevron" aria-hidden="true">▾</span>
           </summary>
           <div class="app-dropdown absolute left-0 mt-2 w-56 z-50">
-            <button id="exportButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">📥 Yedek Al</button>
-            <button id="importButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">📤 Yedek Yükle</button>
-            <div class="my-1 border-t"></div>
-            <button id="excelUploadButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük sevkiyat Excel'ini yükle (.xlsx)">📄 İHRACAT Excel Yükle</button>
+            <button id="excelBlockSelectButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Excel dosyasından sevkiyat bloklarını seçerek yükle">📌 İHRACAT Blok Seçerek Yükle</button>
             <button id="excelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük excel verisini temizle">🗑️ İHRACAT Excel Sil</button>
             <div class="my-1 border-t"></div>
             <div class="px-3 py-1 text-xs text-gray-500 font-semibold">PİYASA</div>
@@ -5448,7 +5715,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
     </div>
   </div>
 </header>
-                    ${excelWarnHTML}
+                    <div id="excelDateWarnContainer">${excelWarnHTML}</div>
 
                     <!-- Form -->
                     ${state.showForm ? `
@@ -5551,7 +5818,6 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
 
                     <!-- Stats -->
                     
-                    <input id="excelFileInput" type="file" accept=".xlsx,.xls" style="display:none" />
                     <div id="stats" class="mt-6 bg-white rounded-lg shadow-lg p-4">
                         ${state.vehicles.length > 0 ? `
                         <p class="text-center text-gray-600">
@@ -5582,35 +5848,67 @@ function closeAppToolsMenu() {
 }
 window.closeAppToolsMenu = closeAppToolsMenu;
 
-// ✅ Sayfa mesajı (alert) yerine hızlı bildirim
-function showToast(message, ms = 2200) {
+// ✅ Sayfa mesajı (alert) yerine hızlı bildirim — uygulama teması (Piyasa / İhracat ile ortak)
+function _inferToastType(message) {
+  const m = String(message || '').trim();
+  if (/^✅/.test(m)) return 'success';
+  if (/^❌/.test(m)) return 'error';
+  if (/^⚠️?/.test(m)) return 'warn';
+  if (/^ℹ️?/.test(m)) return 'info';
+  return 'info';
+}
+
+function _toastIconForType(type) {
+  if (type === 'success') return '✅';
+  if (type === 'error') return '❌';
+  if (type === 'warn') return '⚠️';
+  return 'ℹ️';
+}
+
+function showToast(message, msOrType, maybeMs) {
   try {
+    const TOAST_TYPES = new Set(['success', 'error', 'warn', 'info']);
+    let type = 'info';
+    let ms = 2200;
+    if (typeof msOrType === 'string' && TOAST_TYPES.has(msOrType)) {
+      type = msOrType;
+      ms = typeof maybeMs === 'number' ? maybeMs : 2800;
+    } else {
+      if (typeof msOrType === 'number') ms = msOrType;
+      type = _inferToastType(message);
+    }
+
+    const raw = String(message || '').trim();
+    const text = raw.replace(/^(\u2705|\u274c|\u26a0\ufe0f?|\u2139\ufe0f?)\s*/, '').trim() || raw;
+    const icon = _toastIconForType(type);
+
     const id = 'toastBox';
     let box = document.getElementById(id);
     if (!box) {
       box = document.createElement('div');
       box.id = id;
-      box.style.position = 'fixed';
-      box.style.right = '16px';
-      box.style.bottom = '16px';
-      box.style.zIndex = '99999';
-      box.style.maxWidth = '320px';
       document.body.appendChild(box);
     }
+
     const item = document.createElement('div');
-    item.textContent = String(message || '');
-    item.style.background = 'rgba(0,0,0,0.85)';
-    item.style.color = '#fff';
-    item.style.padding = '10px 12px';
-    item.style.marginTop = '8px';
-    item.style.borderRadius = '10px';
-    item.style.fontSize = '13px';
-    item.style.lineHeight = '1.25';
-    item.style.boxShadow = '0 6px 18px rgba(0,0,0,0.25)';
+    item.className = `app-toast-item is-${type}`;
+    item.innerHTML = `<span class="app-toast-item__icon" aria-hidden="true">${icon}</span><span class="app-toast-item__text"></span>`;
+    item.querySelector('.app-toast-item__text').textContent = text;
     box.appendChild(item);
-    setTimeout(() => { item.remove(); }, ms);
-  } catch(e) {}
+
+    requestAnimationFrame(() => {
+      item.style.opacity = '1';
+    });
+
+    setTimeout(() => {
+      item.style.opacity = '0';
+      item.style.transform = 'translateY(6px)';
+      item.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
+      setTimeout(() => item.remove(), 200);
+    }, ms);
+  } catch (e) {}
 }
+window.showToast = showToast;
 
 function normalizeNetsisPlate(value) {
   if (!value) return '';
@@ -5802,9 +6100,6 @@ function toWhatsAppPhone(input) {
   });
 })();
 
-            document.getElementById('exportButtonTop')?.addEventListener('click', exportData);
-            document.getElementById('importButtonTop')?.addEventListener('click', importData);
-
 
             // Vardiya Notlari sayfasi
             document.getElementById('vardiyaNotlariButton')?.addEventListener('click', async () => {
@@ -5889,11 +6184,26 @@ function toWhatsAppPhone(input) {
             // Kart içi "SORUN X" butonları zaten document-level delegation ile açılıyor
 
 
-            // 📄 Excel yükle / sil (günlük sevkiyat)
-            document.getElementById('excelUploadButtonTop')?.addEventListener('click', function(){
+            // 📄 İhracat Excel — blok seçerek yükle / sil
+            document.getElementById('excelBlockSelectButtonTop')?.addEventListener('click', function(){
                 closeAppToolsMenu();
-                const inp = document.getElementById('excelFileInput');
-                if (inp) { inp.value = ''; inp.click(); }
+                let inp = document.getElementById('excelBlockFileInput');
+                if (!inp) {
+                    inp = document.createElement('input');
+                    inp.type = 'file';
+                    inp.id = 'excelBlockFileInput';
+                    inp.accept = '.xlsx,.xls,.xlsm,.xlsb';
+                    inp.style.display = 'none';
+                    document.body.appendChild(inp);
+                    inp.addEventListener('change', async function(ev){
+                        const f = ev.target.files && ev.target.files[0];
+                        if (!f) return;
+                        const res = await importExcelHeadersOnly_ShowSelection(f);
+                        if (!res || !res.ok) showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.'));
+                    });
+                }
+                inp.value = '';
+                inp.click();
             });
 
             document.getElementById('excelClearButtonTop')?.addEventListener('click', async function(){
@@ -5917,7 +6227,7 @@ function toWhatsAppPhone(input) {
                     rows: JSON.parse(JSON.stringify(loadDailyShipments() || [])),
                     meta: JSON.parse(JSON.stringify(loadDailyMeta() || {}))
                 };
-                const r = clearDailyShipments();
+                const r = await clearDailyShipments();
                 if (!r) {
                     if (typeof ui.alert === 'function') await ui.alert('Silinemedi.', 'danger');
                     else showToast('Silinemedi.');
@@ -5926,6 +6236,7 @@ function toWhatsAppPhone(input) {
                 try { if (typeof purgeStrictExcelCaches === 'function') purgeStrictExcelCaches(); } catch(e) {}
                 try { if (typeof rebuildListsFromExcelRows === 'function') rebuildListsFromExcelRows([]); } catch(e) {}
                 try { window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo(); } catch(e) {}
+                try { render(); } catch(e) {}
 
                 let choice = 'ok';
                 if (typeof ui.alertDeleteSuccess === 'function') {
@@ -5941,26 +6252,12 @@ function toWhatsAppPhone(input) {
                         if (typeof saveDailyShipments === 'function') saveDailyShipments(snapshot.rows, snapshot.meta);
                         if (typeof rebuildListsFromExcelRows === 'function') rebuildListsFromExcelRows(snapshot.rows);
                         try { window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo(); } catch(e) {}
+                        try { render(); } catch(e) {}
                         if (typeof ui.alert === 'function') await ui.alert('İHRACAT Excel verisi geri yüklendi.', 'success');
                     } catch (e) {
                         if (typeof ui.alert === 'function') await ui.alert('Geri alma başarısız.', 'danger');
                     }
                 }
-            });
-
-            document.getElementById('excelFileInput')?.addEventListener('change', async function(e){
-                const f = e.target.files && e.target.files[0];
-                // ✅ Günlük sevkiyat import (form otomatik dolsun)
-                const res = await importDailyExcel(f);
-                if (!res || !res.ok) { showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.')); return; }
-                const meta = (typeof loadDailyMeta === 'function') ? loadDailyMeta() : {};
-                const cnt = (typeof loadDailyShipments === 'function') ? (loadDailyShipments().length || 0) : 0;
-                showToast((res.msg || '✅ Excel içe aktarıldı.') + ` (Kayıt: ${cnt})`);
-                // ✅ Excel yüklendikten hemen sonra header'ı güncelle
-                try { window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo(); } catch(e) {}
-                // İhracat detaylarını göster
-                showIhracatDetailsModal();
-                // report event removed: EXCEL_IHRACAT_LOADED
             });
 
             document.getElementById('toggleFormButton')?.addEventListener('click', async function(e) {
@@ -6196,7 +6493,7 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
 
 }
 
-            // Chip click events - render içinde bağlanmalı
+            // Chip click: yüklüyse doğrudan ilgili detay / sipariş penceresi
             addOnce(document.getElementById('chipIhracat'), 'click', () => {
               const cnt = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
               if (cnt > 0) {
@@ -6218,7 +6515,7 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
                 } else {
                   showToast('❌ Piyasa Excel yüklü değil.');
                 }
-              } catch(e) {
+              } catch (e) {
                 showToast('❌ Piyasa Excel yüklü değil.');
               }
             });
@@ -6360,6 +6657,13 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
               setTimeout(()=>{ try { document.getElementById('soforAdi')?.focus(); } catch(_) {} }, 0);
             } catch(e) {}
         }
+
+        window.openNewRecordWithPlate = openNewRecordWithPlate;
+        window.editVehicleRecord = editVehicle;
+        window.renderApp = render;
+        try {
+          window.addEventListener('app:render-request', () => { try { render(); } catch (e) {} });
+        } catch (e) {}
 
         function submitQuickPlate(){
             const inp = document.getElementById('quickPlateInput');
@@ -6605,7 +6909,17 @@ async function login() {
     // Loading overlay removed
 
     if (!resp.ok) {
-      try { const j = await resp.json(); if (loginError) { loginError.textContent = j && j.error ? j.error : 'Giriş başarısız'; loginError.classList.remove('hidden'); } } catch(e) { if (loginError) loginError.classList.remove('hidden'); }
+      try {
+        const j = await resp.json();
+        if (loginError) {
+          let msg = j && j.error ? j.error : 'Giriş başarısız';
+          if (j && (j.code === 'IP_BANNED' || /engellendi|banned/i.test(msg))) {
+            msg += ' — Acil kurtarma: ayarlar.html#ban (ayarlar parolası ile IP engelini kaldırın).';
+          }
+          loginError.textContent = msg;
+          loginError.classList.remove('hidden');
+        }
+      } catch (e) { if (loginError) loginError.classList.remove('hidden'); }
       passInput.value = '';
       idInput.classList.add('border-red-500');
       passInput.classList.add('border-red-500');
@@ -7415,6 +7729,15 @@ function setupTakipFormButtons() {
             }
 
             try {
+                if (typeof window.maybeWarnExcelConsistencyBeforePrint === 'function') {
+                    const okExcel = await window.maybeWarnExcelConsistencyBeforePrint();
+                    if (!okExcel) return;
+                }
+            } catch (exErr) {
+                console.warn('Excel tutarlılık:', exErr);
+            }
+
+            try {
                 if (window.piyasa && typeof window.piyasa.maybePromptAracBosuBeforePrint === 'function') {
                     await window.piyasa.maybePromptAracBosuBeforePrint();
                 }
@@ -7448,7 +7771,10 @@ function setupTakipFormButtons() {
                 nowTs,
                 yuklemeSirasi: get('yuklemeSirasi'),
                 basimYeri: basimYeriValue,
-                snapshot: snap
+                snapshot: snap,
+                piyasaOrderIdx: (window.piyasa && typeof window.piyasa.getActiveOrderIdx === 'function')
+                  ? window.piyasa.getActiveOrderIdx()
+                  : null,
             };
 
             // Araç DB'de yoksa kaydet (yazdırma beklemesin; onay sonrası rapora gider)
@@ -7622,6 +7948,12 @@ function openExcelReviewUI({ plate, chosen, candidates, ydKey, onApply }){
   const safe = (v) => (v == null ? '' : String(v));
   const esc = (v) => (typeof escapeHtml === 'function' ? escapeHtml(safe(v)) : safe(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'));
 
+  // İhracat Excel Detayları ile aynı mantık: kayıtta boşsa headerText adaylarından türet
+  const resolvedSevk = String(chosen?.sevkYeri || _defaultSevkForShipment(chosen || {})).trim();
+  const resolvedAmb = String(
+    chosen?.ambalaj || chosen?.ambalajBilgisi || _defaultAmbalajTextForShipment(chosen || {})
+  ).trim();
+
   card.innerHTML = `
     <div class="excel-review-modal__header">
       <div class="excel-review-modal__header-main">
@@ -7652,14 +7984,14 @@ function openExcelReviewUI({ plate, chosen, candidates, ydKey, onApply }){
           <select id="xr_sevkYeriCand">
             <option value="">(Aday seç / boş bırak)</option>
           </select>
-          <input id="xr_sevkYeri" type="text" value="${esc(chosen?.sevkYeri || '')}">
+          <input id="xr_sevkYeri" type="text" value="${esc(resolvedSevk)}">
         </div>
         <div class="excel-review-field">
           <label for="xr_ambalaj">AMBALAJ BİLGİSİ</label>
           <select id="xr_ambalajCand">
             <option value="">(Aday seç / boş bırak)</option>
           </select>
-          <input id="xr_ambalaj" type="text" value="${esc(chosen?.ambalaj || '')}">
+          <input id="xr_ambalaj" type="text" value="${esc(resolvedAmb)}">
         </div>
       </div>
 
@@ -7707,13 +8039,41 @@ function openExcelReviewUI({ plate, chosen, candidates, ydKey, onApply }){
   overlay.appendChild(card);
   document.body.appendChild(overlay);
 
-  // ✅ Aday listelerini doldur (sevk yeri / ambalaj)
+  // ✅ Aday listelerini doldur (sevk yeri / ambalaj) + mevcut değeri seçili getir
   try {
-    const ambC = (candidates && Array.isArray(candidates.ambalaj)) ? candidates.ambalaj : [];
-    const sevC = (candidates && Array.isArray(candidates.sevkYeri)) ? candidates.sevkYeri : [];
+    const ambC = (candidates && Array.isArray(candidates.ambalaj)) ? [...candidates.ambalaj] : [];
+    const sevC = (candidates && Array.isArray(candidates.sevkYeri)) ? [...candidates.sevkYeri] : [];
 
     const selAmb = card.querySelector('#xr_ambalajCand');
     const selSev = card.querySelector('#xr_sevkYeriCand');
+    const sevInp = card.querySelector('#xr_sevkYeri');
+    const ambInp = card.querySelector('#xr_ambalaj');
+
+    const addUnique = (arr, val) => {
+      const v = String(val || '').trim();
+      if (!v) return;
+      if (!arr.some((x) => String(x || '').trim().toUpperCase() === v.toUpperCase())) arr.unshift(v);
+    };
+
+    addUnique(sevC, resolvedSevk);
+    addUnique(ambC, resolvedAmb);
+
+    // Aynı Excel oturumunda daha önce girilen YD/Firma varsayılanları
+    try {
+      const key = normalizeYdKey(ydKey || chosen?.ydKey || chosen?.firma || '');
+      if (key) {
+        if (!window.__quickDefaultsByKey) window.__quickDefaultsByKey = {};
+        const d = window.__quickDefaultsByKey[key];
+        if (d) {
+          const ds = String(d.sevkYeri || '').trim();
+          const da = String(d.ambalaj || '').trim();
+          addUnique(sevC, ds);
+          addUnique(ambC, da);
+          if (sevInp && !String(sevInp.value || '').trim() && ds) sevInp.value = ds;
+          if (ambInp && !String(ambInp.value || '').trim() && da) ambInp.value = da;
+        }
+      }
+    } catch (e) {}
 
     const addOpts = (sel, arr) => {
       if (!sel) return;
@@ -7728,36 +8088,27 @@ function openExcelReviewUI({ plate, chosen, candidates, ydKey, onApply }){
     addOpts(selSev, sevC);
     addOpts(selAmb, ambC);
 
+    const pickSelect = (sel, val) => {
+      const v = String(val || '').trim();
+      if (!sel || !v) return;
+      const match = Array.from(sel.options || []).find(
+        (o) => String(o.value || '').trim().toUpperCase() === v.toUpperCase()
+      );
+      if (match) sel.value = match.value;
+    };
+
+    pickSelect(selSev, sevInp?.value || resolvedSevk);
+    pickSelect(selAmb, ambInp?.value || resolvedAmb);
+
     // seçilince inputu doldur
     if (selSev) selSev.addEventListener('change', () => {
       const v = selSev.value || '';
-      if (v) {
-        const inp = card.querySelector('#xr_sevkYeri');
-        if (inp) inp.value = v;
-      }
+      if (v && sevInp) sevInp.value = v;
     });
     if (selAmb) selAmb.addEventListener('change', () => {
       const v = selAmb.value || '';
-      if (v) {
-        const inp = card.querySelector('#xr_ambalaj');
-        if (inp) inp.value = v;
-      }
+      if (v && ambInp) ambInp.value = v;
     });
-  } catch(e){}
-
-  // ✅ Aynı Excel oturumunda hızlı doldurma: YD/Firma anahtarına göre
-  try {
-    const key = normalizeYdKey(ydKey || chosen?.ydKey || chosen?.firma || '');
-    if (key) {
-      if (!window.__quickDefaultsByKey) window.__quickDefaultsByKey = {};
-      const d = window.__quickDefaultsByKey[key];
-      if (d) {
-        const sevInp = card.querySelector('#xr_sevkYeri');
-        const ambInp = card.querySelector('#xr_ambalaj');
-        if (sevInp && !String(sevInp.value||'').trim() && String(d.sevkYeri||'').trim()) sevInp.value = d.sevkYeri;
-        if (ambInp && !String(ambInp.value||'').trim() && String(d.ambalaj||'').trim()) ambInp.value = d.ambalaj;
-      }
-    }
   } catch(e){}
 
   const close = () => closeExcelReviewUI();
@@ -8502,18 +8853,1412 @@ function createNewVehicleWithCopiedInfo(originalVehicle) {
 }
 
 function showCopyMessage(message) {
-  const toast = document.createElement('div');
-  toast.className = 'fixed top-4 right-4 bg-purple-600 text-white px-6 py-3 rounded-lg shadow-lg z-50';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.remove();
-  }, 3000);
+  showToast(message, 'success', 3000);
 }
 
 // İçerideki araçlar özelliği kaldırıldı – ilgili fonksiyonlar silindi.
 // $('#iceridekiAraclar...') DOM manipülasyonu ve periyodik refresh artık yok.
+
+function _ihracatShipmentKey(s) {
+  return `${String(s.plaka || '').trim()}__${String(s.id || '').trim()}__${String(s.sira || '').trim()}`;
+}
+
+function _ihracatFirmaGroupKey(s) {
+  const m = String(s.ydKey || s.firma || 'GENEL').match(/\b(YD\d{1,4})\b/i);
+  const raw = (m ? m[1] : String(s.firma || 'GENEL')).toUpperCase();
+  return raw.replace(/[^A-Z0-9]/g, '_') || 'GENEL';
+}
+
+function _defaultSevkForShipment(s) {
+  const direct = String(s.sevkYeri || '').trim();
+  if (direct) return direct;
+  const cands = getLimanCandidates(s.headerText || '');
+  return cands[0] || '';
+}
+
+function _defaultAmbalajTextForShipment(s) {
+  const direct = String(s.ambalaj || s.ambalajBilgisi || '').trim();
+  if (direct) return direct;
+  const cands = getAmbalajCandidates(s.headerText || '');
+  return cands[0] || '';
+}
+
+function _applyExcelShipmentFieldsToTakipForm(chosen) {
+  if (!chosen) return;
+  const firmaKodu = document.getElementById('firmaKodu');
+  const firmaSelect = document.getElementById('firmaSelect');
+  const malzeme = document.getElementById('malzeme');
+  const malzemeSelect = document.getElementById('malzemeSelect');
+  const sevkYeri = document.getElementById('sevkYeri');
+  const ambalajBilgisi = document.getElementById('ambalajBilgisi');
+  const tonajEl = document.getElementById('tonaj');
+  const bbt = document.getElementById('bbt');
+  const cuval = document.getElementById('cuval');
+  const palet = document.getElementById('palet');
+  const bosBbt = document.getElementById('bosBbt');
+  const bosCuval = document.getElementById('bosCuval');
+  const yuklemeNotu = document.getElementById('yuklemeNotu');
+
+  const firmaVal = String(chosen.firma || chosen.ydKey || '').trim();
+  const malzemeVal = String(chosen.malzeme || '').trim();
+  if (firmaKodu && firmaVal) firmaKodu.value = firmaVal;
+  if (firmaSelect && firmaVal) {
+    try {
+      const opt = Array.from(firmaSelect.options || []).find((o) => String(o.value || '').trim() === firmaVal);
+      if (opt) firmaSelect.value = opt.value;
+    } catch (e) {}
+  }
+  if (malzeme && malzemeVal) malzeme.value = malzemeVal;
+  if (malzemeSelect && malzemeVal) malzemeSelect.value = malzemeVal;
+
+  const sevk = String(chosen.sevkYeri || _defaultSevkForShipment(chosen)).trim();
+  if (sevkYeri && sevk) sevkYeri.value = sevk;
+
+  const ambText = String(chosen.ambalaj || chosen.ambalajBilgisi || _defaultAmbalajTextForShipment(chosen)).trim();
+  if (ambalajBilgisi && ambText) ambalajBilgisi.value = ambText;
+
+  if (tonajEl && chosen.tonajKg != null && String(chosen.tonajKg).trim() !== '') {
+    tonajEl.value = String(chosen.tonajKg).trim();
+  }
+
+  if (bbt) bbt.value = String(chosen.bbt || '').trim();
+  if (palet) palet.value = String(chosen.palet || '').trim();
+  if (bosBbt) bosBbt.value = String(chosen.bosBbt || '').trim();
+  if (cuval) {
+    const cv = Number(chosen.cuval || 0);
+    const bcv = Number(chosen.bosCuval || 0);
+    if (cv > 0) {
+      cuval.value = String(chosen.cuval);
+      if (bosCuval) bosCuval.value = bcv > 0 ? String(chosen.bosCuval) : '';
+    } else if (bcv > 0) {
+      cuval.value = String(chosen.bosCuval);
+      if (bosCuval) bosCuval.value = '';
+    }
+  }
+
+  applyShipmentTonajAndIrsaliye(chosen);
+  if (yuklemeNotu && chosen.yuklemeNotu && !String(yuklemeNotu.value || '').trim()) {
+    yuklemeNotu.value = String(chosen.yuklemeNotu);
+  }
+}
+
+function _ihracatReadRowFields(row, cur, blockSevk, blockAmb) {
+  const gk = _ihracatFirmaGroupKey(cur);
+  const plakaInp = row.querySelector('[data-field="plaka"]');
+  const plakaText = row.querySelector('[data-field="plaka-text"]');
+  const plaka = plakaInp
+    ? normPlate(plakaInp.value)
+    : plakaText
+      ? normPlate(plakaText.textContent)
+      : normPlate(cur.plaka || '');
+  if (!plaka || !_ihracatPlateKey(plaka)) return null;
+  cur.plaka = plaka;
+
+  const firmaEl = row.querySelector('[data-field="firma"]');
+  const malzemeEl = row.querySelector('[data-field="malzeme"]');
+  if (firmaEl) cur.firma = String(firmaEl.textContent || '').trim();
+  if (malzemeEl) cur.malzeme = String(malzemeEl.textContent || '').trim();
+
+  const tonaj = row.querySelector('[data-field="tonaj"]');
+  const irs = row.querySelector('[data-field="irsaliye"]');
+  const bbt = row.querySelector('[data-field="bbt"]');
+  const bosBbt = row.querySelector('[data-field="bosBbt"]');
+  const cuval = row.querySelector('[data-field="cuval"]');
+  const bosCuval = row.querySelector('[data-field="bosCuval"]');
+  const palet = row.querySelector('[data-field="palet"]');
+
+  if (tonaj) cur.tonajKg = String(tonaj.value || '').trim();
+  if (irs) {
+    const n = normalizeIrsaliyeNo(irs.value);
+    cur.irsaliyeNo = n;
+    if (n) cur.id = n;
+  }
+  if (bbt) cur.bbt = String(bbt.value || '').trim();
+  if (bosBbt) cur.bosBbt = String(bosBbt.value || '').trim();
+  if (cuval) cur.cuval = String(cuval.value || '').trim();
+  if (bosCuval) cur.bosCuval = String(bosCuval.value || '').trim();
+  if (palet) cur.palet = String(palet.value || '').trim();
+
+  const sevk = blockSevk[gk] || cur.sevkYeri || '';
+  if (sevk) cur.sevkYeri = sevk;
+  const amb = blockAmb[gk] || '';
+  if (amb) {
+    cur.ambalaj = amb;
+    cur.ambalajBilgisi = amb;
+  }
+
+  cur._ihracatEdited = true;
+  cur._ihracatEditedAt = Date.now();
+  return cur;
+}
+
+function _saveIhracatDetailsFromModal(originalShipments, meta) {
+  const modal = document.getElementById('ihracatDetailsModal');
+  if (!modal) return false;
+
+  const byKey = new Map();
+  (originalShipments || []).forEach((s) => {
+    byKey.set(_ihracatShipmentKey(s), { ...s });
+  });
+
+  const blockSevk = {};
+  const blockAmb = {};
+  modal.querySelectorAll('[data-ihr-firma-sevk]').forEach((inp) => {
+    blockSevk[inp.getAttribute('data-ihr-firma-sevk')] = String(inp.value || '').trim();
+  });
+  modal.querySelectorAll('[data-ihr-firma-amb]').forEach((inp) => {
+    blockAmb[inp.getAttribute('data-ihr-firma-amb')] = String(inp.value || '').trim();
+  });
+
+  modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
+    const key = row.getAttribute('data-ihr-row-key');
+    if (!key) return;
+
+    let cur = byKey.get(key);
+    const isNew = row.getAttribute('data-ihr-is-new') === '1' || String(key).startsWith('new__');
+    if (!cur && isNew) {
+      const tbody = row.closest('tbody[data-ihr-tbody]');
+      let template = {};
+      try {
+        template = JSON.parse(tbody?.getAttribute('data-ihr-template') || '{}');
+      } catch (e) {}
+      cur = {
+        ...template,
+        id: '',
+        sira: '',
+        plaka: '',
+        _ihracatManual: true,
+      };
+    }
+    if (!cur) return;
+
+    const updated = _ihracatReadRowFields(row, cur, blockSevk, blockAmb);
+    if (!updated) return;
+    byKey.set(key, updated);
+  });
+
+  let deletedKeys = [];
+  try { deletedKeys = JSON.parse(modal.dataset.ihrDeletedKeys || '[]'); } catch (e) {}
+  deletedKeys.forEach((k) => byKey.delete(k));
+
+  const rows = Array.from(byKey.values());
+  const ok = saveDailyShipments(rows, meta);
+  if (ok) {
+    try {
+      purgeStrictExcelCaches();
+      rebuildListsFromExcelRows(rows);
+      window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
+    } catch (e) {}
+  }
+  return ok;
+}
+
+function _ihracatPlateKey(value) {
+  const formatted = normPlate(value || '');
+  return _plateKeyForMatch(formatted || value);
+}
+
+function _ihracatFindVehicleByPlate(plateRaw) {
+  const key = _ihracatPlateKey(plateRaw);
+  if (!key) return null;
+  return (state.vehicles || []).find((v) => {
+    const plates = [v.cekiciPlaka, v.dorsePlaka, v.plaka].filter(Boolean);
+    return plates.some((p) => _ihracatPlateKey(p) === key);
+  }) || null;
+}
+
+function _ihracatAmbalajCellHtml(inpStyle, s) {
+  const v = (f) => escapeHtml(String((s && s[f]) || ''));
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+    <label style="font-size:10px;color:#64748b;">BBT</label>
+    <input type="text" data-field="bbt" value="${v('bbt')}" style="${inpStyle}" />
+    <label style="font-size:10px;color:#64748b;">Boş</label>
+    <input type="text" data-field="bosBbt" value="${v('bosBbt')}" style="${inpStyle}" />
+    <label style="font-size:10px;color:#64748b;">Çuv</label>
+    <input type="text" data-field="cuval" value="${v('cuval')}" style="${inpStyle}" />
+    <label style="font-size:10px;color:#64748b;">B.Ç</label>
+    <input type="text" data-field="bosCuval" value="${v('bosCuval')}" style="${inpStyle}" />
+    <label style="font-size:10px;color:#64748b;">Pal</label>
+    <input type="text" data-field="palet" value="${v('palet')}" style="${inpStyle}" />
+  </div>`;
+}
+
+function _ihracatStripNewPlateQtyFields(snap) {
+  if (!snap || typeof snap !== 'object') return snap;
+  return {
+    ...snap,
+    tonajKg: '',
+    bbt: '',
+    bosBbt: '',
+    cuval: '',
+    bosCuval: '',
+    palet: '',
+    irsaliyeNo: '',
+  };
+}
+
+function _ihracatClearNewPlateQtyOnRow(row, inpStyle) {
+  if (!row) return;
+  const style = inpStyle || 'width:100%;max-width:72px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;';
+  const tonajInp = row.querySelector('[data-field="tonaj"]');
+  if (tonajInp) {
+    tonajInp.value = '';
+    tonajInp.removeAttribute('disabled');
+  }
+  const irsInp = row.querySelector('[data-field="irsaliye"]');
+  if (irsInp) {
+    irsInp.value = '';
+    irsInp.removeAttribute('disabled');
+  }
+  if (row.cells && row.cells.length >= 5) {
+    row.cells[4].innerHTML = _ihracatAmbalajCellHtml(style, null);
+    row.cells[4].style.opacity = '1';
+  }
+}
+
+function _ihracatCopyRowFromPrev(prevRow, targetRow) {
+  if (!prevRow || !targetRow) return;
+  ['firma', 'malzeme'].forEach((f) => {
+    const from = prevRow.querySelector(`[data-field="${f}"]`);
+    const to = targetRow.querySelector(`[data-field="${f}"]`);
+    if (from && to) {
+      to.textContent = from.textContent || '';
+      to.style.color = '';
+    }
+  });
+}
+
+const IHR_PLAKA_WRAP_STYLE = 'display:inline-flex;align-items:center;flex-wrap:nowrap;gap:2px;min-width:0;max-width:100%;';
+const IHR_PLAKA_INP_STYLE = 'width:92px;max-width:92px;flex:0 1 92px;min-width:0;padding:4px 5px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;';
+const IHR_PLAKA_INP_ADD_STYLE = 'width:92px;max-width:92px;flex:0 1 92px;min-width:0;padding:4px 5px;border:1px dashed #f59e0b;border-radius:6px;font-size:12px;box-sizing:border-box;';
+const IHR_PLAKA_TEXT_STYLE = 'display:inline-block;flex:1 1 auto;min-width:0;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;';
+const IHR_PLAKA_TD_STYLE = 'border:1px solid #ddd;padding:4px 6px;white-space:nowrap;width:172px;max-width:172px;overflow:hidden;vertical-align:middle;';
+
+function _ihracatActionBtnsHtml() {
+  const btn = 'border:none;background:transparent;cursor:pointer;padding:3px 7px;border-radius:6px;line-height:1;flex-shrink:0;';
+  return `<span class="ihr-row-actions" style="display:inline-flex;flex-shrink:0;gap:2px;margin-left:2px;vertical-align:middle;">
+    <button type="button" class="ihr-row-edit" title="Plakayı düzenle" style="${btn}color:#2563eb;" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='transparent'"><i class="fas fa-pen" style="font-size:13px;"></i></button>
+    <button type="button" class="ihr-row-del" title="Satırı sil" style="${btn}color:#dc2626;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='transparent'"><i class="fas fa-trash" style="font-size:13px;"></i></button>
+  </span>`;
+}
+
+function _ihracatPlakaCellHtml(plate, editable, isAddRow) {
+  const actions = isAddRow ? '' : _ihracatActionBtnsHtml();
+  const p = normPlate(plate || '');
+  const inpStyle = isAddRow ? IHR_PLAKA_INP_ADD_STYLE : IHR_PLAKA_INP_STYLE;
+  if (editable) {
+    return `<span data-ihr-plaka-wrap style="${IHR_PLAKA_WRAP_STYLE}">
+      <input type="text" data-field="plaka" value="${escapeHtml(p)}" placeholder="${isAddRow ? 'Yeni plaka…' : ''}" style="${inpStyle}" />
+      ${actions}
+    </span>`;
+  }
+  return `<span data-ihr-plaka-wrap style="${IHR_PLAKA_WRAP_STYLE}">
+    <span data-field="plaka-text" style="${IHR_PLAKA_TEXT_STYLE}" title="${escapeHtml(p || '')}">${escapeHtml(p || '—')}</span>
+    ${actions}
+  </span>`;
+}
+
+function _ihracatEnsureRowActions(row) {
+  if (!row || !row.hasAttribute('data-ihr-row-key')) return;
+  const cell = row.cells[0];
+  if (!cell || cell.querySelector('.ihr-row-actions')) return;
+  const wrap = cell.querySelector('[data-ihr-plaka-wrap]');
+  if (wrap) {
+    wrap.insertAdjacentHTML('beforeend', _ihracatActionBtnsHtml());
+  }
+}
+
+function _ihracatPlateCommitReady(raw, normalizePlate) {
+  const plate = normalizePlate(raw || '');
+  return plate && plate.replace(/\s/g, '').length >= 7;
+}
+
+function _ihracatVehicleHasDriver(vehicle) {
+  if (!vehicle) return false;
+  const n1 = `${vehicle.soforAdi || ''} ${vehicle.soforSoyadi || ''}`.trim();
+  const n2 = `${vehicle.sofor2Adi || ''} ${vehicle.sofor2Soyadi || ''}`.trim();
+  return !!(n1 || n2 || String(vehicle.iletisim || '').trim() || String(vehicle.tcKimlik || '').trim());
+}
+
+function _ihracatDurumPlainText(st, plateRaw) {
+  if (st === 'printed') return 'Yazdırıldı';
+  const v = _ihracatFindVehicleByPlate(plateRaw);
+  if (!v) return 'Kayıt yok';
+  if (_ihracatVehicleHasDriver(v)) return 'Şoför var';
+  return 'Şoför yok';
+}
+
+function _ihracatKayitEtBtnHtml(plate) {
+  const p = escapeHtml(normPlate(plate || ''));
+  return `<button type="button" class="ihr-kayit-et-btn" data-plate="${p}" style="margin-top:5px;display:block;width:100%;max-width:110px;padding:4px 8px;font-size:10px;background:#4f46e5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Kayıt Et</button>`;
+}
+
+function _ihracatScrollToPlate(plateRaw, rowKey) {
+  const modal = document.getElementById('ihracatDetailsModal');
+  if (!modal) return false;
+  let row = null;
+  if (rowKey) {
+    row = Array.from(modal.querySelectorAll('tr[data-ihr-row-key]')).find(
+      (r) => r.getAttribute('data-ihr-row-key') === rowKey
+    ) || null;
+  }
+  if (!row && plateRaw) {
+    const key = _ihracatPlateKey(plateRaw);
+    row = Array.from(modal.querySelectorAll('tr[data-ihr-row-key]')).find((r) => {
+      const p =
+        r.querySelector('[data-field="plaka-text"]')?.textContent ||
+        r.querySelector('[data-field="plaka"]')?.value ||
+        '';
+      return key && _ihracatPlateKey(p) === key;
+    }) || null;
+  }
+  if (!row) return false;
+  try {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    row.scrollIntoView(true);
+  }
+  row.style.outline = '3px solid #4f46e5';
+  row.style.outlineOffset = '2px';
+  setTimeout(() => {
+    row.style.outline = '';
+    row.style.outlineOffset = '';
+  }, 2800);
+  return true;
+}
+
+function _ihracatShipmentsHasPlate(plateRaw) {
+  const key = _ihracatPlateKey(plateRaw);
+  if (!key) return false;
+  const rows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+  return rows.some((s) => _ihracatPlateKey(s.plaka) === key);
+}
+
+function _ihracatPersistPendingShipment(ctx) {
+  if (!ctx || !ctx.plate) return null;
+  const plate = normPlate(ctx.plate);
+  if (!plate) return null;
+  if (_ihracatShipmentsHasPlate(plate) && !ctx.forceAdd) {
+    return null;
+  }
+
+  const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+  const rows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []).slice() : [];
+  const snap = ctx.pendingShipment || {};
+  const template = ctx.template || {};
+  const gk = _ihracatFirmaGroupKey({ firma: snap.firma || template.firma, ydKey: template.ydKey });
+
+  const isNewPlateRow = !!ctx.forceAdd;
+  const newShipment = {
+    ...template,
+    id: isNewPlateRow ? '' : (normalizeIrsaliyeNo(snap.irsaliyeNo || '') || String(template.id || '').trim()),
+    sira: String(template.sira || `M${Date.now()}`),
+    plaka: plate,
+    firma: (snap.firma && snap.firma !== '—') ? snap.firma : (template.firma || ''),
+    malzeme: (snap.malzeme && snap.malzeme !== '—') ? snap.malzeme : (template.malzeme || ''),
+    tonajKg: isNewPlateRow ? '' : (snap.tonajKg || template.tonajKg || ''),
+    bbt: isNewPlateRow ? '' : (snap.bbt || template.bbt || ''),
+    bosBbt: isNewPlateRow ? '' : (snap.bosBbt || template.bosBbt || ''),
+    cuval: isNewPlateRow ? '' : (snap.cuval || template.cuval || ''),
+    bosCuval: isNewPlateRow ? '' : (snap.bosCuval || template.bosCuval || ''),
+    palet: isNewPlateRow ? '' : (snap.palet || template.palet || ''),
+    irsaliyeNo: isNewPlateRow ? '' : normalizeIrsaliyeNo(snap.irsaliyeNo || ''),
+    sevkYeri: snap.sevkYeri || template.sevkYeri || '',
+    ambalaj: isNewPlateRow ? '' : (snap.ambalaj || template.ambalaj || template.ambalajBilgisi || ''),
+    ambalajBilgisi: isNewPlateRow ? '' : (snap.ambalaj || template.ambalajBilgisi || ''),
+    ydKey: template.ydKey || '',
+    headerText: template.headerText || '',
+    fileName: template.fileName || meta.fileName || '',
+    _ihracatManual: true,
+    _ihracatEdited: true,
+    _ihracatEditedAt: Date.now(),
+  };
+
+  const vehicle = _ihracatFindVehicleByPlate(plate);
+  if (vehicle) {
+    if (!newShipment.sevkYeri && vehicle.defaultSevkYeri) newShipment.sevkYeri = vehicle.defaultSevkYeri;
+  }
+
+  const existingIdx = rows.findIndex((s) => _ihracatPlateKey(s.plaka) === _ihracatPlateKey(plate));
+  let savedRow;
+  if (existingIdx >= 0) {
+    rows[existingIdx] = { ...rows[existingIdx], ...newShipment, plaka: plate };
+    savedRow = rows[existingIdx];
+  } else {
+    rows.push(newShipment);
+    savedRow = newShipment;
+  }
+
+  const ok = (typeof saveDailyShipments === 'function') ? saveDailyShipments(rows, meta) : false;
+  if (ok) {
+    try {
+      purgeStrictExcelCaches();
+      rebuildListsFromExcelRows(rows);
+      window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
+    } catch (e) {}
+  }
+  return ok ? _ihracatShipmentKey(savedRow) : null;
+}
+
+function _ihracatSnapForKayitRow(row, plateFromBtn) {
+  const plate = normPlate(plateFromBtn || '');
+  if (!row) return plate ? { plaka: plate } : null;
+  let snap = _ihracatReadRowSnapshot(row);
+  if (!snap && plate) snap = { plaka: plate };
+  else if (snap && plate) snap.plaka = plate;
+  if (row.getAttribute('data-ihr-add-row') === '1') {
+    const prevRow = row.previousElementSibling;
+    if (prevRow && prevRow.hasAttribute('data-ihr-row-key')) {
+      const prevSnap = _ihracatReadRowSnapshot(prevRow);
+      if (prevSnap) {
+        snap = { ...prevSnap, ...(snap || {}), plaka: plate || (snap && snap.plaka) || prevSnap.plaka };
+      }
+    }
+    snap = _ihracatStripNewPlateQtyFields(snap);
+  }
+  return snap;
+}
+
+function _ihracatOpenVehicleRegistration(plateRaw, opts) {
+  const plate = normPlate(plateRaw || '');
+  if (!plate) {
+    showToast('❌ Önce geçerli bir plaka girin.', 'error');
+    return;
+  }
+  const row = opts?.row || null;
+  const rowKey = opts?.rowKey || row?.getAttribute('data-ihr-row-key') || '';
+  let snap = opts?.snap || (row ? _ihracatReadRowSnapshot(row) : null) || {};
+
+  const isAddRow = row && row.getAttribute('data-ihr-add-row') === '1';
+  if (isAddRow) {
+    const prevRow = row.previousElementSibling;
+    if (prevRow && prevRow.hasAttribute('data-ihr-row-key')) {
+      const prevSnap = _ihracatReadRowSnapshot(prevRow);
+      if (prevSnap) {
+        snap = { ...prevSnap, ...snap, plaka: plate };
+      }
+    }
+    snap = _ihracatStripNewPlateQtyFields(snap);
+  }
+
+  const tbody = row?.closest('tbody[data-ihr-tbody]');
+  let template = {};
+  try {
+    template = JSON.parse(tbody?.getAttribute('data-ihr-template') || '{}');
+  } catch (e) {}
+
+  const blockSevk = {};
+  const blockAmb = {};
+  const modal = document.getElementById('ihracatDetailsModal');
+  if (modal) {
+    modal.querySelectorAll('[data-ihr-firma-sevk]').forEach((inp) => {
+      const k = inp.getAttribute('data-ihr-firma-sevk');
+      if (k) blockSevk[k] = String(inp.value || '').trim();
+    });
+    modal.querySelectorAll('[data-ihr-firma-amb]').forEach((inp) => {
+      const k = inp.getAttribute('data-ihr-firma-amb');
+      if (k) blockAmb[k] = String(inp.value || '').trim();
+    });
+  }
+  const gk = _ihracatFirmaGroupKey({ firma: snap.firma || template.firma, ydKey: template.ydKey });
+  if (blockSevk[gk]) snap.sevkYeri = blockSevk[gk];
+  if (blockAmb[gk]) {
+    snap.ambalaj = blockAmb[gk];
+    snap.ambalajBilgisi = blockAmb[gk];
+  }
+
+  const forceAdd = isAddRow || !_ihracatShipmentsHasPlate(plate);
+
+  window.__ihracatReturnContext = {
+    reopen: true,
+    plate,
+    rowKey,
+    pendingShipment: snap,
+    template,
+    forceAdd,
+  };
+
+  const persistedKey = _ihracatPersistPendingShipment(window.__ihracatReturnContext);
+  if (persistedKey) window.__ihracatReturnContext.rowKey = persistedKey;
+
+  document.getElementById('ihracatDetailsModal')?.remove();
+
+  const vehicle = _ihracatFindVehicleByPlate(plate);
+
+  if (vehicle && !_ihracatVehicleHasDriver(vehicle)) {
+    if (typeof window.editVehicleRecord === 'function') {
+      window.editVehicleRecord(vehicle);
+      try {
+        if (snap.firma) state.formData.defaultFirma = snap.firma;
+        if (snap.malzeme) state.formData.defaultMalzeme = snap.malzeme;
+        if (typeof window.renderApp === 'function') window.renderApp();
+      } catch (e) {}
+      setTimeout(() => {
+        try { document.getElementById('soforAdi')?.focus(); } catch (e) {}
+      }, 150);
+      showToast('Şoför bilgilerini tamamlayıp kaydedin; ardından İhracat listesine dönersiniz.', 'info');
+      return;
+    }
+  }
+
+  if (typeof window.openNewRecordWithPlate === 'function') {
+    window.openNewRecordWithPlate(plate);
+    try {
+      if (snap.firma) state.formData.defaultFirma = snap.firma;
+      if (snap.malzeme) state.formData.defaultMalzeme = snap.malzeme;
+      if (typeof window.renderApp === 'function') window.renderApp();
+    } catch (e) {}
+    showToast('➕ Yeni araç kaydı açıldı. Şoför bilgilerini girip kaydedin.', 'info');
+    return;
+  }
+
+  try {
+    state.editingId = null;
+    state.showForm = true;
+    state.showAll = false;
+    state.searchTerm = '';
+    state.formData = {
+      cekiciPlaka: plate,
+      dorsePlaka: '',
+      soforAdi: '',
+      soforSoyadi: '',
+      sofor2Adi: '',
+      sofor2Soyadi: '',
+      iletisim: '',
+      tcKimlik: '',
+      defaultFirma: snap.firma || '',
+      defaultMalzeme: snap.malzeme || '',
+      defaultSevkYeri: '',
+      defaultYuklemeNotu: '',
+    };
+    window.dispatchEvent(new CustomEvent('app:render-request'));
+    setTimeout(() => {
+      try { document.getElementById('soforAdi')?.focus(); } catch (e) {}
+    }, 150);
+  } catch (e) {
+    showToast('❌ Kayıt formu açılamadı.', 'error');
+  }
+}
+
+function _ihracatBindKayitEtAndSearch(modal) {
+  modal.addEventListener('click', (e) => {
+    const regBtn = e.target.closest('.ihr-kayit-et-btn');
+    if (regBtn) {
+      e.preventDefault();
+      const plate = regBtn.getAttribute('data-plate') || '';
+      const row = regBtn.closest('tr[data-ihr-row-key], tr[data-ihr-add-row]');
+      const rowKey = row?.getAttribute('data-ihr-row-key') || '';
+      const snap = _ihracatSnapForKayitRow(row, plate);
+      _ihracatOpenVehicleRegistration(plate, { rowKey, snap, row });
+    }
+  });
+
+  const runSearch = () => {
+    const inp = modal.querySelector('#ihracatPlateSearch');
+    const q = String(inp?.value || '').trim();
+    if (!q) {
+      showToast('Plaka yazın veya yapıştırın.', 'warn');
+      return;
+    }
+    const ok = _ihracatScrollToPlate(q, '');
+    if (ok) showToast(`✅ Plaka bulundu: ${normPlate(q)}`, 'success');
+    else showToast('❌ Bu plaka listede yok (boşluklu/boşluksuz deneyin).', 'warn');
+  };
+
+  modal.querySelector('#ihracatPlateSearchBtn')?.addEventListener('click', runSearch);
+  modal.querySelector('#ihracatPlateSearch')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runSearch();
+    }
+  });
+}
+
+function _ihracatMaybeReopenAfterVehicleSave() {
+  const ctx = window.__ihracatReturnContext;
+  if (!ctx || !ctx.reopen) return;
+  const plate = ctx.plate || '';
+  let rowKey = ctx.rowKey || '';
+
+  const addedKey = _ihracatPersistPendingShipment(ctx);
+  if (addedKey) rowKey = addedKey;
+
+  window.__ihracatReturnContext = null;
+  window.__ihracatReopenTarget = { plate, rowKey };
+  setTimeout(() => {
+    showIhracatDetailsModal();
+  }, 300);
+}
+
+function _ihracatScrollToReopenTarget() {
+  const target = window.__ihracatReopenTarget;
+  if (!target || !target.plate) return;
+  const tryScroll = (attempt) => {
+    const modal = document.getElementById('ihracatDetailsModal');
+    if (!modal) {
+      if (attempt < 8) setTimeout(() => tryScroll(attempt + 1), 150);
+      return;
+    }
+    if (_ihracatScrollToPlate(target.plate, target.rowKey)) {
+      showToast(`✅ ${target.plate} listeye eklendi.`, 'success');
+      window.__ihracatReopenTarget = null;
+      return;
+    }
+    if (attempt < 8) setTimeout(() => tryScroll(attempt + 1), 180);
+    else {
+      showToast('Kayıt tamam. Plakayı üstteki arama kutusundan bulabilirsiniz.', 'info');
+      window.__ihracatReopenTarget = null;
+    }
+  };
+  tryScroll(0);
+}
+
+function _ihracatRenderDurumHtml(st, plateRaw) {
+  const plate = normPlate(plateRaw || '');
+  const regBtn = plate ? _ihracatKayitEtBtnHtml(plate) : '';
+  if (st === 'printed') {
+    return '<span style="display:inline-flex;align-items:center;gap:4px;font-weight:600;color:#991b1b;" title="Yazdırıldı">🖨️ <span style="font-size:11px;">Yazdırıldı</span></span>';
+  }
+  const v = _ihracatFindVehicleByPlate(plateRaw);
+  if (!v) {
+    return `<span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;">
+      <span style="display:inline-flex;align-items:center;gap:4px;" title="Sistemde kayıt yok"><span style="font-size:18px;line-height:1;">❌</span><span style="font-size:11px;color:#991b1b;font-weight:600;">Kayıt yok</span></span>
+      ${regBtn}
+    </span>`;
+  }
+  if (_ihracatVehicleHasDriver(v)) {
+    return '<span style="display:inline-flex;align-items:center;gap:4px;" title="Şoför bilgisi mevcut"><span style="font-size:18px;line-height:1;color:#16a34a;">✅</span><span style="font-size:11px;color:#166534;font-weight:600;">Şoför var</span></span>';
+  }
+  return `<span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;">
+    <span style="display:inline-flex;align-items:center;gap:4px;" title="Araç kayıtlı, şoför bilgisi eksik"><span style="font-size:18px;line-height:1;">❌</span><span style="font-size:11px;color:#991b1b;font-weight:600;">Şoför yok</span></span>
+    ${regBtn}
+  </span>`;
+}
+
+function _ihracatApplyDurumCell(statusCell, row, plateRaw, statusApi) {
+  if (!statusCell) return;
+  const { normalizePlate, statusForPlate, statusStyle, renderDurumHtml } = statusApi;
+  const raw = String(plateRaw || '').trim();
+  if (!raw) {
+    statusCell.innerHTML = '<span style="font-size:11px;color:#92400e;">Plaka girin</span>';
+    statusCell.removeAttribute('data-ihr-durum-text');
+    if (row) row.style.cssText = row.getAttribute('data-ihr-add-row') === '1' ? 'background:#fffbeb;color:#92400e;' : (row.style.cssText || '');
+    return;
+  }
+  const plate = normalizePlate(raw);
+  if (!plate || plate.replace(/\s/g, '').length < 5) {
+    statusCell.innerHTML = '<span style="font-size:11px;color:#92400e;">Kontrol…</span>';
+    statusCell.removeAttribute('data-ihr-durum-text');
+    return;
+  }
+  const st = statusForPlate(raw);
+  statusCell.innerHTML = renderDurumHtml(st, raw);
+  statusCell.setAttribute('data-ihr-durum-text', _ihracatDurumPlainText(st, raw));
+  if (row) {
+    row.style.cssText = row.getAttribute('data-ihr-add-row') === '1'
+      ? 'background:#fffbeb;color:#92400e;'
+      : (statusStyle[st] || '');
+  }
+}
+
+function _ihracatDeleteShipmentRow(rowKey, plateRaw) {
+  const rk = String(rowKey || '').trim();
+  const pk = _ihracatPlateKey(plateRaw);
+  const rows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []).slice() : [];
+  const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+  const ephemeralKey = rk.startsWith('new__');
+  const next = rows.filter((s) => {
+    const sk = _ihracatShipmentKey(s);
+    if (rk && sk === rk) return false;
+    if (ephemeralKey && pk && _ihracatPlateKey(s.plaka) === pk && (s._ihracatManual || s._ihracatEdited)) return false;
+    return true;
+  });
+  if (next.length === rows.length) return false;
+  const ok = (typeof saveDailyShipments === 'function') ? saveDailyShipments(next, meta) : false;
+  if (ok) {
+    try {
+      purgeStrictExcelCaches();
+      rebuildListsFromExcelRows(next);
+      window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
+    } catch (e) {}
+  }
+  return ok;
+}
+
+function _ihracatBindRowActions(modal, statusApi) {
+  const { normalizePlate } = statusApi;
+
+  const updateRowStatus = (row, plateRaw) => {
+    _ihracatApplyDurumCell(row.querySelector('[data-field="durum"]'), row, plateRaw, statusApi);
+  };
+
+  modal.addEventListener('click', (e) => {
+    const editBtn = e.target.closest('.ihr-row-edit');
+    if (editBtn) {
+      e.preventDefault();
+      const row = editBtn.closest('tr[data-ihr-row-key]');
+      if (!row) return;
+      const existingInp = row.querySelector('[data-field="plaka"]');
+      if (existingInp) {
+        existingInp.focus();
+        existingInp.select();
+        return;
+      }
+      const textEl = row.querySelector('[data-field="plaka-text"]');
+      if (!textEl) return;
+      const wrap = row.querySelector('[data-ihr-plaka-wrap]');
+      const plate = textEl.textContent || '';
+      wrap.innerHTML = `<input type="text" data-field="plaka" value="${escapeHtml(plate)}" style="${IHR_PLAKA_INP_STYLE}" />${_ihracatActionBtnsHtml()}`;
+      const inp = wrap.querySelector('[data-field="plaka"]');
+      inp.addEventListener('input', () => updateRowStatus(row, inp.value));
+      inp.addEventListener('blur', () => {
+        const p = normalizePlate(inp.value);
+        if (p) inp.value = p;
+        updateRowStatus(row, inp.value);
+      });
+      inp.focus();
+      inp.select();
+      return;
+    }
+
+    const delBtn = e.target.closest('.ihr-row-del');
+    if (delBtn) {
+      e.preventDefault();
+      const row = delBtn.closest('tr[data-ihr-row-key]');
+      if (!row) return;
+      const plate =
+        row.querySelector('[data-field="plaka-text"]')?.textContent?.trim() ||
+        row.querySelector('[data-field="plaka"]')?.value?.trim() ||
+        '';
+      const msg = plate
+        ? `"${plate}" plakalı sevkiyat satırı silinsin mi?`
+        : 'Bu sevkiyat satırı silinsin mi?';
+      if (!confirm(msg)) return;
+      const key = row.getAttribute('data-ihr-row-key');
+      if (key) {
+        let del = [];
+        try { del = JSON.parse(modal.dataset.ihrDeletedKeys || '[]'); } catch (err) {}
+        if (!del.includes(key)) del.push(key);
+        modal.dataset.ihrDeletedKeys = JSON.stringify(del);
+      }
+      const detail = row.nextElementSibling;
+      if (detail && detail.classList.contains('ihr-detail-row')) detail.remove();
+      row.remove();
+      const saved = _ihracatDeleteShipmentRow(key, plate);
+      if (saved) showToast(plate ? `🗑️ ${plate} silindi.` : '🗑️ Satır silindi.', 'success');
+      else if (key) showToast('Satır kaldırıldı. Değişiklikleri Kaydet ile de onaylayabilirsiniz.', 'info');
+    }
+  });
+}
+
+function _ihracatTakipBtnHtml() {
+  return `<button type="button" class="ihr-takip-btn" style="padding:5px 8px;font-size:11px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:600;">Takip Formu</button>`;
+}
+
+function _ihracatReadRowSnapshot(row) {
+  if (!row) return null;
+  const plakaInp = row.querySelector('[data-field="plaka"]');
+  const plakaText = row.querySelector('[data-field="plaka-text"]');
+  const plaka = plakaInp
+    ? normPlate(plakaInp.value)
+    : plakaText
+      ? normPlate(plakaText.textContent)
+      : '';
+  if (!plaka) return null;
+  const readVal = (sel) => {
+    const el = row.querySelector(sel);
+    if (!el) return '';
+    return 'value' in el ? String(el.value || '').trim() : String(el.textContent || '').trim();
+  };
+  return {
+    plaka,
+    firma: readVal('[data-field="firma"]'),
+    malzeme: readVal('[data-field="malzeme"]'),
+    tonajKg: readVal('[data-field="tonaj"]'),
+    bbt: readVal('[data-field="bbt"]'),
+    bosBbt: readVal('[data-field="bosBbt"]'),
+    cuval: readVal('[data-field="cuval"]'),
+    bosCuval: readVal('[data-field="bosCuval"]'),
+    palet: readVal('[data-field="palet"]'),
+    irsaliyeNo: readVal('[data-field="irsaliye"]'),
+    durum: row.querySelector('[data-field="durum"]')?.getAttribute('data-ihr-durum-text') || readVal('[data-field="durum"]'),
+  };
+}
+
+function _ihracatDetailRowHtml(rowKey, snap, vehicle) {
+  const ambParts = [];
+  if (snap.bbt) ambParts.push(`BBT: ${snap.bbt}`);
+  if (snap.bosBbt) ambParts.push(`Boş BBT: ${snap.bosBbt}`);
+  if (snap.cuval) ambParts.push(`Çuval: ${snap.cuval}`);
+  if (snap.bosCuval) ambParts.push(`Boş Çuval: ${snap.bosCuval}`);
+  if (snap.palet) ambParts.push(`Palet: ${snap.palet}`);
+  const amb = ambParts.join(' • ') || '—';
+
+  const sofor1 = vehicle
+    ? `${String(vehicle.soforAdi || '').trim()} ${String(vehicle.soforSoyadi || '').trim()}`.trim()
+    : '';
+  const sofor2 = vehicle
+    ? `${String(vehicle.sofor2Adi || '').trim()} ${String(vehicle.sofor2Soyadi || '').trim()}`.trim()
+    : '';
+
+  const infoLine = (label, val) => `
+    <div style="margin-bottom:6px;font-size:12px;">
+      <span style="color:#64748b;">${escapeHtml(label)}:</span>
+      <strong style="color:#0f172a;margin-left:4px;">${escapeHtml(val || '—')}</strong>
+    </div>`;
+
+  return `
+    <tr class="ihr-detail-row" data-ihr-detail-for="${escapeHtml(rowKey)}" style="background:#f1f5f9;">
+      <td colspan="8" style="border:1px solid #ddd;padding:0;">
+        <div style="padding:12px 14px;border-left:4px solid #2563eb;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+            <strong style="font-size:13px;color:#1e3a8a;">📋 Takip Özeti — ${escapeHtml(snap.plaka)}</strong>
+            <button type="button" class="ihr-takip-full-btn" data-ihr-row-key="${escapeHtml(rowKey)}" style="padding:6px 12px;font-size:11px;background:#16a34a;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Tam Takip Formunu Aç</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+            <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px;">
+              <div style="font-size:11px;font-weight:700;color:#4338ca;margin-bottom:8px;">SEVKİYAT BİLGİLERİ</div>
+              ${infoLine('Firma', snap.firma)}
+              ${infoLine('Malzeme', snap.malzeme)}
+              ${infoLine('Miktar (Kg)', snap.tonajKg)}
+              ${infoLine('Ambalaj', amb)}
+              ${infoLine('İrsaliye', snap.irsaliyeNo)}
+              ${infoLine('Durum', snap.durum)}
+            </div>
+            <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px;">
+              <div style="font-size:11px;font-weight:700;color:#4338ca;margin-bottom:8px;">ŞOFÖR BİLGİLERİ</div>
+              ${vehicle ? infoLine('Çekici', vehicle.cekiciPlaka || snap.plaka) : infoLine('Çekici', snap.plaka)}
+              ${vehicle && vehicle.dorsePlaka ? infoLine('Dorse', vehicle.dorsePlaka) : ''}
+              ${infoLine('Şoför 1', sofor1 || 'Kayıt yok')}
+              ${sofor2 ? infoLine('Şoför 2', sofor2) : ''}
+              ${infoLine('Telefon', vehicle?.iletisim || '—')}
+              ${infoLine('TC Kimlik', vehicle?.tcKimlik || '—')}
+              ${!vehicle ? '<div style="font-size:11px;color:#b45309;margin-top:6px;">Bu plaka henüz sisteme kayıtlı değil. Tam formdan kayıt açabilirsiniz.</div>' : ''}
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function _ihracatToggleDetailRow(row, modal) {
+  if (!row || !row.hasAttribute('data-ihr-row-key')) return;
+  const key = row.getAttribute('data-ihr-row-key');
+  const tbody = row.closest('tbody');
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains('ihr-detail-row') && next.getAttribute('data-ihr-detail-for') === key) {
+    next.remove();
+    return;
+  }
+  tbody?.querySelectorAll('tr.ihr-detail-row').forEach((r) => r.remove());
+
+  const snap = _ihracatReadRowSnapshot(row);
+  if (!snap) {
+    showToast('❌ Önce geçerli bir plaka girin.');
+    return;
+  }
+  const vehicle = _ihracatFindVehicleByPlate(snap.plaka);
+  row.insertAdjacentHTML('afterend', _ihracatDetailRowHtml(key, snap, vehicle));
+}
+
+async function _ihracatOpenFullTakipFromRow(row, modal) {
+  const snap = _ihracatReadRowSnapshot(row);
+  if (!snap) {
+    showToast('❌ Önce geçerli bir plaka girin.');
+    return;
+  }
+  let vehicle = _ihracatFindVehicleByPlate(snap.plaka);
+  if (!vehicle) {
+    vehicle = {
+      id: 'manual',
+      cekiciPlaka: snap.plaka,
+      dorsePlaka: '',
+      soforAdi: '',
+      soforSoyadi: '',
+      sofor2Adi: '',
+      sofor2Soyadi: '',
+      iletisim: '',
+      tcKimlik: '',
+      defaultFirma: snap.firma || '',
+      defaultMalzeme: snap.malzeme || '',
+      defaultSevkYeri: '',
+      defaultYuklemeNotu: '',
+    };
+  } else {
+    vehicle = {
+      ...vehicle,
+      cekiciPlaka: snap.plaka || vehicle.cekiciPlaka,
+      defaultFirma: snap.firma || vehicle.defaultFirma || '',
+      defaultMalzeme: snap.malzeme || vehicle.defaultMalzeme || '',
+    };
+  }
+  try {
+    modal?.remove();
+  } catch (e) {}
+  showTakipFormu(vehicle);
+  try {
+    await applyShipmentToTakipForm(vehicle);
+  } catch (e) {}
+}
+
+function _ihracatBindTakipPanel(modal) {
+  modal.addEventListener('click', (e) => {
+    const fullBtn = e.target.closest('.ihr-takip-full-btn');
+    if (fullBtn) {
+      e.preventDefault();
+      const detailRow = fullBtn.closest('tr.ihr-detail-row');
+      const key = fullBtn.getAttribute('data-ihr-row-key');
+      let row = null;
+      if (detailRow && detailRow.previousElementSibling?.getAttribute('data-ihr-row-key') === key) {
+        row = detailRow.previousElementSibling;
+      } else if (key) {
+        row = Array.from(modal.querySelectorAll('tr[data-ihr-row-key]')).find(
+          (r) => r.getAttribute('data-ihr-row-key') === key
+        ) || null;
+      }
+      if (row) _ihracatOpenFullTakipFromRow(row, modal);
+      return;
+    }
+    const btn = e.target.closest('.ihr-takip-btn');
+    if (!btn) return;
+    e.preventDefault();
+    const row = btn.closest('tr[data-ihr-row-key]');
+    if (row) _ihracatToggleDetailRow(row, modal);
+  });
+}
+
+function _ihracatBindModalPlateAdd(modal, statusApi) {
+  const { normalizePlate } = statusApi;
+
+  const updateRowStatus = (row, plateRaw) => {
+    _ihracatApplyDurumCell(row.querySelector('[data-field="durum"]'), row, plateRaw, statusApi);
+  };
+
+  const bindAddRow = (row, commitFn) => {
+    const plakaInp = row.querySelector('[data-field="plaka"]');
+    if (!plakaInp) return;
+    plakaInp.addEventListener('input', () => {
+      updateRowStatus(row, plakaInp.value);
+    });
+    plakaInp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitFn(row);
+      }
+    });
+    plakaInp.addEventListener('blur', (e) => {
+      const rt = e.relatedTarget;
+      if (rt && row.contains(rt)) return;
+      commitFn(row);
+    });
+  };
+
+  const rowInpStyle = 'width:100%;max-width:72px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;';
+
+  const onPlateCommit = (row) => {
+    if (!row || row.getAttribute('data-ihr-add-row') !== '1') return;
+    const plakaInp = row.querySelector('[data-field="plaka"]');
+    const raw = plakaInp?.value || '';
+    if (!_ihracatPlateCommitReady(raw, normalizePlate)) return;
+    const plate = normalizePlate(raw);
+
+    const tbody = row.closest('tbody[data-ihr-tbody]');
+    const prevRow = row.previousElementSibling;
+    if (prevRow && prevRow.hasAttribute('data-ihr-row-key')) {
+      _ihracatCopyRowFromPrev(prevRow, row);
+    }
+    _ihracatClearNewPlateQtyOnRow(row, rowInpStyle);
+
+    const gk = tbody?.getAttribute('data-ihr-firma-group') || 'GENEL';
+    const newKey = `new__${gk}__${Date.now()}`;
+    row.setAttribute('data-ihr-row-key', newKey);
+    row.setAttribute('data-ihr-is-new', '1');
+    row.removeAttribute('data-ihr-add-row');
+
+    if (row.cells[0]) {
+      row.cells[0].innerHTML = _ihracatPlakaCellHtml(plate, false, false);
+    }
+
+    updateRowStatus(row, plate);
+
+    let template = {};
+    try {
+      template = JSON.parse(tbody?.getAttribute('data-ihr-template') || '{}');
+    } catch (e) {}
+    const snap = _ihracatStripNewPlateQtyFields(_ihracatReadRowSnapshot(row));
+    const storedKey = _ihracatPersistPendingShipment({
+      plate,
+      rowKey: newKey,
+      pendingShipment: snap,
+      template,
+      forceAdd: true,
+    });
+    if (storedKey) row.setAttribute('data-ihr-row-key', storedKey);
+
+    tbody?.insertAdjacentHTML('beforeend', `
+      <tr data-ihr-add-row="1" style="background:#fffbeb;color:#92400e;">
+        <td style="${IHR_PLAKA_TD_STYLE}">${_ihracatPlakaCellHtml('', true, true)}</td>
+        <td data-field="firma" style="border:1px solid #ddd;padding:6px;font-size:11px;color:#94a3b8;">—</td>
+        <td data-field="malzeme" style="border:1px solid #ddd;padding:6px;color:#94a3b8;">—</td>
+        <td style="border:1px solid #ddd;padding:6px;"><input type="text" data-field="tonaj" value="" style="${rowInpStyle}max-width:90px;" disabled /></td>
+        <td style="border:1px solid #ddd;padding:6px;opacity:0.5;"><span style="font-size:11px;">Firma ve malzeme üst satırdan kopyalanır</span></td>
+        <td style="border:1px solid #ddd;padding:4px;text-align:center;color:#94a3b8;font-size:11px;">—</td>
+        <td style="border:1px solid #ddd;padding:6px;"><input type="text" data-field="irsaliye" value="" style="${rowInpStyle}max-width:130px;" disabled /></td>
+        <td data-field="durum" style="border:1px solid #ddd;padding:6px;font-size:11px;">Plaka girin</td>
+      </tr>
+    `);
+    const newAdd = tbody?.querySelector('tr[data-ihr-add-row]:last-of-type');
+    if (newAdd) bindAddRow(newAdd, onPlateCommit);
+  };
+
+  modal.querySelectorAll('tr[data-ihr-add-row]').forEach((row) => bindAddRow(row, onPlateCommit));
+}
+
+function _ihracatPad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+/** Modaldeki güncel değerleri yazdırma için topla (Kaydet gerekmez). */
+function _ihracatCollectModalRowsForPrint(modal, originalShipments, statusApi) {
+  if (!modal) return [];
+  const blockSevk = {};
+  const blockAmb = {};
+  modal.querySelectorAll('[data-ihr-firma-sevk]').forEach((inp) => {
+    blockSevk[inp.getAttribute('data-ihr-firma-sevk')] = String(inp.value || '').trim();
+  });
+  modal.querySelectorAll('[data-ihr-firma-amb]').forEach((inp) => {
+    blockAmb[inp.getAttribute('data-ihr-firma-amb')] = String(inp.value || '').trim();
+  });
+
+  const byKey = new Map();
+  (originalShipments || []).forEach((s) => {
+    byKey.set(_ihracatShipmentKey(s), { ...s });
+  });
+
+  const rows = [];
+  modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
+    const key = row.getAttribute('data-ihr-row-key');
+    if (!key) return;
+    let cur = byKey.get(key);
+    const isNew = row.getAttribute('data-ihr-is-new') === '1' || String(key).startsWith('new__');
+    if (!cur && isNew) {
+      const tbody = row.closest('tbody[data-ihr-tbody]');
+      let template = {};
+      try {
+        template = JSON.parse(tbody?.getAttribute('data-ihr-template') || '{}');
+      } catch (e) {}
+      cur = { ...template, _ihracatManual: true };
+    }
+    if (!cur) cur = {};
+    else cur = { ...cur };
+
+    const updated = _ihracatReadRowFields(row, cur, blockSevk, blockAmb);
+    if (!updated) return;
+
+    const gk = _ihracatFirmaGroupKey(updated);
+    const st = statusApi.statusForPlate(updated.plaka);
+    const durumCell = row.querySelector('[data-field="durum"]');
+    const durumText = durumCell?.getAttribute('data-ihr-durum-text')
+      || statusApi.durumLabel(st, updated.plaka);
+
+    rows.push({
+      ...updated,
+      _status: st,
+      _durumText: durumText,
+      _blockSevk: blockSevk[gk] || updated.sevkYeri || '',
+      _blockAmb: blockAmb[gk] || updated.ambalaj || updated.ambalajBilgisi || '',
+    });
+  });
+  return rows;
+}
+
+function _ihracatFirmaMatchesExcel(firmaRaw, excelFirma) {
+  const fa = String(firmaRaw || '').trim().toUpperCase();
+  const fb = String(excelFirma || '').trim().toUpperCase();
+  if (!fa || !fb) return false;
+  if (fa === fb) return true;
+  const ya = (fa.match(/\b(YD\d{1,4})\b/i) || [])[1];
+  const yb = (fb.match(/\b(YD\d{1,4})\b/i) || [])[1];
+  if (ya && yb && ya === yb) return true;
+  return fa.includes(fb) || fb.includes(fa);
+}
+
+/** Takip formu yazdırılmış; Excel satırında olmayan plakaları yazdırmaya ekle. */
+function _ihracatCollectPrintedExitRows(shipments, meta, existingRows) {
+  const excelFirmalar = [];
+  const seenFirma = new Set();
+  (shipments || []).forEach((s) => {
+    const f = String(s.firma || '').trim();
+    if (f && !seenFirma.has(f)) {
+      seenFirma.add(f);
+      excelFirmalar.push(f);
+    }
+  });
+  if (!excelFirmalar.length) return [];
+
+  const importTs = Number(new Date(meta?.importedAt || 0));
+  const plateKeys = new Set((existingRows || []).map((r) => _ihracatPlateKey(r.plaka)).filter(Boolean));
+  const addedKeys = new Set();
+  const out = [];
+
+  const pushExit = (plateRaw, firmaRaw, data) => {
+    const plate = normPlate(plateRaw || '');
+    const pKey = _ihracatPlateKey(plate);
+    if (!pKey || plateKeys.has(pKey) || addedKeys.has(pKey)) return;
+
+    const matchedFirma = excelFirmalar.find((ef) => _ihracatFirmaMatchesExcel(firmaRaw, ef));
+    if (!matchedFirma) return;
+
+    const template = (shipments || []).find((s) => _ihracatFirmaMatchesExcel(s.firma, matchedFirma)) || {};
+    addedKeys.add(pKey);
+    plateKeys.add(pKey);
+    out.push({
+      plaka: plate,
+      firma: matchedFirma,
+      malzeme: String(data.malzeme || data.malzemeSelect || template.malzeme || '').trim(),
+      tonajKg: String(data.tonaj || data.tonajKg || '').trim(),
+      bbt: String(data.bbt || '').trim(),
+      bosBbt: String(data.bosBbt || '').trim(),
+      cuval: String(data.cuval || '').trim(),
+      bosCuval: String(data.bosCuval || '').trim(),
+      palet: String(data.palet || '').trim(),
+      fileName: String(template.fileName || meta?.fileName || '').trim(),
+      headerText: template.headerText || '',
+      ydKey: template.ydKey || '',
+      _status: 'printed',
+      _cikisYapti: true,
+      _fromTakipPrint: true,
+    });
+  };
+
+  (state.vehicles || []).forEach((v) => {
+    const snap = v.lastPrintSnapshot;
+    const snapTs = Number(snap?.ts || snap?.timestamp || 0);
+    if (!Number.isFinite(snapTs) || snapTs <= 0) return;
+    if (importTs && snapTs < importTs) return;
+    if ((Number(v.printCount || 0) || 0) <= 0) return;
+    const firma = snap.firmaKodu || snap.firmaSelect || v.defaultFirma || '';
+    const payload = { ...snap, malzeme: snap.malzeme || v.defaultMalzeme };
+    pushExit(v.cekiciPlaka, firma, payload);
+    if (v.dorsePlaka && _ihracatPlateKey(v.dorsePlaka) !== _ihracatPlateKey(v.cekiciPlaka)) {
+      pushExit(v.dorsePlaka, firma, payload);
+    }
+  });
+
+  try {
+    (state.reports || [])
+      .filter((r) => r && r.type === 'PRINT')
+      .forEach((r) => {
+        const ts = Number(r.ts || 0);
+        if (importTs && ts > 0 && ts < importTs) return;
+        const d = r.data || {};
+        const firma = d.firma || d.firmaKodu || d.firmaSelect || r.firma || '';
+        pushExit(d.plaka || d.plate || d.cekiciPlaka, firma, d);
+      });
+  } catch (e) {
+    console.warn('Yazdırılmış plaka listesi okunamadı:', e);
+  }
+
+  return out;
+}
+
+function _ihracatPrepareRowsForPrint(modal, shipments, meta, statusApi) {
+  const fromModal = _ihracatCollectModalRowsForPrint(modal, shipments, statusApi);
+  const marked = fromModal.map((r) => ({
+    ...r,
+    _cikisYapti: r._status === 'printed',
+  }));
+  const extra = _ihracatCollectPrintedExitRows(shipments, meta, marked);
+  return marked.concat(extra);
+}
+
+function _ihracatGroupPrintRows(rows, meta) {
+  const files = [];
+  const grouped = {};
+  (rows || []).forEach((r) => {
+    const fileLabel = String(r.fileName || meta?.fileName || '').trim() || 'Excel';
+    const firma = String(r.firma || '').trim() || 'Bilinmiyor';
+    if (!grouped[fileLabel]) grouped[fileLabel] = {};
+    if (!grouped[fileLabel][firma]) grouped[fileLabel][firma] = [];
+    grouped[fileLabel][firma].push(r);
+    if (!files.includes(fileLabel)) files.push(fileLabel);
+  });
+  if (!files.length) files.push('Excel');
+  return { files, grouped };
+}
+
+function _printIhracatDetailsFromModal(modal, ctx) {
+  const { shipments, meta, ihracatStatusApi } = ctx || {};
+  const rows = _ihracatPrepareRowsForPrint(modal, shipments, meta, ihracatStatusApi);
+  if (!rows.length) {
+    alert('Yazdırılacak sevkiyat satırı yok.');
+    return;
+  }
+  const cikisCount = rows.filter((r) => r._cikisYapti).length;
+
+  const tarih = meta?.dateKey
+    ? meta.dateKey.replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1')
+    : '';
+  const now = new Date();
+  const printedAt = `${_ihracatPad2(now.getDate())}.${_ihracatPad2(now.getMonth() + 1)}.${now.getFullYear()} ${_ihracatPad2(now.getHours())}:${_ihracatPad2(now.getMinutes())}`;
+  const { files, grouped } = _ihracatGroupPrintRows(rows, meta);
+
+  const cell = (val, cls) => {
+    const t = String(val ?? '').trim();
+    return `<td class="${cls || ''}">${t ? escapeHtml(t) : '—'}</td>`;
+  };
+
+  const plakaCellHtml = (r) => {
+    const plate = String(r.plaka || '').trim();
+    const cikis = !!(r._cikisYapti || r._status === 'printed');
+    return `<td class="c-plaka">${plate ? escapeHtml(plate) : '—'}${
+      cikis ? '<div class="c-cikis">Çıkış yaptı</div>' : ''
+    }</td>`;
+  };
+
+  const printRowHtml = (r) => `<tr${r._cikisYapti ? ' class="row-cikis"' : ''}>
+      ${plakaCellHtml(r)}
+      ${cell(r.malzeme, 'c-malzeme')}
+      ${cell(r.tonajKg, 'c-num')}
+      ${cell(r.bbt, 'c-num c-bbt')}
+      ${cell(r.bosBbt, 'c-num')}
+      ${cell(r.cuval, 'c-num')}
+      ${cell(r.bosCuval, 'c-num')}
+      ${cell(r.palet, 'c-num')}
+    </tr>`;
+
+  const firmaSectionHtml = (firma, items) => {
+    const sortedItems = [...items].sort((a, b) => {
+      const ca = a._cikisYapti ? 1 : 0;
+      const cb = b._cikisYapti ? 1 : 0;
+      if (ca !== cb) return ca - cb;
+      return String(a.plaka || '').localeCompare(String(b.plaka || ''), 'tr');
+    });
+    const sample = sortedItems[0] || {};
+    const sevk = String(sample._blockSevk || sample.sevkYeri || '').trim();
+    const amb = String(sample._blockAmb || sample.ambalaj || sample.ambalajBilgisi || '').trim();
+    const malzeme = String(sample.malzeme || '').trim();
+    const firmaCikis = sortedItems.filter((it) => it._cikisYapti).length;
+    return `
+      <div class="ihr-print-firma">
+        <div class="ihr-print-firma-head">
+          <strong>${escapeHtml(firma)}</strong>
+          ${malzeme ? `<span class="ihr-print-malzeme">${escapeHtml(malzeme)}</span>` : ''}
+          <span class="ihr-print-firma-meta">${sortedItems.length} plaka${firmaCikis ? ` · ${firmaCikis} çıkış yaptı` : ''}</span>
+        </div>
+        <div class="ihr-print-block-fields">
+          <div class="ihr-print-field"><span class="ihr-print-label">Ambalaj bilgisi</span><span class="ihr-print-value">${amb ? escapeHtml(amb) : '—'}</span></div>
+          <div class="ihr-print-field"><span class="ihr-print-label">Sevk yeri</span><span class="ihr-print-value">${sevk ? escapeHtml(sevk) : '—'}</span></div>
+        </div>
+        <table>
+          <colgroup>
+            <col style="width:14%"><col style="width:22%"><col style="width:8%">
+            <col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:9%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Plaka</th><th>Malzeme</th><th>Kg</th>
+              <th>BBT</th><th>Boş BBT</th><th>Çuv</th><th>B.Ç</th><th>Pal</th>
+            </tr>
+          </thead>
+          <tbody>${sortedItems.map(printRowHtml).join('')}</tbody>
+        </table>
+      </div>`;
+  };
+
+  const fileSectionHtml = (fileLabel) => {
+    const firmas = grouped[fileLabel] || {};
+    const firmaOrder = Object.keys(firmas).sort();
+    const fileCount = firmaOrder.reduce((n, f) => n + (firmas[f]?.length || 0), 0);
+    return `
+      <div class="ihr-print-file">
+        <h2>${escapeHtml(fileLabel)} <span class="ihr-print-file-count">(${fileCount} kayıt)</span></h2>
+        ${firmaOrder.map((f) => firmaSectionHtml(f, firmas[f])).join('')}
+      </div>`;
+  };
+
+  const bodyContent = `
+  <div class="ihr-print-head">
+    <h1>İhracat Sevkiyat Listesi</h1>
+    ${tarih ? `<div class="ihr-print-date">${escapeHtml(tarih)}</div>` : ''}
+  </div>
+  <div class="ihr-print-meta"><b>${rows.length}</b> plaka${cikisCount ? ` · <b>${cikisCount}</b> çıkış yaptı` : ''} · Yazdırma: ${escapeHtml(printedAt)}</div>
+  ${files.map(fileSectionHtml).join('')}`;
+
+  const printHtml = `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>İhracat Sevkiyat Listesi</title>
+  <style>
+    @page { size: A4 landscape; margin: 6mm; }
+    html, body { margin: 0; padding: 0; height: auto; min-height: 0; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, 'Segoe UI', sans-serif; font-size: 11px; color: #000; background: #fff; }
+    .ihr-print-root { padding: 0; }
+    .ihr-print-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #000; }
+    h1 { font-size: 16px; margin: 0; font-weight: 800; }
+    .ihr-print-date { font-size: 18px; font-weight: 800; white-space: nowrap; }
+    .ihr-print-meta { font-size: 10px; margin: 0 0 10px; }
+    .ihr-print-file { margin-bottom: 12px; }
+    .ihr-print-file h2 { font-size: 13px; margin: 0 0 8px; font-weight: 800; page-break-after: avoid; }
+    .ihr-print-file-count { font-weight: 600; font-size: 11px; }
+    .ihr-print-firma { margin-bottom: 10px; border: 1px solid #000; padding: 8px 10px; break-inside: auto; page-break-inside: auto; }
+    .ihr-print-firma-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 8px; page-break-after: avoid; }
+    .ihr-print-firma-head strong { font-size: 14px; font-weight: 800; }
+    .ihr-print-malzeme { font-size: 12px; font-weight: 700; }
+    .ihr-print-firma-meta { font-size: 10px; margin-left: auto; }
+    .ihr-print-block-fields { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; page-break-after: avoid; }
+    .ihr-print-field { flex: 1; min-width: 200px; padding: 8px 10px; border: 1px solid #000; }
+    .ihr-print-label { display: block; font-size: 9px; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }
+    .ihr-print-value { display: block; font-size: 12px; font-weight: 700; line-height: 1.4; word-break: break-word; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    th, td { border: 1px solid #000; padding: 6px 8px; vertical-align: middle; word-break: break-word; line-height: 1.35; }
+    th { font-size: 10px; font-weight: 800; text-align: center; }
+    td.c-plaka { font-size: 13px; font-weight: 800; text-align: center; }
+    .c-cikis { font-size: 9px; font-weight: 800; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.02em; }
+    tr.row-cikis td { font-style: normal; }
+    td.c-malzeme { font-size: 12px; font-weight: 700; }
+    td.c-num { font-size: 13px; font-weight: 800; text-align: center; }
+    td.c-bbt { font-size: 15px; font-weight: 800; }
+    @media print {
+      html, body { margin: 0 !important; padding: 0 !important; }
+      body, th, td, .ihr-print-field { background: #fff !important; color: #000 !important; }
+    }
+  </style>
+</head>
+<body><div class="ihr-print-root">${bodyContent}</div></body>
+</html>`;
+
+  const IHR_PRINT_FRAME_HIDE = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;overflow:hidden;';
+  let frame = document.getElementById('ihracatDetailsPrintFrame');
+  if (!frame) {
+    frame = document.createElement('iframe');
+    frame.id = 'ihracatDetailsPrintFrame';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = IHR_PRINT_FRAME_HIDE;
+    document.body.appendChild(frame);
+  }
+  const win = frame.contentWindow;
+  const doc = frame.contentDocument || win.document;
+  doc.open();
+  doc.write(printHtml);
+  doc.close();
+
+  const doPrint = () => {
+    try {
+      win.focus();
+      win.print();
+    } catch (e) {
+      alert('Yazdırma başlatılamadı.');
+    }
+  };
+  if (doc.readyState === 'complete') setTimeout(doPrint, 200);
+  else frame.onload = () => setTimeout(doPrint, 200);
+}
 
 // İhracat Excel Detay Modal
 function showIhracatDetailsModal() {
@@ -8525,7 +10270,9 @@ function showIhracatDetailsModal() {
     return;
   }
 
-  const normalizePlate = (value) => String(normPlate(value || '')).replace(/\s+/g, ' ').trim();
+  const normalizePlate = (value) => normPlate(value || '');
+
+  const plateKey = (value) => _ihracatPlateKey(value);
   const excelDateKey = String(meta.dateKey || _todayKeyTR()).trim();
   const snapshotDateKey = (snap) => {
     if (!snap) return '';
@@ -8561,10 +10308,10 @@ function showIhracatDetailsModal() {
       const printCount = Number(v.printCount || 0);
       if (!Number.isFinite(printCount) || printCount <= 0) return;
       [v.cekiciPlaka, v.dorsePlaka].forEach((rawPlate) => {
-        const plate = normalizePlate(rawPlate || '');
-        if (!plate) return;
-        const existing = map.get(plate) || 0;
-        map.set(plate, Math.max(existing, printCount));
+        const key = plateKey(rawPlate || '');
+        if (!key) return;
+        const existing = map.get(key) || 0;
+        map.set(key, Math.max(existing, printCount));
       });
     });
 
@@ -8579,13 +10326,13 @@ function showIhracatDetailsModal() {
           .forEach(r => {
             const data = r.data || {};
             const plates = [
-              normalizePlate(data.cekiciPlaka || ''),
-              normalizePlate(data.dorsePlaka || '')
+              plateKey(data.cekiciPlaka || ''),
+              plateKey(data.dorsePlaka || '')
             ].filter(Boolean);
 
-            plates.forEach(plate => {
-              const existing = map.get(plate) || 0;
-              map.set(plate, Math.max(existing, 1)); // En az 1 yazdırılmış olarak işaretle
+            plates.forEach((key) => {
+              const existing = map.get(key) || 0;
+              map.set(key, Math.max(existing, 1));
             });
           });
       }
@@ -8599,36 +10346,45 @@ function showIhracatDetailsModal() {
   const assignmentCountByPlate = new Map();
 
   const getShipmentStatus = (shipment) => {
-    const plate = normalizePlate(shipment.plaka || '');
-    if (!plate) return 'missing';
-    
-    // Raporlardaki print kapasitesine bak (Excel tarihinden bağımsız)
-    const allowed = printedCapacityByPlate.get(plate) || 0;
+    const key = plateKey(shipment.plaka || '');
+    if (!key) return 'missing';
+
+    const allowed = printedCapacityByPlate.get(key) || 0;
     if (allowed > 0) {
-      // Araç raporlarda yazdırık bulundu
-      const alreadyAssigned = assignmentCountByPlate.get(plate) || 0;
+      const alreadyAssigned = assignmentCountByPlate.get(key) || 0;
       if (alreadyAssigned < allowed) {
-        assignmentCountByPlate.set(plate, alreadyAssigned + 1);
+        assignmentCountByPlate.set(key, alreadyAssigned + 1);
         return 'printed';
       }
-      return 'printed'; // Kapasitesi dolmuş da yazdırılmış
+      return 'printed';
     }
-    
-    // Raporlarda bulunamadıysa
-    const found = (state.vehicles || []).find(v => {
-      const vPlate = normalizePlate(v.cekiciPlaka || '');
-      const vDorse = normalizePlate(v.dorsePlaka || '');
-      return (vPlate && vPlate === plate) || (vDorse && vDorse === plate);
-    });
-    
-    if (!found) return 'missing'; // Araç sisteme kaydedilmemiş
-    return 'pending'; // Araç var ama henüz yazdırılmamış
+
+    if (_ihracatFindVehicleByPlate(shipment.plaka)) return 'pending';
+    return 'missing';
   };
 
   const statusStyle = {
     printed: 'background:#fee2e2;color:#991b1b;',
     pending: 'background:#dcfce7;color:#166534;',
     missing: 'background:#f1f5f9;color:#0f172a;'
+  };
+
+  const getStatusForPlate = (plateRaw) => {
+    const key = plateKey(plateRaw);
+    if (!key) return 'missing';
+    const allowed = printedCapacityByPlate.get(key) || 0;
+    if (allowed > 0) return 'printed';
+    if (_ihracatFindVehicleByPlate(plateRaw)) return 'pending';
+    return 'missing';
+  };
+
+  const ihracatStatusApi = {
+    normalizePlate,
+    plateKey,
+    statusForPlate: getStatusForPlate,
+    statusStyle,
+    durumLabel: (st) => _ihracatDurumPlainText(st, ''),
+    renderDurumHtml: _ihracatRenderDurumHtml,
   };
 
   const getStatus = (shipment) => shipment._status || 'pending';
@@ -8646,30 +10402,80 @@ function showIhracatDetailsModal() {
     shipment._status = getShipmentStatus(shipment);
   });
 
+  const { collisions: irsCollisions, set: irsCollisionSet } = getIrsaliyeCollisionInfo(shipments);
+  const collisionByKey = new Map();
+  irsCollisions.forEach((c) => {
+    collisionByKey.set(irsaliyeCollisionKey(c.irsaliyeNo), c);
+  });
+
+  const inpStyle = 'width:100%;max-width:72px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;';
   const rowHtml = (s, status) => {
-    const ambalajParts = [];
-    if (s.bbt && s.bbt !== '0') ambalajParts.push(`BBT: ${s.bbt}`);
-    if (s.cuval && s.cuval !== '0') ambalajParts.push(`Çuval: ${s.cuval}`);
-    if (s.palet && s.palet !== '0') ambalajParts.push(`Palet: ${s.palet}`);
-    if (s.bosBbt && s.bosBbt !== '0') ambalajParts.push(`Boş BBT: ${s.bosBbt}`);
-    if (s.bosCuval && s.bosCuval !== '0') ambalajParts.push(`Boş Çuval: ${s.bosCuval}`);
-    const ambalaj = ambalajParts.join(', ') || '-';
-    const durum = status === 'printed' ? 'Yazdırıldı' : status === 'pending' ? 'Bekleniyor' : 'Sisteme Kaydı Yok';
+    const rowKey = _ihracatShipmentKey(s);
+    const durumHtml = _ihracatRenderDurumHtml(status, s.plaka || '');
+    const durumText = _ihracatDurumPlainText(status, s.plaka || '');
+    const irs = getShipmentIrsaliyeNo(s);
+    const isManual = s._ihracatManual || String(rowKey).startsWith('new__');
+    const isIrsCollision = shipmentHasIrsaliyeCollision(s, irsCollisionSet);
+    const rowStyle = statusStyle[status] || '';
+    const coll = collisionByKey.get(irsaliyeCollisionKey(irs));
+    const irsTitle = coll
+      ? `Aynı irsaliye birden fazla plakada: ${(coll.plates || []).join(' · ')}`
+      : '';
+    const irsCellStyle = isIrsCollision
+      ? `border:1px solid #eee;padding:6px;${IHR_IRS_COLLISION_CELL_STYLE}`
+      : 'border:1px solid #ddd;padding:6px;';
+    const irsInpStyle = isIrsCollision
+      ? `${inpStyle}max-width:130px;background:#111210;color:#FFBF00;font-weight:700;border-color:#FFBF00;`
+      : `${inpStyle}max-width:130px;`;
     return `
-      <tr style="${statusStyle[status] || ''}">
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(s.plaka || '')}</td>
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(s.firma || '')}</td>
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(s.malzeme || '')}</td>
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(s.tonajKg || '')}</td>
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(ambalaj)}</td>
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(getShipmentIrsaliyeNo(s))}</td>
-        <td style="border: 1px solid #ddd; padding: 6px;">${escapeHtml(durum)}</td>
+      <tr data-ihr-row-key="${escapeHtml(rowKey)}"${isManual ? ' data-ihr-is-new="1"' : ''}${isIrsCollision ? ' data-ihr-irs-collision="1"' : ''} style="${rowStyle}">
+        <td style="${IHR_PLAKA_TD_STYLE}">${_ihracatPlakaCellHtml(s.plaka, false, false)}</td>
+        <td data-field="firma" style="border:1px solid #ddd;padding:6px;font-size:11px;">${escapeHtml(s.firma || '')}</td>
+        <td data-field="malzeme" style="border:1px solid #ddd;padding:6px;">${escapeHtml(s.malzeme || '')}</td>
+        <td style="border:1px solid #ddd;padding:6px;">
+          <input type="text" data-field="tonaj" value="${escapeHtml(String(s.tonajKg || ''))}" style="${inpStyle}max-width:90px;" inputmode="numeric" />
+        </td>
+        <td style="border:1px solid #ddd;padding:6px;">
+          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+            <label style="font-size:10px;color:#64748b;">BBT</label>
+            <input type="text" data-field="bbt" value="${escapeHtml(String(s.bbt || ''))}" style="${inpStyle}" />
+            <label style="font-size:10px;color:#64748b;">Boş</label>
+            <input type="text" data-field="bosBbt" value="${escapeHtml(String(s.bosBbt || ''))}" style="${inpStyle}" />
+            <label style="font-size:10px;color:#64748b;">Çuv</label>
+            <input type="text" data-field="cuval" value="${escapeHtml(String(s.cuval || ''))}" style="${inpStyle}" />
+            <label style="font-size:10px;color:#64748b;">B.Ç</label>
+            <input type="text" data-field="bosCuval" value="${escapeHtml(String(s.bosCuval || ''))}" style="${inpStyle}" />
+            <label style="font-size:10px;color:#64748b;">Pal</label>
+            <input type="text" data-field="palet" value="${escapeHtml(String(s.palet || ''))}" style="${inpStyle}" />
+          </div>
+        </td>
+        <td style="border:1px solid #ddd;padding:4px;text-align:center;white-space:nowrap;width:96px;">
+          ${_ihracatTakipBtnHtml()}
+        </td>
+        <td style="${irsCellStyle}" title="${escapeHtml(irsTitle)}">
+          <input type="text" data-field="irsaliye" value="${escapeHtml(irs)}" style="${irsInpStyle}" title="${escapeHtml(irsTitle)}" />
+        </td>
+        <td data-field="durum" data-ihr-durum-text="${escapeHtml(durumText)}" style="border:1px solid #ddd;padding:6px;font-size:11px;white-space:nowrap;">${durumHtml}</td>
       </tr>
     `;
   };
 
-  const renderTable = (items, title, badgeColor) => {
+  const addRowHtml = () => `
+    <tr data-ihr-add-row="1" style="background:#fffbeb;color:#92400e;">
+      <td style="${IHR_PLAKA_TD_STYLE}">${_ihracatPlakaCellHtml('', true, true)}</td>
+      <td data-field="firma" style="border:1px solid #ddd;padding:6px;font-size:11px;color:#94a3b8;">—</td>
+      <td data-field="malzeme" style="border:1px solid #ddd;padding:6px;color:#94a3b8;">—</td>
+      <td style="border:1px solid #ddd;padding:6px;"><input type="text" data-field="tonaj" value="" style="${inpStyle}max-width:90px;" disabled /></td>
+      <td style="border:1px solid #ddd;padding:6px;opacity:0.5;"><span style="font-size:11px;">Firma ve malzeme üst satırdan kopyalanır</span></td>
+      <td style="border:1px solid #ddd;padding:4px;text-align:center;color:#94a3b8;font-size:11px;">—</td>
+      <td style="border:1px solid #ddd;padding:6px;"><input type="text" data-field="irsaliye" value="" style="${inpStyle}max-width:130px;" disabled /></td>
+      <td data-field="durum" style="border:1px solid #ddd;padding:6px;font-size:11px;">Plaka girin</td>
+    </tr>
+  `;
+
+  const renderTable = (items, title, badgeColor, tableCtx) => {
     if (!items || !items.length) return '';
+    const { gk, templateJson } = tableCtx || {};
     return `
       <div style="margin-bottom:16px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -8679,17 +10485,19 @@ function showIhracatDetailsModal() {
         <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom:8px;">
           <thead>
             <tr style="background: #f5f5f5;">
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Plaka</th>
+              <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width:172px;">Plaka</th>
               <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Firma</th>
               <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Malzeme</th>
               <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Miktar (Kg)</th>
               <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Ambalaj</th>
+              <th style="border: 1px solid #ddd; padding: 6px; text-align: center; width:96px;">Takip</th>
               <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">İrsaliye No</th>
               <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Durum</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody data-ihr-tbody="1" data-ihr-firma-group="${escapeHtml(gk || '')}" data-ihr-template="${templateJson || '{}'}">
             ${items.map(item => rowHtml(item, getStatus(item))).join('')}
+            ${addRowHtml()}
           </tbody>
         </table>
       </div>
@@ -8699,13 +10507,37 @@ function showIhracatDetailsModal() {
   const renderFirmaSection = (firma, items) => {
     const counts = { printed: 0, pending: 0, missing: 0 };
     items.forEach((item) => { counts[getStatus(item)] = (counts[getStatus(item)] || 0) + 1; });
+    const sample = items[0] || {};
+    const gk = _ihracatFirmaGroupKey(sample);
+    const sevkVal = _defaultSevkForShipment(sample);
+    const ambVal = _defaultAmbalajTextForShipment(sample);
+    const sevkCands = getLimanCandidates(sample.headerText || '').slice(0, 4);
+    const ambCands = getAmbalajCandidates(sample.headerText || '').slice(0, 4);
+    const boxStyle = 'flex:1;min-width:200px;padding:10px;border:2px solid #c7d2fe;border-radius:10px;background:#fff;';
+    const fieldInp = 'width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;';
+    const templateJson = String(JSON.stringify(sample))
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;');
     return `
-      <div style="margin-bottom:20px; border:1px solid #e2e8f0; border-radius:12px; padding:14px; background:#f8fafc;">
-        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+      <div style="margin-bottom:20px;border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#f8fafc;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
           <strong style="font-size:14px;">${escapeHtml(firma)}</strong>
-          <span style="font-size:12px; color:#475569;">Toplam: ${items.length} • Yazdırıldı: ${counts.printed} • Bekleniyor: ${counts.pending} • Kayıt Yok: ${counts.missing}</span>
+          <span style="font-size:12px;color:#475569;">Toplam: ${items.length} • Yazdırıldı: ${counts.printed} • Bekleniyor: ${counts.pending} • Kayıt yok: ${counts.missing}</span>
         </div>
-        ${renderTable(items, 'Sevkiyatlar', '#0f172a')}
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
+          <div style="${boxStyle}">
+            <div style="font-size:11px;font-weight:700;color:#4338ca;margin-bottom:6px;">SEVK YERİ</div>
+            <input type="text" data-ihr-firma-sevk="${escapeHtml(gk)}" value="${escapeHtml(sevkVal)}" list="ihr-sevk-list-${escapeHtml(gk)}" style="${fieldInp}" placeholder="Liman / sevk yeri" />
+            <datalist id="ihr-sevk-list-${escapeHtml(gk)}">${sevkCands.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>
+          </div>
+          <div style="${boxStyle}">
+            <div style="font-size:11px;font-weight:700;color:#4338ca;margin-bottom:6px;">AMBALAJ BİLGİSİ</div>
+            <input type="text" data-ihr-firma-amb="${escapeHtml(gk)}" value="${escapeHtml(ambVal)}" list="ihr-amb-list-${escapeHtml(gk)}" style="${fieldInp}" placeholder="Örn: BBT, çuval, palet" />
+            <datalist id="ihr-amb-list-${escapeHtml(gk)}">${ambCands.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>
+            <div style="font-size:10px;color:#64748b;margin-top:6px;">Alttaki boş satıra plaka yazın; firma ve malzeme üst satırdan kopyalanır. Miktar, ambalaj ve irsaliye boş gelir.</div>
+          </div>
+        </div>
+        ${renderTable(items, 'Sevkiyatlar', '#0f172a', { gk, templateJson })}
       </div>
     `;
   };
@@ -8749,6 +10581,19 @@ function showIhracatDetailsModal() {
     return renderFileSection(fileLabel, items);
   }).join('');
 
+  const collisionBannerHtml = irsCollisions.length
+    ? `<div style="margin-bottom:14px;padding:10px 12px;background:#FFD700;color:#000;border-radius:8px;font-size:12px;">
+        <div style="font-weight:800;">⚠️ AYNI İRSALİYE NUMARASI BİRDEN FAZLA PLAKADA — İrsaliye No sütunundaki siyah/sarı bantlara dikkat edin</div>
+        <ul style="margin:8px 0 0;padding-left:18px;font-size:11px;font-weight:600;line-height:1.5;">
+          ${irsCollisions.slice(0, 10).map((c) => `<li><span style="background:#111210;color:#FFBF00;padding:2px 6px;border-radius:4px;">${escapeHtml(c.irsaliyeNo)}</span> → ${escapeHtml((c.plates || []).join(' · '))}</li>`).join('')}
+          ${irsCollisions.length > 10 ? `<li>… ve ${irsCollisions.length - 10} irsaliye daha</li>` : ''}
+        </ul>
+      </div>`
+    : '';
+
+  const btnSaveStyle = 'background:#16a34a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:700;';
+  const btnCloseStyle = 'background:#64748b;color:#fff;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;';
+
   const modalHtml = `
     <div id="ihracatDetailsModal" style="
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -8757,26 +10602,72 @@ function showIhracatDetailsModal() {
       <div style="
         background: white; padding: 20px; border-radius: 10px;
         max-width: 95%; max-height: 85%; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-        <h3 style="margin: 0 0 10px 0; color: #333;">📄 İhracat Excel Detayları (${shipments.length} kayıt) - Tarih: ${tarih}</h3>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:220px;">
+            <h3 style="margin: 0 0 6px 0; color: #333;">📄 İhracat Excel Detayları (${shipments.length} kayıt) - Tarih: ${tarih}</h3>
+            <p style="margin:0;font-size:12px;color:#64748b;">Sevk/ambalaj bloktan; satırda miktar, ambalaj, irsaliye. Şoför yoksa <b>Kayıt Et</b> ile ➕ Yeni Araç Kaydı açılır.</p>
+          </div>
+          <button type="button" class="ihr-save-btn" style="${btnSaveStyle}flex-shrink:0;">Kaydet</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+          <label for="ihracatPlateSearch" style="font-size:12px;font-weight:600;color:#475569;white-space:nowrap;">🔍 Plaka ara</label>
+          <input type="text" id="ihracatPlateSearch" placeholder="03 AJH 861 veya 03AJH861…" style="flex:1;min-width:160px;max-width:280px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;" />
+          <button type="button" id="ihracatPlateSearchBtn" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Ara</button>
+          <button type="button" id="ihracatPrintBtn" title="Tüm ihracat listesini A4 yatay yazdır (sevkiyat çalışanları)" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🖨️ Yazdır</button>
+          <span style="font-size:11px;color:#64748b;">Boşluklu/boşluksuz yazım fark etmez</span>
+        </div>
+        ${collisionBannerHtml}
         ${modalSections}
-        <button id="closeIhracatModal" style="
-          margin-top: 15px; background: #007bff; color: white; border: none;
-          padding: 10px 20px; border-radius: 5px; cursor: pointer;">Tamam</button>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;flex-wrap:wrap;">
+          <button type="button" class="ihr-save-btn" style="${btnSaveStyle}">Kaydet</button>
+          <button type="button" id="closeIhracatModal" style="${btnCloseStyle}">Kapat</button>
+        </div>
       </div>
     </div>
   `;
 
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-  // Kapatma event
-  document.getElementById('closeIhracatModal').addEventListener('click', () => {
-    document.getElementById('ihracatDetailsModal').remove();
+  const modal = document.getElementById('ihracatDetailsModal');
+  const closeModal = () => modal?.remove();
+
+  const doSave = () => {
+    const ok = _saveIhracatDetailsFromModal(shipments, meta);
+    if (ok) {
+      showToast('✅ İhracat verileri kaydedildi. Takip formunda plaka seçince güncel değerler gelir.');
+      closeModal();
+    } else {
+      showToast('❌ Kaydetme başarısız.');
+    }
+  };
+
+  modal?.querySelectorAll('.ihr-save-btn').forEach((btn) => btn.addEventListener('click', doSave));
+
+  _ihracatBindModalPlateAdd(modal, ihracatStatusApi);
+
+  _ihracatBindRowActions(modal, ihracatStatusApi);
+
+  _ihracatBindTakipPanel(modal);
+
+  _ihracatBindKayitEtAndSearch(modal);
+
+  document.getElementById('ihracatPrintBtn')?.addEventListener('click', () => {
+    _printIhracatDetailsFromModal(modal, {
+      shipments,
+      meta,
+      ihracatStatusApi,
+    });
   });
 
-  // ESC ile kapat
+  if (window.__ihracatReopenTarget?.plate) {
+    setTimeout(() => _ihracatScrollToReopenTarget(), 120);
+  }
+
+  document.getElementById('closeIhracatModal')?.addEventListener('click', closeModal);
+
   document.addEventListener('keydown', function escHandler(e) {
     if (e.key === 'Escape') {
-      document.getElementById('ihracatDetailsModal')?.remove();
+      closeModal();
       document.removeEventListener('keydown', escHandler);
     }
   });
@@ -8839,6 +10730,19 @@ function showIhracatDetailsModal() {
       if (typeof rebuildListsFromExcelRows === 'function') {
         rebuildListsFromExcelRows(loadDailyShipments() || []);
       }
+    });
+
+    window.SyncManager.on('daily_rows_cleared', async () => {
+      try {
+        if (window.DailyStore && typeof DailyStore.clear === 'function') {
+          await DailyStore.clear({ localOnly: true });
+        } else if (typeof clearDailyShipments === 'function') {
+          await clearDailyShipments();
+        }
+      } catch (e) {}
+      try { if (typeof rebuildListsFromExcelRows === 'function') rebuildListsFromExcelRows([]); } catch (e) {}
+      try { window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo(); } catch (e) {}
+      try { if (typeof render === 'function') render(); } catch (e) {}
     });
 
     // Reports synchronization

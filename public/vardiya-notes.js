@@ -170,6 +170,20 @@
 
     const piyWeek = piy.week ? piy.week + '. hafta' : (piy.sheet || '—');
     const piyWhen = fmtLoadedAt(piy.loadedAt);
+    let piyUsed = 0;
+    let piySkipped = 0;
+    try {
+      const raw = localStorage.getItem('piyasa_state_v1');
+      if (raw) {
+        const st = JSON.parse(raw);
+        if (st && Array.isArray(st.orders)) {
+          piyUsed = st.orders.filter((o) => o.usedAt).length;
+        }
+        if (st && st.lastImportReport && st.lastImportReport.totalSkipped) {
+          piySkipped = st.lastImportReport.totalSkipped;
+        }
+      }
+    } catch (e) {}
 
     const ihrBlock =
       ihr.count > 0
@@ -208,7 +222,10 @@
       '</li>' +
       '<li><b>Sipariş:</b> ' +
       piy.count +
-      ' satır</li>' +
+      ' satır · <b>Kullanılan:</b> ' +
+      piyUsed +
+      '</li>' +
+      (piySkipped ? '<li><b>Son yüklemede elenen:</b> ' + piySkipped + ' satır</li>' : '') +
       (piyWhen ? '<li><b>Son yükleme:</b> ' + esc(piyWhen) + '</li>' : '') +
       '</ul></div></div>' +
       '<p class="vn-excel-hint">' +

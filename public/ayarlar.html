@@ -254,6 +254,10 @@
     .ay-detail-row { padding: .55rem 0; border-bottom: 1px solid #f1f5f9; font-size: .8125rem; }
     .ay-detail-row:last-child { border-bottom: none; }
     .ay-detail-row strong { display: block; color: #0f172a; margin-bottom: 2px; }
+    .ay-detail-change { font-size: .75rem; color: var(--rp-muted); }
+    .ay-detail-change em { font-style: normal; color: #64748b; }
+    .ay-detail-change s { color: #94a3b8; text-decoration: line-through; }
+    .ay-detail-change b { color: #0f172a; font-weight: 600; }
 
     .toast {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -262,6 +266,41 @@
     }
     .toast.show { opacity: 1; }
     .toast.warn { background: #7f1d1d; }
+
+    .ay-ban-alert {
+      font-size: .8125rem;
+      color: #991b1b;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: .65rem .85rem;
+      margin-bottom: 1rem;
+    }
+    .ay-ban-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: .75rem;
+      align-items: end;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 720px) { .ay-ban-form { grid-template-columns: 1fr; } }
+    .ay-btn {
+      padding: .5rem 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--rp-border);
+      background: #fff;
+      font-size: .8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--rp-text);
+    }
+    .ay-btn:hover { border-color: var(--rp-accent); color: var(--rp-accent); }
+    .ay-btn--primary { background: var(--rp-accent); border-color: var(--rp-accent); color: #fff; }
+    .ay-btn--primary:hover { background: var(--rp-accent-hover); color: #fff; }
+    .ay-btn--danger { background: #fef2f2; border-color: #fecaca; color: var(--rp-danger); }
+    .ay-btn--danger:hover { background: #fee2e2; }
+    .ay-ip-mono { font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+    .ay-ban-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
   </style>
 </head>
 <body class="rp-page">
@@ -291,70 +330,63 @@
       <button type="button" class="ay-subnav-btn" data-goto="section-imza">
         <i class="fas fa-pen-nib" aria-hidden="true"></i> İmza ayarları
       </button>
+      <button type="button" class="ay-subnav-btn" data-goto="section-ban">
+        <i class="fas fa-ban" aria-hidden="true"></i> Ban
+      </button>
+      <button type="button" class="ay-subnav-btn" data-goto="section-yedek">
+        <i class="fas fa-database" aria-hidden="true"></i> Yedekleme
+      </button>
     </nav>
 
     <section id="section-plaka" class="ay-panel" tabindex="-1" aria-labelledby="plakaStatsTitle">
       <div class="ay-panel__head">
         <div>
           <h2 id="plakaStatsTitle">Plaka geliş istatistikleri</h2>
-          <p>Sayımlar yalnızca takip formu yazdırıldığında yapılır.</p>
+          <p>Sayımlar yalnızca takip formu yazdırıldığında yapılır. Piyasa Excel’den seçilen firma / ürün yazdırma geçmişine yansır.</p>
         </div>
       </div>
 
       <div class="ay-stats" role="group" aria-label="Özet">
+        <button type="button" class="ay-stat" data-goto-tab="products" title="Plaka ve ürün eşleşmeleri">
+          <span>Plaka × ürün</span><b id="sumProductPairs">—</b>
+        </button>
         <button type="button" class="ay-stat" data-goto-tab="top" title="En çok gelen listesine git">
           <span>Benzersiz plaka</span><b id="sumUnique">—</b>
         </button>
         <button type="button" class="ay-stat" data-goto-tab="top" title="Listeyi göster">
           <span>Toplam yazdırma</span><b id="sumTotalPrints">—</b>
         </button>
-        <button type="button" class="ay-stat" data-goto-tab="once" title="Tek işlem listesi">
-          <span>Tek işlem</span><b id="sumOnce">—</b>
+        <button type="button" class="ay-stat" data-goto-tab="edits" title="Şoför kartı düzenlemeleri">
+          <span>Şoför düzenleme</span><b id="sumEditLog">—</b>
         </button>
-        <button type="button" class="ay-stat" data-goto-tab="never" title="Hiç yazdırılmamış">
-          <span>Kayıtlı, yazdırılmamış</span><b id="sumNever">—</b>
-        </button>
-        <button type="button" class="ay-stat" data-goto-tab="idle" title="Uzun süredir gelmeyen">
-          <span>Uzun süredir gelmeyen</span><b id="sumIdle">—</b>
-        </button>
-      </div>
-
-      <div class="ay-idle-row" style="margin-bottom:.75rem;">
-        <label for="idleDays">“Gelmeyen” eşiği:</label>
-        <select id="idleDays">
-          <option value="30">30 gün</option>
-          <option value="60" selected>60 gün</option>
-          <option value="90">90 gün</option>
-          <option value="120">120 gün</option>
-        </select>
       </div>
 
       <div class="ay-tabs" role="tablist">
-        <button type="button" class="ay-tab is-active" data-plaka-tab="top" role="tab">En çok gelen</button>
-        <button type="button" class="ay-tab" data-plaka-tab="once" role="tab">Tek işlem</button>
-        <button type="button" class="ay-tab" data-plaka-tab="never" role="tab">Kayıtlı, yazdırılmamış</button>
-        <button type="button" class="ay-tab" data-plaka-tab="idle" role="tab">Uzun süredir gelmeyen</button>
+        <button type="button" class="ay-tab is-active" data-plaka-tab="products" role="tab">Plaka × Ürün</button>
+        <button type="button" class="ay-tab" data-plaka-tab="top" role="tab">En çok gelen</button>
+        <button type="button" class="ay-tab" data-plaka-tab="edits" role="tab">Bilgi</button>
       </div>
 
       <div class="ay-toolbar">
         <p id="tabHint" class="ay-hint">En çok yazdırılan plakalar. Satıra tıklayın — detay pencerede açılır.</p>
-        <input type="search" id="plakaSearch" class="ay-search" placeholder="Plaka ara…" autocomplete="off">
+        <input type="search" id="plakaSearch" class="ay-search" placeholder="Plaka / firma / ürün ara…" autocomplete="off" data-lpignore="true" data-1p-ignore tabindex="-1">
       </div>
 
       <div class="ay-table-card">
         <div class="ay-table-scroll">
           <table class="ay-table">
             <thead>
-              <tr>
+              <tr id="plakaTheadRow">
                 <th>#</th>
                 <th>Plaka</th>
-                <th>Durum</th>
-                <th>Yazdırma</th>
-                <th>Son yazdırma</th>
+                <th>Firma</th>
+                <th>Ürün (malzeme)</th>
+                <th class="col-num">Adet</th>
+                <th>Son basım</th>
               </tr>
             </thead>
             <tbody id="plakaTbody">
-              <tr><td colspan="5" class="ay-empty">Yükleniyor…</td></tr>
+              <tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>
             </tbody>
           </table>
         </div>
@@ -366,6 +398,75 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section id="section-ban" class="ay-panel" tabindex="-1" aria-labelledby="banTitle">
+      <div class="ay-panel__head">
+        <div>
+          <h2 id="banTitle">IP engelleri (Ban)</h2>
+          <p>Hatalı giriş veya aşırı istek sonucu engellenen IP adreslerini görün, kaldırın veya manuel ekleyin.</p>
+        </div>
+      </div>
+
+      <div class="ay-ban-alert" id="banHelpText">
+        Bu bilgisayarın IP adresi: <span class="ay-ip-mono" id="banMyIp">—</span>.
+        Kendinizi yanlışlıkla engellediyseniz listeden kaldırın veya tüm engelleri temizleyin.
+        IP banlıyken acil kurtarma: <a href="ayarlar.html#ban">ayarlar.html#ban</a> (giriş yapmadan, yalnızca ayarlar parolası).
+      </div>
+
+      <div class="ay-ban-actions">
+        <button type="button" class="ay-btn" id="banRefreshBtn"><i class="fas fa-sync" aria-hidden="true"></i> Listeyi yenile</button>
+        <button type="button" class="ay-btn ay-btn--danger" id="banClearAllBtn">Tüm engelleri kaldır</button>
+      </div>
+
+      <form id="banAddForm" class="ay-ban-form">
+        <div>
+          <label for="banAddIp">IP engelle</label>
+          <input id="banAddIp" type="text" class="ay-search" style="max-width:none" placeholder="Örn. 192.168.1.25" autocomplete="off">
+        </div>
+        <div>
+          <label for="banAddReason">Sebep (isteğe bağlı)</label>
+          <input id="banAddReason" type="text" class="ay-search" style="max-width:none" placeholder="Manuel engel" autocomplete="off">
+        </div>
+        <button type="submit" class="ay-btn ay-btn--primary">Engelle</button>
+      </form>
+
+      <div class="ay-table-card">
+        <div class="ay-table-scroll">
+          <table class="ay-table">
+            <thead>
+              <tr>
+                <th>IP</th>
+                <th>Sebep</th>
+                <th>Engel başlangıcı</th>
+                <th>Bitiş</th>
+                <th>Kalan</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="banTbody">
+              <tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="section-yedek" class="ay-panel" tabindex="-1" aria-labelledby="yedekTitle">
+      <div class="ay-panel__head">
+        <div>
+          <h2 id="yedekTitle">Veri yedekleme</h2>
+          <p>Tüm kayıtlar, ayarlar ve arşivleri JSON dosyası olarak indirin veya daha önce alınmış bir yedeği geri yükleyin.</p>
+        </div>
+      </div>
+
+      <div class="ay-ban-actions">
+        <button type="button" class="ay-btn ay-btn--primary" id="backupExportBtn"><i class="fas fa-download" aria-hidden="true"></i> Yedek Al</button>
+        <button type="button" class="ay-btn" id="backupImportBtn"><i class="fas fa-upload" aria-hidden="true"></i> Yedek Yükle</button>
+      </div>
+      <p class="ay-hint" style="margin-top:.75rem;">
+        Tam yedek, tarayıcıdaki tüm sistem verilerini içerir. Geri yükleme sunucuya yazılır; işlem sonrası ana sayfayı yenilemeniz gerekir.
+      </p>
     </section>
 
     <section id="section-imza" class="ay-panel" tabindex="-1" aria-labelledby="sigTitle">

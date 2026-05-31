@@ -4,6 +4,7 @@
   'use strict';
 
   const STORAGE_KEY = 'ayarlar_access_v1';
+  const TOKEN_KEY = 'ayarlar_settings_token_v1';
   const TTL_MS = 30 * 60 * 1000; // aynı sekmede en fazla 30 dk
 
   function authHeaders(json) {
@@ -55,14 +56,38 @@
     try {
       const store = storage();
       if (store) store.removeItem(STORAGE_KEY);
+      if (store) store.removeItem(TOKEN_KEY);
     } catch (e) { /* ignore */ }
     clearLegacyUnlock();
   }
 
+  function getSettingsToken() {
+    try {
+      const store = storage();
+      return store ? (store.getItem(TOKEN_KEY) || '') : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function setSettingsToken(token) {
+    try {
+      const store = storage();
+      if (store && token) store.setItem(TOKEN_KEY, String(token));
+    } catch (e) { /* ignore */ }
+  }
+
   async function askPassword(message) {
     try {
-      const search = global.document && global.document.getElementById('searchInput');
-      if (search && typeof search.blur === 'function') search.blur();
+      const doc = global.document;
+      if (doc) {
+        const active = doc.activeElement;
+        if (active && active !== doc.body && typeof active.blur === 'function') active.blur();
+        ['searchInput', 'plakaSearch'].forEach((id) => {
+          const el = doc.getElementById(id);
+          if (el && typeof el.blur === 'function') el.blur();
+        });
+      }
     } catch (e) { /* ignore */ }
     const msg = message || 'Ayarlar sayfasına girmek için parola girin.';
     if (global.rpUi && typeof global.rpUi.password === 'function') {
@@ -84,6 +109,9 @@
     if (!r.ok) return false;
     try {
       const data = await r.json();
+      if (data && data.ok && data.settingsToken) {
+        return { token: data.settingsToken };
+      }
       return !!(data && data.ok);
     } catch (e) {
       return false;
@@ -92,13 +120,18 @@
 
   async function ensureAyarlarAccess(opts) {
     opts = opts || {};
-    if (!opts.force && isUnlocked()) return true;
+    if (!opts.force && isUnlocked() && getSettingsToken()) return true;
 
     const pw = await askPassword(opts.message);
     if (pw == null || pw === '') return false;
 
     const ok = await verifyPassword(pw);
-    if (ok) {
+    if (ok && ok.token) {
+      markUnlocked();
+      setSettingsToken(ok.token);
+      return true;
+    }
+    if (ok === true) {
       markUnlocked();
       return true;
     }
@@ -127,6 +160,8 @@
     isUnlocked,
     markUnlocked,
     clearUnlock,
+    getSettingsToken,
+    setSettingsToken,
     ensureAyarlarAccess,
     openAyarlarPage,
     verifyPassword

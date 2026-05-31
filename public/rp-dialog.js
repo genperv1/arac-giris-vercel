@@ -39,9 +39,71 @@
     let resolveDialog = null;
     let previousFocus = null;
     let trapKeydown = null;
+    let trapBeforeInput = null;
+    let inertRoots = [];
 
     function isOpen() {
       return !!resolveDialog && overlay && !overlay.hidden;
+    }
+
+    function blurBackgroundFocus() {
+      try {
+        var active = document.activeElement;
+        if (active && active !== document.body && !overlay.contains(active) && typeof active.blur === 'function') {
+          active.blur();
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    function setBackgroundInert(on) {
+      if (on) {
+        inertRoots = [];
+        Array.prototype.forEach.call(document.body.children, function (el) {
+          if (el === overlay) return;
+          if ('inert' in el) {
+            el.inert = true;
+            inertRoots.push(el);
+          }
+        });
+      } else {
+        inertRoots.forEach(function (el) {
+          if (document.contains(el)) el.inert = false;
+        });
+        inertRoots = [];
+      }
+    }
+
+    function forwardKeyToDialogInput(inp, e) {
+      if (!inp || !e || !e.key) return;
+      var start, end;
+      if (e.key === 'Backspace') {
+        start = inp.selectionStart;
+        end = inp.selectionEnd;
+        if (start != null && end != null && start === end && start > 0) {
+          inp.value = inp.value.slice(0, start - 1) + inp.value.slice(end);
+          inp.selectionStart = inp.selectionEnd = start - 1;
+        } else if (start != null && end != null && start !== end) {
+          inp.value = inp.value.slice(0, start) + inp.value.slice(end);
+          inp.selectionStart = inp.selectionEnd = start;
+        } else {
+          inp.value = inp.value.slice(0, -1);
+        }
+        return;
+      }
+      if (e.key === 'Enter') {
+        close(inp.value);
+        return;
+      }
+      if (e.key.length === 1) {
+        start = inp.selectionStart;
+        end = inp.selectionEnd;
+        if (start != null && end != null) {
+          inp.value = inp.value.slice(0, start) + e.key + inp.value.slice(end);
+          inp.selectionStart = inp.selectionEnd = start + 1;
+        } else {
+          inp.value += e.key;
+        }
+      }
     }
 
     function engageTrap() {
@@ -55,13 +117,23 @@
         e.preventDefault();
         e.stopPropagation();
         var inp = bodyEl.querySelector('.rp-dialog-input');
-        if (inp) inp.focus();
-        else {
+        if (inp) {
+          inp.focus();
+          forwardKeyToDialogInput(inp, e);
+        } else {
           var btn = actionsEl.querySelector('button');
           if (btn) btn.focus();
         }
       };
+      trapBeforeInput = function (e) {
+        if (!isOpen()) return;
+        if (overlay.contains(e.target)) return;
+        e.preventDefault();
+        e.stopPropagation();
+      };
       document.addEventListener('keydown', trapKeydown, true);
+      document.addEventListener('beforeinput', trapBeforeInput, true);
+      document.addEventListener('input', trapBeforeInput, true);
     }
 
     function releaseTrap() {
@@ -69,6 +141,12 @@
         document.removeEventListener('keydown', trapKeydown, true);
         trapKeydown = null;
       }
+      if (trapBeforeInput) {
+        document.removeEventListener('beforeinput', trapBeforeInput, true);
+        document.removeEventListener('input', trapBeforeInput, true);
+        trapBeforeInput = null;
+      }
+      setBackgroundInert(false);
     }
 
     function focusDialogField(el) {
@@ -164,9 +242,11 @@
           actionsEl.appendChild(el);
         });
         previousFocus = document.activeElement;
+        blurBackgroundFocus();
         overlay.hidden = false;
         overlay.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
+        setBackgroundInert(true);
         engageTrap();
         const first = focusEl || actionsEl.querySelector('button');
         requestAnimationFrame(function () {

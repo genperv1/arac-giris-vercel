@@ -60,16 +60,37 @@
     try{ for (const r of (rows || [])) { await fetch('/api/daily_rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({}, r, { created_at: r.created_at || Date.now() })) }); } return true; }catch(e){ return false; }
   }
 
+  async function _serverClearAll(){
+    try{
+      const token = localStorage.getItem('authToken');
+      const headers = {};
+      if (token) headers.Authorization = 'Bearer ' + token;
+      const r = await fetch('/api/daily_rows', { method: 'DELETE', headers, credentials: 'include' });
+      return r.ok;
+    }catch(e){ return false; }
+  }
+
   async function init(){
     if (cache.loaded) return true;
+    const remoteMeta = await _serverLoadMeta();
     const fromServer = await _serverLoad();
-    if (fromServer){ cache.rows = fromServer.rows; cache.meta = fromServer.meta; cache.loaded = true; cache.indexByPlate = null; return true; }
+    if (fromServer){
+      cache.rows = fromServer.rows;
+      cache.meta = remoteMeta && typeof remoteMeta === 'object' ? remoteMeta : fromServer.meta;
+      cache.loaded = true;
+      cache.indexByPlate = null;
+      _lsSave(cache.rows, cache.meta);
+      return true;
+    }
     const fromLs = _lsLoad();
     cache.rows = fromLs.rows;
-    cache.meta = fromLs.meta;
+    cache.meta = remoteMeta && typeof remoteMeta === 'object' && Object.keys(remoteMeta).length ? remoteMeta : fromLs.meta;
     cache.loaded = true;
     cache.indexByPlate = null;
-    if (cache.rows.length || Object.keys(cache.meta || {}).length){ _serverSave(cache.rows, cache.meta).catch(()=>{}); }
+    if (cache.rows.length || Object.keys(cache.meta || {}).length){
+      _serverSave(cache.rows, cache.meta).catch(()=>{});
+      _serverSaveMeta(cache.meta).catch(()=>{});
+    }
     return true;
   }
 
@@ -80,16 +101,45 @@
     cache.indexByPlate = null;
     _lsSave(cache.rows, cache.meta);
     _serverSave(cache.rows, cache.meta).catch(()=>{});
+    _serverSaveMeta(cache.meta).catch(()=>{});
     return true;
   }
 
-  function clear(){ cache.rows = []; cache.meta = {}; cache.loaded = true; cache.indexByPlate = null; return true; }
-  function clear(){
+  async function _serverSaveMeta(meta){
+    try{
+      const token = localStorage.getItem('authToken');
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = 'Bearer ' + token;
+      await fetch('/api/kv/daily_shipments_meta', {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify(meta || {}),
+      });
+    }catch(e){}
+  }
+
+  async function _serverLoadMeta(){
+    try{
+      const r = await fetch('/api/kv/daily_shipments_meta', { cache: 'no-store' });
+      if (r.ok) return await r.json();
+    }catch(e){}
+    return null;
+  }
+
+  async function clear(opts){
+    const localOnly = !!(opts && opts.localOnly);
     cache.rows = [];
     cache.meta = {};
     cache.loaded = true;
     cache.indexByPlate = null;
-    try{ _lsSave([], {}); _serverSave([], {}).catch(()=>{}); }catch(e){}
+    try{
+      _lsSave([], {});
+      if (!localOnly) {
+        await _serverClearAll();
+        await _serverSaveMeta({});
+      }
+    }catch(e){}
     return true;
   }
 

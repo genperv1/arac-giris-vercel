@@ -82,6 +82,13 @@ html.logged-in body {
   color: #166534;
 }
 .status-chip.chip-ok b{ color: #166534; }
+.status-chip.chip-alert{
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
+}
+.status-chip.chip-alert b{ color: #c2410c; }
+
 .status-chip.chip-warn{
   border-color: #fcd34d;
   background: #fef3c7;
@@ -95,6 +102,138 @@ html.logged-in body {
 
 .status-chip--excel b {
   font-weight: 600;
+}
+
+/* Excel tarihi bugün değil — üst uyarı bandı */
+#excelDateWarnContainer {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+#excelDateWarnContainer:empty {
+  display: none;
+  margin-bottom: 0;
+}
+
+#excelDateWarnContainer .excel-date-warn {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.excel-date-warn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #fcd34d;
+  border-left: 3px solid #d97706;
+  background: #fffbeb;
+  box-shadow: 0 1px 3px rgba(217, 119, 6, 0.08);
+  color: #78350f;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.excel-date-warn__icon {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.excel-date-warn__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.excel-date-warn__title {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #92400e;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.excel-date-warn__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  color: #a16207;
+  font-size: 0.6875rem;
+}
+
+.excel-date-warn__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #fde68a;
+  font-weight: 500;
+  color: #a16207;
+  font-size: 0.6875rem;
+  line-height: 1.25;
+}
+
+.excel-date-warn__pill b {
+  font-weight: 600;
+  color: #92400e;
+}
+
+.excel-date-warn__pill--loaded {
+  font-family: inherit;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  font-size: 0.6875rem;
+  color: #b45309;
+}
+
+.excel-date-warn__pill--loaded b {
+  font-weight: 500;
+  color: #b45309;
+}
+
+.excel-date-warn__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+body.kiosk-mode .excel-date-warn {
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.875rem;
+}
+
+body.kiosk-mode .excel-date-warn__title {
+  font-size: 0.875rem;
 }
 
 body.kiosk-mode{
@@ -1098,6 +1237,86 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .netsis-btn:hover {
   --rp-border: #e2e8f0;
   --rp-text: #334155;
   --rp-muted: #64748b;
+}
+
+/* Uygulama toast (showToast) — Piyasa / İhracat / ana sayfa */
+#toastBox {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 99999;
+  max-width: min(360px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.app-toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 500;
+  color: var(--rp-text);
+  background: var(--rp-surface);
+  border: 1px solid var(--rp-border);
+  border-left-width: 4px;
+  border-left-color: var(--rp-accent);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+  animation: appToastIn 0.22s ease;
+}
+
+.app-toast-item.is-success {
+  border-left-color: #16a34a;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.app-toast-item.is-error {
+  border-left-color: var(--rp-danger);
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.app-toast-item.is-warn {
+  border-left-color: #d97706;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.app-toast-item.is-info {
+  border-left-color: var(--rp-accent);
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.app-toast-item__icon {
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1.35;
+  margin-top: 1px;
+}
+
+.app-toast-item__text {
+  flex: 1;
+  min-width: 0;
+  color: var(--rp-text);
+}
+
+@keyframes appToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .rp-dialog-overlay {

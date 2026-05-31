@@ -524,9 +524,10 @@ let rows = [], fuse = null, currentTotal = 0, displayedList = [], selectedIndex 
 let duplicatePlates = new Set();
 let toastTimer = null;
 
+const PLATE_RE = /(\d{2})\s*([A-ZÇĞİÖŞÜ]{1,3})\s*(\d{2,5})/i;
+
 function normalizePlate(s) {
-  s = String(s || '').toUpperCase();
-  const m = s.match(/(\d{2})\s*([A-ZÇĞİÖŞÜ]{1,3})\s*(\d{2,5})/i);
+  const m = String(s || '').toUpperCase().match(PLATE_RE);
   return m ? (m[1] + m[2] + m[3]).replace(/\s+/g, '') : null;
 }
 
@@ -537,23 +538,17 @@ function turkishNormalize(str) {
     .replace(/[^a-z0-9]/g,'');
 }
 
-function extractBBT(line, plate) {
+function extractBBT(line) {
   if (/iptal/i.test(line)) return null;
-  // Önce "28 BBT" veya "BBT 28" formatını dene
   const bbtMatch = line.match(/(\d+)\s*BBT/i);
-  if (bbtMatch) return parseInt(bbtMatch[1]);
-  // Plakayı satırda bul, plakadan sonraki ilk sayıyı al
-  const platePos = line.toUpperCase().indexOf(plate.slice(0, 4));
-  const afterPlate = platePos >= 0 ? line.slice(platePos) : line;
-  const nums = [...afterPlate.matchAll(/\d+/g)];
-  const plateLenApprox = plate.length;
-  for (const m of nums) {
-    if (m.index > plateLenApprox + (platePos >= 0 ? platePos : 0) - 2) {
-      const val = parseInt(m[0]);
-      if (val > 0 && val <= 9999) return val;
-    }
-  }
-  return null;
+  if (bbtMatch) return parseInt(bbtMatch[1], 10);
+  const plateMatch = String(line || '').match(PLATE_RE);
+  if (!plateMatch) return null;
+  const afterPlate = line.slice(plateMatch.index + plateMatch[0].length);
+  const numMatch = afterPlate.match(/(\d+)/);
+  if (!numMatch) return null;
+  const val = parseInt(numMatch[1], 10);
+  return val > 0 && val <= 9999 ? val : null;
 }
 
 function buildFuse() {
@@ -594,7 +589,7 @@ function parse() {
     if (/iptal/i.test(l)) return;
     const plate = normalizePlate(l);
     if (!plate) return;
-    const bbt = extractBBT(l, plate);
+    const bbt = extractBBT(l);
     if (plate && bbt != null) { rows.push({ plate, bbt }); total += bbt; }
   });
   currentTotal = total;
