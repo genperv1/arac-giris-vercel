@@ -66,6 +66,174 @@
 
 
 
+  /** Uzun açıklamayı yazdırmada 2–4 okunur satıra böler (tek satırda mikro punto olmasın) */
+  function wrapYuklemeNotuText(text, maxChars) {
+    const max = Math.max(32, Number(maxChars) || 54);
+    const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const out = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (next.length > max && cur) {
+        out.push(cur);
+        cur = w;
+      } else {
+        cur = next;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+
+  function splitLinesIntoTwoColumns(lines) {
+    const L = (lines || []).filter(Boolean);
+    if (!L.length) return [[], []];
+    const mid = Math.ceil(L.length / 2);
+    return [L.slice(0, mid), L.slice(mid)];
+  }
+
+  /** Açıklamayı iki sütuna dengeli dağıt (kelime bazlı) */
+  function balanceDescIntoTwoColumns(descParts) {
+    const words = (descParts || [])
+      .map((p) => String(p || '').trim())
+      .filter(Boolean)
+      .join(' ')
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!words.length) return [[], []];
+    const left = [];
+    const right = [];
+    let leftLen = 0;
+    let rightLen = 0;
+    for (const w of words) {
+      if (leftLen <= rightLen) {
+        left.push(w);
+        leftLen += w.length + 1;
+      } else {
+        right.push(w);
+        rightLen += w.length + 1;
+      }
+    }
+    return [
+      wrapYuklemeNotuText(left.join(' '), 42),
+      wrapYuklemeNotuText(right.join(' '), 42),
+    ];
+  }
+
+  function resolveIrsaliyeForPrint() {
+    try {
+      const xr = document.getElementById('xr_irsaliye');
+      if (xr && String(xr.value || '').trim()) {
+        return typeof normalizeIrsaliyeNo === 'function'
+          ? normalizeIrsaliyeNo(xr.value)
+          : String(xr.value).trim();
+      }
+    } catch (e) {}
+    try {
+      if (typeof getShipmentIrsaliyeNo === 'function') {
+        const ch = window.__activeExcelShipment || window.__lastChosenShipment;
+        const irs = getShipmentIrsaliyeNo(ch);
+        if (irs) return irs;
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function resolveYuklemeNotuForPrint(raw) {
+    let t = String(raw ?? '').trim();
+    if (!/^İrsaliye\s*No\s*:/im.test(t) && !/^IRSALIYE\s*NO\s*:/im.test(t)) {
+      const irs = resolveIrsaliyeForPrint();
+      if (irs) t = t ? `İrsaliye No: ${irs}\n${t}` : `İrsaliye No: ${irs}`;
+    }
+    return t;
+  }
+
+  /** Açıklama: tam 2 satır (kelime ortadan bölünür, 4 satıra taşmaz) */
+  function wrapDescForPrint(text) {
+    const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    if (words.length === 1) return [words[0]];
+    const half = Math.ceil(words.length / 2);
+    return [words.slice(0, half).join(' '), words.slice(half).join(' ')].filter(Boolean);
+  }
+
+  function sanitizeYuklemeNotuLines(lines) {
+    const out = [];
+    const seen = new Set();
+    for (const line of lines || []) {
+      const s = String(line || '').trim();
+      if (!s) continue;
+      if (/^\d{1,2}$/.test(s)) continue;
+      const key = s.replace(/\s+/g, ' ').toUpperCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
+    return out;
+  }
+
+  function fitYuklemeNotuPrint(box) {
+    try {
+      if (!box) return;
+      if (!box.clientHeight || box.clientHeight < 24) return;
+
+      const body = box.querySelector('.note-body') || box;
+      const inner = body.querySelector('.note-inner');
+      if (!inner) return;
+      const win = box.ownerDocument?.defaultView;
+
+      box.style.overflow = 'hidden';
+      body.style.overflow = 'hidden';
+      inner.style.transform = 'none';
+      inner.style.width = '100%';
+      inner.style.letterSpacing = 'normal';
+
+      const headEl = inner.querySelector('.note-head');
+      const descRows = inner.querySelectorAll('.note-row');
+      let headPt = 8.5;
+      let descPt = 6.35;
+      const minHeadPt = 8;
+      const minDescPt = 5.65;
+
+      const availH = () => {
+        let pad = 0;
+        try {
+          if (win) {
+            const cs = win.getComputedStyle(body);
+            pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+          }
+        } catch (e) {}
+        return Math.max(12, box.clientHeight - pad - 6);
+      };
+
+      const applySizes = () => {
+        if (headEl) {
+          headEl.style.lineHeight = '1.1';
+          headEl.style.fontSize = headPt + 'pt';
+        }
+        descRows.forEach((row) => {
+          row.style.lineHeight = '1.06';
+          row.style.fontSize = descPt + 'pt';
+        });
+      };
+
+      applySizes();
+      let guard = 0;
+      while (inner.scrollHeight > availH() && guard < 40) {
+        if (descPt > minDescPt) {
+          descPt -= 0.1;
+        } else if (headEl && headPt > minHeadPt) {
+          headPt -= 0.08;
+        } else {
+          break;
+        }
+        applySizes();
+        guard++;
+      }
+    } catch (e) {}
+  }
+
   const LEGACY_KANTAR_SIG = {
     "BURAK KARATAŞ": "signatures/burak_karatas.png",
     "BEKİR DOĞRU": "signatures/bekir_dogru.png",
@@ -886,7 +1054,7 @@ if (firmaSelect && firmaInput) {
     }
 
     const yuklemeSirasi = String(yuklemeSirasiNum);
-const yuklemeNotu = document.getElementById('yuklemeNotu')?.value || '';
+const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeNotu')?.value || '');
 
     // ✅ Print güvenliği: HTML escape + satır normalize
     const escapeHtml = (s) => String(s ?? '')
@@ -902,6 +1070,37 @@ const yuklemeNotu = document.getElementById('yuklemeNotu')?.value || '';
       // Çoklu boşlukları toparla
       t = t.replace(/[ \t]{2,}/g, ' ');
       return t;
+    };
+
+    const buildYuklemeNotuPrintHtml = (raw) => {
+      const t = normalizeToLines(raw);
+      if (!t) return '<div class="note-inner"></div>';
+      const lines = sanitizeYuklemeNotuLines(t.split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
+      const esc = (s) => escapeHtml(s);
+      const rowHtml = (line) => `<div class="note-row">${esc(line)}</div>`;
+
+      let irsLine = '';
+      const descParts = [];
+      for (const line of lines) {
+        if (/^İrsaliye\s*No\s*:/i.test(line) || /^IRSALIYE\s*NO\s*:/i.test(line)) {
+          if (!irsLine) irsLine = line;
+        } else {
+          descParts.push(line);
+        }
+      }
+      if (!irsLine) {
+        const irs = resolveIrsaliyeForPrint();
+        if (irs) irsLine = `İrsaliye No: ${irs}`;
+      }
+
+      const descText = descParts.join(' ').trim();
+      const descLines = wrapDescForPrint(descText);
+
+      const parts = [];
+      if (irsLine) parts.push(`<div class="note-head">${esc(irsLine)}</div>`);
+      descLines.forEach((ln) => parts.push(rowHtml(ln)));
+
+      return `<div class="note-inner">${parts.join('')}</div>`;
     };
 
     const formatSevkYeriPrint = (value) => {
@@ -1033,7 +1232,7 @@ const yuklemeNotu = document.getElementById('yuklemeNotu')?.value || '';
     };
 
     const malzemeGridHtml = buildMalzemeHtml(malzeme);
-    const yuklemeNotuPrint = escapeHtml(normalizeToLines(yuklemeNotu));
+    const yuklemeNotuPrint = buildYuklemeNotuPrintHtml(yuklemeNotu);
 
     // ✅ Takip formu alanları artık span *veya* input olabilir.
     // - input varsa .value
@@ -1097,10 +1296,10 @@ const bosBbtText = amb.bosBbt;
     // Bu değerler JPEG’deki çizgilere göre yerleştirilmiş başlangıç ayarıdır.
     // Yükleme notu hücresi (imza satırı ~119mm) — 4 satır sığsın diye yükseklik artırıldı
     const IMZA_ROW_TOP = 119;
-    const NOTE_CELL_BOTTOM = 119.05;
-    const NOTE_TOP_A5 = 107;
-    const NOTE_TOP_A4 = 107.5;
-    const noteHeight = (top) => Math.max(10.5, NOTE_CELL_BOTTOM - top);
+    const NOTE_CELL_BOTTOM = 118.9;
+    const NOTE_TOP_A5 = 106.8;
+    const NOTE_TOP_A4 = 107.2;
+    const noteHeight = (top) => Math.max(12, NOTE_CELL_BOTTOM - top);
 
     // ✅ A5 manzara için koordinatlar (210x148mm)
     const P_A5 = {
@@ -1267,14 +1466,42 @@ const bosBbtText = amb.bosBbt;
   width:100%;
   height:100%;
   box-sizing:border-box;
-  font-size:7.5pt;
-  font-weight:600;
-  line-height:1.1;
-  white-space:pre-wrap;
-  word-break:break-word;
-  overflow-wrap:anywhere;
   overflow:hidden;
-  padding:0 0.5mm 0 0.5mm;
+  padding:0.45mm 0.5mm 0.55mm;
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+  align-items:stretch;
+}
+.note-inner{
+  width:100%;
+  max-width:100%;
+  box-sizing:border-box;
+  font-weight:700;
+  letter-spacing:normal;
+  color:#000;
+}
+.note-head{
+  display:block;
+  width:100%;
+  white-space:nowrap;
+  overflow:hidden;
+  margin:0 0 0.28mm 0;
+  padding:0;
+  font-size:8.85pt;
+  line-height:1.12;
+}
+.note-row{
+  display:block;
+  width:100%;
+  white-space:normal;
+  word-break:break-word;
+  overflow-wrap:break-word;
+  margin:0 0 0.1mm 0;
+  padding:0;
+  font-size:6.35pt;
+  line-height:1.06;
 }
 
 .imza-text {
@@ -1673,35 +1900,6 @@ const bosBbtText = amb.bosBbt;
         } catch(e){}
       };
 
-      // Yükleme notu: satır kır, 4 satıra kadar sığdır (son cümle kesilmesin)
-      const fitYuklemeNotu = (box) => {
-        try {
-          if (!box) return;
-          const el = box.querySelector('.note-body') || box;
-          box.style.overflow = 'hidden';
-          el.style.overflow = 'hidden';
-          el.style.whiteSpace = 'pre-wrap';
-          el.style.wordBreak = 'break-word';
-          el.style.overflowWrap = 'anywhere';
-          const tryFit = (lh, startPx, minPx) => {
-            el.style.lineHeight = String(lh);
-            let size = startPx;
-            let guard = 0;
-            while (guard < 30 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && size > minPx) {
-              size -= 0.25;
-              el.style.fontSize = size + 'px';
-              guard++;
-            }
-            return el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1;
-          };
-          if (!tryFit(1.1, 11, 9)) {
-            if (!tryFit(1.05, 10.5, 8.5)) {
-              tryFit(1.02, 10, 8);
-            }
-          }
-        } catch(e){}
-      };
-
       const fitMalzemeGrid = () => {
         try {
           const box = w.document.getElementById('printMalzeme');
@@ -1777,7 +1975,7 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
           let s = Math.min(1, sx, sy);
           // küçük güvenlik payı (header/footer gibi sürprizler için)
           if (s < 1) s = Math.max(0.92, s * 0.98);
-          if (s === 1) s = 0.985;
+          if (s === 1) s = 1;
           root.style.transform = `scale(${s})`;
           try {
             w.document.documentElement.style.width = '210mm';
@@ -1788,21 +1986,43 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
           } catch(e) {}
         } catch(e) {}
       };
-      fitToA4();
+      const printRoot = w.document.getElementById('printRoot');
+      const fitNoteInBox = () => {
+        const noteBox = w.document.getElementById('printNot');
+        const saved = printRoot ? printRoot.style.transform : '';
+        try {
+          if (printRoot) printRoot.style.transform = 'scale(1)';
+          fitYuklemeNotuPrint(noteBox);
+        } finally {
+          if (printRoot) printRoot.style.transform = saved;
+        }
+      };
 
-      // Yükleme notu: sayfa ölçeği belli olduktan sonra sığdır (A4/A5)
-      fitYuklemeNotu(w.document.getElementById('printNot'));
+      const finishLayoutThenPrint = () => {
+        const runAll = () => {
+          fitNoteInBox();
+          fitToA4();
+          fitNoteInBox();
+        };
+        runAll();
+        w.requestAnimationFrame(() => {
+          runAll();
+          w.requestAnimationFrame(() => {
+            runAll();
+            if (!isPreview) doPrint();
+            else {
+              try { w.focus(); } catch (e) {}
+            }
+          });
+        });
+      };
 
-      const img = w.document.querySelector(".bg");
+      const img = w.document.querySelector('.bg');
       if (img && !img.complete) {
-        img.onload = doPrint;
-        img.onerror = doPrint;
+        img.onload = () => setTimeout(finishLayoutThenPrint, 0);
+        img.onerror = () => setTimeout(finishLayoutThenPrint, 0);
       } else {
-        doPrint();
-      }
-      // Preview'de kullanıcı isterse elle Ctrl+P basar
-      if (isPreview) {
-        try { w.focus(); } catch (e) {}
+        setTimeout(finishLayoutThenPrint, 0);
       }
     };
 
@@ -1818,8 +2038,9 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: '20260520-aracbos3',
+    __aracBosRev: '20260602-yukleme-notu-v10',
   };
+  window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
 })();
 
 function setupEslestirmeUXInsideForm() {
@@ -1948,6 +2169,12 @@ function fitToBoxInput(el, minPx = 10, maxPx = 16) {
 // Global: diğer scriptler tarafından erişilsin
 window.fitToBoxInput = fitToBoxInput;
 
+/** Takip formu textarea: okunaklı boyutta kalsın (ekranda çok küçültme) */
+function fitYuklemeNotuOnScreen(el) {
+  fitToBoxInput(el, 9, 11);
+}
+window.fitYuklemeNotuOnScreen = fitYuklemeNotuOnScreen;
+
 (function hookPrintFit(){
   try {
     if (!window.Print || window.Print.__fitHooked) return;
@@ -1959,7 +2186,7 @@ window.fitToBoxInput = fitToBoxInput;
         // ambalaj bilgisi + yükleme notu uzun olabiliyor
         fitToBoxInput(document.getElementById('ambalajBilgisi'), 9, 16);
         fitToBoxInput(document.getElementById('sevkYeri'), 9, 16);
-        fitToBoxInput(document.getElementById('yuklemeNotu'), 8, 11);
+        fitYuklemeNotuOnScreen(document.getElementById('yuklemeNotu'));
       } catch(e) {}
       return orig.call(window.Print, opts);
     };
@@ -1999,7 +2226,17 @@ function fitToBoxDiv(el, minPx = 8, maxPx = 14, allowHeightOverflow = false) {
         setTimeout(() => {
           try { fitToBoxDiv(document.getElementById('printAmbalaj'), 10, 22, true); } catch(e) {}
           try { fitToBoxDiv(document.getElementById('printSevkYeri'), 10, 22, true); } catch(e) {}
+          try {
+            const pw = ret && ret.document ? ret : null;
+            if (pw && pw.document) window.fitYuklemeNotuPrint(pw.document.getElementById('printNot'), pw);
+          } catch (e) {}
         }, 0);
+        setTimeout(() => {
+          try {
+            const pw = ret && ret.document ? ret : null;
+            if (pw && pw.document) window.fitYuklemeNotuPrint(pw.document.getElementById('printNot'), pw);
+          } catch (e) {}
+        }, 150);
       } catch(e) {}
       return ret;
     };

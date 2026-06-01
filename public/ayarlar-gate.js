@@ -1,5 +1,5 @@
 // Ayarlar sayfası ek parola kapısı (giriş yapmış kullanıcı + ayar parolası)
-// Parola yalnızca ayarlar sekmesinde sorulur; kilitleme sekme bazlıdır (yeni sekme = tekrar parola).
+// Parola ayarlar sayfasında sorulur; oturum kilidi sessionStorage ile aynı sekmede tutulur.
 (function (global) {
   'use strict';
 
@@ -146,11 +146,7 @@
 
   /** Ana sayfadan: doğrudan aç; parola ayarlar sekmesinde sorulur. */
   async function openAyarlarPage() {
-    try {
-      global.open('ayarlar.html', '_blank', 'noopener,noreferrer');
-    } catch (e) {
-      global.location.href = 'ayarlar.html';
-    }
+    global.location.href = 'ayarlar.html';
     return true;
   }
 

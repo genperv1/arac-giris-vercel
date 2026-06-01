@@ -127,7 +127,18 @@
     const ok = await showImportPreview(stats, null);
     if (!ok) return;
     if (typeof window.commitIhracatImport === 'function') {
-      await window.commitIhracatImport(partial.rows, partial.meta, ctx.file);
+      const committed = await window.commitIhracatImport(partial.rows, partial.meta, ctx.file);
+      if (!committed || !committed.ok) {
+        alert((committed && committed.msg) || 'Kayıt başarısız.');
+        return;
+      }
+      if (typeof window.showToast === 'function') {
+        window.showToast(committed.msg || `✅ ${partial.rows.length} kayıt yüklendi.`);
+      }
+      if (typeof window.showIhracatDetailsModal === 'function') {
+        window.showIhracatDetailsModal();
+      }
+      window.__selectedShipmentBlocks = null;
     }
   }
 

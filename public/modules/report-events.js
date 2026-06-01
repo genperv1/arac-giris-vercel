@@ -165,6 +165,11 @@
             ''
           ).slice(0, 30);
           slim.firma = (baseData.firma || baseData.firmaKodu || baseData.firmaSelect || '').slice(0, 30);
+          slim.sofor = (baseData.sofor || [baseData.soforAdi, baseData.soforSoyadi].filter(Boolean).join(' ') || '').slice(0, 80);
+          slim.soforAdi = (baseData.soforAdi || '').slice(0, 40);
+          slim.soforSoyadi = (baseData.soforSoyadi || '').slice(0, 40);
+          slim.tcKimlik = (baseData.tcKimlik || '').slice(0, 11);
+          slim.iletisim = (baseData.iletisim || '').slice(0, 20);
           slim.printCount = baseData.printCount || baseData.print_count || 0;
           slim.cikisYapildi = !!baseData.cikisYapildi;
           slim.saat = (baseData.saat || '').slice(0, 15);

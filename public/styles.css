@@ -803,10 +803,6 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card:hover {
   word-break: break-word;
 }
 
-.vehicle-card--blocked .vehicle-card__value {
-  color: #f1f5f9;
-}
-
 .vehicle-card__value--contact {
   display: flex;
   align-items: center;
@@ -822,6 +818,17 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card:hover {
   border-radius: 6px;
   border: 1px solid #d1fae5;
   background: #ecfdf5;
+  cursor: pointer;
+  font: inherit;
+  line-height: 0;
+}
+
+.vehicle-card__wa:hover {
+  background: #d1fae5;
+}
+
+.vehicle-card--blocked .vehicle-card__value {
+  color: #f1f5f9;
 }
 
 .vehicle-card__footer {
@@ -1044,12 +1051,6 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .netsis-btn:hover {
   height: 2rem;
   margin-top: 0.75rem;
   width: 100%;
-}
-
-.copyRowBtn {
-  background: transparent;
-  color: #000000;
-  border: 1px solid #000000;
 }
 
 .copyExcelBtn {
@@ -1460,7 +1461,7 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .netsis-btn:hover {
 .takip-modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 10050;
   display: flex;
   align-items: center;
   justify-content: center;

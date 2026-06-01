@@ -20,10 +20,6 @@
     }
   }
 
-  function normFirma(s) {
-    return String(s || '').toUpperCase().replace(/\s+/g, '').replace(/\u0130/g, 'I');
-  }
-
   function normPlate(s) {
     return String(s || '').replace(/\s+/g, '').toUpperCase();
   }
@@ -64,16 +60,6 @@
       } else if (cmp.level === 'danger') {
         messages.push(`Tonaj Excel ile ciddi uyumsuz (~%${cmp.pct.toFixed(0)} fark).`);
         level = 'danger';
-      }
-    }
-
-    const formFirma = getFormVal('firmaKodu') || getFormVal('firmaSelect');
-    if (lastOrder && formFirma) {
-      const ff = normFirma(formFirma);
-      const pf = normFirma(lastOrder.firma);
-      if (ff && pf && !ff.includes(pf) && !pf.includes(ff)) {
-        messages.push('Form firması ile son seçilen Piyasa siparişi uyuşmuyor.');
-        if (level === 'ok') level = 'warn';
       }
     }
 

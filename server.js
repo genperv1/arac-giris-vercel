@@ -304,6 +304,7 @@ async function prepareSchema() {
   `);
   // Legacy DB'ler için kolon migrasyonu
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS basim_yeri TEXT;`);
+  await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS sofor TEXT;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS operation_notes(
@@ -2288,7 +2289,7 @@ api.delete('/operation-notes/:id', async (req, res) => {
 api.get("/reports", async (req, res) => {
   try {
     const { limit, offset } = parsePagination(req, { defaultLimit: 5000, maxLimit: 20000 });
-    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
+    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
     
     const parsed = (r.rows || []).map((row) => {
       try {
@@ -2311,6 +2312,7 @@ api.get("/reports", async (req, res) => {
           tonaj: row.tonaj,
           basimYeri: row.basim_yeri,
           sevkiyat_id: row.sevkiyat_id,
+          sofor: row.sofor || '',
           tarih: tarihStr,
           saat: saatStr
         };
@@ -3094,7 +3096,7 @@ api.get("/print_history", async (req, res) => {
     const basimYeri = basimYeriRaw ? basimYeriRaw.toUpperCase() : "";
     const limit = Math.min(Number(req.query.limit || 100), 1000);
     
-    let query = "SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, tarih FROM print_history";
+    let query = "SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih FROM print_history";
     let params = [];
     
     if (plaka) {
@@ -3142,27 +3144,29 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
     const tonaj = sanitizeString(body.tonaj || "", 50);
     const basim_yeri = sanitizeString(body.basim_yeri || body.basimYeri || "", 20).toUpperCase();
     const sevkiyat_id = sanitizeString(body.sevkiyat_id || "", 100);
+    const sofor = sanitizeString(body.sofor || "", 120);
     // Her zaman sunucu saati (NTP); istemci Windows tarihi ileri/geri olsa bile rapor doğru anı tutar
     const tarih = Date.now();
     
     if (!plaka) return res.status(400).json({ error: "plaka required" });
     
     await q(`
-      INSERT INTO print_history(id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, tarih)
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO print_history(id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih)
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (id) DO UPDATE SET
         firma = EXCLUDED.firma,
         malzeme = EXCLUDED.malzeme,
         tonaj = EXCLUDED.tonaj,
         basim_yeri = EXCLUDED.basim_yeri,
         sevkiyat_id = EXCLUDED.sevkiyat_id,
+        sofor = EXCLUDED.sofor,
         tarih = EXCLUDED.tarih
-    `, [id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, tarih]);
+    `, [id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih]);
     
     // Broadcast real-time update to all connected clients
     broadcastReportUpdate({
       type: 'new_report',
-      data: { id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, tarih }
+      data: { id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih }
     });
     
     res.json({ ok: true, id });

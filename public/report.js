@@ -191,6 +191,14 @@
     return String(s||'').toLowerCase().replace(/[\s-]+/g,'');
   }
 
+  function splitSoforForExcel(full) {
+    const s = String(full || '').trim().replace(/\s+/g, ' ');
+    if (!s) return { soforAdi: '', soforSoyadi: '' };
+    const parts = s.split(' ');
+    if (parts.length === 1) return { soforAdi: parts[0], soforSoyadi: '' };
+    return { soforAdi: parts.slice(0, -1).join(' '), soforSoyadi: parts[parts.length - 1] };
+  }
+
   function calcKpis(vehicles, events){
     const printedVehicles = vehicles.filter(v => (parseInt(v.printCount||'0',10)||0) > 0);
     const totalPrintedVehicles = printedVehicles.length;
@@ -381,9 +389,19 @@
         }
       } catch(e) { cikisHtml = '-'; }
 
+      const firmaCode = (lastEv && lastEv.data && (lastEv.data.firma || lastEv.data.firmaKodu || lastEv.data.firmaSelect))
+        || v.defaultFirma || '';
+      const soforName = (lastEv && lastEv.data && (lastEv.data.sofor
+        || [lastEv.data.soforAdi, lastEv.data.soforSoyadi].filter(Boolean).join(' ').trim()))
+        || '';
+      const plateCellHtml = plate
+        ? `${plate}${soforName ? `<div style="font-size:12px;font-weight:600;color:#334155;margin-top:2px">${soforName}</div>` : ''}`
+        : (soforName || '-');
+      const firmaCellHtml = firmaCode || '-';
+
       tr.innerHTML = `
-        <td class="p-3 col-plate font-semibold">${plate || '-'}</td>
-        <td class="p-3">${( (lastEv && (lastEv.data && (lastEv.data.firma || lastEv.data.firmaKodu || lastEv.data.firmaSelect))) || v.defaultFirma ) ? (lastEv && lastEv.data && (lastEv.data.firma || lastEv.data.firmaKodu || lastEv.data.firmaSelect) || v.defaultFirma) : '-'}</td>
+        <td class="p-3 col-plate font-semibold">${plateCellHtml}</td>
+        <td class="p-3">${firmaCellHtml}</td>
         <td class="p-3">${(function(){
             const tr = ts ? trDateTimeFromMs(ts) : null;
             const dateStr = tr ? tr.tarih : ((d && d.tarih) ? (d.tarih || '-') : '-');
@@ -397,10 +415,6 @@
             <button class="report-action-btn netsisBtn"
               data-id="${String(v.id||'')}" data-event-data='${JSON.stringify(d)}' title="NETSIS verilerini kopyala">
               <i class="fas fa-link"></i> NETSIS
-            </button>
-            <button class="report-action-btn copyRowBtn"
-              data-id="${String(v.id||'')}" title="Araç giriş WhatsApp için kopyala">
-              <i class="fab fa-whatsapp"></i> WhatsApp
             </button>
             <button class="report-action-btn copyExcelBtn"
               data-id="${String(v.id||'')}" title="Excel için satırı kopyala">
@@ -512,8 +526,9 @@
           const hasPhone = d.iletisim || d.phone || d.driverPhone || d.phoneNumber;
           const hasTC = d.tcKimlik || d.tc;
           const hasDorse = d.dorsePlaka || d.dorse;
+          const needLookup = (!hasName || !hasPhone || !hasTC || !hasDorse) && !d.sofor;
           
-          if (!hasName || !hasPhone || !hasTC || !hasDorse) {
+          if (needLookup) {
             try {
               if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
                 const cached = window.storage.load('vehicle_' + vehicleId);
@@ -539,14 +554,17 @@
             }
           }
           
-          // Merge data: event data + retrieved vehicle data
+          // Yazdırma kaydındaki şoför öncelikli
           const fullVehicleData = Object.assign({}, vehicleData || {}, d);
           
+          const evSoforFull = String(fullVehicleData.sofor || '').trim();
+          const evSplit = evSoforFull ? splitSoforForExcel(evSoforFull) : null;
+
           // Construct vehicle object from merged data
           const vehicle = {
             cekiciPlaka: fullVehicleData.cekiciPlaka || fullVehicleData.plaka || plate || '',
-            soforAdi: fullVehicleData.sofor || fullVehicleData.soforAdi || fullVehicleData.driverName || fullVehicleData.isim || fullVehicleData.name || '',
-            soforSoyadi: fullVehicleData.soforSoyadi || fullVehicleData.driverSurname || fullVehicleData.soyisim || fullVehicleData.surname || '',
+            soforAdi: evSplit ? evSplit.soforAdi : (fullVehicleData.soforAdi || fullVehicleData.driverName || fullVehicleData.isim || fullVehicleData.name || ''),
+            soforSoyadi: evSplit ? evSplit.soforSoyadi : (fullVehicleData.soforSoyadi || fullVehicleData.driverSurname || fullVehicleData.soyisim || fullVehicleData.surname || ''),
             iletisim: fullVehicleData.iletisim || fullVehicleData.phone || fullVehicleData.driverPhone || fullVehicleData.phoneNumber || '',
             tcKimlik: fullVehicleData.tcKimlik || fullVehicleData.tc || '',
             dorsePlaka: fullVehicleData.dorsePlaka || fullVehicleData.dorse || ''
@@ -659,64 +677,13 @@
             },
             body: JSON.stringify({ ids })
           });
+          if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
+            await window.piyasa.reconcileOrderPrintCountsFromReports();
+          }
           uiAlert('Kayıt silindi.', 'success');
           render();
         } catch(e) {
           uiAlert('Silme işlemi başarısız: ' + e.message, 'danger');
-        }
-      });
-    });
-
-    // bind row copy (kopyalama)
-    tbody.querySelectorAll('.copyRowBtn').forEach(btn => {
-      if (btn.__boundCopy) return;
-      btn.__boundCopy = true;
-      btn.addEventListener('click', async () => {
-        const tr = btn.closest('tr');
-        if (!tr) return;
-        
-        try {
-          // Satırdan verileri oku (td elementlerinden)
-          const tds = tr.querySelectorAll('td');
-          if (tds.length < 5) {
-            alert('❌ Satır verileri okunamadı.');
-            return;
-          }
-          
-          // td'lerden text content'i al
-          const plaka = tds[0].textContent.trim() || '-';
-          const firma = tds[1].textContent.trim() || '-';
-          const basimYeri = tds[3].textContent.trim() || '-';
-          const yazdirmaInfo = tds[4].textContent
-            .replace(/[📍📦]/g, '•')
-            .replace(/\s+/g, ' ')
-            .replace(/•\s*•+/g, '•')
-            .trim() || '-';
-          
-          // Kopyalanacak metni oluştur
-          const copyText = `Plaka: ${plaka}
-Firma: ${firma}
-Giriş Yeri: ${basimYeri}
-Bilgi: ${yazdirmaInfo}
-GİRİŞ YAPTI.`;
-          
-          // Clipboard'a kopyala
-          await navigator.clipboard.writeText(copyText);
-          
-          // Kullanıcıya bildir
-          const originalHTML = btn.innerHTML;
-          const originalBg = btn.style.backgroundColor;
-          btn.innerHTML = '<i class="fab fa-whatsapp"></i> Kopyalandı';
-          btn.style.backgroundColor = '#059669';
-          btn.style.color = 'white';
-          setTimeout(() => {
-            btn.innerHTML = originalHTML;
-            btn.style.backgroundColor = originalBg;
-            btn.style.color = '';
-          }, 1500);
-        } catch(e) {
-          console.error('Kopyalama hatası:', e);
-          alert('❌ Kopyalama işlemi başarısız. Tarayıcı klipboarda erişime izin veremedi.');
         }
       });
     });
@@ -803,10 +770,16 @@ GİRİŞ YAPTI.`;
               console.warn('Excel copy vehicle lookup failed:', e);
             }
           }
-          const src = Object.assign({}, sourceData, vehicleData || {});
+          // Yazdırma kaydındaki şoför, plaka lookup'tan gelen eski kaydı ezmesin
+          const src = Object.assign({}, vehicleData || {}, sourceData);
 
-          const firstName = safeText(src.sofor || src.soforAdi || src.driverName || src.isim || src.name || '');
-          const lastName = safeText(src.soforSoyadi || src.driverSurname || src.soyisim || src.surname || '');
+          const fullFromEvent = safeText(sourceData.sofor || '');
+          const firstName = fullFromEvent
+            ? safeText(splitSoforForExcel(fullFromEvent).soforAdi)
+            : safeText(src.soforAdi || src.driverName || src.isim || src.name || '');
+          const lastName = fullFromEvent
+            ? safeText(splitSoforForExcel(fullFromEvent).soforSoyadi)
+            : safeText(src.soforSoyadi || src.driverSurname || src.soyisim || src.surname || '');
           const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || '-';
           const phone = formatPhoneForExcel(src.iletisim || src.phone || src.driverPhone || src.phoneNumber || '-');
           
@@ -943,6 +916,9 @@ GİRİŞ YAPTI.`;
             }
           } catch(e){}
 
+          if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
+            await window.piyasa.reconcileOrderPrintCountsFromReports();
+          }
           alert('✅ Raporlar temizlendi.');
           render();
         } catch(e) {
@@ -1010,6 +986,9 @@ GİRİŞ YAPTI.`;
             if (!response.ok) {
               alert('❌ Silme işlemi başarısız: ' + response.status);
               return;
+            }
+            if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
+              await window.piyasa.reconcileOrderPrintCountsFromReports();
             }
             alert('✅ Seçili kayıtlar silindi.');
             render();

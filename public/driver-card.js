@@ -38,12 +38,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     })
   })
 
-  const waBtn = document.querySelector('.whatsapp')
-  if(waBtn) waBtn.addEventListener('click', ()=>{
-    const msg = encodeURIComponent(`${sample.driver} - ${sample.contact} - ${sample.plate}`)
-    window.open(`https://wa.me/?text=${msg}`, '_blank')
-  })
-
   const okBtn = document.getElementById('okBtn')
   if(okBtn) okBtn.addEventListener('click', ()=>{
     if(okBtn.classList.toggle('inactive')){

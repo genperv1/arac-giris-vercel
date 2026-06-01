@@ -26,6 +26,34 @@
 
   let _localSyncTs = 0;
   let _syncInFlight = false;
+  let _pickerRenderHook = null;
+
+  const PIYASA_MODAL_LAYER_ATTR = 'data-piyasa-modal-layer';
+
+  function markPiyasaModalLayer(overlay) {
+    if (overlay) overlay.setAttribute(PIYASA_MODAL_LAYER_ATTR, '1');
+  }
+
+  function hasOpenPiyasaModalLayer() {
+    return !!document.querySelector(`[${PIYASA_MODAL_LAYER_ATTR}="1"]`);
+  }
+
+  /** ESC: yalnızca bu overlay kapanır; alttaki Piyasa sipariş seçicisine sızmaz */
+  function bindPiyasaOverlayEsc(overlay, closeFn) {
+    const onEsc = (e) => {
+      if (e.key !== 'Escape') return;
+      if (!document.body.contains(overlay)) {
+        document.removeEventListener('keydown', onEsc, true);
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      closeFn();
+      document.removeEventListener('keydown', onEsc, true);
+    };
+    document.addEventListener('keydown', onEsc, true);
+    return onEsc;
+  }
 
   function eu() {
     return window.ExcelUtils || {};
@@ -249,6 +277,12 @@
         requestPiyasaSyncIfRemoteNewer(payload.data || payload).catch(() => {});
       }
     });
+    window.SyncManager.on('report_deleted', () => {
+      reconcileOrderPrintCountsFromReports().catch(() => {});
+    });
+    window.SyncManager.on('reports_deleted', () => {
+      reconcileOrderPrintCountsFromReports().catch(() => {});
+    });
   }
 
   function applyPayloadToState(payload, options) {
@@ -445,6 +479,38 @@
     return (state.orders || []).map((o) => _decoratePickerOrder(o, { week: currentWeek, sheet: currentSheet }, currentWeek, currentSheet));
   }
 
+  function _debounce(fn, waitMs) {
+    let timer = null;
+    return function debounced(...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), waitMs);
+    };
+  }
+
+  function _resolvePickerFirmaAdi(o) {
+    if (o.firmaAdi && String(o.firmaAdi).trim()) return String(o.firmaAdi).trim();
+    return getFirmaFullName(String(o.firma || '').trim()) || '';
+  }
+
+  function _pickerEntrySearchHay(o, firmaAdi, sevkiyat) {
+    return `${o.firma || ''} ${firmaAdi} ${o.malzeme || ''} ${o.sevkYeri || ''} ${o.il || ''} ${o.yuklemeTuru || ''} ${o.aciklama || ''} ${o.miktar || ''} ${o.odemeTuru || ''} ${o.org || ''} ${sevkiyat} ${o._weekLabel || ''}`.toLowerCase();
+  }
+
+  /** Sipariş seçici araması için önceden hesaplanmış metin (her tuşta getFirmaFullName çağrılmasın). */
+  function _buildPickerSearchCache(sourceOrders) {
+    const entries = new Array(sourceOrders.length);
+    for (let i = 0; i < sourceOrders.length; i++) {
+      const o = sourceOrders[i];
+      const firmaAdi = _resolvePickerFirmaAdi(o);
+      const sevkiyat = getOrderSevkiyatTipi(o);
+      entries[i] = { o, firmaAdi, sevkiyat, hay: _pickerEntrySearchHay(o, firmaAdi, sevkiyat) };
+    }
+    return entries;
+  }
+
+  const PICKER_MAX_VISIBLE_ROWS = 250;
+  const PICKER_SEARCH_DEBOUNCE_MS = 200;
+
   function getOrderPrintCount(o) {
     return Math.max(0, parseInt(o?.printCount, 10) || 0);
   }
@@ -467,6 +533,77 @@
 
   function normMalzemeKey(s) {
     return String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  }
+
+  function normFirmaKey(s) {
+    return String(firmaKodFromInput(s) || '').trim().toUpperCase();
+  }
+
+  function matchesFirmaForOrder(firmaVal, opts) {
+    const firmaFilter = normFirmaKey(opts && opts.firma);
+    if (!firmaFilter) return true;
+    const code = normFirmaKey(firmaVal);
+    if (code && code === firmaFilter) return true;
+    const adiFilter = String(opts.firmaAdi || '').trim().toUpperCase();
+    if (!adiFilter) return false;
+    const raw = String(firmaVal || '').trim().toUpperCase();
+    if (raw === adiFilter) return true;
+    const parts = String(firmaVal || '').split('/').map((x) => x.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      const tail = parts.slice(1).join(' / ').toUpperCase();
+      if (tail === adiFilter) return true;
+    }
+    try {
+      const fromCode = getFirmaFullName(firmaFilter);
+      if (fromCode && raw === String(fromCode).trim().toUpperCase()) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function collectReportPrintEventsDeduped() {
+    const seen = new Set();
+    const out = [];
+    const lists = [];
+    if (window.Report && typeof window.Report.getEvents === 'function') {
+      lists.push(window.Report.getEvents() || []);
+    }
+    if (window.state && Array.isArray(window.state.reports)) {
+      lists.push(window.state.reports);
+    }
+    lists.forEach((events) => {
+      (events || []).forEach((ev) => {
+        if (!ev || ev.type !== 'PRINT' || !ev.data) return;
+        const d = ev.data || {};
+        const dedupeKey = [
+          ev.id || '',
+          ev.ts || '',
+          d.plaka || d.plate || '',
+          d.malzeme || '',
+          d.firma || d.firmaKodu || '',
+        ].join('|');
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+        out.push(ev);
+      });
+    });
+    return out;
+  }
+
+  async function fetchPrintHistoryRows(malzeme, opts) {
+    const malzemeQ = String(malzeme || '').trim();
+    if (!malzemeQ) return [];
+    try {
+      const params = new URLSearchParams({ malzeme: malzemeQ, limit: '500' });
+      const r = await fetch('/api/print_history?' + params.toString(), {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!r.ok) return [];
+      const rows = await r.json();
+      return (rows || []).filter((row) => matchesFirmaForOrder(row.firma, opts));
+    } catch (e) {
+      return [];
+    }
   }
 
   function normPlateKey(s) {
@@ -600,14 +737,14 @@
     `).join('');
   }
 
-  function collectMalzemeVehicleHistory(malzeme) {
+  function _ingestMalzemeHistoryIntoMap(map, malzeme, opts, ingestOpts) {
     const target = normMalzemeKey(malzeme);
-    if (!target) return [];
-    const map = new Map();
+    if (!target) return;
 
     function upsert(plate, info) {
       const pk = normPlateKey(plate);
       if (!pk) return;
+      if (!matchesFirmaForOrder(info.firma, opts)) return;
       const displayPlate = String(plate || '').trim().toUpperCase();
       const cur = map.get(pk) || {
         plate: displayPlate,
@@ -622,7 +759,9 @@
         sofor2: '',
         iletisim: '',
       };
-      cur.count = Math.max(cur.count, Math.max(1, parseInt(info.count, 10) || 1));
+      const add = Math.max(1, parseInt(info.count, 10) || 1);
+      if (info.add) cur.count += add;
+      else cur.count = Math.max(cur.count, add);
       const ts = Number(info.ts) || 0;
       if (ts >= cur.lastTs) {
         cur.lastTs = ts;
@@ -638,68 +777,66 @@
       map.set(pk, cur);
     }
 
-    _getPickerSourceOrders(true).forEach((o) => {
-      if (normMalzemeKey(o.malzeme) !== target) return;
-      Object.entries(_normalizePrintPlates(o.printPlates)).forEach(([plate, count]) => {
+    const order = opts && opts.order;
+    if (order) {
+      Object.entries(_normalizePrintPlates(order.printPlates)).forEach(([plate, count]) => {
         upsert(plate, {
           count,
-          ts: o.lastPrintAt || 0,
-          firma: o.firma || '',
+          ts: order.lastPrintAt || 0,
+          firma: order.firma || '',
         });
+      });
+    }
+
+    (ingestOpts.printHistoryRows || []).forEach((row) => {
+      if (normMalzemeKey(row.malzeme) !== target) return;
+      upsert(row.plaka, {
+        add: true,
+        count: 1,
+        ts: Number(row.tarih) || 0,
+        firma: row.firma || '',
+        sofor: row.sofor || '',
       });
     });
 
-    try {
-      const reportLists = [];
-      if (window.Report && typeof window.Report.getEvents === 'function') {
-        reportLists.push(window.Report.getEvents() || []);
-      }
-      if (window.state && Array.isArray(window.state.reports)) {
-        reportLists.push(window.state.reports);
-      }
-      reportLists.forEach((events) => {
-        (events || []).filter((ev) => ev && ev.type === 'PRINT' && ev.data).forEach((ev) => {
-          const d = ev.data || {};
-          if (normMalzemeKey(d.malzeme) !== target) return;
-          upsert(d.plaka || d.plate || d.cekiciPlaka, {
-            ts: ev.ts || 0,
-            firma: d.firma || d.firmaKodu || d.firmaSelect || '',
-            tonaj: d.tonaj || '',
-            sevkYeri: d.sevkYeri || '',
-            tarih: d.tarih || '',
-          });
-        });
+    collectReportPrintEventsDeduped().forEach((ev) => {
+      const d = ev.data || {};
+      if (normMalzemeKey(d.malzeme) !== target) return;
+      const evFirma = d.firma || d.firmaKodu || d.firmaSelect || '';
+      if (!matchesFirmaForOrder(evFirma, opts)) return;
+      upsert(d.plaka || d.plate || d.cekiciPlaka, {
+        count: 1,
+        add: true,
+        ts: ev.ts || 0,
+        firma: evFirma,
+        tonaj: d.tonaj || '',
+        sevkYeri: d.sevkYeri || '',
+        tarih: d.tarih || '',
+        sofor: d.sofor || '',
       });
-    } catch (e) {}
+    });
+  }
 
-    try {
-      (window.state?.vehicles || []).forEach((v) => {
-        const snap = v.lastPrintSnapshot;
-        if (!snap) return;
-        if ((Number(v.printCount || 0) || 0) <= 0) return;
-        const m = normMalzemeKey(snap.malzeme || v.defaultMalzeme);
-        if (m !== target) return;
-        const contact = vehicleContactFromRecord(v);
-        upsert(v.cekiciPlaka, {
-          ts: Number(snap.ts || snap.timestamp || 0),
-          firma: snap.firmaKodu || snap.firmaSelect || v.defaultFirma || '',
-          tonaj: snap.tonaj || '',
-          sevkYeri: snap.sevkYeri || v.defaultSevkYeri || '',
-          tarih: snap.tarih || '',
-          dorse: contact.dorse,
-          sofor: contact.sofor,
-          sofor2: contact.sofor2,
-          iletisim: contact.iletisim,
-        });
-      });
-    } catch (e) {}
-
+  function finalizeMalzemeHistoryMap(map) {
     return Array.from(map.values())
       .map((entry) => ({
         ...entry,
         when: entry.lastTs ? formatOrderPrintWhen(entry.lastTs) : (entry.tarih || ''),
       }))
       .sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+  }
+
+  function collectMalzemeVehicleHistorySync(malzeme, opts) {
+    const map = new Map();
+    _ingestMalzemeHistoryIntoMap(map, malzeme, opts, { printHistoryRows: [] });
+    return finalizeMalzemeHistoryMap(map);
+  }
+
+  async function collectMalzemeVehicleHistory(malzeme, opts) {
+    const printHistoryRows = await fetchPrintHistoryRows(malzeme, opts);
+    const map = new Map();
+    _ingestMalzemeHistoryIntoMap(map, malzeme, opts, { printHistoryRows });
+    return finalizeMalzemeHistoryMap(map);
   }
 
   async function showMalzemeVehicleHistoryModal(order) {
@@ -719,7 +856,7 @@
             <div style="font-size:12px;color:#475569;margin-top:4px;line-height:1.4;">
               <b>${escapeHtml(malzeme || '—')}</b>${firmaAdi ? ` · ${escapeHtml(firmaAdi)}` : ''}
             </div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">Daha önce bu malzemeyi saran / yazdırılan araçlar</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">${firmaCode ? `Bu firma (${escapeHtml(firmaCode)}) ve malzeme için yazdırılan araçlar` : 'Daha önce bu malzemeyi saran / yazdırılan araçlar'}</div>
           </div>
           <button type="button" id="piyasaHistoryClose" style="border:0;background:#eee;border-radius:10px;padding:6px 12px;cursor:pointer;flex-shrink:0;">Kapat</button>
         </div>
@@ -742,26 +879,23 @@
         </div>
       </div>
     `;
+    markPiyasaModalLayer(overlay);
     document.body.appendChild(overlay);
     const close = () => overlay.remove();
     overlay.querySelector('#piyasaHistoryClose').onclick = close;
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    document.addEventListener('keydown', function onEsc(e) {
-      if (e.key === 'Escape') {
-        close();
-        document.removeEventListener('keydown', onEsc);
-      }
-    });
+    bindPiyasaOverlayEsc(overlay, close);
 
     const tbody = overlay.querySelector('#piyasaHistoryTbody');
+    const historyOpts = { firma: firmaCode, firmaAdi, order };
     try {
-      const baseHistory = collectMalzemeVehicleHistory(malzeme);
+      const baseHistory = await collectMalzemeVehicleHistory(malzeme, historyOpts);
       const history = await enrichMalzemeHistoryEntries(baseHistory);
       if (tbody) tbody.innerHTML = renderMalzemeHistoryRows(history);
     } catch (e) {
       console.warn('Malzeme araç geçmişi yüklenemedi:', e);
       if (tbody) {
-        tbody.innerHTML = renderMalzemeHistoryRows(collectMalzemeVehicleHistory(malzeme));
+        tbody.innerHTML = renderMalzemeHistoryRows(collectMalzemeVehicleHistorySync(malzeme, historyOpts));
       }
     }
   }
@@ -820,13 +954,113 @@
     return true;
   }
 
+  function orderPrintStatsKey(firma, malzeme) {
+    return `${normFirmaKey(firma)}\x1e${String(malzeme || '').trim()}`;
+  }
+
+  function getOrderByIdx(idx) {
+    if (idx == null) return null;
+    const n = Number(idx);
+    const cur = (state.orders || []).find((x) => x.__idx === n || String(x.__idx) === String(idx));
+    if (cur) return cur;
+    for (const block of state.weekArchive || []) {
+      const hit = (block.orders || []).find((x) => x.__idx === n || String(x.__idx) === String(idx));
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /** Rapor (print_history) silindikten sonra sipariş yazdırma rozetlerini yeniden hesapla */
+  async function reconcileOrderPrintCountsFromReports() {
+    const hasOrders = (state.orders || []).length > 0
+      || (state.weekArchive || []).some((b) => (b.orders || []).length > 0);
+    if (!hasOrders) return false;
+
+    let events = [];
+    try {
+      const r = await fetch('/api/reports?limit=10000&_=' + Date.now(), {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Cache-Control': 'no-store' },
+      });
+      if (!r.ok) return false;
+      events = await r.json();
+    } catch (e) {
+      return false;
+    }
+
+    const statsByKey = new Map();
+    for (const ev of events || []) {
+      if (!ev || ev.type !== 'PRINT') continue;
+      const d = ev.data || {};
+      const firma = normFirmaKey(d.firma || d.firmaKodu || d.firmaSelect || ev.firma || '');
+      const malzeme = String(d.malzeme || ev.malzeme || '').trim();
+      if (!firma && !malzeme) continue;
+      const key = orderPrintStatsKey(firma, malzeme);
+      let rec = statsByKey.get(key);
+      if (!rec) {
+        rec = { count: 0, plates: {}, lastTs: 0, lastPlate: '' };
+        statsByKey.set(key, rec);
+      }
+      rec.count += 1;
+      const ts = Number(ev.ts || d.ts || 0);
+      const plate = String(d.plaka || d.plate || '').trim().toUpperCase();
+      if (plate) rec.plates[plate] = (parseInt(rec.plates[plate], 10) || 0) + 1;
+      if (ts >= rec.lastTs) {
+        rec.lastTs = ts;
+        if (plate) rec.lastPlate = plate;
+      }
+    }
+
+    function applyStats(order) {
+      const rec = statsByKey.get(orderPrintStatsKey(order.firma, order.malzeme));
+      if (!rec || rec.count <= 0) {
+        order.printCount = 0;
+        order.lastPrintAt = null;
+        order.lastPrintPlate = null;
+        return;
+      }
+      order.printCount = rec.count;
+      order.lastPrintAt = rec.lastTs || null;
+      order.lastPrintPlate = rec.lastPlate || null;
+    }
+
+    for (const order of state.orders || []) applyStats(order);
+    for (const block of state.weekArchive || []) {
+      for (const order of block.orders || []) applyStats(order);
+    }
+
+    if (state._lastAppliedOrder) {
+      const updated = (state.orders || []).find((x) => x.__idx === state._lastAppliedOrder.__idx);
+      if (updated) {
+        state._lastAppliedOrder.printCount = updated.printCount;
+        state._lastAppliedOrder.lastPrintAt = updated.lastPrintAt;
+        state._lastAppliedOrder.lastPrintPlate = updated.lastPrintPlate;
+        state._lastAppliedOrder.printPlates = { ...(updated.printPlates || {}) };
+      }
+    }
+
+    try { saveState(); } catch (e) {}
+    try { if (_pickerRenderHook) _pickerRenderHook(); } catch (e) {}
+    return true;
+  }
+
   function getActiveOrderIdx() {
     return state._lastAppliedOrder?.__idx ?? null;
+  }
+
+  /** Liste hücresi için hafif sayaç — geçmiş taraması modalda yapılır */
+  function getOrderTruckBadgeCount(o) {
+    const plateCount = Object.keys(_normalizePrintPlates(o.printPlates)).length;
+    if (plateCount > 0) return plateCount;
+    const pc = getOrderPrintCount(o);
+    return pc > 0 ? pc : 0;
   }
 
   function buildOrderStatusCell(o, forPrint) {
     const isUsed = !!o.usedAt;
     const pc = getOrderPrintCount(o);
+    const truckCount = getOrderTruckBadgeCount(o);
 
     if (forPrint) {
       if (!isUsed && pc <= 0) return '';
@@ -839,28 +1073,24 @@
       return escapeHtml(bits.join(' '));
     }
 
-    const badges = [];
-    if (isUsed) {
-      badges.push(`<span style="color:#4b5563;font-weight:700;" title="Seçildi${o.usedPlate ? ': ' + escapeHtml(o.usedPlate) : ''}">✓</span>`);
-    }
-    if (pc > 0) {
-      const color = pc >= 2 ? '#ea580c' : '#059669';
-      const when = formatOrderPrintWhen(o.lastPrintAt);
-      const title = [
-        `${pc} kez yazdırıldı`,
-        o.lastPrintPlate ? `son plaka: ${o.lastPrintPlate}` : '',
-        when ? `son: ${when}` : '',
-        formatPrintPlatesSummary(o.printPlates, 6) ? `plakalar: ${formatPrintPlatesSummary(o.printPlates, 6)}` : '',
-      ].filter(Boolean).join(' · ');
-      badges.push(`<span style="color:${color};font-weight:700;" title="${escapeHtml(title)}">🖨️${pc}</span>`);
-    }
-    const badgeHtml = badges.length
-      ? `<div style="line-height:1;">${badges.join(' ')}</div>`
-      : '';
     const pickKey = escapeHtml(o._pickKey || String(o.__idx));
+    const when = formatOrderPrintWhen(o.lastPrintAt);
+    const truckTitle = [
+      truckCount > 0 ? `${truckCount} plaka kayıtlı` : '',
+      pc > 0 ? `bu sipariş: ${pc} kez yazdırıldı` : '',
+      o.lastPrintPlate ? `son plaka: ${o.lastPrintPlate}` : '',
+      when ? `son: ${when}` : '',
+      formatPrintPlatesSummary(o.printPlates, 6) ? `plakalar: ${formatPrintPlatesSummary(o.printPlates, 6)}` : '',
+      isUsed ? `seçildi${o.usedPlate ? ': ' + o.usedPlate : ''}` : '',
+      'detay için tıklayın',
+    ].filter(Boolean).join(' · ') || 'Bu firma ve malzeme için geçmiş araç yok';
+    const truckLabel = truckCount > 0 ? `🚛${truckCount}` : '🚛';
+    const usedMark = isUsed
+      ? `<span style="color:#4b5563;font-weight:700;line-height:1;" title="Seçildi${o.usedPlate ? ': ' + escapeHtml(o.usedPlate) : ''}">✓</span>`
+      : '';
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-      ${badgeHtml}
-      <button type="button" data-history-key="${pickKey}" title="Bu malzemeyi daha önce saran araçlar" style="border:0;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 6px;font-size:10px;font-weight:700;cursor:pointer;line-height:1.2;white-space:nowrap;">🚛</button>
+      ${usedMark}
+      <button type="button" data-history-key="${pickKey}" title="${escapeHtml(truckTitle)}" style="border:0;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 6px;font-size:10px;font-weight:700;cursor:pointer;line-height:1.2;white-space:nowrap;">${truckLabel}</button>
     </div>`;
   }
 
@@ -887,6 +1117,47 @@
     try{
       if (typeof window.showToast === 'function') return window.showToast(msg, type || 'info');
     }catch(e){}
+  }
+
+  let _piyasaExcelLoadingEl = null;
+  function showPiyasaExcelLoading(message) {
+    hidePiyasaExcelLoading();
+    const overlay = document.createElement('div');
+    overlay.id = 'piyasaExcelLoadingOverlay';
+    overlay.setAttribute('role', 'status');
+    overlay.setAttribute('aria-live', 'polite');
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:14px;padding:20px 24px;max-width:360px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);text-align:center;">
+        <div style="width:36px;height:36px;border:3px solid #e5e7eb;border-top-color:#111827;border-radius:50%;margin:0 auto 14px;animation:piyasaExcelSpin .8s linear infinite;"></div>
+        <div id="piyasaExcelLoadingMsg" style="font-weight:700;font-size:15px;color:#111;">${escapeHtml(message || 'Excel hazırlanıyor…')}</div>
+        <div style="font-size:12px;color:#666;margin-top:8px;">Bu işlem birkaç saniye sürebilir</div>
+      </div>
+    `;
+    if (!document.getElementById('piyasaExcelLoadingStyle')) {
+      const st = document.createElement('style');
+      st.id = 'piyasaExcelLoadingStyle';
+      st.textContent = '@keyframes piyasaExcelSpin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(st);
+    }
+    document.body.appendChild(overlay);
+    _piyasaExcelLoadingEl = overlay;
+    return {
+      setMessage(msg) {
+        const el = overlay.querySelector('#piyasaExcelLoadingMsg');
+        if (el) el.textContent = String(msg || '');
+      },
+    };
+  }
+
+  function hidePiyasaExcelLoading() {
+    if (_piyasaExcelLoadingEl) {
+      try {
+        _piyasaExcelLoadingEl.remove();
+      } catch (e) {}
+      _piyasaExcelLoadingEl = null;
+    }
   }
 
   function normKey(k){
@@ -927,6 +1198,50 @@
       }
     }catch(e){}
     return null;
+  }
+
+  function isPiyasaAutoDataSheet(name) {
+    const s = String(name || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '_');
+    if (!s) return false;
+    if (/^OTOMATIK/i.test(s)) return true;
+    if (/^AUTO[_\s]?DATA/i.test(s)) return true;
+    return false;
+  }
+
+  function normalizePiyasaSheetName(name) {
+    return String(name || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '');
+  }
+
+  function isExactHaftaSheetName(name, week) {
+    const n = normalizePiyasaSheetName(name);
+    const w = parseInt(week, 10);
+    if (!Number.isFinite(w)) return false;
+    return n === `${w}.HAFTA` || n === `${w}-HAFTA` || n === `${w}HAFTA`;
+  }
+
+  /** OTOMATIK_VERI hariç, en güncel (en büyük) hafta kitabını seçer. */
+  function pickDefaultPiyasaSheetMeta(metas) {
+    const eligible = (metas || []).filter(
+      (m) => m && !isPiyasaAutoDataSheet(m.name) && Number.isFinite(m.week) && m.week > 0
+    );
+    if (!eligible.length) return (metas && metas[0]) || null;
+
+    const maxWeek = Math.max(...eligible.map((m) => m.week));
+    const sameWeek = eligible.filter((m) => m.week === maxWeek);
+
+    const exact = sameWeek.find((m) => isExactHaftaSheetName(m.name, maxWeek));
+    if (exact) return exact;
+
+    sameWeek.sort(
+      (a, b) => (b.orderIndex - a.orderIndex) || String(b.name).localeCompare(String(a.name), 'tr')
+    );
+    return sameWeek[0];
   }
 
   function ensureHiddenFileInput(id){
@@ -1297,9 +1612,12 @@
         <div id="piyImportReportBody">${lines}</div>
         <button type="button" id="piyImportReportOk" style="margin-top:12px;width:100%;padding:10px;border:0;border-radius:8px;background:#111827;color:#fff;font-weight:700;cursor:pointer;">Tamam</button>
       </div>`;
+    markPiyasaModalLayer(overlay);
     document.body.appendChild(overlay);
-    overlay.querySelector('#piyImportReportOk').onclick = () => overlay.remove();
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const closeReport = () => overlay.remove();
+    overlay.querySelector('#piyImportReportOk').onclick = closeReport;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeReport(); });
+    bindPiyasaOverlayEsc(overlay, closeReport);
   }
 
   function showPiyasaSkippedRowsModal() {
@@ -1322,6 +1640,7 @@
     const names = wb.SheetNames || [];
     for (let i = 0; i < names.length; i++){
       const name = names[i];
+      if (isPiyasaAutoDataSheet(name)) continue;
       const week = getWeekFromSheetName(name, wb);
       if (!week) continue;
 
@@ -1541,6 +1860,43 @@
     return archive.sort((a, b) => (b.week - a.week) || String(b.sheet).localeCompare(String(a.sheet)));
   }
 
+  function scheduleWeekArchiveBuild(wb) {
+    const run = () => {
+      try {
+        state.weekArchive = buildWeekArchive(wb);
+        if (state.orders && state.orders.length) saveState();
+      } catch (e) {
+        console.warn('Piyasa week archive build failed', e);
+        state.weekArchive = [];
+      }
+    };
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(run, { timeout: 4000 });
+    } else {
+      setTimeout(run, 100);
+    }
+  }
+
+  function applyChosenPiyasaSheet(wb, sheetName, weekHint, foundDate) {
+    const ws = wb.Sheets[sheetName];
+    if (!ws) throw new Error('Sheet not found: ' + sheetName);
+    const rawRows = parseSheetSmart(ws);
+    const g1 = readG1FromSheet(ws);
+    const week =
+      weekHint ||
+      getWeekFromSheetName(sheetName, wb) ||
+      (g1.date ? getWeekFromDate(g1.date) : null) ||
+      (foundDate ? getWeekFromDate(foundDate) : null);
+    applyPiyasaParseResult(rawRows, {
+      week,
+      sheet: sheetName,
+      loadedAt: g1.date || foundDate || new Date(),
+      sheetDate: g1.date ? g1.date.toISOString() : foundDate ? foundDate.toISOString() : null,
+      sheetDateRaw: g1.raw,
+    });
+    if (state.orders && state.orders.length) saveState();
+  }
+
   function openSheetPickerModal(metas, wb, onConfirm){
     const weeks = Array.from(new Set(metas.map(m=>m.week))).sort((a,b)=>a-b);
     const defaultWeek = weeks[0] ?? null;
@@ -1714,6 +2070,7 @@
           </div>
         </div>
       `;
+      markPiyasaModalLayer(overlay);
       document.body.appendChild(overlay);
 
       const input = overlay.querySelector('#piyasaBosTonajInput');
@@ -1722,12 +2079,17 @@
 
       const finish = (val) => {
         overlay.remove();
-        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('keydown', onKey, true);
         resolve(val);
       };
 
       const onKey = (e) => {
-        if (e.key === 'Escape') finish(null);
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          finish(null);
+          return;
+        }
         if (e.key === 'Enter') {
           e.preventDefault();
           submit();
@@ -1745,7 +2107,7 @@
 
       closeBtn.onclick = () => finish(null);
       okBtn.onclick = submit;
-      document.addEventListener('keydown', onKey);
+      document.addEventListener('keydown', onKey, true);
       setTimeout(() => input?.focus(), 0);
     });
   }
@@ -2069,11 +2431,15 @@
   }
 
   async function openOrderPicker(){
-    await requestPiyasaSyncIfRemoteNewer({}).catch(() => {});
+    if (window.__piyasaPickerOpen) return;
+    if (!state.orders || !state.orders.length) {
+      try { loadState(); } catch (e) {}
+    }
     if (!state.orders || state.orders.length === 0){
       alert('❌ PİYASA Excel yüklü değil ya da sipariş yok.');
       return;
     }
+    window.__piyasaPickerOpen = true;
 
     const skippedCount = (state.lastSkippedRows || []).length;
     const g1DateLabel = getPiyasaG1DateLabel();
@@ -2148,15 +2514,20 @@
     document.body.appendChild(overlay);
 
     const close = ()=> {
+      _pickerRenderHook = null;
+      window.__piyasaPickerOpen = false;
       overlay.remove();
       document.removeEventListener('keydown', handleEsc);
     };
     overlay.querySelector('#piyasaModalClose').onclick = close;
     overlay.onclick = null;
     
-    // ESC tuşu ile kapat
-    const handleEsc = (e)=> {
-      if (e.key === 'Escape') close();
+    // ESC: üstte başka piyasa katmanı (geçmiş, boş tonaj vb.) varsa sadece o kapanır
+    const handleEsc = (e) => {
+      if (e.key !== 'Escape') return;
+      if (e.defaultPrevented) return;
+      if (hasOpenPiyasaModalLayer()) return;
+      close();
     };
     document.addEventListener('keydown', handleEsc);
 
@@ -2190,33 +2561,63 @@
         .join('');
     }
 
+    const pickerCacheCurrent = _buildPickerSearchCache(_getPickerSourceOrders(false));
+    let pickerCacheAll = null;
+    let pickerCacheAllReady = false;
+    let pickerCacheAllBuilding = false;
+    let visiblePickerRows = [];
+
+    const pickerGpHp = (() => {
+      let gp = 0;
+      let hp = 0;
+      for (const x of state.orders || []) {
+        const t = getOrderSevkiyatTipi(x);
+        if (t === 'Yİ-GP') gp++;
+        else if (t === 'Yİ-HP') hp++;
+      }
+      return { gp, hp };
+    })();
+
+    function ensurePickerAllWeeksCache(done) {
+      if (pickerCacheAllReady) {
+        if (typeof done === 'function') done();
+        return;
+      }
+      if (pickerCacheAllBuilding) return;
+      pickerCacheAllBuilding = true;
+      setTimeout(() => {
+        try {
+          pickerCacheAll = _buildPickerSearchCache(_getPickerSourceOrders(true));
+          pickerCacheAllReady = true;
+        } finally {
+          pickerCacheAllBuilding = false;
+          if (typeof done === 'function') done();
+        }
+      }, 0);
+    }
+
+    ensurePickerAllWeeksCache();
+
     function getPickerRows(filter, tipMode) {
       const f = String(filter || '').trim().toLowerCase();
       const mode = tipMode || 'all';
       const includeAllWeeks = !!f;
-      const source = _getPickerSourceOrders(includeAllWeeks);
-      const rows = source.filter((o) => {
-        if (mode !== 'all' && getOrderSevkiyatTipi(o) !== mode) return false;
-        const firmaAdi = (o.firmaAdi && String(o.firmaAdi).trim())
-          ? String(o.firmaAdi).trim()
-          : (getFirmaFullName(String(o.firma || '')) || '');
-        const hay = `${o.firma} ${firmaAdi} ${o.malzeme} ${o.sevkYeri || ''} ${o.il} ${o.yuklemeTuru} ${o.aciklama} ${o.miktar} ${o.odemeTuru || ''} ${o.org || ''} ${getOrderSevkiyatTipi(o)} ${o._weekLabel || ''}`.toLowerCase();
-        return !f || hay.includes(f);
-      });
-
+      const cache = includeAllWeeks ? (pickerCacheAll || pickerCacheCurrent) : pickerCacheCurrent;
+      const rows = [];
       const firmaCount = {};
-      rows.forEach((o) => {
-        const firmaCode = String(o.firma || '').trim();
-        const firmaAdi = (o.firmaAdi && String(o.firmaAdi).trim())
-          ? String(o.firmaAdi).trim()
-          : (getFirmaFullName(firmaCode) || '');
-        if (firmaAdi) firmaCount[firmaAdi] = (firmaCount[firmaAdi] || 0) + 1;
-      });
+
+      for (let i = 0; i < cache.length; i++) {
+        const e = cache[i];
+        if (mode !== 'all' && e.sevkiyat !== mode) continue;
+        if (f && !e.hay.includes(f)) continue;
+        rows.push(e.o);
+        if (e.firmaAdi) firmaCount[e.firmaAdi] = (firmaCount[e.firmaAdi] || 0) + 1;
+      }
 
       const duplicateFirmas = new Set();
-      Object.keys(firmaCount).forEach((firma) => {
+      for (const firma of Object.keys(firmaCount)) {
         if (firmaCount[firma] > 1) duplicateFirmas.add(firma);
-      });
+      }
 
       return { rows, duplicateFirmas, filterText: f, tipMode: mode, includeAllWeeks };
     }
@@ -2225,7 +2626,7 @@
       const forPrint = !!(options && options.forPrint);
       const showWeek = !!(options && options.showWeek);
       const firmaCode = String(o.firma || '').trim();
-      const firmaAdi = (o.firmaAdi && String(o.firmaAdi).trim()) ? String(o.firmaAdi).trim() : (getFirmaFullName(firmaCode) || '');
+      const firmaAdi = _resolvePickerFirmaAdi(o);
       const isDuplicate = duplicateFirmas.has(firmaAdi);
       const isUsed = !!o.usedAt;
       const printCount = getOrderPrintCount(o);
@@ -2434,44 +2835,67 @@
 
     function render(filter){
       const tipMode = sevkiyatFilterEl ? sevkiyatFilterEl.value : 'all';
+      const filterText = String(filter || '').trim();
+      if (filterText && !pickerCacheAllReady) {
+        const scopeLabel = ' • tüm haftalar';
+        countEl.textContent = `Geçmiş haftalar hazırlanıyor…${scopeLabel}`;
+        ensurePickerAllWeeksCache(() => {
+          if (overlay.isConnected) render(searchEl.value);
+        });
+        return;
+      }
+
       const { rows, duplicateFirmas, includeAllWeeks } = getPickerRows(filter, tipMode);
+      visiblePickerRows = rows;
 
       const warningEl = overlay.querySelector('#duplicateWarning');
       if (warningEl) {
         warningEl.style.display = duplicateFirmas.size > 0 ? 'block' : 'none';
       }
 
-      const gpN = state.orders.filter((x) => getOrderSevkiyatTipi(x) === 'Yİ-GP').length;
-      const hpN = state.orders.filter((x) => getOrderSevkiyatTipi(x) === 'Yİ-HP').length;
       const scopeLabel = includeAllWeeks ? ' • tüm haftalar' : '';
-      countEl.textContent = `${rows.length} sipariş${scopeLabel} • GP:${gpN} HP:${hpN}`;
-      tbody.innerHTML = rows.map(o => rowHtml(o, duplicateFirmas, { showWeek: includeAllWeeks })).join('');
-      tbody.querySelectorAll('button[data-pick-key]').forEach(btn=>{
-        btn.onclick = ()=>{
-          const pickKey = btn.getAttribute('data-pick-key');
-          const selected = rows.find(x => (x._pickKey || String(x.__idx)) === pickKey);
-          if (!selected) return;
-          close();
-          applyOrderFromPicker(selected);
-        };
-      });
-      tbody.querySelectorAll('button[data-history-key]').forEach(btn=>{
-        btn.onclick = (e)=>{
+      const truncated = rows.length > PICKER_MAX_VISIBLE_ROWS;
+      const displayRows = truncated ? rows.slice(0, PICKER_MAX_VISIBLE_ROWS) : rows;
+      const truncNote = truncated ? ` (ilk ${PICKER_MAX_VISIBLE_ROWS}, aramayı daraltın)` : '';
+      countEl.textContent = `${rows.length} sipariş${scopeLabel}${truncNote} • GP:${pickerGpHp.gp} HP:${pickerGpHp.hp}`;
+      tbody.innerHTML = displayRows.map((o) => rowHtml(o, duplicateFirmas, { showWeek: includeAllWeeks })).join('');
+    }
+
+    if (!tbody._piyasaPickerClickBound) {
+      tbody._piyasaPickerClickBound = true;
+      tbody.addEventListener('click', (e) => {
+        const historyBtn = e.target.closest('button[data-history-key]');
+        if (historyBtn) {
           e.stopPropagation();
-          const pickKey = btn.getAttribute('data-history-key');
-          const selected = rows.find(x => (x._pickKey || String(x.__idx)) === pickKey);
+          const pickKey = historyBtn.getAttribute('data-history-key');
+          const selected = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === pickKey);
           if (selected) showMalzemeVehicleHistoryModal(selected);
-        };
+          return;
+        }
+        const pickBtn = e.target.closest('button[data-pick-key]');
+        if (!pickBtn) return;
+        const pickKey = pickBtn.getAttribute('data-pick-key');
+        const selected = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === pickKey);
+        if (!selected) return;
+        close();
+        applyOrderFromPicker(selected);
       });
     }
 
     const printBtn = overlay.querySelector('#piyasaPrintBtn');
     if (printBtn) printBtn.onclick = () => printPiyasaPickerTable();
 
-    searchEl.oninput = ()=> render(searchEl.value);
+    const renderDebounced = _debounce((v) => render(v), PICKER_SEARCH_DEBOUNCE_MS);
+    searchEl.oninput = () => renderDebounced(searchEl.value);
     if (sevkiyatFilterEl) sevkiyatFilterEl.onchange = () => render(searchEl.value);
+    _pickerRenderHook = () => render(searchEl.value);
     setTimeout(()=> searchEl.focus(), 0);
     render('');
+
+    requestPiyasaSyncIfRemoteNewer({}).catch(() => {});
+    reconcileOrderPrintCountsFromReports()
+      .then(() => { if (_pickerRenderHook) _pickerRenderHook(); })
+      .catch(() => {});
   }
 
   function escapeHtml(s){
@@ -2526,14 +2950,21 @@
       const okBtn = overlay.querySelector('#piyasaPickerOk');
       const cancelBtn = overlay.querySelector('#piyasaPickerCancel');
 
-      // populate
-      metas.forEach(m=>{
+      // populate (en güncel hafta üstte)
+      const sortedMetas = [...metas].sort(
+        (a, b) => (b.week - a.week) || (b.orderIndex - a.orderIndex)
+      );
+      sortedMetas.forEach(m=>{
         const opt = document.createElement('option');
         opt.value = m.name;
         opt.textContent = `${m.name} — ${m.week}. hafta`;
         sel.appendChild(opt);
       });
-      if (currentSheetName) sel.value = currentSheetName;
+      const defaultMeta = pickDefaultPiyasaSheetMeta(metas);
+      const initialSheet = currentSheetName && metas.some((m) => m.name === currentSheetName)
+        ? currentSheetName
+        : (defaultMeta ? defaultMeta.name : sortedMetas[0]?.name);
+      if (initialSheet) sel.value = initialSheet;
 
       function previewFor(name){
         try{
@@ -2635,172 +3066,70 @@
       alert('❌ Dosya seçilemedi.');
       return;
     }
+
+    let loading = showPiyasaExcelLoading('Excel kütüphanesi yükleniyor…');
+    let wb = null;
     try {
-      if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
-    } catch (e) {
-      alert('❌ XLSX kütüphanesi yüklenemedi.');
-      return;
-    }
-    if (!window.XLSX){
-      alert('❌ XLSX kütüphanesi yüklenmemiş.');
-      return;
-    }
-
-    let fp = '';
-    try {
-      if (eu().fingerprintFile) fp = await eu().fingerprintFile(file);
-    } catch (e) {}
-    loadState();
-    if (fp && state.fileFingerprint === fp && state.orders && state.orders.length) {
-      const again = confirm('Bu dosya daha önce yüklendi.\n\nYine de yüklemek istiyor musunuz?');
-      if (!again) return;
-    }
-    state.fileFingerprint = fp;
-
-    const ab = await file.arrayBuffer();
-    const wb = XLSX.read(ab, {
-      type: 'array',
-      cellStyles: false,
-      cellNF: false,
-      cellText: false,
-      dense: true
-    });
-
-    try {
-      state.weekArchive = buildWeekArchive(wb);
-    } catch (e) {
-      console.warn('Piyasa week archive build failed', e);
-      state.weekArchive = [];
-    }
-
-    // Otomatik seçim: iki geçişli strateji
-    // 1) Önce gerçek hücre tarihlerini topla (G1 vb.) ve bu tarihlerde en yaygın yılı bul
-    // 2) Sonra sheet adından hafta numarası ile tarih türetirken bu yıl(ları) kullan — böylece
-    //    tahminler rastgele bestDate'in yılına kaymaz.
-    let bestSheet = null;
-    let bestDate = null;
-
-    const foundMap = {};
-    const yearCounts = {};
-    for (const name of (wb.SheetNames||[])){
-      try{
-        const ws = wb.Sheets[name];
-        const found = findDateInSheet(ws);
-        foundMap[name] = found || null;
-        if (found && found.date){
-          const y = found.date.getFullYear();
-          yearCounts[y] = (yearCounts[y] || 0) + 1;
-        }
-      }catch(e){ foundMap[name] = null; }
-    }
-
-    // Determine base year for inference: prefer the most common year among real dates, otherwise current year
-    let baseYear = (new Date()).getFullYear();
-    const years = Object.keys(yearCounts);
-    if (years.length){
-      baseYear = parseInt(years.reduce((a,b)=> yearCounts[a] > yearCounts[b] ? a : b), 10);
-    }
-
-    for (const name of (wb.SheetNames||[])){
-      try{
-        const ws = wb.Sheets[name];
-        const found = foundMap[name];
-        let d = found ? found.date : null;
-        let raw = found ? found.raw : null;
-        let ref = found ? found.ref : 'G1';
-
-        if (!d){
-          const wk = getWeekFromSheetName(name, wb);
-          if (wk){
-            const inferred = getDateFromWeekYear(wk, baseYear);
-            if (inferred){
-              d = inferred;
-              raw = null;
-              ref = `WEEK(${wk})`;
-            }
-          }
-        }
-
-        try{  }catch(_){ }
-
-        if (d && (!bestDate || d > bestDate)){
-          bestDate = d;
-          bestSheet = name;
-        }
-      }catch(e){ }
-    }
-
-    if (!bestSheet){
-      // fallback: önceki haftaya dayalı seçim (uyumluluk)
-      const metas = getSheetMetaForPicker(wb);
-      if (!metas.length){
-        alert('❌ Bu dosyada HAFTA sheet’i bulamadım (ör: 21.HAFTA) ve G1 tarihleri yok.');
+      try {
+        if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
+      } catch (e) {
+        alert('❌ XLSX kütüphanesi yüklenemedi.\n\nİnternet bağlantınızı kontrol edip sayfayı yenileyin (F5).');
         return;
       }
-      // en büyük satır sayısına sahip sheet'i al
-      const chosen = metas.sort((a,b)=> (b.count - a.count) || (b.orderIndex - a.orderIndex))[0];
-      try{
-        const ws = wb.Sheets[chosen.name];
-        const rawRows = parseSheetSmart(ws);
-        const g1 = readG1FromSheet(ws);
-        applyPiyasaParseResult(rawRows, {
-          week: chosen.week,
-          sheet: chosen.name,
-          loadedAt: g1.date || new Date(),
-          sheetDate: g1.date ? g1.date.toISOString() : null,
-          sheetDateRaw: g1.raw,
-        });
+      if (!window.XLSX){
+        alert('❌ XLSX kütüphanesi yüklenmemiş.');
+        return;
+      }
 
-        if (state.orders && state.orders.length) saveState();
+      let fp = '';
+      try {
+        if (eu().fingerprintFile) fp = await eu().fingerprintFile(file);
+      } catch (e) {}
+      loadState();
+      if (fp && state.fileFingerprint === fp && state.orders && state.orders.length) {
+        hidePiyasaExcelLoading();
+        const again = confirm('Bu dosya daha önce yüklendi.\n\nYine de yüklemek istiyor musunuz?');
+        if (!again) return;
+        loading = showPiyasaExcelLoading('Dosya okunuyor…');
+      }
+      state.fileFingerprint = fp;
 
-        toast(`✅ Piyasa yüklendi: ${chosen.name} • ${chosen.week}. hafta • ${state.orders.length} sipariş`, 'success');
-        // report event removed: EXCEL_PIYASA_LOADED
+      loading.setMessage('Dosya okunuyor…');
+      const ab = await file.arrayBuffer();
+      loading.setMessage('Excel sayfaları taranıyor…');
+      wb = XLSX.read(ab, {
+        type: 'array',
+        cellStyles: false,
+        cellNF: false,
+        cellText: false,
+        dense: true
+      });
 
-        if (!state.orders.length){
+      const metas = getSheetMetaForPicker(wb);
+      if (!metas.length){
+        alert('❌ Bu dosyada HAFTA sheet’i bulamadım (ör: 21.HAFTA).');
+        return;
+      }
+
+      hidePiyasaExcelLoading();
+
+      const defaultMeta = pickDefaultPiyasaSheetMeta(metas);
+      const defaultSheet = defaultMeta ? defaultMeta.name : metas[0].name;
+
+      showWeekPickerModal(metas, wb, defaultSheet, () => {
+        scheduleWeekArchiveBuild(wb);
+        refreshPiyasaHeaderUi();
+        if (!state.orders.length) {
           alert('⚠️ Seçilen kitapta sipariş bulunamadı. (Filtre kuralları nedeniyle bazı satırlar atılmış olabilir.)');
           return;
         }
-        // open picker modal that allows switching sheets (pass metas + wb)
-        const metas = getSheetMetaForPicker(wb);
-        showWeekPickerModal(metas, wb, state.sheet, openOrderPicker);
-      }catch(e){
-        console.error('Piyasa load failed', e);
-        alert('❌ Seçilen kitabı okurken hata oluştu.');
-      }
-      return;
-    }
-
-
-
-    // Eğer G1 ile bir sheet seçildiyse, o sheet'i kullan
-    try{
-      const ws = wb.Sheets[bestSheet];
-      const rawRows = parseSheetSmart(ws);
-      const g1 = readG1FromSheet(ws);
-      const weekFromName = getWeekFromSheetName(bestSheet, wb);
-      const week = weekFromName || (g1.date ? getWeekFromDate(g1.date) : null);
-      applyPiyasaParseResult(rawRows, {
-        week,
-        sheet: bestSheet,
-        loadedAt: g1.date || bestDate || new Date(),
-        sheetDate: g1.date ? g1.date.toISOString() : (bestDate ? bestDate.toISOString() : null),
-        sheetDateRaw: g1.raw,
+        openOrderPicker();
       });
-
-      if (state.orders && state.orders.length) saveState();
-
-      toast(`✅ Piyasa yüklendi: ${bestSheet} • ${week ? week + '. hafta' : 'hafta bilinmiyor'} • ${state.orders.length} sipariş`, 'success');
-      // report event removed: EXCEL_PIYASA_LOADED
-
-      if (!state.orders.length){
-        alert('⚠️ Seçilen kitapta sipariş bulunamadı. (Filtre kuralları nedeniyle bazı satırlar atılmış olabilir.)');
-        return;
-      }
-      const metas = getSheetMetaForPicker(wb);
-      showWeekPickerModal(metas, wb, state.sheet || bestSheet, openOrderPicker);
-    }catch(e){
-      console.error('Piyasa load failed', e);
-      alert('❌ Seçilen kitabı okurken hata oluştu.');
+    } catch (e) {
+      console.error('Piyasa excel load failed', e);
+      alert('❌ Excel dosyası okunamadı.');
+    } finally {
+      hidePiyasaExcelLoading();
     }
   }
 
@@ -2996,6 +3325,9 @@
     }
     if (!onLoginScreen) {
       setupPiyasaSyncListeners();
+      if (typeof window.ensureXlsxLoaded === 'function') {
+        window.ensureXlsxLoaded().catch(() => {});
+      }
     }
 
     console.log('🔵 Piyasa init başladı - butonları arayacak...');
@@ -3039,15 +3371,32 @@
   window.piyasa.showSuggestionBar = showPiyasaSuggestionBar;
   window.piyasa.markOrderUsed = markOrderUsed;
   window.piyasa.recordOrderPrint = recordOrderPrint;
+  window.piyasa.reconcileOrderPrintCountsFromReports = reconcileOrderPrintCountsFromReports;
   window.piyasa.getActiveOrderIdx = getActiveOrderIdx;
+  window.piyasa.getOrderByIdx = getOrderByIdx;
   window.piyasa.showSkippedRows = showPiyasaSkippedRowsModal;
   window.piyasa.syncFromServer = syncPiyasaFromServer;
 
   // Chip'ten çağrılmak için modal açma fonksiyonu
   window.piyasaShowOrdersModal = function() {
+    if (!state.orders || !state.orders.length) {
+      try { loadState(); } catch (e) {}
+    }
     if (state.orders && state.orders.length > 0) {
       openOrderPicker();
+      return;
     }
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const payload = JSON.parse(raw);
+        if (applyPayloadToState(payload, { force: true }) && state.orders.length > 0) {
+          openOrderPicker();
+          return;
+        }
+      }
+    } catch (e) {}
+    alert('❌ PİYASA Excel yüklü değil ya da sipariş yok.');
   };
 
 window.initPiyasaModule = init;

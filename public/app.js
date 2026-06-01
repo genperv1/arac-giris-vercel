@@ -919,11 +919,92 @@ function resolveTakipVehicleIdForPrint(plate, hintId) {
   return 'manual';
 }
 
+/** Takip formu: tek satırlık şoför adını ad/soyad alanlarına ayırır */
+function splitSoforFullName(full) {
+  const s = String(full || '').trim().replace(/\s+/g, ' ');
+  if (!s) return { soforAdi: '', soforSoyadi: '' };
+  const parts = s.split(' ');
+  if (parts.length === 1) return { soforAdi: parts[0], soforSoyadi: '' };
+  return { soforAdi: parts.slice(0, -1).join(' '), soforSoyadi: parts[parts.length - 1] };
+}
+
+/** Takip formundaki şoför alanlarını oku (yazdırma / rapor için) */
+function getTakipFormDriverPayload() {
+  const formGet = (id) => {
+    try { return (document.getElementById(id)?.value || '').trim(); } catch (e) { return ''; }
+  };
+  const full = formGet('soforBilgi');
+  const split = splitSoforFullName(full);
+  let phone = formGet('iletisimBilgi');
+  try { phone = formatTRPhone(phone); } catch (e) { /* ignore */ }
+  return {
+    sofor: full,
+    soforAdi: split.soforAdi,
+    soforSoyadi: split.soforSoyadi,
+    tcKimlik: formGet('tcBilgi'),
+    iletisim: phone,
+    dorsePlaka: formGet('dorsePlakaBilgi'),
+  };
+}
+
+function driverFieldsFromSnapshot(snap) {
+  const s = snap && typeof snap === 'object' ? snap : {};
+  const full = String(s.sofor || '').trim()
+    || [s.soforAdi, s.soforSoyadi].filter(Boolean).join(' ').trim();
+  const split = (s.soforAdi || s.soforSoyadi)
+    ? { soforAdi: String(s.soforAdi || '').trim(), soforSoyadi: String(s.soforSoyadi || '').trim() }
+    : splitSoforFullName(full);
+  return {
+    sofor: full,
+    soforAdi: split.soforAdi,
+    soforSoyadi: split.soforSoyadi,
+    tcKimlik: String(s.tcKimlik || '').trim(),
+    iletisim: String(s.iletisim || '').trim(),
+    dorsePlaka: String(s.dorsePlaka || '').trim(),
+  };
+}
+
+function applyPiyasaOrderToPrintEvent(printEv, pending) {
+  if (!printEv || !pending || pending.piyasaOrderIdx == null) return printEv;
+  try {
+    const o = window.piyasa && typeof window.piyasa.getOrderByIdx === 'function'
+      ? window.piyasa.getOrderByIdx(pending.piyasaOrderIdx)
+      : null;
+    if (!o) return printEv;
+    const f = String(o.firma || '').trim();
+    const m = String(o.malzeme || '').trim();
+    if (f) {
+      printEv.firma = f;
+      printEv.firmaKodu = f;
+    }
+    if (m) printEv.malzeme = m;
+  } catch (e) { /* ignore */ }
+  return printEv;
+}
+
+function piyasaSevkiyatIdForPrint(pending) {
+  if (pending && pending.piyasaOrderIdx != null) {
+    return 'piyasa:' + String(pending.piyasaOrderIdx);
+  }
+  try {
+    return (pending && pending.snapshot && pending.snapshot.sevkiyatId) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
   const snap = (pending && pending.snapshot) || {};
   const formGet = (id) => {
     try { return (document.getElementById(id)?.value || '').trim(); } catch (e) { return ''; }
   };
+  const driver = driverFieldsFromSnapshot(snap);
+  if (!driver.sofor) {
+    try {
+      const live = getTakipFormDriverPayload();
+      if (live.sofor) Object.assign(driver, live);
+    } catch (e) { /* ignore */ }
+  }
 
   const plaka = String(pending?.plaka || vehicle?.cekiciPlaka || formGet('cekiciPlakaBilgi') || '').trim();
   const firma = String(
@@ -950,6 +1031,12 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     kantar: formGet('imzaKantarAd'),
     ambalajBilgisi: String(snap.ambalajBilgisi || formGet('ambalajBilgisi') || '').trim(),
     yuklemeNotu: String(snap.yuklemeNotu || formGet('yuklemeNotu') || '').trim(),
+    sofor: driver.sofor,
+    soforAdi: driver.soforAdi,
+    soforSoyadi: driver.soforSoyadi,
+    tcKimlik: driver.tcKimlik,
+    iletisim: driver.iletisim,
+    dorsePlaka: driver.dorsePlaka || String(snap.dorsePlaka || formGet('dorsePlakaBilgi') || '').trim(),
     ts: pending?.nowTs || Date.now(),
   };
 }
@@ -1613,13 +1700,12 @@ function findSevkYeriNear(grid, headerRowIdx, headerText) {
 
 // ✅ Dinamik header satırını bul (hard-coded indeks yerine)
 function findHeaderRowIndex(grid) {
-  // SIRANO ve PLAKA başlıklarını içeren satırı bul
-  for (let r = 0; r < Math.min(grid.length, 50); r++) {
+  // SIRANO+PLAKA veya YDxxx + PLAKA + BBT (ihracat takip listesi) satırını bul
+  for (let r = 0; r < Math.min(grid.length, 80); r++) {
     const row = grid[r] || [];
     const rowText = _rowToText(row).toUpperCase();
-    if (rowText.includes('SIRANO') && rowText.includes('PLAKA')) {
-      return r;
-    }
+    if (rowText.includes('SIRANO') && rowText.includes('PLAKA')) return r;
+    if (rowText.includes('PLAKA') && rowText.includes('BBT') && /\bYD\d{1,4}\b/.test(rowText)) return r;
   }
   return -1;
 }
@@ -1641,7 +1727,11 @@ function findColumnIndices(headerRow) {
     { key: 'cuval', names: ['ÇUVAL','CUVAL'] },
     { key: 'palet', names: ['PALET'] },
     { key: 'bosBbt', names: ['BOŞ BBT','BOS BBT'] },
-    { key: 'bosCuval', names: ['BOŞ ÇUVAL','BOS CUVAL'] }
+    { key: 'bosCuval', names: ['BOŞ ÇUVAL','BOS CUVAL'] },
+    { key: 'netTonaj', names: ['NET TONAJ'] },
+    { key: 'ogrTonaj', names: ['O.GR. TONAJ', 'O.GR TONAJ', 'BRÜT TONAJ'] },
+    { key: 'gidenTonaj', names: ['GİDEN TONAJ', 'GIDEN TONAJ'] },
+    { key: 'fark', names: ['FARK'] }
   ];
   
   for (let c = 0; c < headerRow.length; c++) {
@@ -1660,8 +1750,366 @@ function findColumnIndices(headerRow) {
   return indices;
 }
 
-function _rowInSelectedBlocks(rowIdx, onlyBlocks) {
+/** İhracat bloğu: sol taraftaki ilk PLAKA sütunundan sabit kolon düzeni */
+function resolveIhracatBlockCols(headerRow) {
+  const row = headerRow || [];
+  let plakaCol = -1;
+  for (let c = 0; c < row.length; c++) {
+    if (String(row[c] || '').toUpperCase().trim() === 'PLAKA') {
+      plakaCol = c;
+      break;
+    }
+  }
+  if (plakaCol >= 0) {
+    return {
+      plaka: plakaCol,
+      sirano: plakaCol > 0 ? plakaCol - 1 : 0,
+      bbt: plakaCol + 1,
+      cuval: plakaCol + 2,
+      palet: plakaCol + 3,
+      bosBbt: plakaCol + 4,
+      bosCuval: plakaCol + 5,
+      netTonaj: plakaCol + 6,
+      ogrTonaj: plakaCol + 7,
+      gidenTonaj: plakaCol + 8,
+      fark: plakaCol + 9,
+    };
+  }
+  const merged = findColumnIndices(row);
+  for (let c = 0; c < row.length; c++) {
+    const cell = String(row[c] || '').toUpperCase().trim();
+    if (merged.netTonaj === undefined && cell.includes('NET TONAJ')) merged.netTonaj = c;
+    if (merged.ogrTonaj === undefined && cell.includes('O.GR') && cell.includes('TONAJ')) merged.ogrTonaj = c;
+    if (merged.gidenTonaj === undefined && (cell.includes('GİDEN') || cell.includes('GIDEN'))) merged.gidenTonaj = c;
+    if (merged.fark === undefined && cell === 'FARK') merged.fark = c;
+  }
+  return merged;
+}
+
+function isIhracatBlockHeaderRow(row) {
+  const rowText = _rowToText(row).toUpperCase();
+  if (!rowText.includes('PLAKA') || !rowText.includes('BBT')) return false;
+  const c0 = String(row[0] || '').toUpperCase().trim();
+  if (/^YD\d{1,4}$/.test(c0)) return true;
+  return rowText.includes('SIRANO') && rowText.includes('PLAKA');
+}
+
+/** Excel blok üst satırları: uzun YD başlığı hücresi (birleştirilmiş satır değil) */
+function _pickIhracatMainHeaderCell(row) {
+  let best = '';
+  for (const v of row || []) {
+    const s = String(v ?? '').trim();
+    if (!s || !/\bYD\d{1,4}/i.test(s) || !s.includes('/')) continue;
+    if (!/BOOKING\s*NO/i.test(s) && !/NET\s*\d+\s*KG/i.test(s)) continue;
+    if (s.length > best.length) best = s;
+  }
+  return best;
+}
+
+function _pickIhracatExportRefCell(row) {
+  for (const v of row || []) {
+    const s = String(v ?? '').trim();
+    if (/EXPORT\s*REF/i.test(s)) return s;
+  }
+  return '';
+}
+
+function _pickIhracatPortFromRow(row) {
+  for (const v of row || []) {
+    const s = String(v ?? '').trim();
+    if (/^BORUSAN\/GEML[Iİ]K$/i.test(s)) return s.toUpperCase();
+    if (/^DP\s+WORLD$/i.test(s)) return 'DP WORLD';
+  }
+  return '';
+}
+
+function _pickIhracatFooterCell(row) {
+  for (const v of row || []) {
+    const s = String(v ?? '').trim();
+    if (!s || /MAX\.|ARTI TOLERANS|^BOOKING$/i.test(s)) continue;
+    if (/^\d+\s*BBT\s+\d+\s*PALET/i.test(s)) return s.match(/^\d+\s*BBT\s+\d+\s*PALET/i)[0].toUpperCase();
+    if (/YENİ\s+MÜŞTERİ|MÜŞTERİ\.|rica ederim|standart değer/i.test(s)) return s;
+    if (/SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(s)) return s;
+    if (s.length > 35 && !/EXPORT\s*REF|BOOKING|GEM[İI]\s*DETAYI|YD\d{1,4}/i.test(s)) return s;
+  }
+  return '';
+}
+
+function _stripPortFromHeaderLine(s) {
+  return String(s || '')
+    .replace(/\s*\/\s*BORUSAN\/GEML[Iİ]K\s*/gi, ' / ')
+    .replace(/\s*\/\s*DP\s+WORLD\s*/gi, ' / ')
+    .replace(/\s*\/\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _splitMainHeaderBlackLines(mainHeader) {
+  let s = String(mainHeader || '').replace(/\s+/g, ' ').trim();
+  if (!s) return { line1: '', line2: '' };
+  s = s.replace(/\s*\/\s*(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\s*$/i, '').trim();
+
+  const istifli = s.match(/^(.*?)\s*(PALETE İSTİFLİ\s*\/.*)$/i);
+  if (istifli) {
+    return { line1: istifli[1].replace(/\s*\/\s*$/, '').trim(), line2: istifli[2].trim() };
+  }
+
+  const lineerRe = /\b(L[Iİ]NEERL[Iİ]|LINEERLI)\s*\([^)]+\)/i;
+  const lm = s.match(lineerRe);
+  if (lm && lm.index != null) {
+    return {
+      line1: s.slice(0, lm.index).trim().replace(/\s*\/\s*$/, ''),
+      line2: s.slice(lm.index).trim(),
+    };
+  }
+
+  const gemi = s.match(/^(.*?)\s*(GEM[İI]\s*DETAYI\s*:.*)$/i);
+  if (gemi) {
+    return { line1: gemi[1].replace(/\s*\/\s*$/, '').trim(), line2: gemi[2].trim() };
+  }
+
+  return _splitHeaderBlackLines(s);
+}
+
+function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
+  const out = {
+    mainHeader: '',
+    blackLine1: '',
+    blackLine2: '',
+    portLine: '',
+    borusanLine: '',
+    exportLine: '',
+    footerLine: '',
+    bbtPaletLine: '',
+    noteLine: '',
+    subLines: [],
+  };
+
+  const above = [];
+  for (let rr = tableHeaderRowIdx - 1; rr >= Math.max(0, tableHeaderRowIdx - 8); rr--) {
+    const row = grid[rr] || [];
+    const text = _rowToText(row);
+    if (!text) continue;
+    above.unshift({ rr, row, text });
+  }
+
+  let mainItem = null;
+  for (const item of above) {
+    const main = _pickIhracatMainHeaderCell(item.row);
+    if (main) {
+      mainItem = { ...item, main };
+      break;
+    }
+  }
+
+  if (mainItem) {
+    out.mainHeader = mainItem.main;
+    const portFromMain = mainItem.main.match(/\s*\/\s*(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\s*$/i);
+    if (portFromMain) out.portLine = portFromMain[1].toUpperCase().replace('BORUSAN/GEMLIK', 'BORUSAN/GEMLİK');
+    const split = _splitMainHeaderBlackLines(mainItem.main);
+    out.blackLine1 = split.line1;
+    out.blackLine2 = split.line2;
+  }
+
+  let exportItem = null;
+  for (const item of above) {
+    if (item === mainItem) continue;
+    const { row, text } = item;
+
+    if (/EXPORT\s*REF/i.test(text)) {
+      exportItem = item;
+      const raw = _pickIhracatExportRefCell(row) || text;
+      const normalized = _normalizeExportRefLine(raw);
+      if (normalized) {
+        out.exportLine = normalized;
+        out.subLines = [normalized];
+      }
+      const port = _pickIhracatPortFromRow(row);
+      if (port) out.portLine = port;
+    }
+  }
+
+  const footerAnchorRr = Math.max(mainItem ? mainItem.rr : -1, exportItem ? exportItem.rr : -1);
+  const footerCandidates = above
+    .filter((item) => item.rr > footerAnchorRr && item.rr < tableHeaderRowIdx)
+    .filter((item) => item !== mainItem && item !== exportItem)
+    .sort((a, b) => b.rr - a.rr);
+
+  for (const item of footerCandidates) {
+    const footer = _pickIhracatFooterCell(item.row, item.text);
+    if (!footer) continue;
+    out.footerLine = footer;
+    if (/^\d+\s*BBT/i.test(footer)) {
+      const bp = footer.match(/(\d+)\s*BBT\s+(\d+)\s*PALET/i);
+      out.bbtPaletLine = bp ? `${bp[1]} BBT ${bp[2]} PALET` : footer;
+    } else {
+      out.noteLine = footer;
+    }
+    break;
+  }
+
+  out.borusanLine = out.portLine;
+  return out;
+}
+
+function parseIhracatBlockToplamRow(row, blockCols) {
+  if (!row || !blockCols) return null;
+  const pick = (key) => {
+    const idx = blockCols[key];
+    if (idx === undefined) return '';
+    const v = row[idx];
+    if (v == null || v === '') return '';
+    return typeof v === 'number' ? String(v) : String(v).trim();
+  };
+  const totals = {
+    bbt: pick('bbt'),
+    cuval: pick('cuval'),
+    palet: pick('palet'),
+    bosBbt: pick('bosBbt'),
+    bosCuval: pick('bosCuval'),
+    netTonaj: pick('netTonaj'),
+    ogrTonaj: pick('ogrTonaj'),
+    gidenTonaj: pick('gidenTonaj'),
+    fark: pick('fark'),
+  };
+  return Object.values(totals).some((x) => String(x).trim() !== '') ? totals : null;
+}
+
+function extractBorusanLineFromHeader(headerText) {
+  const t = String(headerText || '').trim();
+  if (!t) return '';
+  const m = t.match(/\b(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\b/i);
+  if (!m) return '';
+  if (/DP/i.test(m[1])) return 'DP WORLD';
+  return m[1].toUpperCase().replace('BORUSAN/GEMLIK', 'BORUSAN/GEMLİK');
+}
+
+function _normalizeExportRefLine(raw) {
+  let s = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  s = s.replace(/\s*L[Iİ]MAN\s+BORUSAN\/GEML[Iİ]K\s*$/i, '').trim();
+  s = s.replace(/\s+L[Iİ]MAN\s*$/i, '').trim();
+  const idx = s.search(/EXPORT\s*REF/i);
+  if (idx < 0) return '';
+  s = s.slice(idx);
+  if (!/^-{2,}/.test(s)) s = `---------- ${s}`;
+  if (/L[Iİ]MAN\s*DOLUM/i.test(s) && !/\s-{2,}\s*L[Iİ]MAN\s*DOLUM/i.test(s)) {
+    s = s.replace(/\s+(L[Iİ]MAN\s*DOLUM)/i, ' ---------- $1');
+  }
+  return s;
+}
+
+function _splitHeaderBlackLines(headerMain) {
+  const main = String(headerMain || '').replace(/\s+/g, ' ').trim();
+  if (!main) return { line1: '', line2: '' };
+  const lineerRe = /\b(L[Iİ]NEERL[Iİ]|LINEERLI)\s*\([^)]+\)/i;
+  const m = main.match(lineerRe);
+  if (m && m.index != null) {
+    return {
+      line1: main.slice(0, m.index).trim().replace(/\s*\/\s*$/, ''),
+      line2: main.slice(m.index).trim(),
+    };
+  }
+  const parts = main.split(/\s*\/\s*/);
+  const li = parts.findIndex((p) => /^L[Iİ]NEERL/i.test(p));
+  if (li > 0) {
+    return { line1: parts.slice(0, li).join(' / '), line2: parts.slice(li).join(' / ') };
+  }
+  return { line1: main, line2: '' };
+}
+
+function _buildIhracatHeaderDisplay(sample) {
+  const meta = sample?.blockMeta || {};
+  const headerText = String(meta.mainHeader || sample?.headerText || '').trim();
+
+  let blackLine1 = String(meta.blackLine1 || '').trim();
+  let blackLine2 = String(meta.blackLine2 || '').trim();
+  if (!blackLine1 && headerText) {
+    const split = _splitMainHeaderBlackLines(headerText);
+    blackLine1 = split.line1;
+    blackLine2 = split.line2;
+  }
+
+  let portLine = String(meta.portLine || meta.borusanLine || '').trim();
+  if (!portLine && headerText) portLine = extractBorusanLineFromHeader(headerText);
+  blackLine1 = _stripPortFromHeaderLine(blackLine1);
+  blackLine2 = _stripPortFromHeaderLine(blackLine2);
+  if (!portLine && blackLine2) {
+    const pm = String(meta.mainHeader || headerText).match(/\s*\/\s*(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\s*$/i);
+    if (pm) portLine = pm[1].toUpperCase().replace('BORUSAN/GEMLIK', 'BORUSAN/GEMLİK');
+  }
+
+  let exportLine = String(meta.exportLine || '').trim();
+  if (!exportLine) {
+    for (const ln of Array.isArray(meta.subLines) ? meta.subLines : []) {
+      const n = _normalizeExportRefLine(ln);
+      if (n) {
+        exportLine = n;
+        break;
+      }
+    }
+  }
+
+  const noteLine = String(meta.noteLine || '').trim();
+  let footerLine = String(meta.footerLine || meta.bbtPaletLine || noteLine || '').trim();
+  if (!footerLine && meta.bbtPaletLine) footerLine = meta.bbtPaletLine;
+  const isBbtFooter = /^\d+\s*BBT/i.test(footerLine);
+  const isFooterNote =
+    !!noteLine ||
+    (!isBbtFooter &&
+      !!footerLine &&
+      /YENİ\s+MÜŞTERİ|MÜŞTERİ\.|rica ederim|standart değer|SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(
+        footerLine
+      ));
+
+  return {
+    blackLine1,
+    blackLine2,
+    borusanLine: portLine,
+    portLine,
+    exportLine,
+    bbtPaletSummary: footerLine,
+    footerLine,
+    noteLine,
+    isFooterNote,
+    isBbtFooter,
+  };
+}
+
+/** İhracat Excel üst kutusundaki müşteri / sevkiyat uyarı metni (kırmızı alan) */
+function getIhracatBlockFooterNote(shipment) {
+  if (!shipment) return '';
+  const cached = String(shipment.blockFooterNote || '').trim();
+  if (cached) return cached;
+  const d = _buildIhracatHeaderDisplay(shipment);
+  if (d.isBbtFooter) return '';
+  if (d.isFooterNote) return String(d.noteLine || d.footerLine || '').trim();
+  const footer = String(d.footerLine || '').trim();
+  if (
+    footer &&
+    /SEVKİYAT|SEVKIYAT|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK|YENİ\s+MÜŞTERİ|MÜŞTERİ\.|rica ederim/i.test(footer)
+  ) {
+    return footer;
+  }
+  return '';
+}
+
+function _ihracatBlockSelectionKey(headerText) {
+  const ht = String(headerText || '').replace(/\s+/g, ' ').trim();
+  if (!ht) return '';
+  const yd = (ht.match(/\b(YD\d{1,4})\b/i) || [])[1] || '';
+  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1] || '';
+  const mal = _extractMalzeme(ht) || '';
+  return [yd, book, mal].join('|').toUpperCase();
+}
+
+function _rowInSelectedBlocks(rowIdx, onlyBlocks, headerText) {
   if (!onlyBlocks || !onlyBlocks.length) return true;
+  const selKey = _ihracatBlockSelectionKey(headerText);
+  if (selKey) {
+    const byHeader = onlyBlocks.some((b) => _ihracatBlockSelectionKey(b.headerText) === selKey);
+    if (byHeader) return true;
+  }
   return onlyBlocks.some((b) => rowIdx >= b.startRow && rowIdx <= b.endRow);
 }
 
@@ -1705,29 +2153,33 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
 
   for (let r = 0; r < grid.length; r++) {
     const row = grid[r] || [];
-    const sirano = String(row[cols.sirano] || '').toUpperCase().trim();
-    const plakaHdr = String(row[cols.plaka] || '').toUpperCase().trim();
-    if (!(sirano === 'SIRANO' && plakaHdr === 'PLAKA')) continue;
-    if (!_rowInSelectedBlocks(r, onlyBlocks)) continue;
+    if (!isIhracatBlockHeaderRow(row)) continue;
 
-    // ✅ Header text'i en sağlam şekilde yakala (NET/BOOKING/GEMİ içeren uzun satır)
-    const headerText = findShipmentHeaderText(grid, r) || '';
+    const blockCols = resolveIhracatBlockCols(row);
+    if (blockCols.plaka === undefined) continue;
+
+    const blockMeta = parseIhracatBlockMeta(grid, r);
+    const headerText = blockMeta.mainHeader || findShipmentHeaderText(grid, r) || '';
     if (!/\bYD\d{1,4}\b/i.test(headerText)) continue;
-
+    if (!_rowInSelectedBlocks(r, onlyBlocks, headerText)) continue;
     const ambalaj = ''; // otomatik ambalaj okuma kapali (manuel / aday secim)
     const sevkYeri = ''; // otomatik sevk yeri okuma kapali (manuel / aday secim)
     const noteColumnIndex = (cols.aciklama !== undefined ? cols.aciklama : 1);
     let blockYuklemeNotu = '';
+    let blockTotals = null;
 
     for (let rr = r+1; rr < grid.length; rr++) {
       const d = grid[rr] || [];
       const rawA0 = String(d[0] || '').trim();
-      const maybeToplam = rawA0.toUpperCase().trim();
-      // ✅ Blok sınırı: yeni YD başlığına geldiysek bu sevkiyat bitti
-      if (rr > r + 1 && /^YD\d+/i.test(rawA0)) break;
-      if (maybeToplam === 'TOPLAM' || maybeToplam === 'KALAN') break;
+      const rowTextUpper = _rowToText(d).toUpperCase();
+      if (rr > r + 1 && isIhracatBlockHeaderRow(d)) break;
+      if (/\bTOPLAM\b/.test(rowTextUpper) && !/ARA\s+TOPLAM/.test(rowTextUpper)) {
+        blockTotals = parseIhracatBlockToplamRow(d, blockCols);
+        break;
+      }
+      if (/\bKALAN\b/.test(rowTextUpper)) break;
 
-      const plakaRaw = cols.plaka !== undefined ? d[cols.plaka] : null;
+      const plakaRaw = blockCols.plaka !== undefined ? d[blockCols.plaka] : null;
       const maybeNote = String(d[noteColumnIndex] || '').trim();
       const rowText = _rowToText(d).toUpperCase();
       const isLikelyNote = maybeNote.length > 20 && /[A-ZÇĞİÖŞÜİ]/i.test(maybeNote) && !/(SIRANO|PLAKA|BBT|ÇUVAL|CUVAL|PALET|TONAJ|TARİH|TARIH|FİRMA|FIRMA|MALZEME|AÇIKLAMA|ACIKLAMA|NOT|YÜKLEME|YUKLEME)/i.test(rowText);
@@ -1745,24 +2197,30 @@ const ydKey = (((firmaFromN || '').match(/\b(YD\d{1,4})\b/i) || [])[1] || ydFrom
 // ✅ Firma = N sütunundaki TAM hücre
 const firma = String(firmaFromN || ydKey || '').trim();
 
-     const irsaliyeNo = resolveIrsaliyeFromRow(d, cols);
+     const irsaliyeNo = resolveIrsaliyeFromRow(d, { ...cols, ...blockCols });
+     const blockFooterNote = getIhracatBlockFooterNote({ blockMeta });
      rowsOut.push({
   id: irsaliyeNo || String(d[0] || '').trim(),
-  sira: cols.sirano !== undefined ? (d[cols.sirano] != null ? String(d[cols.sirano]).trim() : '') : '',
+  sira: blockCols.sirano !== undefined ? (d[blockCols.sirano] != null ? String(d[blockCols.sirano]).trim() : '') : '',
   plaka: normPlate(plakaRaw),
   ydKey: ydKey,
   headerText: headerText,
+  blockKey: `BLK_${r}`,
+  blockHeaderRow: r,
+  blockMeta,
+  blockFooterNote,
+  blockTotals,
   fileName: String(fileLabel || '').trim(),
 firma: (firma || '').slice(0, 40),
 
   irsaliyeNo,
   malzeme: cols.malzeme !== undefined ? (d[cols.malzeme] != null ? String(d[cols.malzeme]).trim() : '') : '',
-  tonajKg: cols.tonajKg !== undefined ? _nz(d[cols.tonajKg]) : '',
-  bbt: cols.bbt !== undefined ? _nz(d[cols.bbt]) : '',
-  cuval: cols.cuval !== undefined ? _nz(d[cols.cuval]) : '',
-  palet: cols.palet !== undefined ? _nz(d[cols.palet]) : '',
-  bosBbt: cols.bosBbt !== undefined ? _nz(d[cols.bosBbt]) : '',
-  bosCuval: cols.bosCuval !== undefined ? _nz(d[cols.bosCuval]) : '',
+  tonajKg: blockCols.netTonaj !== undefined ? _nz(d[blockCols.netTonaj]) : (cols.tonajKg !== undefined ? _nz(d[cols.tonajKg]) : ''),
+  bbt: blockCols.bbt !== undefined ? _nz(d[blockCols.bbt]) : '',
+  cuval: blockCols.cuval !== undefined ? _nz(d[blockCols.cuval]) : '',
+  palet: blockCols.palet !== undefined ? _nz(d[blockCols.palet]) : '',
+  bosBbt: blockCols.bosBbt !== undefined ? _nz(d[blockCols.bosBbt]) : '',
+  bosCuval: blockCols.bosCuval !== undefined ? _nz(d[blockCols.bosCuval]) : '',
 
   yuklemeNotu: (String(d[noteColumnIndex] || '').trim() || blockYuklemeNotu),
 
@@ -2273,11 +2731,12 @@ async function importExcelHeadersOnly_ShowSelection(file){
     sheetName = picked;
   }
   const ws = wb.Sheets[sheetName];
-  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: false });
+  // blankrows: true — parseIhracatRowsFromWorkbook ile aynı (satır indeksleri seçim = import)
+  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
 
   const blocks = parseShipmentBlocksFromGrid(grid);
 
-  window.__ihracatImportContext = { wb, sheetName, fileName: file.name, grid, ws };
+  window.__ihracatImportContext = { wb, sheetName, fileName: file.name, grid, ws, file };
 
   if (!blocks.length) {
     showShipmentSelectUI([], file.name);
@@ -2407,7 +2866,22 @@ function pickShipmentFromHits(plate, hits) {
   });
 }
 
-/** Seçilen Excel satırının tonaj ve irsaliye bilgisini takip formuna yazar */
+function sanitizeYuklemeNotuLines(lines) {
+  const out = [];
+  const seen = new Set();
+  for (const line of lines || []) {
+    const s = String(line || '').trim();
+    if (!s) continue;
+    if (/^\d{1,2}$/.test(s)) continue;
+    const key = s.replace(/\s+/g, ' ').toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+/** Seçilen Excel satırının tonaj, irsaliye ve blok uyarı notunu takip formuna yazar */
 function applyShipmentTonajAndIrsaliye(chosen) {
   if (!chosen) return;
   try {
@@ -2416,14 +2890,39 @@ function applyShipmentTonajAndIrsaliye(chosen) {
     if (tonajEl && t) tonajEl.value = t;
 
     const notuEl = document.getElementById('yuklemeNotu');
+    if (!notuEl) return;
+
+    const parts = [];
     const irs = getShipmentIrsaliyeNo(chosen);
-    if (notuEl && irs) {
-      const mevcut = String(notuEl.value || '').trim();
-      const irsaliyeText = 'İrsaliye No: ' + irs;
-      if (!mevcut.includes(irsaliyeText)) {
-        notuEl.value = mevcut ? mevcut + '\n' + irsaliyeText : irsaliyeText;
-      }
+    if (irs) parts.push('İrsaliye No: ' + irs);
+
+    const blockNote = getIhracatBlockFooterNote(chosen);
+    if (blockNote) {
+      blockNote.split(/\r?\n/).forEach((ln) => {
+        const s = String(ln || '').trim();
+        if (s) parts.push(s);
+      });
     }
+
+    const rowNote = String(chosen.yuklemeNotu || '').trim();
+    if (
+      rowNote &&
+      rowNote !== blockNote &&
+      !rowNote.includes(blockNote) &&
+      !(blockNote && blockNote.includes(rowNote))
+    ) {
+      const irsPrefix = irs ? 'İrsaliye No: ' + irs : '';
+      rowNote.split(/\r?\n/).forEach((ln) => {
+        const s = String(ln || '').trim();
+        if (!s) return;
+        if (irsPrefix && s === irsPrefix) return;
+        parts.push(s);
+      });
+    }
+
+    const merged = sanitizeYuklemeNotuLines(parts);
+    if (!merged.length) return;
+    notuEl.value = merged.join('\n');
   } catch (e) {}
 }
 
@@ -2503,32 +3002,38 @@ function applyVehicleDefaultsToTakipForm(vehicle) {
   }
 }
 
-async function applyShipmentToTakipForm(vehicle) {
+async function applyShipmentToTakipForm(vehicle, opts) {
+  opts = opts || {};
   try {
     const plateNeedle = normPlate(vehicle?.cekiciPlaka || '');
     if (!plateNeedle) return;
 
-    // ✅ Hız: plaka->kayıt index (DailyStore) varsa onu kullan
-    let hits = [];
-    try {
-      if (window.DailyStore && typeof DailyStore.findByPlate === 'function') {
-        hits = DailyStore.findByPlate(plateNeedle) || [];
-      } else {
+    let chosen;
+    if (opts.prefilledShipment) {
+      chosen = { ...opts.prefilledShipment, plaka: plateNeedle };
+    } else {
+      // ✅ Hız: plaka->kayıt index (DailyStore) varsa onu kullan
+      let hits = [];
+      try {
+        if (window.DailyStore && typeof DailyStore.findByPlate === 'function') {
+          hits = DailyStore.findByPlate(plateNeedle) || [];
+        } else {
+          const list = loadDailyShipments();
+          if (!list.length) return;
+          hits = list.filter((x) => x.plaka === plateNeedle);
+        }
+      } catch (e) {
         const list = loadDailyShipments();
         if (!list.length) return;
-        hits = list.filter(x => x.plaka === plateNeedle);
+        hits = list.filter((x) => x.plaka === plateNeedle);
       }
-    } catch(e) {
-      const list = loadDailyShipments();
-      if (!list.length) return;
-      hits = list.filter(x => x.plaka === plateNeedle);
-    }
-    if (!hits.length) return;
+      if (!hits.length) return;
 
-    let chosen = hits[0];
-    if (hits.length > 1) {
-      const picked = await pickShipmentFromHits(plateNeedle, hits);
-      if (picked) chosen = picked;
+      chosen = hits[0];
+      if (hits.length > 1) {
+        const picked = await pickShipmentFromHits(plateNeedle, hits);
+        if (picked) chosen = picked;
+      }
     }
 
     // ✅ Firma bazlı override (örn: Liman/Sevk Yeri düzeltmesi)
@@ -2555,11 +3060,6 @@ async function applyShipmentToTakipForm(vehicle) {
       }
     } catch (e) {}
 
-    const yuklemeNotuEl = document.getElementById('yuklemeNotu');
-    if (yuklemeNotuEl && !String(yuklemeNotuEl.value || '').trim() && chosen.yuklemeNotu) {
-      yuklemeNotuEl.value = String(chosen.yuklemeNotu || '');
-    }
-
     _applyExcelShipmentFieldsToTakipForm(chosen);
 
     const sevkFilled = String(chosen.sevkYeri || _defaultSevkForShipment(chosen)).trim();
@@ -2569,7 +3069,7 @@ async function applyShipmentToTakipForm(vehicle) {
       String(chosen.cuval || '').trim() ||
       String(chosen.palet || '').trim();
 
-    if (chosen._ihracatEdited && sevkFilled && ambFilled) {
+    if (opts.skipExcelReview || (chosen._ihracatEdited && sevkFilled && ambFilled)) {
       return;
     }
 
@@ -3039,12 +3539,17 @@ let sonuc = {
                 return;
             }
             
+            const prevVehicle = state.editingId
+                ? (state.vehicles || []).find((v) => v.id === state.editingId)
+                : null;
             const vehicleData = {
                 id: state.editingId || Date.now().toString(),
                 ...state.formData,
-                kayitTarihi: state.editingId ? 
-                    state.vehicles.find(v => v.id === state.editingId)?.kayitTarihi : 
-                    new Date().toLocaleString('tr-TR')
+                kayitTarihi: state.editingId
+                    ? (prevVehicle?.kayitTarihi)
+                    : new Date().toLocaleString('tr-TR'),
+                printCount: prevVehicle?.printCount,
+                lastPrintSnapshot: prevVehicle?.lastPrintSnapshot ?? null,
             };
 
             // Veritabanına kaydet (asenkron)
@@ -3057,6 +3562,7 @@ let sonuc = {
             // Önce aynı ID'li kaydı listeden çıkar, sonra başa ekle
             state.vehicles = (state.vehicles || []).filter(v => v.id !== vehicleData.id);
             state.vehicles.unshift(vehicleData);
+            try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
 
             // Filtre cache'ini temizle ki yeni sıralama hemen yansısın
             try { window.__filterCache = { term: null, ver: 0, out: null }; } catch (_) {}
@@ -3126,18 +3632,25 @@ let sonuc = {
 
         async function saveCurrentVehicleToDatabase(plate) {
             try {
-                // Formdan mevcut araç bilgilerini al
                 const get = (id) => (document.getElementById(id)?.value || '').trim();
+                const driver = getTakipFormDriverPayload();
+                let vehicleId = Date.now().toString();
+                try {
+                    const lookup = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+                    if (lookup.ok) {
+                        const existing = await lookup.json();
+                        if (existing && existing.id) vehicleId = String(existing.id);
+                    }
+                } catch (e) { /* ignore */ }
+
                 const vehicleData = {
-                    id: Date.now().toString(),
+                    id: vehicleId,
                     cekiciPlaka: plate,
-                    dorsePlaka: get('dorsePlakaBilgi') || '',
-                    soforAdi: get('soforAdiBilgi') || '',
-                    soforSoyadi: get('soforSoyadiBilgi') || '',
-                    sofor2Adi: get('sofor2AdiBilgi') || '',
-                    sofor2Soyadi: get('sofor2SoyadiBilgi') || '',
-                    iletisim: get('iletisimBilgi') || '',
-                    tcKimlik: get('tcKimlikBilgi') || '',
+                    dorsePlaka: driver.dorsePlaka || get('dorsePlakaBilgi') || '',
+                    soforAdi: driver.soforAdi,
+                    soforSoyadi: driver.soforSoyadi,
+                    iletisim: driver.iletisim,
+                    tcKimlik: driver.tcKimlik,
                     defaultFirma: get('firmaKodu') || '',
                     defaultMalzeme: get('malzeme') || '',
                     defaultSevkYeri: get('sevkYeri') || '',
@@ -3148,9 +3661,15 @@ let sonuc = {
                 await saveVehicleToDatabase(vehicleData);
                 
                 // Cache'i güncelle
+                const prevV = (state.vehicles || []).find((v) => String(v.id) === String(vehicleData.id));
+                if (prevV) {
+                    vehicleData.printCount = prevV.printCount;
+                    vehicleData.lastPrintSnapshot = prevV.lastPrintSnapshot ?? null;
+                }
                 state.vehicles = (state.vehicles || []).filter(v => v.id !== vehicleData.id);
                 state.vehicles.unshift(vehicleData);
                 storage.save(`vehicle_${vehicleData.id}`, vehicleData);
+                try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
                 
                 console.log('✅ Yazdırma öncesi araç DB\'ye kaydedildi:', plate);
             } catch (error) {
@@ -3960,9 +4479,14 @@ function showTakipFormu(vehicle) {
               const pEl = document.getElementById('cekiciPlakaBilgi');
               const dEl = document.getElementById('dorsePlakaBilgi');
 
+              const onTakipPlateFieldInput = () => {
+                try { _ihracatSyncVehiclePlatesFromTakipForm(); } catch (_) {}
+              };
+
               if (pEl) {
                 addOnce(pEl, 'input', () => {
                   try { pEl.value = formatPlakaForInput(pEl.value); } catch(_) {}
+                  onTakipPlateFieldInput();
                 });
                 // açılışta da formatla
                 try { pEl.value = formatPlakaForInput(pEl.value); } catch(_) {}
@@ -3971,6 +4495,7 @@ function showTakipFormu(vehicle) {
               if (dEl) {
                 addOnce(dEl, 'input', () => {
                   try { dEl.value = formatPlakaForInput(dEl.value); } catch(_) {}
+                  onTakipPlateFieldInput();
                 });
                 try { dEl.value = formatPlakaForInput(dEl.value); } catch(_) {}
               }
@@ -5040,7 +5565,16 @@ try {
             setTimeout(()=>{ try { document.getElementById('soforBilgi')?.focus(); } catch(_) {} }, 0);
 
             // 📄 Günlük Excel varsa otomatik doldur (plaka eşleşmesi)
-            try { applyShipmentToTakipForm(vehicle); } catch(e) {}
+            let takipApplyOpts = null;
+            try {
+              if (vehicle && vehicle._ihracatTakipApplyOpts) {
+                takipApplyOpts = { ...vehicle._ihracatTakipApplyOpts };
+                delete vehicle._ihracatTakipApplyOpts;
+              }
+            } catch (e) {}
+            try {
+              applyShipmentToTakipForm(vehicle, takipApplyOpts);
+            } catch (e) {}
 
             // ✅ Araç varsayılan bilgilerini (ve reprint bilgilerini) doldur
             try { applyVehicleDefaultsToTakipForm(vehicle); } catch(e) {}
@@ -5051,7 +5585,14 @@ try {
         function kapatForm() {
             try { document.getElementById('quickPickOverlay')?.remove(); } catch(_) {}
             try { const psb = document.getElementById('plateSearchBox'); if (psb) { psb.style.display = 'none'; psb.innerHTML=''; } } catch(_) {}
-            document.getElementById('takipFormuModal').classList.add('hidden');
+            const takipModal = document.getElementById('takipFormuModal');
+            if (takipModal) {
+              takipModal.classList.add('hidden');
+              takipModal.style.zIndex = '';
+            }
+            try {
+              window._ihracatRestoreParkedDetailsModal?.();
+            } catch (_) {}
             clearActiveTakipVehicleRefs();
         }
 
@@ -5294,14 +5835,36 @@ try {
                         if (cur) {
                             const nextCount = (parseInt(cur.printCount || '0', 10) || 0) + 1;
                             let snap = pending.snapshot || cur.lastPrintSnapshot || null;
-                            if (snap && typeof snap === 'object') snap = Object.assign({}, snap, { ts: commitTs });
-                            else snap = { ts: commitTs };
+                            const driverAtPrint = getTakipFormDriverPayload();
+                            if (snap && typeof snap === 'object') {
+                              snap = Object.assign({}, snap, {
+                                ts: commitTs,
+                                plaka: String(pending.plaka || cur.cekiciPlaka || '').trim(),
+                                cekiciPlaka: String(cur.cekiciPlaka || pending.plaka || '').trim(),
+                                dorsePlaka: String(
+                                  driverAtPrint.dorsePlaka || snap.dorsePlaka || cur.dorsePlaka || ''
+                                ).trim(),
+                              });
+                            } else {
+                              snap = {
+                                ts: commitTs,
+                                plaka: String(pending.plaka || cur.cekiciPlaka || '').trim(),
+                                cekiciPlaka: String(cur.cekiciPlaka || pending.plaka || '').trim(),
+                                dorsePlaka: String(
+                                  driverAtPrint.dorsePlaka || cur.dorsePlaka || ''
+                                ).trim(),
+                              };
+                            }
                             const updated = { ...cur, printCount: nextCount, lastPrintSnapshot: snap };
                             try { window.storage?.save('vehicle_' + updated.id, updated); } catch(e) {}
                             state.vehicles = (state.vehicles || []).map(v => String(v.id) === String(updated.id) ? updated : v);
+                            try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
 
                             try {
-                              const printEv = buildPrintEventDataFromPending(pending, updated, nextCount, commitTarihTr);
+                              const printEv = applyPiyasaOrderToPrintEvent(
+                                buildPrintEventDataFromPending(pending, updated, nextCount, commitTarihTr),
+                                pending
+                              );
                               const firma = printEv.firma;
 
                               try{
@@ -5318,7 +5881,8 @@ try {
                                       malzeme: printEv.malzeme || '',
                                       tonaj: printEv.tonaj || '',
                                       basim_yeri: printEv.basimYeri || '',
-                                      sevkiyat_id: (pending && pending.snapshot && pending.snapshot.sevkiyatId) || '',
+                                      sevkiyat_id: piyasaSevkiyatIdForPrint(pending),
+                                      sofor: printEv.sofor || '',
                                       tarih: commitTs
                                     })
                                   });
@@ -5331,7 +5895,10 @@ try {
                         }
                     } else {
                         try {
-                            const printEv = buildPrintEventDataFromPending(pending, null, 1, commitTarihTr);
+                            const printEv = applyPiyasaOrderToPrintEvent(
+                              buildPrintEventDataFromPending(pending, null, 1, commitTarihTr),
+                              pending
+                            );
                             printEv.vehicleId = 'manual';
                             const firma = printEv.firma;
 
@@ -5349,7 +5916,8 @@ try {
                                     malzeme: printEv.malzeme || '',
                                     tonaj: printEv.tonaj || '',
                                     basim_yeri: printEv.basimYeri || '',
-                                    sevkiyat_id: (pending && pending.snapshot && pending.snapshot.sevkiyatId) || '',
+                                    sevkiyat_id: piyasaSevkiyatIdForPrint(pending),
+                                    sofor: printEv.sofor || '',
                                     tarih: commitTs
                                   })
                                 });
@@ -5365,13 +5933,16 @@ try {
                 // ✅ Piyasa siparişi yazdırma sayacı (takip formu onaylandıysa)
                 try {
                   if (window.piyasa && typeof window.piyasa.recordOrderPrint === 'function' && pending) {
+                    const po = (typeof window.piyasa.getOrderByIdx === 'function')
+                      ? window.piyasa.getOrderByIdx(pending.piyasaOrderIdx)
+                      : null;
                     const snap = pending.snapshot || {};
                     window.piyasa.recordOrderPrint({
                       plate: pending.plaka || '',
                       ts: commitTs,
                       orderIdx: pending.piyasaOrderIdx,
-                      firma: snap.firmaKodu || snap.firmaSelect || '',
-                      malzeme: snap.malzeme || snap.malzemeSelect || '',
+                      firma: (po && po.firma) || snap.firmaKodu || snap.firmaSelect || '',
+                      malzeme: (po && po.malzeme) || snap.malzeme || snap.malzemeSelect || '',
                     });
                   }
                 } catch (e) {
@@ -5688,7 +6259,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <button id="raporlarLinkGunluk" class="app-nav-btn" title="Günlük Raporlar">Günlük Raporlar</button>
         <button id="vardiyaNotlariButton" class="app-nav-btn app-nav-btn--danger" title="Vardiya notları — yazdır uyarıları">Vardiya Notları</button>
         <button id="issuesDashboardButton" class="app-nav-btn" title="Şoför sorun kayıtları">Sorunlar</button>
-        <a href="plaka.html" target="_blank" rel="noopener noreferrer" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
+        <a href="plaka.html" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
         <details class="app-tools-menu relative">
           <summary class="app-nav-btn list-none select-none">
             Araçlar <span class="app-nav-chevron" aria-hidden="true">▾</span>
@@ -6051,27 +6622,169 @@ function formatPlakaInput(input) {
   }
 }
 
-// WhatsApp ikonu (yerel dosya gerekmez)
-const WHATSAPP_ICON_SRC = 'https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg';
-
 // NETSIS — şoför kartı butonu (sadece logo)
 const NETSIS_ICON_SRC = 'https://www.evoset.com.tr/wp-content/uploads/2024/11/netsis.png';
 
-// WhatsApp için telefon formatı: 05551234567 -> 905551234567 (veya mevcut ulus. formata uygun)
+const WHATSAPP_ICON_SRC = 'https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg';
+const WHATSAPP_WINDOW_NAME = 'whatsapp_chat';
+
+let _whatsappWin = null;
+
 function toWhatsAppPhone(input) {
   try {
     let d = String(input || '').replace(/\D/g, '');
     if (!d) return '';
-    // eğer başında 0 varsa kaldırıp 90 ekle (TR)
-    if (d.length === 10 && d[0] !== '0') d = '90' + d; // eğer 10 haneli olarak verilmişse
+    if (d.length === 10 && d[0] !== '0') d = '90' + d;
     if (d.length === 10 && d[0] === '0') d = '90' + d.slice(1);
-    if (d.length === 11 && d.startsWith('0')) d = '9' + d; // 0xxxxxxxxxx -> 90xxxxxxxxx
-    // Eğer zaten 12+ hane ise son 12'yi almayalım; whatsapp + ülke kodu + numara bekler (ör: 90555...)
-    // normal durumda TR için 11 haneli (90...) veya 12+ ise olduğu gibi kullan
+    if (d.length === 11 && d.startsWith('0')) d = '9' + d;
     return d;
   } catch (e) { return ''; }
 }
-            
+
+function buildWhatsAppWebUrl(phone, text) {
+  const p = toWhatsAppPhone(phone);
+  if (!p) return '';
+  const q = text ? ('&text=' + encodeURIComponent(String(text))) : '';
+  return 'https://web.whatsapp.com/send/?phone=' + p + q;
+}
+
+function copyTextToClipboard(text) {
+  return new Promise(function (resolve) {
+    const s = String(text || '');
+    if (!s) { resolve(false); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(s).then(function () { resolve(true); }).catch(function () {
+        resolve(_fallbackCopyText(s));
+      });
+      return;
+    }
+    resolve(_fallbackCopyText(s));
+  });
+}
+
+function _fallbackCopyText(text) {
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch (e) { return false; }
+}
+
+function _syncWhatsAppWinRef() {
+  if (_whatsappWin && _whatsappWin.closed) _whatsappWin = null;
+}
+
+function _navigateWhatsAppWin(sendUrl) {
+  if (!_whatsappWin || _whatsappWin.closed) return false;
+  try {
+    _whatsappWin.focus();
+    _whatsappWin.location.replace(sendUrl);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** WhatsApp Web — giriş yapılmış sekmede sohbet aç (yeni sekmede /send takılmasın). */
+async function openWhatsAppFromCard(phone, text) {
+  const sendUrl = buildWhatsAppWebUrl(phone, text);
+  if (!sendUrl) {
+    showToast('Geçerli telefon numarası yok.', 'warn');
+    return null;
+  }
+
+  _syncWhatsAppWinRef();
+
+  // Uygulamanın daha önce açtığı sekme varsa: aynı sekmede sohbete git
+  if (_navigateWhatsAppWin(sendUrl)) {
+    return _whatsappWin;
+  }
+
+  // Açık WhatsApp sekmesinde çalışır: linki panoya kopyala (Ctrl+V → Enter)
+  const copied = await copyTextToClipboard(sendUrl);
+  showToast(
+    copied
+      ? 'Link kopyalandı. Açık WhatsApp sekmesine geç → Ctrl+V → Enter'
+      : 'WhatsApp sekmesinin adres çubuğuna yapıştırın: ' + sendUrl,
+    'success',
+    5500
+  );
+
+  // İsteğe bağlı: Alt+tıklama veya Shift+tıklama yeni yönetilen sekme açar
+  return null;
+}
+
+function bindWhatsAppClickDelegation() {
+  if (window.__waClickBound) return;
+  window.__waClickBound = true;
+  document.addEventListener('click', function (e) {
+    const el = e.target.closest('.whatsapp-link');
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const phone = el.getAttribute('data-wa-phone');
+    if (phone == null) return;
+    const text = el.getAttribute('data-wa-text') || '';
+
+    if (e.altKey || e.shiftKey) {
+      openWhatsAppInManagedTab(phone, text);
+      return;
+    }
+    openWhatsAppFromCard(phone, text);
+  }, true);
+}
+
+/** Yönetilen tek WhatsApp sekmesi (Alt/Shift+tıklama). Önce ana sayfa, sonra sohbet. */
+function openWhatsAppInManagedTab(phone, text) {
+  const sendUrl = buildWhatsAppWebUrl(phone, text);
+  if (!sendUrl) {
+    showToast('Geçerli telefon numarası yok.', 'warn');
+    return null;
+  }
+
+  _syncWhatsAppWinRef();
+
+  if (_navigateWhatsAppWin(sendUrl)) {
+    return _whatsappWin;
+  }
+
+  _whatsappWin = window.open('https://web.whatsapp.com/', WHATSAPP_WINDOW_NAME);
+  if (!_whatsappWin) {
+    showToast('Pop-up engellendi. Tarayıcıda açılır pencerelere izin verin.', 'warn');
+    return null;
+  }
+
+  try { _whatsappWin.focus(); } catch (_) { /* ignore */ }
+
+  let tries = 0;
+  const goSend = function () {
+    tries++;
+    if (!_whatsappWin || _whatsappWin.closed || tries > 4) return;
+    try { _whatsappWin.location.replace(sendUrl); } catch (_) { /* ignore */ }
+  };
+  setTimeout(goSend, 3500);
+  setTimeout(goSend, 7000);
+
+  showToast('WhatsApp yükleniyor… Sohbet birkaç saniye içinde açılacak.', 'info', 4500);
+  return _whatsappWin;
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindWhatsAppClickDelegation);
+  } else {
+    bindWhatsAppClickDelegation();
+  }
+}
+
+window.openWhatsAppFromCard = openWhatsAppFromCard;
+window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
 
         // Event listener'ları ekle
         function attachEventListeners() {
@@ -6096,7 +6809,7 @@ function toWhatsAppPhone(input) {
       }
     }
     
-    try { window.open('rapor.html','_blank'); } catch(e) { location.href='rapor.html'; }
+    location.href = 'rapor.html';
   });
 })();
 
@@ -6107,7 +6820,7 @@ function toWhatsAppPhone(input) {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
                 }
-                try { window.open('vardiya-notlari.html', '_blank'); } catch (e) { location.href = 'vardiya-notlari.html'; }
+                location.href = 'vardiya-notlari.html';
             });
 
             // ⚠️ Şoför Sorunları (ayrı sayfa — Günlük Raporlar gibi)
@@ -6116,7 +6829,7 @@ function toWhatsAppPhone(input) {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
                 }
-                try { window.open('sorunlar.html', '_blank'); } catch (e) { location.href = 'sorunlar.html'; }
+                location.href = 'sorunlar.html';
             });
 
             document.getElementById('ayarlarMenuButton')?.addEventListener('click', async (ev) => {
@@ -6129,7 +6842,7 @@ function toWhatsAppPhone(input) {
                     if (window.AyarlarGate && typeof window.AyarlarGate.openAyarlarPage === 'function') {
                         await window.AyarlarGate.openAyarlarPage();
                     } else {
-                        try { window.open('ayarlar.html', '_blank'); } catch (e) { location.href = 'ayarlar.html'; }
+                        location.href = 'ayarlar.html';
                     }
                 } catch (e) {
                     console.warn('Ayarlar açılamadı', e);
@@ -6457,6 +7170,14 @@ const sevkYeri = document.getElementById('eslestirmeSevkYeriInput')?.value.trim(
                             let value = e.target.value;
                             if (field === 'cekiciPlaka' || field === 'dorsePlaka') {
                                 value = formatPlakaForInput(value);
+                                if (state.editingId) {
+                                    const vid = state.editingId;
+                                    state.vehicles = (state.vehicles || []).map((v) => {
+                                        if (String(v.id) !== String(vid)) return v;
+                                        return { ...v, [field]: formatTRPlate(value) };
+                                    });
+                                    try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
+                                }
                             }
                             updateFormData(field, value);
                         });
@@ -6858,6 +7579,9 @@ function enterAppWithDelay(ms = 0) {
 
     const runLoad = () => {
       try {
+        if (typeof window.ensureXlsxLoaded === 'function') {
+          window.ensureXlsxLoaded().catch(() => {});
+        }
         if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
           window.SignatureRegistry.loadSignatures(true).catch(() => {});
         }
@@ -7747,7 +8471,7 @@ function setupTakipFormButtons() {
 
             const snap = (() => {
                 try {
-                    const s = {
+                    const s = Object.assign({
                         ts: nowTs,
                         firmaSelect: get('firmaSelect'),
                         firmaKodu: get('firmaKodu'),
@@ -7759,7 +8483,7 @@ function setupTakipFormButtons() {
                         tonaj: get('tonaj'),
                         yuklemeSirasi: get('yuklemeSirasi'),
                         yuklemeNotu: get('yuklemeNotu')
-                    };
+                    }, getTakipFormDriverPayload());
                     const any = Object.keys(s).some(k => k !== 'ts' && String(s[k] || '').trim() !== '');
                     return any ? s : null;
                 } catch (e) { return null; }
@@ -7777,14 +8501,10 @@ function setupTakipFormButtons() {
                   : null,
             };
 
-            // Araç DB'de yoksa kaydet (yazdırma beklemesin; onay sonrası rapora gider)
-            if (plateFromForm && vid !== 'manual') {
+            // Plaka + şoför bilgisini DB ile eşitle (rapor Excel/NETSIS doğru şoförü görsün)
+            if (plateFromForm) {
                 try {
-                    const vehicleExists = await checkVehicleInDatabase(plateFromForm);
-                    if (!vehicleExists) {
-                        console.log('🔍 Araç DB\'de bulunamadı, kaydediliyor:', plateFromForm);
-                        await saveCurrentVehicleToDatabase(plateFromForm);
-                    }
+                    await saveCurrentVehicleToDatabase(plateFromForm);
                 } catch (e) {
                     console.warn('Yazdırma öncesi araç kaydı atlandı:', e);
                 }
@@ -7885,7 +8605,15 @@ if (!window.__escCloseBound) {
     if (window.rpDialog && typeof window.rpDialog.isOpen === 'function' && window.rpDialog.isOpen()) return;
     if (typeof isLoggedIn !== 'undefined' && !isLoggedIn) return;
 
-    // Önce açık modalları kapat
+    // Önce açık modalları kapat (üstteki önce)
+
+    if (document.getElementById('excelReviewOverlay')) {
+      try {
+        closeExcelReviewUI();
+      } catch (_) {}
+      e.preventDefault();
+      return;
+    }
 
     // Yeni Araç Kaydı formu açıksa kapat (login'e dönmesin)
     try {
@@ -7915,6 +8643,15 @@ if (!window.__escCloseBound) {
     const editModal = document.getElementById('editModal');
     if (editModal && !editModal.classList.contains('hidden')) {
       try { editModal.classList.add('hidden'); } catch (_) {}
+      e.preventDefault();
+      return;
+    }
+
+    const ihrModal = document.getElementById('ihracatDetailsModal');
+    if (ihrModal) {
+      try {
+        ihrModal.remove();
+      } catch (_) {}
       e.preventDefault();
       return;
     }
@@ -8538,8 +9275,9 @@ function vehicleCardHTML(vehicle) {
     : `vehicle-card ${issueCardClass(vehicle.cekiciPlaka)}`;
   const overlay = showBlockOverlay ? vehicleCardBlockOverlayHTML(vehicle, isRejected, hasProblems) : '';
   const rejectionInline = rejectionBadgeHTML(vehicle, { hideWhenOverlay: showBlockOverlay });
-  const waMsg = encodeURIComponent('Merhaba ' + formatPlaka(vehicle.cekiciPlaka) + (vehicle.soforAdi ? ' - ' + (vehicle.soforAdi + (vehicle.soforSoyadi ? ' ' + vehicle.soforSoyadi : '')) : ''));
-
+  const waTextPlain = 'Merhaba ' + formatPlaka(vehicle.cekiciPlaka)
+    + (vehicle.soforAdi ? ' - ' + (vehicle.soforAdi + (vehicle.soforSoyadi ? ' ' + vehicle.soforSoyadi : '')) : '');
+  const waPhone = toWhatsAppPhone(vehicle.iletisim);
   const formBtn = showBlockOverlay ? '' : `
     <button type="button" class="vehicle-card__form-btn form-btn" data-vehicle="${dv}" title="Takip Formu">
       <svg class="vehicle-card__form-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -8580,9 +9318,9 @@ ${overlay}
           <span class="vehicle-card__label">İletişim</span>
           <span class="vehicle-card__value vehicle-card__value--contact">
             <span>${vehicle.iletisim}</span>
-            <a class="vehicle-card__wa whatsapp-link form-btn" href="https://web.whatsapp.com/send?phone=${toWhatsAppPhone(vehicle.iletisim)}&text=${waMsg}" target="_blank" rel="noopener noreferrer" title="WhatsApp">
+            ${waPhone ? `<button type="button" class="vehicle-card__wa whatsapp-link" data-wa-phone="${waPhone}" data-wa-text="${escapeAttr(waTextPlain)}" title="WhatsApp — link kopyala (açık sekmede Ctrl+V → Enter)">
               <img src="${WHATSAPP_ICON_SRC}" alt="" width="18" height="18"/>
-            </a>
+            </button>` : ''}
           </span>
         </div>` : ''}
         ${vehicle.tcKimlik ? `<div class="vehicle-card__contact-tc-item">
@@ -8755,7 +9493,7 @@ function openIssuesModal(plateOrEmpty) {
   const plate = (plateOrEmpty || '').trim();
   let url = 'sorunlar.html';
   if (plate) url += '?plate=' + encodeURIComponent(plate);
-  try { window.open(url, '_blank'); } catch (e) { location.href = url; }
+  location.href = url;
 }
 
 function autoOpenIssuesIfExists(plate){
@@ -8869,6 +9607,225 @@ function _ihracatFirmaGroupKey(s) {
   return raw.replace(/[^A-Z0-9]/g, '_') || 'GENEL';
 }
 
+/** Excel’deki her sevkiyat bloğu ayrı (aynı booking + farklı malzeme/HP = ayrı blok) */
+function _ihracatBlockGroupKey(s) {
+  const stored = String(s.blockKey || '').trim();
+  if (stored) return stored;
+
+  const ht = String(s.headerText || '').trim();
+  const malzeme = String(s.malzeme || '').trim();
+  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1];
+  const lot = (ht.match(/LOT\s*NO\s*([\d\s]+)/i) || [])[1];
+  const hp = (ht.match(/HP\s*([\d.,]+\s*-\s*[\d.,]+)/i) || [])[1];
+  const parts = [];
+  if (book) parts.push(`BOOKING_${book}`);
+  else if (lot) parts.push(`LOT_${lot.replace(/\s+/g, '')}`);
+  if (malzeme) parts.push(`M_${malzeme.replace(/\W+/g, '_').slice(0, 36)}`);
+  else if (hp) parts.push(`HP_${hp.replace(/\W+/g, '_')}`);
+  if (parts.length) return parts.join('__');
+  if (ht) return `HDR_${ht.length}_${ht.slice(0, 48).replace(/\W+/g, '_')}`;
+  return `FIRMA_${_ihracatFirmaGroupKey(s)}`;
+}
+
+function _ihracatShortBlockTitle(headerText, malzemeHint) {
+  const ht = String(headerText || '').trim();
+  if (!ht) return '';
+  const yd = _extractFirmaKod(ht);
+  const lot = (ht.match(/LOT\s*NO\s*([\d\s]+)/i) || [])[1];
+  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1];
+  const hp = (ht.match(/HP\s*([\d.,]+\s*-\s*[\d.,]+)/i) || [])[1];
+  const malzeme = String(malzemeHint || '').trim();
+  const parts = [];
+  if (yd) parts.push(yd);
+  if (lot) parts.push(`LOT ${lot.trim()}`);
+  if (book) parts.push(`Booking ${book}`);
+  if (malzeme) parts.push(malzeme);
+  else if (hp) parts.push(`HP ${hp.trim()}`);
+  return parts.join(' · ') || ht.slice(0, 80);
+}
+
+function _ihracatDisplayTonajCell(val) {
+  const s = String(val ?? '').trim();
+  if (!s) return '—';
+  const n = Number(s.replace(/\./g, '').replace(',', '.'));
+  if (!Number.isFinite(n)) return s;
+  if (n >= 1000) {
+    return (n / 1000).toLocaleString('tr-TR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  }
+  return s;
+}
+
+function _ihracatSumItemsTotals(items) {
+  const sumField = (field) => {
+    let total = 0;
+    let any = false;
+    (items || []).forEach((it) => {
+      const n = _ihracatParseNum(it[field]);
+      if (n) {
+        total += n;
+        any = true;
+      }
+    });
+    return any ? String(Math.round(total)) : '0';
+  };
+  const tonaj = sumField('tonajKg');
+  return {
+    bbt: sumField('bbt'),
+    cuval: sumField('cuval'),
+    palet: sumField('palet'),
+    bosBbt: sumField('bosBbt'),
+    bosCuval: sumField('bosCuval'),
+    tonajKg: tonaj,
+    netTonaj: tonaj,
+  };
+}
+
+function _stripPackedQtyFromHeaderLine(s) {
+  return String(s || '')
+    .replace(/\s*\/\s*\d+[\d.,]*\s*BBT\b/gi, '')
+    .replace(/\s*\/\s*\d+[\d.,]*\s*ÇUVAL\b/gi, '')
+    .replace(/\s*\/\s*\d+[\d.,]*\s*CUVAL\b/gi, '')
+    .replace(/\s*\/\s*\d+[\d.,]*\s*PALET\b/gi, '')
+    .replace(/\s*\/\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _ihracatLiveBbtPaletFooterText(items, defaultText) {
+  const sums = _ihracatSumItemsTotals(items || []);
+  const bbt = Math.round(sums.bbt);
+  const palet = Math.round(sums.palet);
+  if (bbt > 0 || palet > 0) return `${bbt} BBT ${palet} PALET`;
+  return String(defaultText || '').trim();
+}
+
+function _ihracatRenderExcelBlockFooterHtml(d, items, rule, black) {
+  const footer = String(d.footerLine || d.bbtPaletSummary || d.noteLine || '').trim();
+  if (!footer) return '';
+  if (d.isFooterNote) {
+    return `<div style="${rule}"><div style="${black}" data-ihr-footer-is-note="1">${escapeHtml(footer)}</div></div>`;
+  }
+  if (d.isBbtFooter || /^\d+\s*BBT/i.test(footer)) {
+    const shown = _ihracatLiveBbtPaletFooterText(items, footer);
+    return `<div style="${rule}"><div style="${black}" data-ihr-header-bbt-palet="1" data-ihr-header-bbt-palet-default="${escapeHtml(footer)}">${escapeHtml(shown)}</div></div>`;
+  }
+  return `<div style="${rule}"><div style="${black}">${escapeHtml(footer)}</div></div>`;
+}
+
+/** Excel üst bilgi kutusu — export altında BBT özeti veya müşteri notu */
+function _ihracatRenderExcelBlockHeader(sample, items) {
+  const d = _buildIhracatHeaderDisplay(sample);
+  if (!d.blackLine1 && !d.exportLine && !d.portLine && !d.borusanLine && !d.footerLine) return '';
+  const rule = 'border-top:1px solid #000;padding:6px 8px 5px;';
+  const black = 'color:#000;font-weight:700;font-size:11px;line-height:1.4;text-align:center;margin:0;';
+  const red = 'color:#991b1b;font-weight:700;font-size:10px;line-height:1.35;text-align:center;margin:0;';
+  const redRef =
+    'color:#991b1b;font-weight:600;font-size:10px;line-height:1.35;text-align:center;margin:0;word-break:break-word;';
+  const wrap =
+    'margin:0 0 12px;border:1px solid #000;border-radius:4px;background:#fff;overflow:hidden;';
+  const port = d.portLine || d.borusanLine;
+  const line2 = _stripPackedQtyFromHeaderLine(d.blackLine2);
+  let html = `<div class="ihr-excel-desc" style="${wrap}">`;
+  html += '<div class="ihr-excel-desc-top" style="padding:8px 10px 6px;">';
+  if (d.blackLine1) html += `<div style="${black}">${escapeHtml(d.blackLine1)}</div>`;
+  if (line2) {
+    html += `<div style="${black}${d.blackLine1 ? 'margin-top:3px;' : ''}">${escapeHtml(line2)}</div>`;
+  }
+  if (port) {
+    html += `<div style="${red}${d.blackLine1 || line2 ? 'margin-top:4px;' : ''}">${escapeHtml(port)}</div>`;
+  }
+  html += '</div>';
+  if (d.exportLine) html += `<div style="${rule}"><div style="${redRef}">${escapeHtml(d.exportLine)}</div></div>`;
+  html += _ihracatRenderExcelBlockFooterHtml(d, items, rule, black);
+  html += '</div>';
+  return html;
+}
+
+function _ihracatRenderExcelBlockHeaderRows(sample, opts) {
+  const d = _buildIhracatHeaderDisplay(sample);
+  if (!d.blackLine1 && !d.exportLine && !d.portLine) return '';
+  const cols = Number(opts?.colSpan) > 0 ? Number(opts.colSpan) : 8;
+  const td =
+    'border:1px solid #ddd;padding:7px 8px;font-size:11px;text-align:center;vertical-align:middle;line-height:1.4;';
+  const tdBlack = `${td}background:#fff;color:#000;font-weight:700;`;
+  const tdRed = `${td}background:#fff;color:#991b1b;font-weight:700;font-size:10px;`;
+  const tdRedRef = `${td}background:#fff;color:#991b1b;font-weight:600;font-size:10px;word-break:break-word;`;
+  const tdPlan = `${td}background:#f8fafc;color:#000;font-weight:700;`;
+  const row = (inner, style) =>
+    `<tr class="ihr-sheet-meta-row"><td colspan="${cols}" style="${style}">${inner}</td></tr>`;
+  const out = [];
+  const port = d.portLine || d.borusanLine;
+  const line2 = _stripPackedQtyFromHeaderLine(d.blackLine2);
+  if (d.blackLine1) out.push(row(escapeHtml(d.blackLine1), tdBlack));
+  if (line2) out.push(row(escapeHtml(line2), tdBlack));
+  if (port) out.push(row(escapeHtml(port), tdRed));
+  if (d.exportLine) out.push(row(escapeHtml(d.exportLine), tdRedRef));
+  const footer = String(d.footerLine || d.bbtPaletSummary || d.noteLine || '').trim();
+  if (footer) {
+    if (d.isFooterNote) {
+      out.push(row(escapeHtml(footer), tdPlan));
+    } else if (d.isBbtFooter || /^\d+\s*BBT/i.test(footer)) {
+      const shown = _ihracatLiveBbtPaletFooterText(null, footer);
+      out.push(
+        row(
+          `<span data-ihr-header-bbt-palet="1">${escapeHtml(shown)}</span>`,
+          tdPlan
+        )
+      );
+    } else {
+      out.push(row(escapeHtml(footer), tdPlan));
+    }
+  }
+  return out.join('');
+}
+
+function _ihracatRenderExcelToplamRow(excelTotals, items) {
+  const live = _ihracatSumItemsTotals(items);
+  const t = excelTotals && Object.values(excelTotals).some((v) => String(v).trim() !== '')
+    ? excelTotals
+    : live;
+  const cell = (val, extra) => {
+    const raw = String(val ?? '').trim();
+    const shown = raw ? escapeHtml(_ihracatDisplayTonajCell(raw)) : '0';
+    return `<td style="border:1px solid #000;padding:6px 8px;text-align:center;font-weight:800;font-size:12px;${extra || ''}">${shown}</td>`;
+  };
+  const th = 'border:1px solid #000;padding:5px 6px;font-size:10px;font-weight:800;text-align:center;background:#fef9c3;';
+  const thPeach = 'border:1px solid #000;padding:5px 6px;font-size:10px;font-weight:800;text-align:center;background:#fed7aa;';
+  const thGrey = 'border:1px solid #000;padding:5px 6px;font-size:10px;font-weight:800;text-align:center;background:#e5e7eb;';
+  const farkStyle = String(t.fark || '').trim().startsWith('-') ? 'background:#e5e7eb;' : 'background:#bbf7d0;';
+  return `
+    <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;">
+      <thead>
+        <tr>
+          <th colspan="2" style="${th}">TOPLAM</th>
+          <th style="${th}">BBT</th>
+          <th style="${th}">ÇUVAL</th>
+          <th style="${th}">PALET</th>
+          <th style="${th}">BOŞ BBT</th>
+          <th style="${th}">BOŞ ÇUVAL</th>
+          <th style="${thPeach}">NET TONAJ</th>
+          <th style="${thPeach}">O.GR. TONAJ</th>
+          <th style="${thPeach}">GİDEN TONAJ</th>
+          <th style="${thGrey}">FARK</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:#fef08a;">
+          <td colspan="2" style="border:1px solid #000;padding:6px 8px;font-weight:900;text-align:center;background:#fef08a;">TOPLAM</td>
+          ${cell(t.bbt)}
+          ${cell(t.cuval)}
+          ${cell(t.palet)}
+          ${cell(t.bosBbt)}
+          ${cell(t.bosCuval)}
+          ${cell(t.netTonaj, 'background:#ffedd5;')}
+          ${cell(t.ogrTonaj, 'background:#ffedd5;')}
+          ${cell(t.gidenTonaj, 'background:#ffedd5;')}
+          ${cell(t.fark, farkStyle)}
+        </tr>
+      </tbody>
+    </table>`;
+}
+
 function _defaultSevkForShipment(s) {
   const direct = String(s.sevkYeri || '').trim();
   if (direct) return direct;
@@ -8937,13 +9894,10 @@ function _applyExcelShipmentFieldsToTakipForm(chosen) {
   }
 
   applyShipmentTonajAndIrsaliye(chosen);
-  if (yuklemeNotu && chosen.yuklemeNotu && !String(yuklemeNotu.value || '').trim()) {
-    yuklemeNotu.value = String(chosen.yuklemeNotu);
-  }
 }
 
 function _ihracatReadRowFields(row, cur, blockSevk, blockAmb) {
-  const gk = _ihracatFirmaGroupKey(cur);
+  const gk = _ihracatBlockGroupKey(cur);
   const plakaInp = row.querySelector('[data-field="plaka"]');
   const plakaText = row.querySelector('[data-field="plaka-text"]');
   const plaka = plakaInp
@@ -9067,20 +10021,329 @@ function _ihracatFindVehicleByPlate(plateRaw) {
   }) || null;
 }
 
-function _ihracatAmbalajCellHtml(inpStyle, s) {
+const IHR_AMBALAJ_GRID_STYLE =
+  'display:grid;grid-template-columns:repeat(6,minmax(0,auto));gap:2px 4px;justify-items:center;align-items:center;';
+const IHR_AMBALAJ_LABEL_STYLE = 'font-size:9px;color:#64748b;white-space:nowrap;line-height:1.1;text-align:center;';
+const IHR_AMBALAJ_INP_STYLE = 'width:28px;min-width:28px;max-width:32px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;';
+const IHR_AMBALAJ_INP_WIDE_STYLE =
+  'width:42px;min-width:42px;max-width:48px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;';
+const IHR_AMBALAJ_INP_BOS_CUVAL_STYLE = IHR_AMBALAJ_INP_WIDE_STYLE;
+const IHR_CUVAL_TRANSFER_BTN_STYLE =
+  'width:20px;height:22px;min-width:20px;padding:0;border:1px solid #94a3b8;border-radius:4px;background:#e2e8f0;color:#1e40af;font-size:13px;line-height:1;cursor:pointer;font-weight:700;box-sizing:border-box;';
+const IHR_AMBALAJ_TRANSFER_GAP =
+  '<span style="font-size:9px;line-height:1.1;" aria-hidden="true">&nbsp;</span>';
+const IHR_AMBALAJ_TD_STYLE = 'white-space:nowrap;';
+const IHR_AMBALAJ_FIELDS = [
+  { key: 'bbt', label: 'BBT' },
+  { key: 'bosBbt', label: 'Boş BBT' },
+  { key: 'cuval', label: 'Çuval' },
+  { key: 'bosCuval', label: 'Boş çuval' },
+  { key: 'palet', label: 'Palet' },
+];
+
+function _ihracatAmbalajCuvalTransferBtnHtml() {
+  return `<button type="button" class="ihr-cuval-transfer" title="Boş çuvalı çuvale taşı ve boş çuvalı sil (takip formuna da yansır)" aria-label="Boş çuvalı çuvale aktar" style="${IHR_CUVAL_TRANSFER_BTN_STYLE}">←</button>`;
+}
+
+function _ihracatAmbalajGridHtml(inpStyle, s, opts) {
+  const ambInp = inpStyle || IHR_AMBALAJ_INP_STYLE;
+  const withTransfer = opts?.withTransfer !== false;
   const v = (f) => escapeHtml(String((s && s[f]) || ''));
-  return `<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-    <label style="font-size:10px;color:#64748b;">BBT</label>
-    <input type="text" data-field="bbt" value="${v('bbt')}" style="${inpStyle}" />
-    <label style="font-size:10px;color:#64748b;">Boş</label>
-    <input type="text" data-field="bosBbt" value="${v('bosBbt')}" style="${inpStyle}" />
-    <label style="font-size:10px;color:#64748b;">Çuv</label>
-    <input type="text" data-field="cuval" value="${v('cuval')}" style="${inpStyle}" />
-    <label style="font-size:10px;color:#64748b;">B.Ç</label>
-    <input type="text" data-field="bosCuval" value="${v('bosCuval')}" style="${inpStyle}" />
-    <label style="font-size:10px;color:#64748b;">Pal</label>
-    <input type="text" data-field="palet" value="${v('palet')}" style="${inpStyle}" />
-  </div>`;
+  const ambField = (field) =>
+    `<input type="text" data-field="${field}" value="${v(field)}" maxlength="${_ihracatAmbalajFieldMaxLen(field)}" inputmode="numeric" style="${_ihracatAmbalajFieldInpStyle(field, ambInp)}" />`;
+  const labels = [];
+  const inputs = [];
+  IHR_AMBALAJ_FIELDS.forEach((f) => {
+    labels.push(`<span style="${IHR_AMBALAJ_LABEL_STYLE}">${f.label}</span>`);
+    inputs.push(ambField(f.key));
+    if (f.key === 'cuval') {
+      labels.push(IHR_AMBALAJ_TRANSFER_GAP);
+      inputs.push(
+        withTransfer
+          ? _ihracatAmbalajCuvalTransferBtnHtml()
+          : '<span style="width:20px;" aria-hidden="true"></span>'
+      );
+    }
+  });
+  return `<div class="ihr-ambalaj-grid" style="${IHR_AMBALAJ_GRID_STYLE}">${labels.join('')}${inputs.join('')}</div>`;
+}
+
+function _ihracatAmbalajCellHtml(inpStyle, s) {
+  return _ihracatAmbalajGridHtml(inpStyle, s, { withTransfer: true });
+}
+
+function _ihracatParseNum(val) {
+  const n = Number(String(val ?? '').replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+const IHR_TOPLAM_ROW_BG = '#fffbeb';
+const IHR_TOPLAM_INP_STYLE =
+  'width:100%;max-width:90px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;text-align:left;font-weight:700;background:#fffbeb;color:#0f172a;';
+const IHR_TOPLAM_AMB_INP_STYLE =
+  'width:28px;min-width:28px;max-width:32px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;font-weight:700;background:#fffbeb;color:#0f172a;';
+const IHR_TOPLAM_AMB_INP_WIDE_STYLE =
+  'width:42px;min-width:42px;max-width:48px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;font-weight:700;background:#fffbeb;color:#0f172a;';
+const IHR_TOPLAM_AMB_INP_BOS_CUVAL_STYLE = IHR_TOPLAM_AMB_INP_WIDE_STYLE;
+
+function _ihracatAmbalajFieldInpStyle(field, baseStyle) {
+  const isToplam = baseStyle === IHR_TOPLAM_AMB_INP_STYLE;
+  if (field === 'cuval' || field === 'bosCuval') {
+    return isToplam ? IHR_TOPLAM_AMB_INP_WIDE_STYLE : IHR_AMBALAJ_INP_WIDE_STYLE;
+  }
+  return baseStyle || IHR_AMBALAJ_INP_STYLE;
+}
+
+function _ihracatAmbalajFieldMaxLen(field) {
+  return field === 'bosCuval' || field === 'cuval' ? 4 : 2;
+}
+
+function _ihracatSyncTakipAmbalajFromRow(row) {
+  const snap = _ihracatReadRowSnapshot(row);
+  if (!snap) return;
+  const takipModal = document.getElementById('takipFormuModal');
+  if (!takipModal || takipModal.classList.contains('hidden')) return;
+  const plateOnForm = normPlate(document.getElementById('cekiciPlakaBilgi')?.value || '');
+  if (plateOnForm !== snap.plaka) return;
+  const cuvalEl = document.getElementById('cuval');
+  const bosCuvalEl = document.getElementById('bosCuval');
+  if (cuvalEl) cuvalEl.value = snap.cuval || '';
+  if (bosCuvalEl) bosCuvalEl.value = snap.bosCuval || '';
+  try {
+    const patch = { cuval: snap.cuval || '', bosCuval: snap.bosCuval || '' };
+    if (window.__activeExcelShipment && normPlate(window.__activeExcelShipment.plaka) === snap.plaka) {
+      window.__activeExcelShipment = { ...window.__activeExcelShipment, ...patch };
+    }
+    if (window.__lastChosenShipment && normPlate(window.__lastChosenShipment.plaka) === snap.plaka) {
+      window.__lastChosenShipment = { ...window.__lastChosenShipment, ...patch };
+    }
+  } catch (e) {}
+}
+
+function _ihracatPersistSingleRowFromModal(row, modal) {
+  if (!row || !modal) return false;
+  const key = row.getAttribute('data-ihr-row-key');
+  if (!key) return false;
+  const meta = modal.__ihrMeta || (typeof loadDailyMeta === 'function' ? loadDailyMeta() || {} : {});
+  const list = typeof loadDailyShipments === 'function' ? loadDailyShipments() || [] : [];
+  const idx = list.findIndex((s) => _ihracatShipmentKey(s) === key);
+
+  const blockSevk = {};
+  const blockAmb = {};
+  modal.querySelectorAll('[data-ihr-firma-sevk]').forEach((inp) => {
+    blockSevk[inp.getAttribute('data-ihr-firma-sevk')] = String(inp.value || '').trim();
+  });
+  modal.querySelectorAll('[data-ihr-firma-amb]').forEach((inp) => {
+    blockAmb[inp.getAttribute('data-ihr-firma-amb')] = String(inp.value || '').trim();
+  });
+
+  let cur = idx >= 0 ? { ...list[idx] } : null;
+  if (!cur) {
+    const tbody = row.closest('tbody[data-ihr-tbody]');
+    try {
+      cur = { ...JSON.parse(tbody?.getAttribute('data-ihr-template') || '{}'), _ihracatManual: true };
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const updated = _ihracatReadRowFields(row, cur, blockSevk, blockAmb);
+  if (!updated) return false;
+
+  const next = [...list];
+  if (idx >= 0) next[idx] = updated;
+  else next.push(updated);
+
+  const ok = typeof saveDailyShipments === 'function' ? saveDailyShipments(next, meta) : false;
+  if (ok) {
+    try {
+      const shipKey = _ihracatShipmentKey(updated);
+      if (window.__activeExcelShipment && _ihracatShipmentKey(window.__activeExcelShipment) === shipKey) {
+        window.__activeExcelShipment = { ...window.__activeExcelShipment, ...updated };
+      }
+      purgeStrictExcelCaches();
+      rebuildListsFromExcelRows(next);
+      window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
+    } catch (e) {}
+  }
+  return ok;
+}
+
+function _ihracatTransferBosCuvalToCuval(row, modal) {
+  if (!row) return false;
+  const bos = row.querySelector('[data-field="bosCuval"]');
+  const cuval = row.querySelector('[data-field="cuval"]');
+  if (!bos || !cuval) return false;
+  const val = String(bos.value || '').trim();
+  if (!val) return false;
+  cuval.value = val;
+  bos.value = '';
+  cuval.dispatchEvent(new Event('input', { bubbles: true }));
+  cuval.dispatchEvent(new Event('change', { bubbles: true }));
+  bos.dispatchEvent(new Event('input', { bubbles: true }));
+  bos.dispatchEvent(new Event('change', { bubbles: true }));
+
+  const tbody = row.closest('tbody[data-ihr-tbody]');
+  _ihracatRefreshToplamForTbody(tbody);
+
+  const rowKey = row.getAttribute('data-ihr-row-key');
+  const detail = row.nextElementSibling;
+  if (
+    rowKey &&
+    detail &&
+    detail.classList.contains('ihr-detail-row') &&
+    detail.getAttribute('data-ihr-detail-for') === rowKey
+  ) {
+    detail.remove();
+    _ihracatToggleDetailRow(row, modal);
+  }
+
+  const modalEl = modal || document.getElementById('ihracatDetailsModal');
+  if (modalEl) _ihracatPersistSingleRowFromModal(row, modalEl);
+  _ihracatSyncTakipAmbalajFromRow(row);
+  return true;
+}
+
+function _ihracatBindCuvalTransfer(modal) {
+  if (!modal || modal.dataset.ihrCuvalXferBound === '1') return;
+  modal.dataset.ihrCuvalXferBound = '1';
+  modal.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ihr-cuval-transfer');
+    if (!btn) return;
+    e.preventDefault();
+    const row = btn.closest('tr[data-ihr-row-key]');
+    if (!row) return;
+    if (!_ihracatTransferBosCuvalToCuval(row, modal)) {
+      if (typeof showToast === 'function') showToast('Boş çuval alanı boş.', 'info');
+    }
+  });
+}
+
+function _ihracatToplamAmbalajHtml(totals) {
+  const sumVal = (key) => {
+    const n = _ihracatParseNum(totals && totals[key]);
+    return n > 0 ? String(Math.round(n)) : '0';
+  };
+  const labels = [];
+  const inputs = [];
+  IHR_AMBALAJ_FIELDS.forEach((f) => {
+    labels.push(`<span style="${IHR_AMBALAJ_LABEL_STYLE}">${f.label}</span>`);
+    inputs.push(
+      `<input type="text" readonly tabindex="-1" aria-readonly="true" data-ihr-sum="${f.key}" value="${escapeHtml(sumVal(f.key))}" style="${_ihracatAmbalajFieldInpStyle(f.key, IHR_TOPLAM_AMB_INP_STYLE)}" />`
+    );
+    if (f.key === 'cuval') {
+      labels.push(IHR_AMBALAJ_TRANSFER_GAP);
+      inputs.push('<span style="width:20px;" aria-hidden="true"></span>');
+    }
+  });
+  return `<div class="ihr-ambalaj-grid" style="${IHR_AMBALAJ_GRID_STYLE}">${labels.join('')}${inputs.join('')}</div>`;
+}
+
+/** Tablo altı özet satırı — plaka satırı gibi hizalı, "TOPLAM" yazısı yok */
+function _ihracatToplamRowHtml(items) {
+  const t = _ihracatSumItemsTotals(items || []);
+  const tonajShown = escapeHtml(String(t.tonajKg || '0'));
+  const td = `border:1px solid #ddd;padding:6px;vertical-align:middle;background:${IHR_TOPLAM_ROW_BG};`;
+  return `
+    <tr data-ihr-toplam-row="1" style="background:${IHR_TOPLAM_ROW_BG};">
+      <td style="${IHR_PLAKA_TD_STYLE}${td}"></td>
+      <td style="${td}"></td>
+      <td style="${td}"></td>
+      <td style="${td}">
+        <input type="text" readonly tabindex="-1" aria-readonly="true" data-ihr-sum="tonajKg" value="${tonajShown}" style="${IHR_TOPLAM_INP_STYLE}" />
+      </td>
+      <td style="${td}${IHR_AMBALAJ_TD_STYLE}">${_ihracatToplamAmbalajHtml(t)}</td>
+      <td style="${td}text-align:center;color:#94a3b8;font-size:11px;">—</td>
+      <td style="${td}"></td>
+      <td style="${td}"></td>
+    </tr>`;
+}
+
+function _ihracatPrintToplamRowHtml(items) {
+  const t = _ihracatSumItemsTotals(items || []);
+  const cell = (val) => {
+    const raw = String(val ?? '').trim() || '0';
+    return `<td style="border:1px solid #000;padding:6px 8px;text-align:center;font-weight:700;background:#fffbeb;">${escapeHtml(raw)}</td>`;
+  };
+  return `
+    <tr class="ihr-print-toplam" style="background:#fffbeb;">
+      <td style="border:1px solid #000;padding:6px 8px;background:#fffbeb;"></td>
+      <td style="border:1px solid #000;padding:6px 8px;background:#fffbeb;"></td>
+      ${cell(t.tonajKg)}
+      ${cell(t.bbt)}
+      ${cell(t.bosBbt)}
+      ${cell(t.cuval)}
+      ${cell(t.bosCuval)}
+      ${cell(t.palet)}
+    </tr>`;
+}
+
+function _ihracatSetToplamCell(topRow, key, val) {
+  const el = topRow.querySelector(`[data-ihr-sum="${key}"]`);
+  if (!el) return;
+  const shown = val > 0 ? String(Math.round(val)) : '0';
+  if (el.tagName === 'INPUT') el.value = shown;
+  else el.textContent = shown;
+}
+
+function _ihracatSumRowsInTbody(tbody) {
+  const sums = { tonajKg: 0, bbt: 0, bosBbt: 0, cuval: 0, bosCuval: 0, palet: 0 };
+  if (!tbody) return sums;
+  tbody.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
+    if (row.getAttribute('data-ihr-is-new') === '1') {
+      const plateInp = row.querySelector('[data-field="plaka"]');
+      if (!String(plateInp?.value || '').trim() && !row.querySelector('[data-field="plaka-text"]')?.textContent?.trim()) {
+        return;
+      }
+    }
+    sums.tonajKg += _ihracatParseNum(row.querySelector('[data-field="tonaj"]')?.value);
+    IHR_AMBALAJ_FIELDS.forEach(({ key }) => {
+      sums[key] += _ihracatParseNum(row.querySelector(`[data-field="${key}"]`)?.value);
+    });
+  });
+  return sums;
+}
+
+function _ihracatRefreshToplamForTbody(tbody) {
+  if (!tbody) return;
+  const sums = _ihracatSumRowsInTbody(tbody);
+  const topRow = tbody.querySelector('tr[data-ihr-toplam-row]');
+  if (topRow) {
+    _ihracatSetToplamCell(topRow, 'tonajKg', sums.tonajKg);
+    IHR_AMBALAJ_FIELDS.forEach(({ key }) => _ihracatSetToplamCell(topRow, key, sums[key]));
+  }
+  const section = tbody.closest('[data-ihr-block-section]');
+  const bbtPaletEl = section?.querySelector('[data-ihr-header-bbt-palet]');
+  if (bbtPaletEl && !bbtPaletEl.closest('[data-ihr-footer-is-note]')) {
+    const bbt = Math.round(sums.bbt);
+    const palet = Math.round(sums.palet);
+    if (bbt > 0 || palet > 0) {
+      bbtPaletEl.textContent = `${bbt} BBT ${palet} PALET`;
+    } else {
+      const def = bbtPaletEl.getAttribute('data-ihr-header-bbt-palet-default') || '';
+      if (def) bbtPaletEl.textContent = def;
+    }
+  }
+}
+
+function _ihracatBindToplamLiveUpdate(modal) {
+  if (!modal || modal.dataset.ihrToplamBound === '1') return;
+  modal.dataset.ihrToplamBound = '1';
+  const onChange = (e) => {
+    const t = e.target;
+    if (
+      !t ||
+      !t.matches(
+        '[data-field="tonaj"], [data-field="bbt"], [data-field="bosBbt"], [data-field="cuval"], [data-field="bosCuval"], [data-field="palet"]'
+      )
+    ) {
+      return;
+    }
+    _ihracatRefreshToplamForTbody(t.closest('tbody[data-ihr-tbody]'));
+  };
+  modal.addEventListener('input', onChange);
+  modal.addEventListener('change', onChange);
+  modal.querySelectorAll('tbody[data-ihr-tbody]').forEach(_ihracatRefreshToplamForTbody);
 }
 
 function _ihracatStripNewPlateQtyFields(snap) {
@@ -9099,7 +10362,7 @@ function _ihracatStripNewPlateQtyFields(snap) {
 
 function _ihracatClearNewPlateQtyOnRow(row, inpStyle) {
   if (!row) return;
-  const style = inpStyle || 'width:100%;max-width:72px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;';
+  const style = inpStyle || IHR_AMBALAJ_INP_STYLE;
   const tonajInp = row.querySelector('[data-field="tonaj"]');
   if (tonajInp) {
     tonajInp.value = '';
@@ -9246,7 +10509,7 @@ function _ihracatPersistPendingShipment(ctx) {
   const rows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []).slice() : [];
   const snap = ctx.pendingShipment || {};
   const template = ctx.template || {};
-  const gk = _ihracatFirmaGroupKey({ firma: snap.firma || template.firma, ydKey: template.ydKey });
+  const gk = _ihracatBlockGroupKey({ ...template, firma: snap.firma || template.firma, ydKey: template.ydKey });
 
   const isNewPlateRow = !!ctx.forceAdd;
   const newShipment = {
@@ -9360,7 +10623,7 @@ function _ihracatOpenVehicleRegistration(plateRaw, opts) {
       if (k) blockAmb[k] = String(inp.value || '').trim();
     });
   }
-  const gk = _ihracatFirmaGroupKey({ firma: snap.firma || template.firma, ydKey: template.ydKey });
+  const gk = _ihracatBlockGroupKey({ ...template, firma: snap.firma || template.firma, ydKey: template.ydKey });
   if (blockSevk[gk]) snap.sevkYeri = blockSevk[gk];
   if (blockAmb[gk]) {
     snap.ambalaj = blockAmb[gk];
@@ -9643,7 +10906,9 @@ function _ihracatBindRowActions(modal, statusApi) {
       }
       const detail = row.nextElementSibling;
       if (detail && detail.classList.contains('ihr-detail-row')) detail.remove();
+      const tbody = row.closest('tbody[data-ihr-tbody]');
       row.remove();
+      _ihracatRefreshToplamForTbody(tbody);
       const saved = _ihracatDeleteShipmentRow(key, plate);
       if (saved) showToast(plate ? `🗑️ ${plate} silindi.` : '🗑️ Satır silindi.', 'success');
       else if (key) showToast('Satır kaldırıldı. Değişiklikleri Kaydet ile de onaylayabilirsiniz.', 'info');
@@ -9762,12 +11027,62 @@ function _ihracatToggleDetailRow(row, modal) {
   row.insertAdjacentHTML('afterend', _ihracatDetailRowHtml(key, snap, vehicle));
 }
 
+function _ihracatBuildShipmentFromDetailRow(row, modal) {
+  const snap = _ihracatReadRowSnapshot(row);
+  if (!snap) return null;
+  const section = row.closest('[data-ihr-block-section]');
+  const sevk = String(section?.querySelector('[data-ihr-firma-sevk]')?.value || '').trim();
+  const amb = String(section?.querySelector('[data-ihr-firma-amb]')?.value || '').trim();
+  let template = {};
+  try {
+    const tbody = row.closest('tbody[data-ihr-tbody]');
+    template = JSON.parse(tbody?.getAttribute('data-ihr-template') || '{}');
+  } catch (e) {}
+  const irs = normalizeIrsaliyeNo(snap.irsaliyeNo || template.irsaliyeNo || '');
+  return {
+    ...template,
+    plaka: snap.plaka,
+    firma: snap.firma || template.firma || '',
+    malzeme: snap.malzeme || template.malzeme || '',
+    tonajKg: snap.tonajKg,
+    bbt: snap.bbt,
+    bosBbt: snap.bosBbt,
+    cuval: snap.cuval,
+    bosCuval: snap.bosCuval,
+    palet: snap.palet,
+    irsaliyeNo: irs,
+    id: irs || template.id || '',
+    sevkYeri: sevk || template.sevkYeri || '',
+    ambalaj: amb || template.ambalaj || '',
+    ambalajBilgisi: amb || template.ambalajBilgisi || '',
+    _ihracatEdited: true,
+  };
+}
+
+function _ihracatParkDetailsModal(modalEl) {
+  const modal = modalEl || document.getElementById('ihracatDetailsModal');
+  if (!modal) return;
+  window.__ihracatParkedDetailsModal = modal;
+  modal.style.visibility = 'hidden';
+  modal.style.pointerEvents = 'none';
+}
+
+function _ihracatRestoreParkedDetailsModal() {
+  const modal = window.__ihracatParkedDetailsModal;
+  window.__ihracatParkedDetailsModal = null;
+  if (!modal || !modal.isConnected) return;
+  modal.style.visibility = '';
+  modal.style.pointerEvents = '';
+}
+window._ihracatRestoreParkedDetailsModal = _ihracatRestoreParkedDetailsModal;
+
 async function _ihracatOpenFullTakipFromRow(row, modal) {
   const snap = _ihracatReadRowSnapshot(row);
   if (!snap) {
     showToast('❌ Önce geçerli bir plaka girin.');
     return;
   }
+  const prefilled = _ihracatBuildShipmentFromDetailRow(row, modal);
   let vehicle = _ihracatFindVehicleByPlate(snap.plaka);
   if (!vehicle) {
     vehicle = {
@@ -9793,13 +11108,16 @@ async function _ihracatOpenFullTakipFromRow(row, modal) {
       defaultMalzeme: snap.malzeme || vehicle.defaultMalzeme || '',
     };
   }
-  try {
-    modal?.remove();
-  } catch (e) {}
+  vehicle._ihracatTakipApplyOpts = {
+    prefilledShipment: prefilled,
+    skipExcelReview: true,
+  };
+  _ihracatParkDetailsModal(modal);
   showTakipFormu(vehicle);
-  try {
-    await applyShipmentToTakipForm(vehicle);
-  } catch (e) {}
+  const takipModal = document.getElementById('takipFormuModal');
+  if (takipModal) {
+    takipModal.style.zIndex = '10050';
+  }
 }
 
 function _ihracatBindTakipPanel(modal) {
@@ -9896,7 +11214,9 @@ function _ihracatBindModalPlateAdd(modal, statusApi) {
     });
     if (storedKey) row.setAttribute('data-ihr-row-key', storedKey);
 
-    tbody?.insertAdjacentHTML('beforeend', `
+    _ihracatRefreshToplamForTbody(tbody);
+
+    const addRowMarkup = `
       <tr data-ihr-add-row="1" style="background:#fffbeb;color:#92400e;">
         <td style="${IHR_PLAKA_TD_STYLE}">${_ihracatPlakaCellHtml('', true, true)}</td>
         <td data-field="firma" style="border:1px solid #ddd;padding:6px;font-size:11px;color:#94a3b8;">—</td>
@@ -9907,9 +11227,13 @@ function _ihracatBindModalPlateAdd(modal, statusApi) {
         <td style="border:1px solid #ddd;padding:6px;"><input type="text" data-field="irsaliye" value="" style="${rowInpStyle}max-width:130px;" disabled /></td>
         <td data-field="durum" style="border:1px solid #ddd;padding:6px;font-size:11px;">Plaka girin</td>
       </tr>
-    `);
+    `;
+    const topRow = tbody?.querySelector('tr[data-ihr-toplam-row]');
+    if (topRow) topRow.insertAdjacentHTML('beforebegin', addRowMarkup);
+    else tbody?.insertAdjacentHTML('beforeend', addRowMarkup);
     const newAdd = tbody?.querySelector('tr[data-ihr-add-row]:last-of-type');
     if (newAdd) bindAddRow(newAdd, onPlateCommit);
+    _ihracatRefreshToplamForTbody(tbody);
   };
 
   modal.querySelectorAll('tr[data-ihr-add-row]').forEach((row) => bindAddRow(row, onPlateCommit));
@@ -9919,8 +11243,47 @@ function _ihracatPad2(n) {
   return String(n).padStart(2, '0');
 }
 
+/** Takip formundan yazdırılmış / çıkış yapmış plaka (araç veya rapor kaydı). */
+function _ihracatPlateHasCheckout(plateRaw, meta) {
+  const key = _ihracatPlateKey(plateRaw);
+  if (!key) return false;
+
+  const v = _ihracatFindVehicleByPlate(plateRaw);
+  if (v && (Number(v.printCount || 0) || 0) > 0) {
+    const snapTs = Number(v.lastPrintSnapshot?.ts || v.lastPrintSnapshot?.timestamp || 0);
+    const importTs = Number(new Date(meta?.importedAt || 0));
+    if (!importTs || !snapTs || snapTs >= importTs) return true;
+    return true;
+  }
+
+  try {
+    for (const r of state.reports || []) {
+      if (!r || r.type !== 'PRINT') continue;
+      const d = r.data || {};
+      const plates = [d.plaka, d.plate, d.cekiciPlaka, d.dorsePlaka];
+      for (const raw of plates) {
+        const p = normPlate(raw || '');
+        if (p && _ihracatPlateKey(p) === key) return true;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+/** Yazdırma: yalnızca takip formundan çıkış yapan plakalar işaretlenir. */
+function _ihracatRowHasCheckout(row, updated, cur, statusApi, meta) {
+  const plate = updated.plaka;
+  const cellText = String(row.querySelector('[data-field="durum"]')?.getAttribute('data-ihr-durum-text') || '').trim();
+  return (
+    cur._status === 'printed' ||
+    statusApi.statusForPlate(plate) === 'printed' ||
+    _ihracatPlateHasCheckout(plate, meta) ||
+    /yazdır/i.test(cellText)
+  );
+}
+
 /** Modaldeki güncel değerleri yazdırma için topla (Kaydet gerekmez). */
-function _ihracatCollectModalRowsForPrint(modal, originalShipments, statusApi) {
+function _ihracatCollectModalRowsForPrint(modal, originalShipments, statusApi, meta) {
   if (!modal) return [];
   const blockSevk = {};
   const blockAmb = {};
@@ -9937,6 +11300,7 @@ function _ihracatCollectModalRowsForPrint(modal, originalShipments, statusApi) {
   });
 
   const rows = [];
+  let domOrder = 0;
   modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
     const key = row.getAttribute('data-ihr-row-key');
     if (!key) return;
@@ -9956,14 +11320,14 @@ function _ihracatCollectModalRowsForPrint(modal, originalShipments, statusApi) {
     const updated = _ihracatReadRowFields(row, cur, blockSevk, blockAmb);
     if (!updated) return;
 
-    const gk = _ihracatFirmaGroupKey(updated);
-    const st = statusApi.statusForPlate(updated.plaka);
-    const durumCell = row.querySelector('[data-field="durum"]');
-    const durumText = durumCell?.getAttribute('data-ihr-durum-text')
-      || statusApi.durumLabel(st, updated.plaka);
+    const gk = _ihracatBlockGroupKey(updated);
+    const hasCikis = _ihracatRowHasCheckout(row, updated, cur, statusApi, meta);
+    const durumText = hasCikis ? 'Çıkış yaptı' : '';
+    const st = hasCikis ? 'printed' : statusApi.statusForPlate(updated.plaka);
 
     rows.push({
       ...updated,
+      _domOrder: domOrder++,
       _status: st,
       _durumText: durumText,
       _blockSevk: blockSevk[gk] || updated.sevkYeri || '',
@@ -10063,14 +11427,9 @@ function _ihracatCollectPrintedExitRows(shipments, meta, existingRows) {
   return out;
 }
 
+/** Yazdırma = modalde görünen satırlar (WYSIWYG); ek plaka / sıra değişikliği yok. */
 function _ihracatPrepareRowsForPrint(modal, shipments, meta, statusApi) {
-  const fromModal = _ihracatCollectModalRowsForPrint(modal, shipments, statusApi);
-  const marked = fromModal.map((r) => ({
-    ...r,
-    _cikisYapti: r._status === 'printed',
-  }));
-  const extra = _ihracatCollectPrintedExitRows(shipments, meta, marked);
-  return marked.concat(extra);
+  return _ihracatCollectModalRowsForPrint(modal, shipments, statusApi, meta);
 }
 
 function _ihracatGroupPrintRows(rows, meta) {
@@ -10088,6 +11447,15 @@ function _ihracatGroupPrintRows(rows, meta) {
   return { files, grouped };
 }
 
+/** Yazdırma: plaka sayısına göre blok sıkıştırma (sayfada bölünmesin diye) */
+function _ihracatPrintFirmaSizeClass(plakaCount) {
+  const n = Number(plakaCount) || 0;
+  if (n > 14) return 'ihr-print-firma--xs';
+  if (n > 9) return 'ihr-print-firma--sm';
+  if (n > 6) return 'ihr-print-firma--md';
+  return '';
+}
+
 function _printIhracatDetailsFromModal(modal, ctx) {
   const { shipments, meta, ihracatStatusApi } = ctx || {};
   const rows = _ihracatPrepareRowsForPrint(modal, shipments, meta, ihracatStatusApi);
@@ -10095,7 +11463,7 @@ function _printIhracatDetailsFromModal(modal, ctx) {
     alert('Yazdırılacak sevkiyat satırı yok.');
     return;
   }
-  const cikisCount = rows.filter((r) => r._cikisYapti).length;
+  const cikisCount = rows.filter((r) => r._status === 'printed').length;
 
   const tarih = meta?.dateKey
     ? meta.dateKey.replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1')
@@ -10111,13 +11479,13 @@ function _printIhracatDetailsFromModal(modal, ctx) {
 
   const plakaCellHtml = (r) => {
     const plate = String(r.plaka || '').trim();
-    const cikis = !!(r._cikisYapti || r._status === 'printed');
+    const durum = String(r._durumText || '').trim();
     return `<td class="c-plaka">${plate ? escapeHtml(plate) : '—'}${
-      cikis ? '<div class="c-cikis">Çıkış yaptı</div>' : ''
+      durum ? `<div class="c-durum">${escapeHtml(durum)}</div>` : ''
     }</td>`;
   };
 
-  const printRowHtml = (r) => `<tr${r._cikisYapti ? ' class="row-cikis"' : ''}>
+  const printRowHtml = (r) => `<tr${r._status === 'printed' ? ' class="row-printed"' : ''}>
       ${plakaCellHtml(r)}
       ${cell(r.malzeme, 'c-malzeme')}
       ${cell(r.tonajKg, 'c-num')}
@@ -10128,53 +11496,89 @@ function _printIhracatDetailsFromModal(modal, ctx) {
       ${cell(r.palet, 'c-num')}
     </tr>`;
 
-  const firmaSectionHtml = (firma, items) => {
-    const sortedItems = [...items].sort((a, b) => {
-      const ca = a._cikisYapti ? 1 : 0;
-      const cb = b._cikisYapti ? 1 : 0;
-      if (ca !== cb) return ca - cb;
-      return String(a.plaka || '').localeCompare(String(b.plaka || ''), 'tr');
-    });
+  const blockSectionHtml = (sectionTitle, items) => {
+    const sortedItems = [...items].sort(
+      (a, b) => (a._domOrder ?? 0) - (b._domOrder ?? 0)
+    );
     const sample = sortedItems[0] || {};
     const sevk = String(sample._blockSevk || sample.sevkYeri || '').trim();
     const amb = String(sample._blockAmb || sample.ambalaj || sample.ambalajBilgisi || '').trim();
     const malzeme = String(sample.malzeme || '').trim();
-    const firmaCikis = sortedItems.filter((it) => it._cikisYapti).length;
+    const firmaCikis = sortedItems.filter((it) => it._status === 'printed').length;
+    const excelDescHtml = _ihracatRenderExcelBlockHeader(sample, sortedItems);
+    const printToplamHtml = _ihracatPrintToplamRowHtml(sortedItems);
+    const sizeCls = _ihracatPrintFirmaSizeClass(sortedItems.length);
     return `
-      <div class="ihr-print-firma">
+      <div class="ihr-print-block-unit ihr-print-firma ${sizeCls}">
         <div class="ihr-print-firma-head">
-          <strong>${escapeHtml(firma)}</strong>
-          ${malzeme ? `<span class="ihr-print-malzeme">${escapeHtml(malzeme)}</span>` : ''}
+          <strong>${escapeHtml(sectionTitle)}</strong>
           <span class="ihr-print-firma-meta">${sortedItems.length} plaka${firmaCikis ? ` · ${firmaCikis} çıkış yaptı` : ''}</span>
         </div>
+        <div class="ihr-print-excel-box">${excelDescHtml}</div>
         <div class="ihr-print-block-fields">
           <div class="ihr-print-field"><span class="ihr-print-label">Ambalaj bilgisi</span><span class="ihr-print-value">${amb ? escapeHtml(amb) : '—'}</span></div>
           <div class="ihr-print-field"><span class="ihr-print-label">Sevk yeri</span><span class="ihr-print-value">${sevk ? escapeHtml(sevk) : '—'}</span></div>
         </div>
-        <table>
+        <div class="ihr-print-table-shell">
+        <table class="ihr-print-plaka-table">
           <colgroup>
             <col style="width:14%"><col style="width:22%"><col style="width:8%">
             <col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:9%">
           </colgroup>
           <thead>
             <tr>
-              <th>Plaka</th><th>Malzeme</th><th>Kg</th>
-              <th>BBT</th><th>Boş BBT</th><th>Çuv</th><th>B.Ç</th><th>Pal</th>
+              <th>Plaka</th>
+              <th>Malzeme</th>
+              <th>Kg</th>
+              <th>BBT</th>
+              <th>Boş BBT</th>
+              <th>Çuval</th>
+              <th>Boş çuval</th>
+              <th>Palet</th>
             </tr>
           </thead>
-          <tbody>${sortedItems.map(printRowHtml).join('')}</tbody>
+          <tbody>${sortedItems.map(printRowHtml).join('')}${printToplamHtml}</tbody>
         </table>
+        </div>
       </div>`;
   };
 
   const fileSectionHtml = (fileLabel) => {
     const firmas = grouped[fileLabel] || {};
-    const firmaOrder = Object.keys(firmas).sort();
-    const fileCount = firmaOrder.reduce((n, f) => n + (firmas[f]?.length || 0), 0);
+    const blockGroups = {};
+    Object.keys(firmas).forEach((firmaKey) => {
+      (firmas[firmaKey] || []).forEach((item) => {
+        const bk = _ihracatBlockGroupKey(item);
+        if (!blockGroups[bk]) {
+          blockGroups[bk] = {
+            title: _ihracatShortBlockTitle(item.headerText, item.malzeme) || firmaKey,
+            items: [],
+          };
+        }
+        blockGroups[bk].items.push(item);
+      });
+    });
+    const blockOrder = Object.keys(blockGroups).sort((a, b) => {
+      const ra = Number(blockGroups[a].items[0]?.blockHeaderRow) || 0;
+      const rb = Number(blockGroups[b].items[0]?.blockHeaderRow) || 0;
+      return ra - rb;
+    });
+    const fileCount = blockOrder.reduce((n, bk) => n + (blockGroups[bk].items?.length || 0), 0);
+    const blockCount = blockOrder.length;
+    const pairOnPage =
+      blockCount === 2 &&
+      blockOrder.every((bk) => (blockGroups[bk].items?.length || 0) <= 8);
+    const fileCls = [
+      'ihr-print-file',
+      blockCount >= 2 ? 'ihr-print-file--multi' : '',
+      pairOnPage ? 'ihr-print-file--pair' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     return `
-      <div class="ihr-print-file">
+      <div class="${fileCls}">
         <h2>${escapeHtml(fileLabel)} <span class="ihr-print-file-count">(${fileCount} kayıt)</span></h2>
-        ${firmaOrder.map((f) => firmaSectionHtml(f, firmas[f])).join('')}
+        ${blockOrder.map((bk) => blockSectionHtml(blockGroups[bk].title, blockGroups[bk].items)).join('')}
       </div>`;
   };
 
@@ -10204,29 +11608,101 @@ function _printIhracatDetailsFromModal(modal, ctx) {
     .ihr-print-file { margin-bottom: 12px; }
     .ihr-print-file h2 { font-size: 13px; margin: 0 0 8px; font-weight: 800; page-break-after: avoid; }
     .ihr-print-file-count { font-weight: 600; font-size: 11px; }
-    .ihr-print-firma { margin-bottom: 10px; border: 1px solid #000; padding: 8px 10px; break-inside: auto; page-break-inside: auto; }
-    .ihr-print-firma-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 8px; page-break-after: avoid; }
-    .ihr-print-firma-head strong { font-size: 14px; font-weight: 800; }
-    .ihr-print-malzeme { font-size: 12px; font-weight: 700; }
-    .ihr-print-firma-meta { font-size: 10px; margin-left: auto; }
-    .ihr-print-block-fields { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; page-break-after: avoid; }
-    .ihr-print-field { flex: 1; min-width: 200px; padding: 8px 10px; border: 1px solid #000; }
-    .ihr-print-label { display: block; font-size: 9px; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }
-    .ihr-print-value { display: block; font-size: 12px; font-weight: 700; line-height: 1.4; word-break: break-word; }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    thead { display: table-header-group; }
-    tr { break-inside: avoid; page-break-inside: avoid; }
-    th, td { border: 1px solid #000; padding: 6px 8px; vertical-align: middle; word-break: break-word; line-height: 1.35; }
-    th { font-size: 10px; font-weight: 800; text-align: center; }
-    td.c-plaka { font-size: 13px; font-weight: 800; text-align: center; }
-    .c-cikis { font-size: 9px; font-weight: 800; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.02em; }
-    tr.row-cikis td { font-style: normal; }
-    td.c-malzeme { font-size: 12px; font-weight: 700; }
-    td.c-num { font-size: 13px; font-weight: 800; text-align: center; }
-    td.c-bbt { font-size: 15px; font-weight: 800; }
+    .ihr-print-block-unit {
+      display: block;
+      margin: 0 0 12px;
+      padding: 8px 10px;
+      border: 1px solid #000;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .ihr-print-excel-box { margin-bottom: 6px; }
+    .ihr-print-excel-box .ihr-excel-desc { margin: 0 !important; border-radius: 0; }
+    .ihr-print-firma-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+    .ihr-print-firma-head strong { font-size: 13px; font-weight: 800; line-height: 1.3; }
+    .ihr-print-firma-meta { font-size: 10px; margin-left: auto; white-space: nowrap; }
+    .ihr-print-block-fields { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+    .ihr-print-field { flex: 1; min-width: 160px; padding: 5px 7px; border: 1px solid #000; }
+    .ihr-print-label { display: block; font-size: 9px; font-weight: 800; text-transform: uppercase; margin-bottom: 2px; }
+    .ihr-print-value { display: block; font-size: 11px; font-weight: 700; line-height: 1.3; word-break: break-word; }
+    .ihr-print-table-shell {
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .ihr-print-plaka-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0; }
+    .ihr-print-plaka-table thead { display: table-header-group; }
+    .ihr-print-plaka-table th,
+    .ihr-print-plaka-table td { border: 1px solid #000; padding: 5px 6px; vertical-align: middle; word-break: break-word; line-height: 1.25; }
+    .ihr-print-plaka-table th { font-size: 10px; font-weight: 800; text-align: center; background: #f5f5f5; }
+    .ihr-print-toplam td { background: #fffbeb !important; font-weight: 800; }
+    td.c-plaka { font-size: 12px; font-weight: 800; text-align: center; }
+    .c-durum { font-size: 8px; font-weight: 700; margin-top: 2px; line-height: 1.15; }
+    tr.row-printed td { font-style: normal; }
+    td.c-malzeme { font-size: 11px; font-weight: 700; }
+    td.c-num { font-size: 12px; font-weight: 800; text-align: center; }
+    td.c-bbt { font-size: 13px; font-weight: 800; }
+    .ihr-print-firma--md .ihr-print-firma-head strong { font-size: 12px; }
+    .ihr-print-firma--md .ihr-print-plaka-table th,
+    .ihr-print-firma--md .ihr-print-plaka-table td { padding: 4px 5px; font-size: 10px; }
+    .ihr-print-firma--md td.c-plaka { font-size: 11px; }
+    .ihr-print-firma--md td.c-bbt { font-size: 12px; }
+    .ihr-print-firma--md .ihr-excel-desc { font-size: 10px; }
+    .ihr-print-firma--sm { font-size: 10px; }
+    .ihr-print-firma--sm .ihr-print-firma-head strong { font-size: 11px; }
+    .ihr-print-firma--sm .ihr-print-plaka-table th,
+    .ihr-print-firma--sm .ihr-print-plaka-table td { padding: 3px 4px; font-size: 9px; }
+    .ihr-print-firma--sm td.c-plaka { font-size: 10px; }
+    .ihr-print-firma--sm td.c-bbt { font-size: 11px; }
+    .ihr-print-firma--sm .ihr-excel-desc { font-size: 9px; }
+    .ihr-print-firma--sm .ihr-print-field { padding: 4px 6px; }
+    .ihr-print-firma--xs { font-size: 9px; }
+    .ihr-print-firma--xs .ihr-print-firma-head strong { font-size: 10px; }
+    .ihr-print-firma--xs .ihr-print-plaka-table th,
+    .ihr-print-firma--xs .ihr-print-plaka-table td { padding: 2px 3px; font-size: 8px; line-height: 1.15; }
+    .ihr-print-firma--xs td.c-plaka { font-size: 9px; }
+    .ihr-print-firma--xs td.c-bbt { font-size: 10px; }
+    .ihr-print-firma--xs .ihr-excel-desc { font-size: 8px; }
+    .ihr-print-firma--xs .ihr-print-block-unit { padding: 6px 8px; }
+    .ihr-print-file--multi .ihr-print-block-unit:not(.ihr-print-firma--xs):not(.ihr-print-firma--sm) {
+      font-size: 10px;
+    }
+    .ihr-print-file--multi .ihr-print-block-unit:not(.ihr-print-firma--xs):not(.ihr-print-firma--sm) .ihr-print-plaka-table th,
+    .ihr-print-file--multi .ihr-print-block-unit:not(.ihr-print-firma--xs):not(.ihr-print-firma--sm) .ihr-print-plaka-table td {
+      padding: 4px 5px;
+      font-size: 9px;
+    }
+    .ihr-print-file--pair .ihr-print-block-unit {
+      margin-bottom: 8px;
+      padding: 6px 8px;
+    }
+    .ihr-print-file--pair .ihr-print-firma-head strong { font-size: 11px; }
+    .ihr-print-file--pair .ihr-excel-desc { font-size: 9px !important; }
     @media print {
       html, body { margin: 0 !important; padding: 0 !important; }
       body, th, td, .ihr-print-field { background: #fff !important; color: #000 !important; }
+      .ihr-print-block-unit,
+      .ihr-print-table-shell,
+      .ihr-print-excel-box,
+      .ihr-print-block-fields {
+        break-inside: avoid-page !important;
+        page-break-inside: avoid !important;
+        -webkit-column-break-inside: avoid !important;
+      }
+      .ihr-print-plaka-table { page-break-inside: avoid !important; break-inside: avoid-page !important; }
+      .ihr-print-plaka-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
+      .ihr-print-block-unit + .ihr-print-block-unit {
+        page-break-before: auto;
+      }
+      .ihr-print-firma--xs,
+      .ihr-print-firma--sm {
+        page-break-before: always;
+      }
+      .ihr-print-file > .ihr-print-block-unit:first-of-type.ihr-print-firma--xs,
+      .ihr-print-file > .ihr-print-block-unit:first-of-type.ihr-print-firma--sm {
+        page-break-before: auto;
+      }
     }
   </style>
 </head>
@@ -10260,6 +11736,159 @@ function _printIhracatDetailsFromModal(modal, ctx) {
   else frame.onload = () => setTimeout(doPrint, 200);
 }
 
+/** Yazdırılmış plaka: yalnızca yazdırma anındaki plakalar ve hâlâ araç kaydında olanlar sayılır. */
+function _ihracatCollectPrintedCapacityByPlate(meta, excelFirmalar) {
+  const map = new Map();
+  const pk = (value) => _ihracatPlateKey(value);
+  const importTimestamp = Number(new Date(meta?.importedAt || 0));
+  const firmalar = excelFirmalar instanceof Set ? excelFirmalar : new Set();
+
+  const creditKeys = (keys, count) => {
+    const n = Number(count);
+    if (!Number.isFinite(n) || n <= 0) return;
+    keys.forEach((k) => {
+      if (!k) return;
+      map.set(k, Math.max(map.get(k) || 0, n));
+    });
+  };
+
+  (state.vehicles || []).forEach((v) => {
+    const printCount = Number(v.printCount || 0);
+    if (!Number.isFinite(printCount) || printCount <= 0) return;
+    const snap = v.lastPrintSnapshot || {};
+    const snapTs = Number(snap?.ts || snap?.timestamp || 0);
+    if (!Number.isFinite(snapTs) || snapTs <= 0) return;
+    if (importTimestamp && snapTs < importTimestamp) return;
+
+    const snapKeys = new Set();
+    [snap.plaka, snap.cekiciPlaka, snap.dorsePlaka, snap.plate].forEach((raw) => {
+      const k = pk(raw);
+      if (k) snapKeys.add(k);
+    });
+
+    const currentKeys = new Set();
+    [v.cekiciPlaka, v.dorsePlaka, v.plaka].forEach((raw) => {
+      const k = pk(raw);
+      if (k) currentKeys.add(k);
+    });
+
+    let keysToCredit = [];
+    if (snapKeys.size > 0) {
+      keysToCredit = [...snapKeys].filter((k) => currentKeys.has(k));
+    } else {
+      const primary = pk(snap.plaka || v.cekiciPlaka || '');
+      if (primary && currentKeys.has(primary)) keysToCredit = [primary];
+    }
+    creditKeys(keysToCredit, printCount);
+  });
+
+  try {
+    if (state.reports && Array.isArray(state.reports) && firmalar.size > 0) {
+      const now = new Date();
+      const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+      state.reports
+        .filter((r) => r.type === 'PRINT' && Number(r.ts || 0) >= twoDaysAgo.getTime() && firmalar.has(r.firma))
+        .forEach((r) => {
+          const data = r.data || {};
+          [data.cekiciPlaka, data.dorsePlaka, data.plaka, data.plate].forEach((raw) => {
+            const k = pk(raw || '');
+            if (!k || (map.get(k) || 0) > 0) return;
+            const veh = _ihracatFindVehicleByPlate(raw);
+            if (!veh) return;
+            const stillOn = [veh.cekiciPlaka, veh.dorsePlaka, veh.plaka].some((p) => pk(p) === k);
+            if (stillOn) map.set(k, Math.max(map.get(k) || 0, 1));
+          });
+        });
+    }
+  } catch (e) {
+    console.warn('Raporlardan yazdırılma durumu kontrol edilemedi:', e);
+  }
+
+  return map;
+}
+
+function _ihracatCreateStatusApi(meta, excelFirmalar) {
+  const normalizePlate = (value) => normPlate(value || '');
+  const plateKeyFn = (value) => _ihracatPlateKey(value);
+  const statusStyle = {
+    printed: 'background:#fee2e2;color:#991b1b;',
+    pending: 'background:#dcfce7;color:#166534;',
+    missing: 'background:#f1f5f9;color:#0f172a;',
+  };
+
+  const capacityMap = () => _ihracatCollectPrintedCapacityByPlate(meta, excelFirmalar);
+
+  const statusForPlate = (plateRaw) => {
+    const key = plateKeyFn(plateRaw);
+    if (!key) return 'missing';
+    if ((capacityMap().get(key) || 0) > 0) return 'printed';
+    if (_ihracatFindVehicleByPlate(plateRaw)) return 'pending';
+    return 'missing';
+  };
+
+  const getShipmentStatus = (shipment, assignmentCountByPlate) => {
+    const key = plateKeyFn(shipment.plaka || '');
+    if (!key) return 'missing';
+    const allowed = capacityMap().get(key) || 0;
+    if (allowed > 0) {
+      const alreadyAssigned = assignmentCountByPlate.get(key) || 0;
+      assignmentCountByPlate.set(key, alreadyAssigned + 1);
+      return 'printed';
+    }
+    if (_ihracatFindVehicleByPlate(shipment.plaka)) return 'pending';
+    return 'missing';
+  };
+
+  return {
+    normalizePlate,
+    plateKey: plateKeyFn,
+    statusForPlate,
+    getShipmentStatus,
+    statusStyle,
+    durumLabel: (st) => _ihracatDurumPlainText(st, ''),
+    renderDurumHtml: _ihracatRenderDurumHtml,
+    meta,
+    excelFirmalar,
+  };
+}
+
+function _ihracatRefreshOpenModalStatuses() {
+  const modal = document.getElementById('ihracatDetailsModal');
+  if (!modal) return;
+  const meta = modal.__ihrMeta || ((typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {});
+  const firmalar = modal.__ihrExcelFirmalar || new Set();
+  const statusApi = _ihracatCreateStatusApi(meta, firmalar);
+  modal.__ihracatStatusApi = statusApi;
+  modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
+    const plate =
+      row.querySelector('[data-field="plaka-text"]')?.textContent?.trim() ||
+      row.querySelector('[data-field="plaka"]')?.value?.trim() ||
+      '';
+    _ihracatApplyDurumCell(row.querySelector('[data-field="durum"]'), row, plate, statusApi);
+  });
+}
+
+function _ihracatSyncVehiclePlatesFromTakipForm() {
+  const vid = String(window.__activeTakipVehicleId || '').trim();
+  if (!vid) return;
+  const read = (id) => String(document.getElementById(id)?.value || '').trim();
+  let cekici = read('cekiciPlakaBilgi');
+  let dorse = read('dorsePlakaBilgi');
+  try { cekici = formatTRPlate(formatPlakaForInput(cekici)); } catch (_) {}
+  try { dorse = formatTRPlate(formatPlakaForInput(dorse)); } catch (_) {}
+  const patch = (v) => {
+    if (!v || String(v.id) !== vid) return v;
+    return { ...v, cekiciPlaka: cekici || v.cekiciPlaka, dorsePlaka: dorse };
+  };
+  try {
+    if (window.__activeTakipVehicle) window.__activeTakipVehicle = patch(window.__activeTakipVehicle);
+  } catch (_) {}
+  state.vehicles = (state.vehicles || []).map(patch);
+  _ihracatRefreshOpenModalStatuses();
+}
+
+window._ihracatRefreshOpenModalStatuses = _ihracatRefreshOpenModalStatuses;
+
 // İhracat Excel Detay Modal
 function showIhracatDetailsModal() {
   const shipments = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
@@ -10270,25 +11899,6 @@ function showIhracatDetailsModal() {
     return;
   }
 
-  const normalizePlate = (value) => normPlate(value || '');
-
-  const plateKey = (value) => _ihracatPlateKey(value);
-  const excelDateKey = String(meta.dateKey || _todayKeyTR()).trim();
-  const snapshotDateKey = (snap) => {
-    if (!snap) return '';
-    const ts = Number(snap.ts || snap.timestamp || 0);
-    if (Number.isFinite(ts) && ts > 0) {
-      const d = new Date(ts);
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    }
-    if (snap.tarih) {
-      return String(snap.tarih).trim().replace(/(\d{2})\.(\d{2})\.(\d{4})/, '$3-$2-$1');
-    }
-    return '';
-  };
-
-  const importTimestamp = Number(new Date(meta.importedAt || 0));
-
   // Excel'deki firmaları topla (rapor filtreleme için)
   const excelFirmalar = new Set();
   shipments.forEach(s => {
@@ -10296,96 +11906,9 @@ function showIhracatDetailsModal() {
     if (firma) excelFirmalar.add(firma);
   });
 
-  const printedCapacityByPlate = (() => {
-    const map = new Map();
-
-    // 1. Mevcut araçlardan yazdırılmış olanları ekle (Excel tarihinden bağımsız)
-    (state.vehicles || []).forEach((v) => {
-      const snap = v.lastPrintSnapshot;
-      const snapTs = Number(snap?.ts || snap?.timestamp || 0);
-      if (!Number.isFinite(snapTs) || snapTs <= 0) return;
-      if (importTimestamp && snapTs < importTimestamp) return;
-      const printCount = Number(v.printCount || 0);
-      if (!Number.isFinite(printCount) || printCount <= 0) return;
-      [v.cekiciPlaka, v.dorsePlaka].forEach((rawPlate) => {
-        const key = plateKey(rawPlate || '');
-        if (!key) return;
-        const existing = map.get(key) || 0;
-        map.set(key, Math.max(existing, printCount));
-      });
-    });
-
-    // 2. Raporlardan aynı Excel'deki firmalar için son 2 gün yazdırılmış plakaları ekle
-    try {
-      if (state.reports && Array.isArray(state.reports) && excelFirmalar.size > 0) {
-        const now = new Date();
-        const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-
-        state.reports
-          .filter(r => r.type === 'PRINT' && Number(r.ts || 0) >= twoDaysAgo.getTime() && excelFirmalar.has(r.firma))
-          .forEach(r => {
-            const data = r.data || {};
-            const plates = [
-              plateKey(data.cekiciPlaka || ''),
-              plateKey(data.dorsePlaka || '')
-            ].filter(Boolean);
-
-            plates.forEach((key) => {
-              const existing = map.get(key) || 0;
-              map.set(key, Math.max(existing, 1));
-            });
-          });
-      }
-    } catch (e) {
-      console.warn('Raporlardan yazdırılma durumu kontrol edilemedi:', e);
-    }
-
-    return map;
-  })();
-
   const assignmentCountByPlate = new Map();
-
-  const getShipmentStatus = (shipment) => {
-    const key = plateKey(shipment.plaka || '');
-    if (!key) return 'missing';
-
-    const allowed = printedCapacityByPlate.get(key) || 0;
-    if (allowed > 0) {
-      const alreadyAssigned = assignmentCountByPlate.get(key) || 0;
-      if (alreadyAssigned < allowed) {
-        assignmentCountByPlate.set(key, alreadyAssigned + 1);
-        return 'printed';
-      }
-      return 'printed';
-    }
-
-    if (_ihracatFindVehicleByPlate(shipment.plaka)) return 'pending';
-    return 'missing';
-  };
-
-  const statusStyle = {
-    printed: 'background:#fee2e2;color:#991b1b;',
-    pending: 'background:#dcfce7;color:#166534;',
-    missing: 'background:#f1f5f9;color:#0f172a;'
-  };
-
-  const getStatusForPlate = (plateRaw) => {
-    const key = plateKey(plateRaw);
-    if (!key) return 'missing';
-    const allowed = printedCapacityByPlate.get(key) || 0;
-    if (allowed > 0) return 'printed';
-    if (_ihracatFindVehicleByPlate(plateRaw)) return 'pending';
-    return 'missing';
-  };
-
-  const ihracatStatusApi = {
-    normalizePlate,
-    plateKey,
-    statusForPlate: getStatusForPlate,
-    statusStyle,
-    durumLabel: (st) => _ihracatDurumPlainText(st, ''),
-    renderDurumHtml: _ihracatRenderDurumHtml,
-  };
+  const ihracatStatusApi = _ihracatCreateStatusApi(meta, excelFirmalar);
+  const { statusStyle, getShipmentStatus } = ihracatStatusApi;
 
   const getStatus = (shipment) => shipment._status || 'pending';
   const getFileLabel = (shipment) => {
@@ -10399,7 +11922,7 @@ function showIhracatDetailsModal() {
 
   // Aynı plakaya ait birden fazla sevkiyat varsa, yazdırma durumunu sadece yazdırılan miktar kadar atıyoruz.
   shipments.forEach((shipment) => {
-    shipment._status = getShipmentStatus(shipment);
+    shipment._status = getShipmentStatus(shipment, assignmentCountByPlate);
   });
 
   const { collisions: irsCollisions, set: irsCollisionSet } = getIrsaliyeCollisionInfo(shipments);
@@ -10435,19 +11958,8 @@ function showIhracatDetailsModal() {
         <td style="border:1px solid #ddd;padding:6px;">
           <input type="text" data-field="tonaj" value="${escapeHtml(String(s.tonajKg || ''))}" style="${inpStyle}max-width:90px;" inputmode="numeric" />
         </td>
-        <td style="border:1px solid #ddd;padding:6px;">
-          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-            <label style="font-size:10px;color:#64748b;">BBT</label>
-            <input type="text" data-field="bbt" value="${escapeHtml(String(s.bbt || ''))}" style="${inpStyle}" />
-            <label style="font-size:10px;color:#64748b;">Boş</label>
-            <input type="text" data-field="bosBbt" value="${escapeHtml(String(s.bosBbt || ''))}" style="${inpStyle}" />
-            <label style="font-size:10px;color:#64748b;">Çuv</label>
-            <input type="text" data-field="cuval" value="${escapeHtml(String(s.cuval || ''))}" style="${inpStyle}" />
-            <label style="font-size:10px;color:#64748b;">B.Ç</label>
-            <input type="text" data-field="bosCuval" value="${escapeHtml(String(s.bosCuval || ''))}" style="${inpStyle}" />
-            <label style="font-size:10px;color:#64748b;">Pal</label>
-            <input type="text" data-field="palet" value="${escapeHtml(String(s.palet || ''))}" style="${inpStyle}" />
-          </div>
+        <td style="border:1px solid #ddd;padding:4px 6px;${IHR_AMBALAJ_TD_STYLE}">
+          ${_ihracatAmbalajCellHtml(null, s)}
         </td>
         <td style="border:1px solid #ddd;padding:4px;text-align:center;white-space:nowrap;width:96px;">
           ${_ihracatTakipBtnHtml()}
@@ -10476,39 +11988,41 @@ function showIhracatDetailsModal() {
   const renderTable = (items, title, badgeColor, tableCtx) => {
     if (!items || !items.length) return '';
     const { gk, templateJson } = tableCtx || {};
+    const toplamRowHtml = _ihracatToplamRowHtml(items);
     return `
       <div style="margin-bottom:16px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
           <strong style="font-size:13px;">${escapeHtml(title)}</strong>
           <span style="padding:4px 10px;border-radius:999px; background:${badgeColor}; color:#fff; font-size:12px;">${items.length}</span>
         </div>
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom:8px;">
+        <table class="ihr-sevkiyat-table" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;">
           <thead>
-            <tr style="background: #f5f5f5;">
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left; width:172px;">Plaka</th>
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Firma</th>
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Malzeme</th>
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Miktar (Kg)</th>
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Ambalaj</th>
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: center; width:96px;">Takip</th>
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">İrsaliye No</th>
-              <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Durum</th>
+            <tr style="background:#f5f5f5;">
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;width:172px;">Plaka</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;">Firma</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;">Malzeme</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;">Miktar (Kg)</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;white-space:nowrap;">Ambalaj</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:center;width:96px;">Takip</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;">İrsaliye No</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;">Durum</th>
             </tr>
           </thead>
           <tbody data-ihr-tbody="1" data-ihr-firma-group="${escapeHtml(gk || '')}" data-ihr-template="${templateJson || '{}'}">
-            ${items.map(item => rowHtml(item, getStatus(item))).join('')}
+            ${items.map((item) => rowHtml(item, getStatus(item))).join('')}
             ${addRowHtml()}
+            ${toplamRowHtml}
           </tbody>
         </table>
       </div>
     `;
   };
 
-  const renderFirmaSection = (firma, items) => {
+  const renderFirmaSection = (sectionTitle, items) => {
     const counts = { printed: 0, pending: 0, missing: 0 };
     items.forEach((item) => { counts[getStatus(item)] = (counts[getStatus(item)] || 0) + 1; });
     const sample = items[0] || {};
-    const gk = _ihracatFirmaGroupKey(sample);
+    const gk = _ihracatBlockGroupKey(sample);
     const sevkVal = _defaultSevkForShipment(sample);
     const ambVal = _defaultAmbalajTextForShipment(sample);
     const sevkCands = getLimanCandidates(sample.headerText || '').slice(0, 4);
@@ -10518,12 +12032,14 @@ function showIhracatDetailsModal() {
     const templateJson = String(JSON.stringify(sample))
       .replace(/&/g, '&amp;')
       .replace(/"/g, '&quot;');
+    const excelDescHtml = _ihracatRenderExcelBlockHeader(sample, items);
     return `
-      <div style="margin-bottom:20px;border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#f8fafc;">
-        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
-          <strong style="font-size:14px;">${escapeHtml(firma)}</strong>
+      <div data-ihr-block-section="1" style="margin-bottom:20px;border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#f8fafc;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
+          <strong style="font-size:14px;color:#0f172a;">${escapeHtml(sectionTitle)}</strong>
           <span style="font-size:12px;color:#475569;">Toplam: ${items.length} • Yazdırıldı: ${counts.printed} • Bekleniyor: ${counts.pending} • Kayıt yok: ${counts.missing}</span>
         </div>
+        ${excelDescHtml}
         <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
           <div style="${boxStyle}">
             <div style="font-size:11px;font-weight:700;color:#4338ca;margin-bottom:6px;">SEVK YERİ</div>
@@ -10543,21 +12059,34 @@ function showIhracatDetailsModal() {
   };
 
   const renderFileSection = (fileName, items) => {
-    const firmaGroups = {};
+    const blockGroups = {};
     items.forEach((item) => {
-      const firmaLabel = getFirmaLabel(item);
-      if (!firmaGroups[firmaLabel]) firmaGroups[firmaLabel] = [];
-      firmaGroups[firmaLabel].push(item);
+      const bk = _ihracatBlockGroupKey(item);
+      if (!blockGroups[bk]) {
+        blockGroups[bk] = {
+          title:
+            _ihracatShortBlockTitle(item.headerText, item.malzeme) || getFirmaLabel(item),
+          items: [],
+        };
+      }
+      blockGroups[bk].items.push(item);
     });
 
-    const firmaOrder = Object.keys(firmaGroups).sort();
+    const blockOrder = Object.keys(blockGroups).sort((a, b) => {
+      const ia = blockGroups[a].items[0];
+      const ib = blockGroups[b].items[0];
+      const ra = Number(ia?.blockHeaderRow) || 0;
+      const rb = Number(ib?.blockHeaderRow) || 0;
+      if (ra !== rb) return ra - rb;
+      return String(ia?.headerText || '').localeCompare(String(ib?.headerText || ''), 'tr');
+    });
     return `
       <div style="margin-bottom:26px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
           <h4 style="margin:0; font-size:15px;">📄 ${escapeHtml(fileName)} - ${items.length} kayıt</h4>
-          <span style="font-size:12px; color:#475569;">Firma bazında ayrılmıştır</span>
+          <span style="font-size:12px; color:#475569;">Sevkiyat bloğu bazında (Excel başlığı + toplam)</span>
         </div>
-        ${firmaOrder.map((firma) => renderFirmaSection(firma, firmaGroups[firma])).join('')}
+        ${blockOrder.map((bk) => renderFirmaSection(blockGroups[bk].title, blockGroups[bk].items)).join('')}
       </div>
     `;
   };
@@ -10605,7 +12134,7 @@ function showIhracatDetailsModal() {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
           <div style="flex:1;min-width:220px;">
             <h3 style="margin: 0 0 6px 0; color: #333;">📄 İhracat Excel Detayları (${shipments.length} kayıt) - Tarih: ${tarih}</h3>
-            <p style="margin:0;font-size:12px;color:#64748b;">Sevk/ambalaj bloktan; satırda miktar, ambalaj, irsaliye. Şoför yoksa <b>Kayıt Et</b> ile ➕ Yeni Araç Kaydı açılır.</p>
+            <p style="margin:0;font-size:12px;color:#64748b;">Sevk/ambalaj bloktan; satırda miktar, ambalaj, irsaliye. <b>←</b> ok: boş çuval → çuval (boş çuval silinir, kayıt ve takip formu güncellenir). Şoför yoksa <b>Kayıt Et</b> ile ➕ Yeni Araç Kaydı açılır.</p>
           </div>
           <button type="button" class="ihr-save-btn" style="${btnSaveStyle}flex-shrink:0;">Kaydet</button>
         </div>
@@ -10613,7 +12142,7 @@ function showIhracatDetailsModal() {
           <label for="ihracatPlateSearch" style="font-size:12px;font-weight:600;color:#475569;white-space:nowrap;">🔍 Plaka ara</label>
           <input type="text" id="ihracatPlateSearch" placeholder="03 AJH 861 veya 03AJH861…" style="flex:1;min-width:160px;max-width:280px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;" />
           <button type="button" id="ihracatPlateSearchBtn" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Ara</button>
-          <button type="button" id="ihracatPrintBtn" title="Tüm ihracat listesini A4 yatay yazdır (sevkiyat çalışanları)" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🖨️ Yazdır</button>
+          <button type="button" id="ihracatPrintBtn" title="Ekrandaki liste (güncel miktar/ambalaj) A4 yatay yazdır" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🖨️ Yazdır</button>
           <span style="font-size:11px;color:#64748b;">Boşluklu/boşluksuz yazım fark etmez</span>
         </div>
         ${collisionBannerHtml}
@@ -10629,6 +12158,11 @@ function showIhracatDetailsModal() {
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
   const modal = document.getElementById('ihracatDetailsModal');
+  if (modal) {
+    modal.__ihrMeta = meta;
+    modal.__ihrExcelFirmalar = excelFirmalar;
+    modal.__ihracatStatusApi = ihracatStatusApi;
+  }
   const closeModal = () => modal?.remove();
 
   const doSave = () => {
@@ -10644,6 +12178,10 @@ function showIhracatDetailsModal() {
   modal?.querySelectorAll('.ihr-save-btn').forEach((btn) => btn.addEventListener('click', doSave));
 
   _ihracatBindModalPlateAdd(modal, ihracatStatusApi);
+
+  _ihracatBindToplamLiveUpdate(modal);
+
+  _ihracatBindCuvalTransfer(modal);
 
   _ihracatBindRowActions(modal, ihracatStatusApi);
 
@@ -10666,12 +12204,15 @@ function showIhracatDetailsModal() {
   document.getElementById('closeIhracatModal')?.addEventListener('click', closeModal);
 
   document.addEventListener('keydown', function escHandler(e) {
-    if (e.key === 'Escape') {
-      closeModal();
-      document.removeEventListener('keydown', escHandler);
-    }
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('excelReviewOverlay')) return;
+    const takipModal = document.getElementById('takipFormuModal');
+    if (takipModal && !takipModal.classList.contains('hidden')) return;
+    closeModal();
+    document.removeEventListener('keydown', escHandler);
   });
 }
+window.showIhracatDetailsModal = showIhracatDetailsModal;
 
 // 🔄 CROSS-TAB SYNCHRONIZATION INTEGRATION
 (function() {
@@ -10701,6 +12242,7 @@ function showIhracatDetailsModal() {
       if (window.storage && typeof window.storage._readAll === 'function') {
         window.storage._readAll().catch(() => {});
       }
+      try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
     });
 
     window.SyncManager.on('vehicle_deleted', (data) => {

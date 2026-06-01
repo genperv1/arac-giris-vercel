@@ -4,21 +4,41 @@
   var VER =
     typeof window !== 'undefined' && window.__ASSET_VER != null && String(window.__ASSET_VER).trim() !== ''
       ? String(window.__ASSET_VER).trim()
-      : '20260520-aracbos3';
+      : '20260602-print-v10';
 
   function qs() {
     return 'v=' + encodeURIComponent(VER);
   }
 
-  function loadScript(src) {
+  function loadScript(src, timeoutMs) {
+    timeoutMs = timeoutMs || 20000;
     return new Promise(function (resolve, reject) {
       var s = document.createElement('script');
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        s.onload = s.onerror = null;
+        try {
+          s.remove();
+        } catch (e) {}
+        reject(new Error('Script load timeout: ' + src));
+      }, timeoutMs);
       s.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + qs();
       s.async = true;
       s.onload = function () {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
         resolve();
       };
       s.onerror = function () {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try {
+          s.remove();
+        } catch (e) {}
         reject(new Error('Script load failed: ' + src));
       };
       document.head.appendChild(s);
@@ -31,9 +51,12 @@
   window.ensureXlsxLoaded = function () {
     if (typeof window.XLSX !== 'undefined' && window.XLSX.read) return Promise.resolve();
     if (xlsxPromise) return xlsxPromise;
-    xlsxPromise = loadScript('/vendor/xlsx.full.min.js')
+    xlsxPromise = loadScript('/vendor/xlsx.full.min.js', 15000)
       .catch(function () {
-        return loadScript('https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js');
+        return loadScript('https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js', 15000);
+      })
+      .catch(function () {
+        return loadScript('https://unpkg.com/xlsx/dist/xlsx.full.min.js', 15000);
       })
       .catch(function (e) {
         xlsxPromise = null;
@@ -42,10 +65,16 @@
     return xlsxPromise;
   };
 
+  try {
+    if (document.documentElement.classList.contains('logged-in')) {
+      window.ensureXlsxLoaded().catch(function () {});
+    }
+  } catch (e) {}
+
   var printPromise = null;
   window.ensurePrintLoaded = function () {
     var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
-    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260520-aracbos3';
+    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260602-yukleme-notu-v10';
     if (!needPrint && !stalePrint) return Promise.resolve();
     if (stalePrint) {
       try {
@@ -58,7 +87,7 @@
     printPromise = loadScript('/signatures-registry.js')
       .then(function () { return loadScript('/print.js'); })
       .then(function () {
-        if (window.Print) window.Print.__aracBosRev = '20260520-aracbos3';
+        if (window.Print) window.Print.__aracBosRev = '20260602-yukleme-notu-v10';
       })
       .catch(function (e) {
       printPromise = null;
