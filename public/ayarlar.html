@@ -330,6 +330,9 @@
       <button type="button" class="ay-subnav-btn" data-goto="section-imza">
         <i class="fas fa-pen-nib" aria-hidden="true"></i> İmza ayarları
       </button>
+      <button type="button" class="ay-subnav-btn" data-goto="section-yazdir">
+        <i class="fas fa-print" aria-hidden="true"></i> Yazdırma
+      </button>
       <button type="button" class="ay-subnav-btn" data-goto="section-ban">
         <i class="fas fa-ban" aria-hidden="true"></i> Ban
       </button>
@@ -467,6 +470,47 @@
       <p class="ay-hint" style="margin-top:.75rem;">
         Tam yedek, tarayıcıdaki tüm sistem verilerini içerir. Geri yükleme sunucuya yazılır; işlem sonrası ana sayfayı yenilemeniz gerekir.
       </p>
+    </section>
+
+    <section id="section-yazdir" class="ay-panel" tabindex="-1" aria-labelledby="yazdirTitle">
+      <div class="ay-panel__head">
+        <div>
+          <h2 id="yazdirTitle">Yükleme notu yazdırma</h2>
+          <p>Takip formunda yazdırılan <strong>yükleme notu</strong> alanı için ihracat ve piyasa ayrı punto kullanır. İhracat uzun metinlerde sıkıştırılır; piyasa daha büyük ve okunaklı basılır.</p>
+        </div>
+      </div>
+
+      <form id="yuklemeNotuFitForm" class="ay-form" style="max-width:720px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+          <fieldset style="border:1px solid #e2e8f0;border-radius:10px;padding:1rem;margin:0;">
+            <legend style="font-weight:700;padding:0 .35rem;">İhracat</legend>
+            <div style="margin-bottom:.75rem;">
+              <label for="ynfIhracatHead">Başlık punto (İrsaliye satırı)</label>
+              <input id="ynfIhracatHead" type="number" min="6" max="14" step="0.05" required>
+            </div>
+            <div>
+              <label for="ynfIhracatDesc">Açıklama punto</label>
+              <input id="ynfIhracatDesc" type="number" min="5" max="12" step="0.05" required>
+            </div>
+          </fieldset>
+          <fieldset style="border:1px solid #e2e8f0;border-radius:10px;padding:1rem;margin:0;">
+            <legend style="font-weight:700;padding:0 .35rem;">Piyasa</legend>
+            <div style="margin-bottom:.75rem;">
+              <label for="ynfPiyasaHead">Başlık punto</label>
+              <input id="ynfPiyasaHead" type="number" min="6" max="14" step="0.05" required>
+            </div>
+            <div>
+              <label for="ynfPiyasaDesc">Açıklama punto</label>
+              <input id="ynfPiyasaDesc" type="number" min="5" max="12" step="0.05" required>
+            </div>
+          </fieldset>
+        </div>
+        <div class="ay-ban-actions" style="margin-top:1rem;">
+          <button type="submit" class="ay-btn ay-btn--primary">Kaydet</button>
+          <button type="button" class="ay-btn" id="ynfResetBtn">Varsayılana dön</button>
+        </div>
+        <p class="ay-hint" style="margin-top:.75rem;">Varsayılan: ihracat 8,5 / 6,35 pt · piyasa 10 / 8,5 pt. Değişiklikler tarayıcıda saklanır; tüm kullanıcılar aynı bilgisayarda aynı ayarı görür.</p>
+      </form>
     </section>
 
     <section id="section-imza" class="ay-panel" tabindex="-1" aria-labelledby="sigTitle">

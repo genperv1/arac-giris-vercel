@@ -92,22 +92,26 @@
     }
   }
 
+  function netsisUpperName(value) {
+    return String(value || '').trim().toLocaleUpperCase('tr-TR');
+  }
+
   function copyNetsisVehicleText(vehicle) {
     if (!vehicle) return '';
-    const values = [
+    const tc = String(vehicle.tcKimlik || '').replace(/\D/g, '');
+    return [
       normalizeNetsisPlate(vehicle.cekiciPlaka),
-      vehicle.soforAdi || '',
-      vehicle.soforSoyadi || '',
+      netsisUpperName(vehicle.soforAdi),
+      netsisUpperName(vehicle.soforSoyadi),
       normalizeNetsisPhone(vehicle.iletisim),
-      vehicle.tcKimlik || '',
+      tc,
       normalizeNetsisPlate(vehicle.dorsePlaka)
-    ].filter(Boolean);
-    return values.join('\n');
+    ].join('\n');
   }
 
   function copyNetsisData(vehicle) {
     const text = copyNetsisVehicleText(vehicle);
-    if (!text) {
+    if (!text || !normalizeNetsisPlate(vehicle && vehicle.cekiciPlaka)) {
       uiAlert('NETSIS verisi bulunamadı.', 'warning');
       return;
     }
@@ -236,6 +240,77 @@
     return { soforAdi: parts.slice(0, -1).join(' '), soforSoyadi: parts[parts.length - 1] };
   }
 
+  function findLastPrintEvent(vehicle) {
+    try {
+      if (vehicle && vehicle.rawEvent) return vehicle.rawEvent;
+      const plateNorm = normPlate(vehicle.cekiciPlaka || '');
+      const evs = (_latestEvents || []).filter(ev => ev && ev.type === 'PRINT' && ev.data);
+      const matched = evs.filter(ev => {
+        try {
+          const d = ev.data || {};
+          if (d.vehicleId && String(d.vehicleId) === String(vehicle.id)) return true;
+          if (d.plaka && normPlate(d.plaka || '') === plateNorm) return true;
+          if (ev.id && String(ev.id) === String(vehicle.id)) return true;
+        } catch (e) { /* ignore */ }
+        return false;
+      });
+      if (!matched.length) return null;
+      matched.sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+      return matched[0];
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function resolveReportRowVehicleData(tr) {
+    const plate = String(tr.getAttribute('data-plate') || '').trim();
+    const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
+    const eventDataStr = tr.getAttribute('data-event-data') || '{}';
+    let d = {};
+    try { d = JSON.parse(eventDataStr); } catch (e) { d = {}; }
+
+    const lastEv = findLastPrintEvent({ id: vehicleId, cekiciPlaka: plate });
+    const lastEvData = (lastEv && lastEv.data && typeof lastEv.data === 'object') ? lastEv.data : {};
+    const sourceData = Object.assign({}, lastEvData, d);
+
+    let vehicleData = null;
+    const hasPhone = sourceData.iletisim || sourceData.phone || sourceData.driverPhone || sourceData.phoneNumber;
+    const hasTC = sourceData.tcKimlik || sourceData.tc;
+    const hasDorse = sourceData.dorsePlaka || sourceData.dorse;
+    const needLookup = !hasPhone || !hasTC || !hasDorse;
+
+    if (needLookup && plate) {
+      try {
+        if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
+          const cached = window.storage.load('vehicle_' + vehicleId);
+          if (cached && typeof cached === 'object') vehicleData = cached;
+        }
+        if (!vehicleData) {
+          const resp = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+          if (resp.ok) {
+            const v = await resp.json();
+            if (v && typeof v === 'object' && !Array.isArray(v)) vehicleData = v;
+          }
+        }
+      } catch (e) {
+        console.warn('Vehicle lookup for NETSIS failed:', e);
+      }
+    }
+
+    const full = Object.assign({}, vehicleData || {}, sourceData);
+    const fullFromEvent = String(sourceData.sofor || '').trim();
+    const evSplit = fullFromEvent ? splitSoforForExcel(fullFromEvent) : null;
+
+    return {
+      cekiciPlaka: full.cekiciPlaka || full.plaka || plate || '',
+      soforAdi: evSplit ? evSplit.soforAdi : (full.soforAdi || full.driverName || full.isim || full.name || ''),
+      soforSoyadi: evSplit ? evSplit.soforSoyadi : (full.soforSoyadi || full.driverSurname || full.soyisim || full.surname || ''),
+      iletisim: full.iletisim || full.phone || full.driverPhone || full.phoneNumber || '',
+      tcKimlik: full.tcKimlik || full.tc || '',
+      dorsePlaka: full.dorsePlaka || full.dorse || ''
+    };
+  }
+
   function calcKpis(vehicles, events){
     const printedVehicles = vehicles.filter(v => (parseInt(v.printCount||'0',10)||0) > 0);
     const totalPrintedVehicles = printedVehicles.length;
@@ -316,27 +391,6 @@
 
     const tbody = document.getElementById('tbody');
     tbody.innerHTML = '';
-
-    function findLastPrintEvent(vehicle){
-      try{
-        // if this row was built from an event, return that event directly
-        if (vehicle && vehicle.rawEvent) return vehicle.rawEvent;
-        const plateNorm = normPlate(vehicle.cekiciPlaka || '');
-        const evs = (events || []).filter(ev => ev && ev.type === 'PRINT' && ev.data);
-        const matched = evs.filter(ev => {
-          try{
-            const d = ev.data || {};
-            if (d.vehicleId && String(d.vehicleId) === String(vehicle.id)) return true;
-            if (d.plaka && normPlate(d.plaka || '') === plateNorm) return true;
-            if (ev.id && String(ev.id) === String(vehicle.id)) return true;
-          }catch(e){}
-          return false;
-        });
-        if (!matched.length) return null;
-        matched.sort((a,b)=>Number(b.ts||0) - Number(a.ts||0));
-        return matched[0];
-      }catch(e){return null;}
-    }
 
     function collectPrintEventIdsForVehicle(vehicle){
       try{
@@ -450,7 +504,7 @@
         <td class="p-3">
           <div class="flex items-center gap-2 whitespace-nowrap">
             <button class="report-action-btn netsisBtn"
-              data-id="${String(v.id||'')}" data-event-data='${JSON.stringify(d)}' title="NETSIS verilerini kopyala">
+              data-id="${String(v.id||'')}" title="NETSIS verilerini kopyala">
               <i class="fas fa-link"></i> NETSIS
             </button>
             <button class="report-action-btn copyExcelBtn"
@@ -550,67 +604,7 @@
         try {
           const tr = btn.closest('tr');
           if (!tr) return;
-          
-          // Get vehicle data from button's data-event-data attribute
-          const eventDataStr = btn.getAttribute('data-event-data') || tr.getAttribute('data-event-data') || '{}';
-          let d = {};
-          try {
-            d = JSON.parse(eventDataStr);
-          } catch(e) { d = {}; }
-          
-          const plate = tr.getAttribute('data-plate') || d.plaka || '';
-          const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
-          
-          // Try to get complete vehicle data from cache or API (like copyExcelBtn does)
-          let vehicleData = null;
-          const hasName = d.sofor || d.soforAdi || d.driverName || d.isim || d.name;
-          const hasPhone = d.iletisim || d.phone || d.driverPhone || d.phoneNumber;
-          const hasTC = d.tcKimlik || d.tc;
-          const hasDorse = d.dorsePlaka || d.dorse;
-          const needLookup = (!hasName || !hasPhone || !hasTC || !hasDorse) && !d.sofor;
-          
-          if (needLookup) {
-            try {
-              if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
-                const cached = window.storage.load('vehicle_' + vehicleId);
-                if (cached && typeof cached === 'object') {
-                  vehicleData = cached;
-                }
-              }
-              if (!vehicleData && plate) {
-                try {
-                  const resp = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
-                  if (resp.ok) {
-                    vehicleData = await resp.json();
-                    if (vehicleData && typeof vehicleData === 'object' && !Array.isArray(vehicleData)) {
-                      // ok — single vehicle object
-                    } else {
-                      vehicleData = null;
-                    }
-                  }
-                } catch(e) {}
-              }
-            } catch (e) {
-              console.warn('Vehicle lookup for NETSIS failed:', e);
-            }
-          }
-          
-          // Yazdırma kaydındaki şoför öncelikli
-          const fullVehicleData = Object.assign({}, vehicleData || {}, d);
-          
-          const evSoforFull = String(fullVehicleData.sofor || '').trim();
-          const evSplit = evSoforFull ? splitSoforForExcel(evSoforFull) : null;
-
-          // Construct vehicle object from merged data
-          const vehicle = {
-            cekiciPlaka: fullVehicleData.cekiciPlaka || fullVehicleData.plaka || plate || '',
-            soforAdi: evSplit ? evSplit.soforAdi : (fullVehicleData.soforAdi || fullVehicleData.driverName || fullVehicleData.isim || fullVehicleData.name || ''),
-            soforSoyadi: evSplit ? evSplit.soforSoyadi : (fullVehicleData.soforSoyadi || fullVehicleData.driverSurname || fullVehicleData.soyisim || fullVehicleData.surname || ''),
-            iletisim: fullVehicleData.iletisim || fullVehicleData.phone || fullVehicleData.driverPhone || fullVehicleData.phoneNumber || '',
-            tcKimlik: fullVehicleData.tcKimlik || fullVehicleData.tc || '',
-            dorsePlaka: fullVehicleData.dorsePlaka || fullVehicleData.dorse || ''
-          };
-          
+          const vehicle = await resolveReportRowVehicleData(tr);
           copyNetsisData(vehicle);
         } catch(e) {
           console.error('NETSIS button error:', e);
@@ -671,7 +665,11 @@
             console.error('🔍 Event data kaydetme hatası:', e);
           }
           
-          window.location.href = url.toString();
+          if (window.SessionManager && typeof window.SessionManager.openHomePage === 'function') {
+            window.SessionManager.openHomePage(url.pathname + url.search);
+          } else {
+            window.location.href = url.toString();
+          }
         }catch(e){
           console.error('Reprint error:', e);
           alert('❌ Tekrar yazdırma isteği başarısız.');

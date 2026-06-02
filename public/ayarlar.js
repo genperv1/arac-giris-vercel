@@ -727,6 +727,86 @@
     document.getElementById('backupImportBtn')?.addEventListener('click', handleBackupImport);
   }
 
+  const YNF_STORAGE_KEY = 'yuklemeNotuFit_v1';
+  const YNF_DEFAULTS = {
+    ihracat: { headPt: 8.5, descPt: 6.35 },
+    piyasa: { headPt: 10, descPt: 8.5 },
+  };
+
+  function ynfLoadSettings() {
+    if (window.YuklemeNotuFitSettings && typeof window.YuklemeNotuFitSettings.load === 'function') {
+      return window.YuklemeNotuFitSettings.load();
+    }
+    const out = JSON.parse(JSON.stringify(YNF_DEFAULTS));
+    try {
+      const raw = localStorage.getItem(YNF_STORAGE_KEY);
+      if (!raw) return out;
+      const saved = JSON.parse(raw);
+      ['ihracat', 'piyasa'].forEach((kind) => {
+        const src = saved && saved[kind];
+        if (!src) return;
+        if (src.headPt != null) out[kind].headPt = Number(src.headPt);
+        if (src.descPt != null) out[kind].descPt = Number(src.descPt);
+      });
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+
+  function ynfSaveSettings(payload) {
+    if (window.YuklemeNotuFitSettings && typeof window.YuklemeNotuFitSettings.save === 'function') {
+      return window.YuklemeNotuFitSettings.save(payload);
+    }
+    const cur = ynfLoadSettings();
+    ['ihracat', 'piyasa'].forEach((kind) => {
+      const src = payload && payload[kind];
+      if (!src) return;
+      if (src.headPt != null) cur[kind].headPt = Number(src.headPt);
+      if (src.descPt != null) cur[kind].descPt = Number(src.descPt);
+    });
+    try {
+      localStorage.setItem(YNF_STORAGE_KEY, JSON.stringify(cur));
+    } catch (e) { /* ignore */ }
+    return cur;
+  }
+
+  function ynfFillForm() {
+    const s = ynfLoadSettings();
+    const set = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.value = String(val);
+    };
+    set('ynfIhracatHead', s.ihracat.headPt);
+    set('ynfIhracatDesc', s.ihracat.descPt);
+    set('ynfPiyasaHead', s.piyasa.headPt);
+    set('ynfPiyasaDesc', s.piyasa.descPt);
+  }
+
+  function bindYuklemeNotuFitUi() {
+    const form = document.getElementById('yuklemeNotuFitForm');
+    if (!form || form.__ynfBound) return;
+    form.__ynfBound = true;
+    ynfFillForm();
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      ynfSaveSettings({
+        ihracat: {
+          headPt: document.getElementById('ynfIhracatHead')?.value,
+          descPt: document.getElementById('ynfIhracatDesc')?.value,
+        },
+        piyasa: {
+          headPt: document.getElementById('ynfPiyasaHead')?.value,
+          descPt: document.getElementById('ynfPiyasaDesc')?.value,
+        },
+      });
+      toast('Yükleme notu yazdırma ayarları kaydedildi.');
+    });
+    document.getElementById('ynfResetBtn')?.addEventListener('click', () => {
+      try { localStorage.removeItem(YNF_STORAGE_KEY); } catch (e) { /* ignore */ }
+      ynfFillForm();
+      toast('Varsayılan yükleme notu ayarları yüklendi.');
+    });
+  }
+
   function setupEmergencyBanOnly() {
     ['section-plaka', 'section-imza', 'section-yedek'].forEach((id) => {
       const el = document.getElementById(id);
@@ -819,7 +899,7 @@
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
         const id = entry.target.id;
-        if (id === 'section-plaka' || id === 'section-imza' || id === 'section-ban' || id === 'section-yedek') {
+        if (id === 'section-plaka' || id === 'section-imza' || id === 'section-ban' || id === 'section-yedek' || id === 'section-yazdir') {
           activeSection = id;
           document.querySelectorAll('.ay-subnav-btn').forEach((btn) => {
             btn.classList.toggle('is-active', btn.getAttribute('data-goto') === id);
@@ -827,13 +907,14 @@
         }
       });
     }, { rootMargin: '-40% 0px -45% 0px', threshold: 0 });
-    ['section-plaka', 'section-imza', 'section-ban', 'section-yedek'].forEach((id) => {
+    ['section-plaka', 'section-imza', 'section-ban', 'section-yedek', 'section-yazdir'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) obs.observe(el);
     });
 
     bindBanUi();
     bindBackupUi();
+    bindYuklemeNotuFitUi();
   }
 
   function applyHashSection() {
@@ -846,6 +927,8 @@
       setTimeout(() => scrollToSection('section-ban'), 100);
     } else if (hash === 'yedek' || hash === 'section-yedek') {
       setTimeout(() => scrollToSection('section-yedek'), 100);
+    } else if (hash === 'yazdir' || hash === 'section-yazdir') {
+      setTimeout(() => scrollToSection('section-yazdir'), 100);
     }
   }
 

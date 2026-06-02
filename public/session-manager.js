@@ -168,6 +168,19 @@
     }
 
     const HOME_PAGE = 'GIRIS.html';
+    const HOME_WINDOW_NAME = 'gpm_app_home';
+
+    const PAGE_WINDOW_NAMES = {
+        'rapor.html': 'gpm_page_rapor',
+        'vardiya-notlari.html': 'gpm_page_vardiya',
+        'sorunlar.html': 'gpm_page_sorunlar',
+        'ayarlar.html': 'gpm_page_ayarlar',
+        'plaka.html': 'gpm_page_plaka',
+        'gunlukraporlar.html': 'gpm_page_gunluk',
+        'advanced_reports.html': 'gpm_page_advanced'
+    };
+
+    const AUTO_APP_PAGE_LINKS = Object.keys(PAGE_WINDOW_NAMES);
 
     function isHomePath(pathname) {
         if (!pathname) return false;
@@ -177,39 +190,142 @@
         return base === 'giris.html' || base === '';
     }
 
-    // Ana sayfaya dön: açık ana sayfa varsa ona odaklan, yenisini açma
-    function navigateToHome() {
-        const homeUrl = new URL(HOME_PAGE, window.location.href).href;
+    function resolveAppUrl(path) {
+        return new URL(path, window.location.href).href;
+    }
+
+    function pageBaseName(path) {
+        const s = String(path || '').split('?')[0].split('#')[0];
+        return (s.split('/').pop() || '').toLowerCase();
+    }
+
+    function getPageWindowName(path) {
+        const base = pageBaseName(path);
+        if (PAGE_WINDOW_NAMES[base]) return PAGE_WINDOW_NAMES[base];
+        return 'gpm_page_' + base.replace(/[^a-z0-9]+/gi, '_');
+    }
+
+    function claimHomeWindow() {
+        if (!isHomePath(window.location.pathname)) return;
+        try {
+            window.name = HOME_WINDOW_NAME;
+        } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * İsimli pencere/sekme: varsa odaklan (isteğe bağlı URL güncelle), yoksa yeni sekme aç.
+     * allowSameTabNavigate: popup engelliyse mevcut sekmeyi kullan (yalnızca ana sayfa için).
+     */
+    function focusOrOpenWindow(url, windowName, options) {
+        options = options || {};
+        let targetWin = null;
+        try {
+            targetWin = window.open(url, windowName);
+        } catch (e) {
+            targetWin = null;
+        }
+
+        if (targetWin && !targetWin.closed) {
+            if (options.updateUrl) {
+                try {
+                    const targetBase = String(url).split('#')[0];
+                    const currentBase = String(targetWin.location.href || '').split('#')[0];
+                    if (currentBase !== targetBase) {
+                        targetWin.location.href = url;
+                    }
+                } catch (e) { /* henüz yüklenmemiş olabilir */ }
+            }
+            try { targetWin.focus(); } catch (e) { /* ignore */ }
+            return targetWin;
+        }
+
+        if (options.allowSameTabNavigate) {
+            window.location.href = url;
+        }
+        return null;
+    }
+
+    /** Alt uygulama sayfasını ayrı sekmede aç (aynı sayfa için tek sekme). */
+    function openAppPage(path, options) {
+        if (!path) return null;
+        options = options || {};
+        const url = resolveAppUrl(path);
+        const winName = options.windowName || getPageWindowName(path);
 
         if (isHomePath(window.location.pathname)) {
+            return focusOrOpenWindow(url, winName, { updateUrl: options.updateUrl !== false });
+        }
+
+        return focusOrOpenWindow(url, winName, {
+            updateUrl: options.updateUrl !== false,
+            allowSameTabNavigate: !!options.allowSameTabNavigate
+        });
+    }
+
+    /** Alt sayfa sekmesini kapat (ana sayfaya geçildikten sonra). */
+    function tryCloseSubPageTab() {
+        if (isHomePath(window.location.pathname)) return;
+        try {
+            window.close();
+        } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * Ana sayfayı aç/odakla.
+     * @param {string} [pathAndQuery]
+     * @param {{ closeSubTab?: boolean }} [options] closeSubTab: alt sayfa sekmesini kapat (varsayılan true)
+     */
+    function openHomePage(pathAndQuery, options) {
+        options = options || {};
+        const closeSubTab = options.closeSubTab !== false;
+        const path = pathAndQuery || HOME_PAGE;
+        const url = resolveAppUrl(path);
+
+        if (isHomePath(window.location.pathname)) {
+            if (pathAndQuery && pageBaseName(path) === pageBaseName(HOME_PAGE)) {
+                const next = url.split('#')[0];
+                const cur = window.location.href.split('#')[0];
+                if (cur !== next) window.location.href = url;
+            }
             window.focus();
-            return;
+            return window;
         }
 
         let openerWin = null;
         try {
-            if (window.opener && !window.opener.closed) {
-                openerWin = window.opener;
-            }
-        } catch (e) {}
+            if (window.opener && !window.opener.closed) openerWin = window.opener;
+        } catch (e) { /* ignore */ }
 
         if (openerWin) {
             try {
-                if (!isHomePath(openerWin.location.pathname)) {
-                    openerWin.location.href = homeUrl;
+                if (!isHomePath(openerWin.location.pathname) || pathAndQuery) {
+                    openerWin.location.href = url;
                 }
                 openerWin.focus();
-                window.close();
-                setTimeout(function () {
-                    if (!window.closed) {
-                        window.location.href = homeUrl;
-                    }
-                }, 200);
-                return;
-            } catch (e) {}
+                if (closeSubTab) tryCloseSubPageTab();
+                return openerWin;
+            } catch (e) { /* ignore */ }
         }
 
-        window.location.href = homeUrl;
+        const homeWin = focusOrOpenWindow(url, HOME_WINDOW_NAME, { updateUrl: true });
+        if (homeWin) {
+            try { homeWin.focus(); } catch (e) { /* ignore */ }
+            if (closeSubTab) tryCloseSubPageTab();
+            return homeWin;
+        }
+
+        // Popup engelli veya tek sekme: bu sekmeyi ana sayfaya çevir
+        window.location.href = url;
+        return null;
+    }
+
+    // Ana sayfaya dön: ana sayfa sekmesine geç, alt sayfa sekmesini kapat
+    function navigateToHome() {
+        if (isHomePath(window.location.pathname)) {
+            window.focus();
+            return window;
+        }
+        return openHomePage(HOME_PAGE, { closeSubTab: true });
     }
 
     function bindHomeNavigation() {
@@ -220,6 +336,32 @@
             el.addEventListener('click', function (e) {
                 e.preventDefault();
                 navigateToHome();
+            });
+        });
+    }
+
+    function bindAppPageNavigation() {
+        const explicit = 'a[data-app-page], [data-open-app-page]';
+        document.querySelectorAll(explicit).forEach(function (el) {
+            if (el.dataset.appPageNavBound) return;
+            el.dataset.appPageNavBound = '1';
+            el.addEventListener('click', function (e) {
+                const path = el.getAttribute('data-app-page') || el.getAttribute('data-open-app-page');
+                if (!path) return;
+                e.preventDefault();
+                openAppPage(path);
+            });
+        });
+
+        AUTO_APP_PAGE_LINKS.forEach(function (page) {
+            const linkSelector = 'a[href="' + page + '"], a[href="/' + page + '"]';
+            document.querySelectorAll(linkSelector).forEach(function (el) {
+                if (el.dataset.appPageNavBound) return;
+                el.dataset.appPageNavBound = '1';
+                el.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    openAppPage(page);
+                });
             });
         });
     }
@@ -368,13 +510,19 @@
         startSessionKeepAlive,
         stopSessionKeepAlive,
         navigateToHome,
-        bindHomeNavigation
+        openAppPage,
+        openHomePage,
+        bindHomeNavigation,
+        bindAppPageNavigation,
+        claimHomeWindow
     };
     
     // Sayfa yüklendiğinde keep alive ve ana sayfa linklerini başlat
     function onDomReady() {
+        claimHomeWindow();
         startSessionKeepAlive();
         bindHomeNavigation();
+        bindAppPageNavigation();
     }
 
     if (document.readyState === 'loading') {

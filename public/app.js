@@ -3902,14 +3902,30 @@ function refreshSahaSignaturePreview() {
   applySignaturePreview('imzaSahaAd', 'imzaSahaImg', 'imzaSahaPlaceholder', resolveSahaSignatureSrc);
 }
 
+function getKantarPersonelNames() {
+  const fromReg = (window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('kantar')) || [];
+  if (fromReg.length) return fromReg;
+  return Object.keys(LEGACY_KANTAR_SIG);
+}
+
+function getSahaPersonelNames() {
+  const fromReg = (window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('saha')) || [];
+  return fromReg.length ? fromReg : [];
+}
+
 function populateSignatureDatalists() {
-  const namesK = (window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('kantar')) || Object.keys(LEGACY_KANTAR_SIG);
-  const namesS = (window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('saha')) || [];
+  const namesK = getKantarPersonelNames();
+  const namesS = getSahaPersonelNames();
   const dlK = document.getElementById('kantarPersonelList');
   const dlS = document.getElementById('sahaPersonelList');
   if (dlK) dlK.innerHTML = namesK.map((n) => `<option value="${String(n).replace(/"/g, '&quot;')}"></option>`).join('');
   if (dlS) dlS.innerHTML = namesS.map((n) => `<option value="${String(n).replace(/"/g, '&quot;')}"></option>`).join('');
 }
+
+try {
+  window.getKantarPersonelNames = getKantarPersonelNames;
+  window.getSahaPersonelNames = getSahaPersonelNames;
+} catch (_) {}
 
 // =============================
 // KANTAR seçimi kalıcı olsun (kullanıcı bazlı)
@@ -4391,9 +4407,17 @@ function showTakipFormu(vehicle) {
             try {
               const kantarBtn = document.getElementById('imzaKantarBtn');
               const kantarInput = document.getElementById('imzaKantarAd');
-              const kantarDatalist = Array.from((document.querySelectorAll('#kantarPersonelList option') || [])).map(o => o.value).filter(Boolean);
 
-              function openKantarPicker() {
+              async function openKantarPicker() {
+                try {
+                  if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
+                    await window.SignatureRegistry.loadSignatures();
+                    populateSignatureDatalists();
+                  }
+                } catch (_) {}
+
+                const kantarDatalist = getKantarPersonelNames();
+
                 try {
                   const overlayId = 'kantarPickerOverlay';
                   const old = document.getElementById(overlayId);
@@ -4401,15 +4425,27 @@ function showTakipFormu(vehicle) {
 
                   const overlay = document.createElement('div');
                   overlay.id = overlayId;
-                  overlay.style.cssText = 'position:fixed;inset:0;z-index:1000005;background:rgba(0,0,0,.25);display:flex;align-items:flex-start;justify-content:center;padding:16px;';
+                  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.25);display:flex;align-items:flex-start;justify-content:center;padding:16px;';
 
                   const card = document.createElement('div');
                   card.style.cssText = 'width:min(420px,96vw);margin-top:12vh;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.22);overflow:auto;max-height:60vh;padding:8px;';
+
+                  const title = document.createElement('div');
+                  title.textContent = 'İmza seç — Kantar';
+                  title.style.cssText = 'font-weight:800;font-size:14px;padding:8px 10px 4px;border-bottom:1px solid #eee;margin-bottom:4px;';
+                  card.appendChild(title);
 
                   const list = document.createElement('div');
                   list.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px;';
 
                   const filterVal = (kantarInput && kantarInput.value) ? String(kantarInput.value).trim().toUpperCase() : '';
+
+                  if (!kantarDatalist.length) {
+                    const empty = document.createElement('div');
+                    empty.textContent = 'Kantar personeli bulunamadı. Ayarlar → İmza ayarlarından ekleyin.';
+                    empty.style.cssText = 'padding:10px;color:#666;font-size:13px;';
+                    list.appendChild(empty);
+                  }
 
                   kantarDatalist.forEach(name => {
                     const item = document.createElement('button');
@@ -4437,11 +4473,18 @@ function showTakipFormu(vehicle) {
                 } catch (e) { console.warn('kantar picker hata', e); }
               }
 
-              if (kantarBtn) kantarBtn.addEventListener('click', openKantarPicker);
+              if (kantarBtn) {
+                kantarBtn.addEventListener('click', (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openKantarPicker();
+                });
+              }
               if (kantarInput) {
                 kantarInput.addEventListener('keydown', (e)=>{
                   if (e.key === 'ArrowDown') {
-                    e.preventDefault(); openKantarPicker();
+                    e.preventDefault();
+                    openKantarPicker();
                   }
                 });
               }
@@ -6822,7 +6865,11 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
       }
     }
     
-    location.href = 'rapor.html';
+    if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+      window.SessionManager.openAppPage('rapor.html');
+    } else {
+      location.href = 'rapor.html';
+    }
   });
 })();
 
@@ -6833,7 +6880,11 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
                 }
-                location.href = 'vardiya-notlari.html';
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('vardiya-notlari.html');
+                } else {
+                    location.href = 'vardiya-notlari.html';
+                }
             });
 
             // ⚠️ Şoför Sorunları (ayrı sayfa — Günlük Raporlar gibi)
@@ -6842,7 +6893,11 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
                 }
-                location.href = 'sorunlar.html';
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('sorunlar.html');
+                } else {
+                    location.href = 'sorunlar.html';
+                }
             });
 
             document.getElementById('ayarlarMenuButton')?.addEventListener('click', async (ev) => {
@@ -6855,7 +6910,11 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
                     if (window.AyarlarGate && typeof window.AyarlarGate.openAyarlarPage === 'function') {
                         await window.AyarlarGate.openAyarlarPage();
                     } else {
-                        location.href = 'ayarlar.html';
+                        if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                            window.SessionManager.openAppPage('ayarlar.html');
+                        } else {
+                            location.href = 'ayarlar.html';
+                        }
                     }
                 } catch (e) {
                     console.warn('Ayarlar açılamadı', e);
@@ -7292,6 +7351,16 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
     };
     telInp.addEventListener('input', apply);
     telInp.addEventListener('blur', apply);
+  }
+
+  if (window.SessionManager && typeof window.SessionManager.bindAppPageNavigation === 'function') {
+    window.SessionManager.bindAppPageNavigation();
+  }
+  if (window.SessionManager && typeof window.SessionManager.bindHomeNavigation === 'function') {
+    window.SessionManager.bindHomeNavigation();
+  }
+  if (window.SessionManager && typeof window.SessionManager.claimHomeWindow === 'function') {
+    window.SessionManager.claimHomeWindow();
   }
 
 }
@@ -9506,7 +9575,11 @@ function openIssuesModal(plateOrEmpty) {
   const plate = (plateOrEmpty || '').trim();
   let url = 'sorunlar.html';
   if (plate) url += '?plate=' + encodeURIComponent(plate);
-  location.href = url;
+  if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+    window.SessionManager.openAppPage(url);
+  } else {
+    location.href = url;
+  }
 }
 
 function autoOpenIssuesIfExists(plate){

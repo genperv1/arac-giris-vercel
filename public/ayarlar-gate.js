@@ -144,9 +144,13 @@
     return false;
   }
 
-  /** Ana sayfadan: doğrudan aç; parola ayarlar sekmesinde sorulur. */
+  /** Ana sayfadan: ayrı sekmede aç; parola ayarlar sekmesinde sorulur. */
   async function openAyarlarPage() {
-    global.location.href = 'ayarlar.html';
+    if (global.SessionManager && typeof global.SessionManager.openAppPage === 'function') {
+      global.SessionManager.openAppPage('ayarlar.html');
+    } else {
+      global.location.href = 'ayarlar.html';
+    }
     return true;
   }
 

@@ -2112,20 +2112,31 @@
     });
   }
 
+  const ARAC_BOS_LINE_RE = /^NET\s+BOŞ\s+AĞIRLIK\s*:/i;
+
   function formatAracBosuText(bosKg) {
     if (bosKg == null || bosKg === '') return '';
     return `NET BOŞ AĞIRLIK : ${bosKg}`;
+  }
+
+  function mergeAracBosuIntoYuklemeNotu(notuEl, text) {
+    if (!notuEl) return;
+    let lines = String(notuEl.value || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    lines = lines.filter((ln) => !ARAC_BOS_LINE_RE.test(ln));
+    if (text) lines.push(text);
+    notuEl.value = lines.join('\n');
   }
 
   function applyAracBosuToForm(bosKg) {
     const text = formatAracBosuText(bosKg);
     const hidden = document.getElementById('aracBosuBilgi');
     const line = document.getElementById('aracBosuSatir');
-    if (hidden) hidden.value = text;
+    if (hidden) hidden.value = '';
     if (line) {
-      line.textContent = text;
-      line.hidden = !text;
+      line.textContent = '';
+      line.hidden = true;
     }
+    mergeAracBosuIntoYuklemeNotu(document.getElementById('yuklemeNotu'), text);
   }
 
   function firmaKodFromInput(str) {

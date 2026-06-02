@@ -140,13 +140,199 @@
     return '';
   }
 
+  const ARAC_BOS_LINE_RE = /^NET\s+BOŞ\s+AĞIRLIK\s*:/i;
+
   function resolveYuklemeNotuForPrint(raw) {
     let t = String(raw ?? '').trim();
+    // Boş ağırlık yalnızca yuklemeNotu içinde (üst başlıkta ayrı basılmaz)
     if (!/^İrsaliye\s*No\s*:/im.test(t) && !/^IRSALIYE\s*NO\s*:/im.test(t)) {
       const irs = resolveIrsaliyeForPrint();
       if (irs) t = t ? `İrsaliye No: ${irs}\n${t}` : `İrsaliye No: ${irs}`;
     }
     return t;
+  }
+
+  const YUKLEME_NOTU_FIT_STORAGE_KEY = 'yuklemeNotuFit_v1';
+  const YUKLEME_NOTU_FIT_DEFAULTS = {
+    ihracat: { headPt: 8.5, descPt: 6.35, minHeadPt: 8, minDescPt: 5.65, headStep: 0.08, descStep: 0.1 },
+    piyasa: { headPt: 10, descPt: 8.5, minHeadPt: 9, minDescPt: 7.75, headStep: 0.05, descStep: 0.06 },
+    screen: {
+      ihracat: { minPx: 9, maxPx: 11 },
+      piyasa: { minPx: 11, maxPx: 14 },
+    },
+  };
+
+  function clampFitNum(v, min, max, fallback) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function loadYuklemeNotuFitSettings() {
+    const out = JSON.parse(JSON.stringify(YUKLEME_NOTU_FIT_DEFAULTS));
+    try {
+      const raw = localStorage.getItem(YUKLEME_NOTU_FIT_STORAGE_KEY);
+      if (!raw) return out;
+      const saved = JSON.parse(raw);
+      ['ihracat', 'piyasa'].forEach((kind) => {
+        const src = saved && saved[kind];
+        if (!src || typeof src !== 'object') return;
+        const dst = out[kind];
+        dst.headPt = clampFitNum(src.headPt, 6, 14, dst.headPt);
+        dst.descPt = clampFitNum(src.descPt, 5, 12, dst.descPt);
+        dst.minHeadPt = clampFitNum(src.minHeadPt, 5, dst.headPt, dst.minHeadPt);
+        dst.minDescPt = clampFitNum(src.minDescPt, 4, dst.descPt, dst.minDescPt);
+      });
+      ['ihracat', 'piyasa'].forEach((kind) => {
+        const src = saved && saved.screen && saved.screen[kind];
+        if (!src || typeof src !== 'object') return;
+        out.screen[kind].minPx = clampFitNum(src.minPx, 7, 16, out.screen[kind].minPx);
+        out.screen[kind].maxPx = clampFitNum(src.maxPx, 8, 18, out.screen[kind].maxPx);
+        if (out.screen[kind].maxPx < out.screen[kind].minPx) {
+          out.screen[kind].maxPx = out.screen[kind].minPx;
+        }
+      });
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+
+  function saveYuklemeNotuFitSettings(next) {
+    const cur = loadYuklemeNotuFitSettings();
+    const merged = JSON.parse(JSON.stringify(cur));
+    ['ihracat', 'piyasa'].forEach((kind) => {
+      const src = next && next[kind];
+      if (!src || typeof src !== 'object') return;
+      if (src.headPt != null) merged[kind].headPt = clampFitNum(src.headPt, 6, 14, merged[kind].headPt);
+      if (src.descPt != null) merged[kind].descPt = clampFitNum(src.descPt, 5, 12, merged[kind].descPt);
+    });
+    try {
+      localStorage.setItem(YUKLEME_NOTU_FIT_STORAGE_KEY, JSON.stringify(merged));
+    } catch (e) { /* ignore */ }
+    return merged;
+  }
+
+  function looksLikePiyasaNote(t) {
+    const s = String(t || '');
+    return /BBT\s+HP|NET\s+BOŞ\s+AĞIRLIK|ORGANİZE\s+EDİLMESİ|ORGANIZE\s+EDILMESI|ÖDEME\s+TÜRÜ|ODEME\s+TURU|RİCA\s+OLUNUR|RICA\s+OLUNUR|ANALİZ\s+SERTİFİKA|NETSİS|UNUTULMAMALIDIR|SİPARİŞ\s+NUMARASI|SIPARIS\s+NUMARASI/i.test(s);
+  }
+
+  /** Excel satır kırıklarını kaldır, nokta sonrası boşluk düzelt */
+  function normalizePiyasaDescText(raw) {
+    return String(raw || '')
+      .replace(/\r?\n+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\.(?=[A-ZÇĞİÖŞÜ0-9])/g, '. ')
+      .trim();
+  }
+
+  /** Piyasa açıklaması: geniş satır, en fazla 3 cümle satırı (+ opsiyonel boş ağırlık) */
+  function splitPiyasaDescIntoLines(text, maxLines = 3) {
+    const t = normalizePiyasaDescText(text);
+    if (!t) return [];
+
+    let chunks = t.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    if (chunks.length <= 1 && t.includes('.')) {
+      chunks = t
+        .split(/\.\s+/)
+        .map((s, i, arr) => (i < arr.length - 1 ? `${s.trim()}.` : s.trim()))
+        .filter(Boolean);
+    }
+    if (!chunks.length) chunks = [t];
+
+    if (chunks.length <= maxLines) return chunks;
+
+    while (chunks.length > maxLines) {
+      let idx = 0;
+      let minLen = Infinity;
+      for (let i = 0; i < chunks.length - 1; i++) {
+        const len = chunks[i].length + chunks[i + 1].length;
+        if (len < minLen) {
+          minLen = len;
+          idx = i;
+        }
+      }
+      chunks.splice(idx, 2, `${chunks[idx]} ${chunks[idx + 1]}`);
+    }
+    return chunks;
+  }
+
+  function mergeWrapLinesToMax(lines, maxLines, maxChars) {
+    let L = (lines || []).filter(Boolean);
+    if (!L.length) return [];
+    while (L.length > maxLines) {
+      let idx = 0;
+      let minLen = Infinity;
+      for (let i = 0; i < L.length - 1; i++) {
+        const len = L[i].length + L[i + 1].length;
+        if (len < minLen) {
+          minLen = len;
+          idx = i;
+        }
+      }
+      L.splice(idx, 2, `${L[idx]} ${L[idx + 1]}`);
+    }
+    if (L.length <= maxLines) return L;
+    return wrapYuklemeNotuText(L.join(' '), maxChars).slice(0, maxLines);
+  }
+
+  /** Takip formu: piyasa siparişi mi, ihracat Excel satırı mı */
+  function resolveYuklemeNotuKind(raw) {
+    const t = String(raw ?? document.getElementById('yuklemeNotu')?.value ?? '').trim();
+    try {
+      const pending = window.__pendingPrintCommit;
+      if (pending && pending.piyasaOrderIdx != null && pending.piyasaOrderIdx !== '') return 'piyasa';
+    } catch (e) {}
+    try {
+      if (window.piyasa && typeof window.piyasa.getActiveOrderIdx === 'function') {
+        const idx = window.piyasa.getActiveOrderIdx();
+        if (idx != null && idx !== '') return 'piyasa';
+      }
+    } catch (e) {}
+    if (looksLikePiyasaNote(t)) return 'piyasa';
+    try {
+      const ch = window.__activeExcelShipment || window.__lastChosenShipment;
+      if (ch && (ch.blockMeta || ch.headerText)) return 'ihracat';
+      if (ch && ch.plaka && /YD\d/i.test(String(ch.headerText || ch.firma || ch.yuklemeNotu || ''))) return 'ihracat';
+    } catch (e) {}
+    if (/SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(t)) return 'ihracat';
+    if (/^İrsaliye\s*No\s*:/im.test(t) && t.length > 100 && !looksLikePiyasaNote(t)) return 'ihracat';
+    return 'piyasa';
+  }
+
+  function getYuklemeNotuFitPreset(kind) {
+    const settings = loadYuklemeNotuFitSettings();
+    const key = kind === 'ihracat' ? 'ihracat' : 'piyasa';
+    return Object.assign({}, settings[key]);
+  }
+
+  function getYuklemeNotuScreenFit(kind) {
+    const settings = loadYuklemeNotuFitSettings();
+    const key = kind === 'ihracat' ? 'ihracat' : 'piyasa';
+    return Object.assign({}, settings.screen[key]);
+  }
+
+  function isAracBosNoteLine(line) {
+    const s = String(line || '').trim();
+    return ARAC_BOS_LINE_RE.test(s) || /^NET\s+BOŞ\s+AĞIRLIK/i.test(s);
+  }
+
+  function buildDescLinesForPrint(descParts, kind) {
+    const parts = (descParts || []).map((s) => String(s || '').trim()).filter(Boolean);
+    if (!parts.length) return [];
+    if (kind === 'ihracat') {
+      return wrapDescForPrint(parts.join(' '));
+    }
+
+    const aracBosLine = parts.filter(isAracBosNoteLine).pop() || '';
+    const mainParts = parts.filter((p) => !isAracBosNoteLine(p));
+    const mainText = normalizePiyasaDescText(mainParts.join(' '));
+
+    let lines = splitPiyasaDescIntoLines(mainText, 3);
+    if (!lines.length && mainText) {
+      lines = mergeWrapLinesToMax(wrapYuklemeNotuText(mainText, 84), 3, 84);
+    }
+    if (aracBosLine) lines.push(aracBosLine);
+    return lines.length ? lines : splitPiyasaDescIntoLines(parts.join(' '), 3);
   }
 
   /** Açıklama: tam 2 satır (kelime ortadan bölünür, 4 satıra taşmaz) */
@@ -161,10 +347,15 @@
   function sanitizeYuklemeNotuLines(lines) {
     const out = [];
     const seen = new Set();
+    let seenAracBos = false;
     for (const line of lines || []) {
       const s = String(line || '').trim();
       if (!s) continue;
       if (/^\d{1,2}$/.test(s)) continue;
+      if (ARAC_BOS_LINE_RE.test(s)) {
+        if (seenAracBos) continue;
+        seenAracBos = true;
+      }
       const key = s.replace(/\s+/g, ' ').toUpperCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -189,12 +380,18 @@
       inner.style.width = '100%';
       inner.style.letterSpacing = 'normal';
 
+      const kind =
+        inner.getAttribute('data-not-kind') ||
+        box.getAttribute('data-not-kind') ||
+        resolveYuklemeNotuKind();
+      const preset = getYuklemeNotuFitPreset(kind);
+
       const headEl = inner.querySelector('.note-head');
       const descRows = inner.querySelectorAll('.note-row');
-      let headPt = 8.5;
-      let descPt = 6.35;
-      const minHeadPt = 8;
-      const minDescPt = 5.65;
+      let headPt = preset.headPt;
+      let descPt = preset.descPt;
+      const minHeadPt = preset.minHeadPt;
+      const minDescPt = preset.minDescPt;
 
       const availH = () => {
         let pad = 0;
@@ -213,23 +410,52 @@
           headEl.style.fontSize = headPt + 'pt';
         }
         descRows.forEach((row) => {
-          row.style.lineHeight = '1.06';
+          row.style.lineHeight = kind === 'piyasa' ? '1.18' : '1.06';
           row.style.fontSize = descPt + 'pt';
         });
       };
 
       applySizes();
+      const skipShrink = kind === 'piyasa' && descRows.length <= 4;
       let guard = 0;
-      while (inner.scrollHeight > availH() && guard < 40) {
-        if (descPt > minDescPt) {
-          descPt -= 0.1;
-        } else if (headEl && headPt > minHeadPt) {
-          headPt -= 0.08;
-        } else {
-          break;
+      if (!skipShrink) {
+        while (inner.scrollHeight > availH() && guard < 40) {
+          if (descPt > minDescPt) {
+            descPt -= preset.descStep;
+          } else if (headEl && headPt > minHeadPt) {
+            headPt -= preset.headStep;
+          } else {
+            break;
+          }
+          applySizes();
+          guard++;
         }
-        applySizes();
-        guard++;
+      }
+
+      // Piyasa: kutuda boşluk kalıyorsa hafifçe büyüt (satır sayısı az olduğu için)
+      if (kind === 'piyasa' && descRows.length <= 4) {
+        const maxHeadPt = preset.headPt + 1.2;
+        const maxDescPt = preset.descPt + 1.5;
+        let grow = 0;
+        while (inner.scrollHeight < availH() * 0.9 && grow < 35) {
+          let grew = false;
+          if (descPt < maxDescPt) {
+            descPt += 0.1;
+            grew = true;
+          } else if (headEl && headPt < maxHeadPt) {
+            headPt += 0.08;
+            grew = true;
+          }
+          if (!grew) break;
+          applySizes();
+          if (inner.scrollHeight > availH()) {
+            if (headEl && headPt > preset.headPt) headPt -= 0.08;
+            else descPt -= 0.1;
+            applySizes();
+            break;
+          }
+          grow++;
+        }
       }
     } catch (e) {}
   }
@@ -1072,9 +1298,11 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
       return t;
     };
 
-    const buildYuklemeNotuPrintHtml = (raw) => {
+    const notKind = resolveYuklemeNotuKind(yuklemeNotu);
+    const buildYuklemeNotuPrintHtml = (raw, kind) => {
       const t = normalizeToLines(raw);
-      if (!t) return '<div class="note-inner"></div>';
+      const noteKind = kind || resolveYuklemeNotuKind(t);
+      if (!t) return `<div class="note-inner" data-not-kind="${noteKind}"></div>`;
       const lines = sanitizeYuklemeNotuLines(t.split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
       const esc = (s) => escapeHtml(s);
       const rowHtml = (line) => `<div class="note-row">${esc(line)}</div>`;
@@ -1093,14 +1321,24 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
         if (irs) irsLine = `İrsaliye No: ${irs}`;
       }
 
-      const descText = descParts.join(' ').trim();
-      const descLines = wrapDescForPrint(descText);
+      const descInput =
+        noteKind === 'piyasa'
+          ? [normalizePiyasaDescText(descParts.join(' '))].filter(Boolean)
+          : descParts;
+      const descLines = buildDescLinesForPrint(descInput, noteKind);
 
       const parts = [];
       if (irsLine) parts.push(`<div class="note-head">${esc(irsLine)}</div>`);
-      descLines.forEach((ln) => parts.push(rowHtml(ln)));
+      descLines.forEach((ln) => {
+        const bos = isAracBosNoteLine(ln);
+        parts.push(
+          bos
+            ? `<div class="note-row note-row--bos">${esc(ln)}</div>`
+            : rowHtml(ln)
+        );
+      });
 
-      return `<div class="note-inner">${parts.join('')}</div>`;
+      return `<div class="note-inner" data-not-kind="${noteKind}">${parts.join('')}</div>`;
     };
 
     const formatSevkYeriPrint = (value) => {
@@ -1232,7 +1470,7 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
     };
 
     const malzemeGridHtml = buildMalzemeHtml(malzeme);
-    const yuklemeNotuPrint = buildYuklemeNotuPrintHtml(yuklemeNotu);
+    const yuklemeNotuPrint = buildYuklemeNotuPrintHtml(yuklemeNotu, notKind);
 
     // ✅ Takip formu alanları artık span *veya* input olabilir.
     // - input varsa .value
@@ -1252,12 +1490,6 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
 const sevkYeri = document.getElementById('sevkYeri')?.value || '';
 const sevkYeriPrint = formatSevkYeriPrint(sevkYeri);
 const tonaj = document.getElementById('tonaj')?.value || '';
-const aracBosu = String(
-  document.getElementById('aracBosuBilgi')?.value
-  || document.getElementById('aracBosuSatir')?.textContent
-  || ''
-).trim();
-const aracBosuPrint = aracBosu ? escapeHtml(aracBosu) : '';
 const ambalajBilgisi = normalizeAmbalajBilgisi(document.getElementById('ambalajBilgisi')?.value || '');
 const ambalajBilgisiPrint = formatAmbalajBilgisiPrint(ambalajBilgisi);
 const seperatorBilgisi = document.getElementById('seperatorBilgisi')?.value || '';
@@ -1303,7 +1535,6 @@ const bosBbtText = amb.bosBbt;
 
     // ✅ A5 manzara için koordinatlar (210x148mm)
     const P_A5 = {
-        aracBos:       { left: 42, top: 15, w: 126, h: 11 },
         yuklemeSirasi: { left: 92, top: 27, w: 80 },
         tarih:         { left: 175, top: 27, w: 40 },
         sofor:         { left: 55, top: 40.5, w: 5 },
@@ -1332,7 +1563,6 @@ const bosBbtText = amb.bosBbt;
 
     // ✅ A4 dikey için koordinatlar (210x297mm) - resmin altında başlasın, orantılı yerleş
     const P_A4 = {
-        aracBos:       { left: 42, top: 15, w: 126, h: 11 },
         yuklemeSirasi: { left: 92, top: 27, w: 80 },
         tarih:         { left: 175, top: 27, w: 40 },
         sofor:         { left: 55, top: 40.5, w: 5 },
@@ -1432,21 +1662,6 @@ const bosBbtText = amb.bosBbt;
     white-space:nowrap;
   }
 
-  .arac-bos-print{
-    position:absolute;
-    box-sizing:border-box;
-    white-space:nowrap;
-    font-size:12pt !important;
-    font-weight:700 !important;
-    color:#000 !important;
-    line-height:1.1 !important;
-    display:flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    text-align:center !important;
-    overflow:visible !important;
-  }
-
   .field.wrap{
     white-space:normal;
     word-break:break-word;
@@ -1500,6 +1715,36 @@ const bosBbtText = amb.bosBbt;
   overflow-wrap:break-word;
   margin:0 0 0.1mm 0;
   padding:0;
+  font-size:6.35pt;
+  line-height:1.06;
+}
+.note--piyasa .note-head,
+.note-inner[data-not-kind="piyasa"] .note-head{
+  font-size:10pt;
+  line-height:1.14;
+}
+.note--piyasa .note-row,
+.note-inner[data-not-kind="piyasa"] .note-row{
+  font-size:8.5pt;
+  line-height:1.18;
+  word-break:normal;
+  overflow-wrap:normal;
+  margin:0 0 0.4mm 0;
+}
+.note--piyasa .note-row--bos,
+.note-inner[data-not-kind="piyasa"] .note-row--bos{
+  font-size:8pt;
+  font-weight:800;
+  line-height:1.08;
+  margin-top:0.15mm;
+}
+.note--ihracat .note-head,
+.note-inner[data-not-kind="ihracat"] .note-head{
+  font-size:8.85pt;
+  line-height:1.12;
+}
+.note--ihracat .note-row,
+.note-inner[data-not-kind="ihracat"] .note-row{
   font-size:6.35pt;
   line-height:1.06;
 }
@@ -1679,8 +1924,6 @@ const bosBbtText = amb.bosBbt;
 <div class="page">
 <img class="bg" src="${bgUrl}" alt="">
 
-    ${aracBosuPrint ? `<div class="arac-bos-print" style="left:${P.aracBos.left}mm; top:${P.aracBos.top}mm; width:${P.aracBos.w}mm; height:${P.aracBos.h}mm;">${aracBosuPrint}</div>` : ''}
-	
     <div class="field" style="left:${P.yuklemeSirasi.left}mm; top:${P.yuklemeSirasi.top}mm; width:${P.yuklemeSirasi.w}mm;">
         ${yuklemeSirasi}
     </div>
@@ -1761,7 +2004,7 @@ const bosBbtText = amb.bosBbt;
     </div>
 
     <!-- Yükleme Notu -->
-    <div id="printNot" class="note" style="left:${P.not.left}mm; top:${P.not.top}mm; width:${P.not.w}mm; height:${P.not.h}mm;">
+    <div id="printNot" class="note note--${notKind}" data-not-kind="${notKind}" style="left:${P.not.left}mm; top:${P.not.top}mm; width:${P.not.w}mm; height:${P.not.h}mm;">
         <div class="note-body">${yuklemeNotuPrint}</div>
     </div>
 
@@ -2038,9 +2281,16 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: '20260602-yukleme-notu-v10',
+    __aracBosRev: '20260602-yukleme-notu-piyasa-v3',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
+  window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;
+  window.YuklemeNotuFitSettings = {
+    storageKey: YUKLEME_NOTU_FIT_STORAGE_KEY,
+    defaults: YUKLEME_NOTU_FIT_DEFAULTS,
+    load: loadYuklemeNotuFitSettings,
+    save: saveYuklemeNotuFitSettings,
+  };
 })();
 
 function setupEslestirmeUXInsideForm() {
@@ -2057,9 +2307,18 @@ function setupEslestirmeUXInsideForm() {
     ambalajInputEl.addEventListener('blur', normalizeNow);
   }
 
+  function getKantarPersonelNamesPrint() {
+    if (typeof window.getKantarPersonelNames === 'function') return window.getKantarPersonelNames();
+    const fromReg = (window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('kantar')) || [];
+    if (fromReg.length) return fromReg;
+    return Object.keys(LEGACY_KANTAR_SIG);
+  }
+
   function populateSignatureDatalistsPrint() {
-    const namesK = (window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('kantar')) || Object.keys(LEGACY_KANTAR_SIG);
-    const namesS = (window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('saha')) || [];
+    const namesK = getKantarPersonelNamesPrint();
+    const namesS = (typeof window.getSahaPersonelNames === 'function')
+      ? window.getSahaPersonelNames()
+      : ((window.SignatureRegistry && window.SignatureRegistry.getNamesForRole('saha')) || []);
     const dlK = document.getElementById('kantarPersonelList');
     const dlS = document.getElementById('sahaPersonelList');
     if (dlK) dlK.innerHTML = namesK.map((n) => `<option value="${String(n).replace(/"/g, '&quot;')}"></option>`).join('');
@@ -2169,9 +2428,17 @@ function fitToBoxInput(el, minPx = 10, maxPx = 16) {
 // Global: diğer scriptler tarafından erişilsin
 window.fitToBoxInput = fitToBoxInput;
 
-/** Takip formu textarea: okunaklı boyutta kalsın (ekranda çok küçültme) */
+/** Takip formu textarea: piyasa / ihracat için ayrı ekran boyutu */
 function fitYuklemeNotuOnScreen(el) {
-  fitToBoxInput(el, 9, 11);
+  const kind =
+    typeof window.resolveYuklemeNotuKind === 'function'
+      ? window.resolveYuklemeNotuKind(el?.value || '')
+      : 'piyasa';
+  const screen =
+    typeof window.YuklemeNotuFitSettings?.load === 'function'
+      ? window.YuklemeNotuFitSettings.load().screen[kind === 'ihracat' ? 'ihracat' : 'piyasa']
+      : (kind === 'ihracat' ? { minPx: 9, maxPx: 11 } : { minPx: 10, maxPx: 12 });
+  fitToBoxInput(el, screen.minPx, screen.maxPx);
 }
 window.fitYuklemeNotuOnScreen = fitYuklemeNotuOnScreen;
 

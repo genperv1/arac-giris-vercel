@@ -4,7 +4,7 @@
   var VER =
     typeof window !== 'undefined' && window.__ASSET_VER != null && String(window.__ASSET_VER).trim() !== ''
       ? String(window.__ASSET_VER).trim()
-      : '20260602-print-v10';
+      : '20260602-print-v12-notu-single';
 
   function qs() {
     return 'v=' + encodeURIComponent(VER);
@@ -74,7 +74,7 @@
   var printPromise = null;
   window.ensurePrintLoaded = function () {
     var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
-    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260602-yukleme-notu-v10';
+    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260602-yukleme-notu-piyasa-v3';
     if (!needPrint && !stalePrint) return Promise.resolve();
     if (stalePrint) {
       try {
@@ -87,7 +87,7 @@
     printPromise = loadScript('/signatures-registry.js')
       .then(function () { return loadScript('/print.js'); })
       .then(function () {
-        if (window.Print) window.Print.__aracBosRev = '20260602-yukleme-notu-v10';
+        if (window.Print) window.Print.__aracBosRev = '20260602-yukleme-notu-piyasa-v3';
       })
       .catch(function (e) {
       printPromise = null;
