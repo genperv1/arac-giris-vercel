@@ -2154,12 +2154,8 @@
     applyAracBosuToForm(bosKg);
   }
 
-  async function applyOrderFromPicker(o) {
+  function applyOrderFromPicker(o) {
     const plate = (document.getElementById('cekiciPlaka') || {}).value || '';
-    if (o && (o.usedAt || getOrderPrintCount(o) > 0)) {
-      const ok = await confirmReuseOrder(o);
-      if (!ok) return;
-    }
     applyOrderToForm(o, { forceReuse: true });
     markOrderUsed(o, plate);
   }
@@ -2239,6 +2235,7 @@
   }
 
   function applyOrderToForm(o, opts){
+    window.__piyasaApplyingOrder = true;
     applyAracBosuToForm(null);
 
     const firmaKodu = document.getElementById('firmaKodu');
@@ -2250,6 +2247,20 @@
     const sevk = document.getElementById('sevkYeri');
     const tonaj = document.getElementById('tonaj');
     const seperator = document.getElementById('seperatorBilgisi');
+
+    const writeOrderValues = () => {
+      if (firmaKodu) firmaKodu.value = firmaVal;
+      if (malzeme) malzeme.value = o.malzeme || '';
+      if (malzemeSelect) {
+        const target = (o.malzeme || '').trim();
+        const opt = Array.from(malzemeSelect.options || []).find(x => (x.value||'').trim() === target);
+        malzemeSelect.value = opt ? opt.value : '';
+      }
+      if (ambalaj) ambalaj.value = o.yuklemeTuru || '';
+      if (notu) notu.value = o.aciklama || '';
+      if (sevk) sevk.value = o.sevkYeri || o.il || '';
+      if (tonaj) tonaj.value = o.miktar != null && o.miktar !== '' ? String(o.miktar) : '';
+    };
 
     // Değerleri bas
     // Firma/Müşteri Kodu: hem input'u doldur hem de select içinde eşleşen varsa seç.
@@ -2263,17 +2274,7 @@
         firmaOptMatched = true;
       }
     }
-    if (malzeme) malzeme.value = o.malzeme || '';
-    if (malzemeSelect) {
-      // seçenek eşleşirse select'i de işaretle
-      const target = (o.malzeme || '').trim();
-      const opt = Array.from(malzemeSelect.options || []).find(x => (x.value||'').trim() === target);
-      malzemeSelect.value = opt ? opt.value : '';
-    }
-    if (ambalaj) ambalaj.value = o.yuklemeTuru || '';
-    if (notu) notu.value = o.aciklama || '';
-    if (sevk) sevk.value = o.sevkYeri || o.il || '';
-    if (tonaj) tonaj.value = o.miktar != null && o.miktar !== '' ? String(o.miktar) : '';
+    writeOrderValues();
     
     // SEPERATÖR BİLGİSİ: ÖDEME TÜRÜ ve ORG bilgilerini ayrı ayrı belirterek yaz
     if (seperator) {
@@ -2310,17 +2311,7 @@
     });
 
     // Bazı akışlarda select change input'u temizleyebiliyor; en son tekrar basıyoruz.
-    if (firmaKodu) firmaKodu.value = firmaVal;
-    if (malzeme) malzeme.value = o.malzeme || '';
-    if (malzemeSelect) {
-      const target = (o.malzeme || '').trim();
-      const opt = Array.from(malzemeSelect.options || []).find(x => (x.value||'').trim() === target);
-      malzemeSelect.value = opt ? opt.value : '';
-    }
-    if (ambalaj) ambalaj.value = o.yuklemeTuru || '';
-    if (notu) notu.value = o.aciklama || '';
-    if (sevk) sevk.value = o.sevkYeri || o.il || '';
-    if (tonaj) tonaj.value = o.miktar != null && o.miktar !== '' ? String(o.miktar) : '';
+    writeOrderValues();
     
     // SEPERATÖR BİLGİSİ: ÖDEME TÜRÜ ve ORG bilgilerini ayrı ayrı belirterek yaz (ikinci kez)
     if (seperator) {
@@ -2346,6 +2337,11 @@
         this.style.transition = 'all 0.3s ease';
       };
     }
+
+    // Takip formundaki eşleştirme listener'ları alanı geri boşaltırsa tekrar bas.
+    setTimeout(writeOrderValues, 0);
+    setTimeout(writeOrderValues, 40);
+    setTimeout(() => { window.__piyasaApplyingOrder = false; }, 80);
   }
 
   // Map a firma code to a human-friendly firma name using global `firmaListesi` if available
@@ -2659,7 +2655,7 @@
             <div class="piyasa-aciklama-text" style="font-size:11px;line-height:1.5;color:inherit;">${aciklamaInner}</div>
           </td>`;
       const selectTd = forPrint ? '' : `<td style="${selectCellStyle}">
-            <button data-pick-key="${escapeHtml(o._pickKey || String(o.__idx))}" style="cursor:pointer;border:0;background:${isUsed ? '#4b5563' : '#111827'};color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;">Seç</button>
+            <button type="button" data-pick-key="${escapeHtml(o._pickKey || String(o.__idx))}" style="cursor:pointer;border:0;background:${isUsed ? '#4b5563' : '#111827'};color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;">Seç</button>
           </td>`;
       const statusTd = forPrint
         ? `<td class="col-durum"${printDupClass || printUsedClass}>${statusInner || '—'}</td>`
@@ -2866,6 +2862,7 @@
       tbody.addEventListener('click', (e) => {
         const historyBtn = e.target.closest('button[data-history-key]');
         if (historyBtn) {
+          e.preventDefault();
           e.stopPropagation();
           const pickKey = historyBtn.getAttribute('data-history-key');
           const selected = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === pickKey);
@@ -2874,11 +2871,31 @@
         }
         const pickBtn = e.target.closest('button[data-pick-key]');
         if (!pickBtn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        if (pickBtn.disabled) return;
         const pickKey = pickBtn.getAttribute('data-pick-key');
         const selected = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === pickKey);
         if (!selected) return;
-        close();
-        applyOrderFromPicker(selected);
+        const originalText = pickBtn.textContent;
+        pickBtn.disabled = true;
+        pickBtn.textContent = 'Seçiliyor...';
+        try {
+          close();
+        } catch (_) {
+          try { overlay.remove(); } catch (_) {}
+          window.__piyasaPickerOpen = false;
+        }
+        try {
+          applyOrderFromPicker(selected);
+        } catch (err) {
+          console.error('Piyasa siparişi forma aktarılırken hata:', err);
+          // Modal kapandığı için sadece hata bilgisi veriyoruz.
+          alert('Sipariş forma aktarılırken bir hata oluştu. Lütfen tekrar deneyin.');
+          // Beklenmeyen bir hatada state kilitlenmesin:
+          window.__piyasaPickerOpen = false;
+        }
       });
     }
 

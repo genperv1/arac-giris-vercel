@@ -3651,10 +3651,10 @@ let sonuc = {
                     soforSoyadi: driver.soforSoyadi,
                     iletisim: driver.iletisim,
                     tcKimlik: driver.tcKimlik,
-                    defaultFirma: get('firmaKodu') || '',
-                    defaultMalzeme: get('malzeme') || '',
-                    defaultSevkYeri: get('sevkYeri') || '',
-                    defaultYuklemeNotu: get('yuklemeNotu') || '',
+                    defaultFirma: '',
+                    defaultMalzeme: '',
+                    defaultSevkYeri: '',
+                    defaultYuklemeNotu: '',
                     kayitTarihi: new Date().toLocaleString('tr-TR')
                 };
 
@@ -4078,6 +4078,18 @@ function bindKantarSignaturePicker() {
 
 function showTakipFormu(vehicle) {
             const formContainer = document.getElementById('takipFormu');
+            const _rawVehicle = vehicle || {};
+            const _allowRememberedDefaults = !!_rawVehicle._reprintData;
+            // Normal kart tıklamasında son yazdırılan takip alanlarını taşıma.
+            vehicle = _allowRememberedDefaults
+              ? _rawVehicle
+              : {
+                  ..._rawVehicle,
+                  defaultFirma: '',
+                  defaultMalzeme: '',
+                  defaultSevkYeri: '',
+                  defaultYuklemeNotu: ''
+                };
 
             console.log('🔵 showTakipFormu çağrıldı - vehicle:', vehicle);
             console.log('🔵 vehicle._reprintData:', vehicle?._reprintData);
@@ -4960,6 +4972,7 @@ const resetMatchFields = () => {
 
 // Firmaya göre eşleşme uygula (PROMPT YOK)
 const handleFirma = (firma) => {
+  if (window.__piyasaApplyingOrder) return;
   const f = (firma || '').trim();
   currentFirmaMatches = (f && eslestirmeStorage.getByFirma) ? (eslestirmeStorage.getByFirma(f) || []) : [];
 

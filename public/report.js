@@ -135,6 +135,43 @@
   }
   // ===== NETSIS FONKSIYONLARI BITTI =====
 
+  function buildWhatsAppCopyText(data) {
+    const plate = (data.cekiciPlaka || data.plaka || '').toString().trim();
+    const firma = (data.firma || data.firmaKodu || data.firmaSelect || '-').toString().trim();
+    const girisYeri = (data.basimYeri || data.girisYeri || '-').toString().trim();
+    const malzeme = (data.malzeme || '').toString().trim();
+    const sevkYeri = (data.sevkYeri || '').toString().trim();
+    const bilgi = [malzeme, sevkYeri].filter(Boolean).join(' • ').trim();
+    return [
+      'Plaka: ' + (plate || '-'),
+      'Firma: ' + firma,
+      'Giris Yeri: ' + girisYeri,
+      'Bilgi: ' + (bilgi ? ('• ' + bilgi) : '-'),
+      'GIRIS YAPTI.'
+    ].join('\n');
+  }
+
+  async function copyWhatsAppData(data) {
+    const text = buildWhatsAppCopyText(data || {});
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+      }
+      uiAlert('WhatsApp metni kopyalandi.', 'success');
+    } catch (e) {
+      uiAlert('WhatsApp metni kopyalanamadi.', 'danger');
+    }
+  }
+
   async function getDailyMeta(){
     try{ const r = await fetch('/api/kv/daily_shipments_meta'); if (r.ok) return await r.json(); }catch(e){}
     return {};
@@ -419,6 +456,10 @@
             <button class="report-action-btn copyExcelBtn"
               data-id="${String(v.id||'')}" title="Excel için satırı kopyala">
               <i class="fas fa-file-excel"></i> Excel
+            </button>
+            <button class="report-action-btn copyWhatsappBtn"
+              data-id="${String(v.id||'')}" title="WhatsApp metnini kopyala">
+              <i class="fab fa-whatsapp"></i> WhatsApp Kopyala
             </button>
             <button class="report-action-btn reprintBtn small"
               data-id="${String(v.id||'')}" title="Yeniden Yazdır">
@@ -825,6 +866,45 @@
         } catch (e) {
           console.error('Excel kopyalama hatası:', e);
           alert('❌ Excel kopyalama başarısız. Tarayıcı klipboarda erişime izin veremedi.');
+        }
+      });
+    });
+
+    // bind WhatsApp row copy
+    tbody.querySelectorAll('.copyWhatsappBtn').forEach(btn => {
+      if (btn.__boundWhatsapp) return;
+      btn.__boundWhatsapp = true;
+      btn.addEventListener('click', async () => {
+        try {
+          const tr = btn.closest('tr');
+          if (!tr) return;
+          const plate = tr.getAttribute('data-plate') || '';
+          const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
+          const eventDataStr = tr.getAttribute('data-event-data') || '{}';
+          let d = {};
+          try { d = JSON.parse(eventDataStr); } catch(e) { d = {}; }
+
+          let vehicleData = null;
+          if (plate) {
+            try {
+              if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
+                const cached = window.storage.load('vehicle_' + vehicleId);
+                if (cached && typeof cached === 'object') vehicleData = cached;
+              }
+              if (!vehicleData) {
+                const resp = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+                if (resp.ok) {
+                  const found = await resp.json();
+                  if (found && typeof found === 'object' && !Array.isArray(found)) vehicleData = found;
+                }
+              }
+            } catch (e) {}
+          }
+
+          const payload = Object.assign({}, vehicleData || {}, d, { plaka: plate || d.plaka || '' });
+          await copyWhatsAppData(payload);
+        } catch (e) {
+          uiAlert('WhatsApp verisi hazirlanirken hata olustu.', 'danger');
         }
       });
     });
