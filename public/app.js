@@ -971,9 +971,10 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
       ? window.piyasa.getOrderByIdx(pending.piyasaOrderIdx)
       : null;
     if (!o) return printEv;
+    const snapFirma = String(printEv.firmaKodu || printEv.firma || '').trim();
     const f = String(o.firma || '').trim();
     const m = String(o.malzeme || '').trim();
-    if (f) {
+    if (f && (!snapFirma || snapFirma === f)) {
       printEv.firma = f;
       printEv.firmaKodu = f;
     }
@@ -2305,6 +2306,7 @@ async function commitIhracatImport(uniq2, meta, file) {
         metaToSave = {
           ...existingMeta,
           ...meta,
+          importedAt: existingMeta.importedAt || meta.importedAt,
           files: uniqFiles,
           fileName: uniqFiles.join(' + '),
           count: rowsToSave.length,
@@ -3472,6 +3474,11 @@ let sonuc = {
                     await window.storage._readAll();
                 }
                 state.vehicles = storage.loadAll();
+                try {
+                  if (window.Report && typeof window.Report.getEvents === 'function') {
+                    state.reports = window.Report.getEvents();
+                  }
+                } catch (e) { /* ignore */ }
                 populateSoforHistoryFromVehicles(state.vehicles);
                 // Telefonları otomatik formatla ve kaydet
                 try {
@@ -3505,6 +3512,7 @@ let sonuc = {
             } catch (e) { console.warn('Piyasa init hatası:', e); }
 
             try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
+            try { _ihracatFetchRemotePrintReports(true); } catch (e) {}
         }
 
         // Form verilerini güncelle
@@ -5914,6 +5922,8 @@ try {
                             const updated = { ...cur, printCount: nextCount, lastPrintSnapshot: snap };
                             try { window.storage?.save('vehicle_' + updated.id, updated); } catch(e) {}
                             state.vehicles = (state.vehicles || []).map(v => String(v.id) === String(updated.id) ? updated : v);
+                            try { saveVehicleToDatabase(updated); } catch (e) {}
+                            try { await _ihracatFetchRemotePrintReports(true); } catch (e) {}
                             try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
 
                             try {
@@ -10884,7 +10894,7 @@ function _ihracatRenderDurumHtml(st, plateRaw) {
   </span>`;
 }
 
-function _ihracatApplyDurumCell(statusCell, row, plateRaw, statusApi) {
+function _ihracatApplyDurumCell(statusCell, row, plateRaw, statusApi, stOverride) {
   if (!statusCell) return;
   const { normalizePlate, statusForPlate, statusStyle, renderDurumHtml } = statusApi;
   const raw = String(plateRaw || '').trim();
@@ -10900,7 +10910,7 @@ function _ihracatApplyDurumCell(statusCell, row, plateRaw, statusApi) {
     statusCell.removeAttribute('data-ihr-durum-text');
     return;
   }
-  const st = statusForPlate(raw);
+  const st = stOverride != null ? stOverride : statusForPlate(raw);
   statusCell.innerHTML = renderDurumHtml(st, raw);
   statusCell.setAttribute('data-ihr-durum-text', _ihracatDurumPlainText(st, raw));
   if (row) {
@@ -11329,24 +11339,63 @@ function _ihracatPad2(n) {
   return String(n).padStart(2, '0');
 }
 
+/** Yazdırma anı, Excel meta ile uyumlu mu (yeniden yüklemede aynı gün yazdırmalar korunur). */
+function _ihracatPrintSnapValidForMeta(snapTs, meta) {
+  const ts = Number(snapTs);
+  if (!Number.isFinite(ts) || ts <= 0) return false;
+  const importTimestamp = Number(new Date(meta?.importedAt || 0));
+  if (!importTimestamp || ts >= importTimestamp) return true;
+  const dateKey = String(_resolveIhracatDateKey(meta) || meta?.dateKey || '').trim();
+  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return false;
+  try {
+    const printDay = new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+    return printDay === dateKey;
+  } catch (e) {
+    return false;
+  }
+}
+
 /** Takip formundan yazdırılmış / çıkış yapmış plaka (araç veya rapor kaydı). */
 function _ihracatPlateHasCheckout(plateRaw, meta) {
   const key = _ihracatPlateKey(plateRaw);
   if (!key) return false;
 
+  if (window.__ihracatRemotePrintCache?.loaded) {
+    for (const r of _ihracatGetPrintReports()) {
+      const d = r.data || {};
+      const plates = [d.plaka, d.plate, r.plaka, d.cekiciPlaka, d.dorsePlaka];
+      for (const raw of plates) {
+        const p = normPlate(raw || '');
+        if (p && _ihracatPlateKey(p) === key) return true;
+      }
+    }
+    return false;
+  }
+
   const v = _ihracatFindVehicleByPlate(plateRaw);
   if (v && (Number(v.printCount || 0) || 0) > 0) {
-    const snapTs = Number(v.lastPrintSnapshot?.ts || v.lastPrintSnapshot?.timestamp || 0);
-    const importTs = Number(new Date(meta?.importedAt || 0));
-    if (!importTs || !snapTs || snapTs >= importTs) return true;
-    return true;
+    const snap = v.lastPrintSnapshot || {};
+    const snapTs = Number(snap.ts || snap.timestamp || 0);
+    if (!_ihracatPrintSnapValidForMeta(snapTs, meta)) return false;
+    const pk = _ihracatPlateKey;
+    const snapKeys = new Set();
+    [snap.plaka, snap.cekiciPlaka, snap.dorsePlaka, snap.plate].forEach((raw) => {
+      const k = pk(raw);
+      if (k) snapKeys.add(k);
+    });
+    const currentKeys = new Set();
+    [v.cekiciPlaka, v.dorsePlaka, v.plaka].forEach((raw) => {
+      const k = pk(raw);
+      if (k) currentKeys.add(k);
+    });
+    return [...snapKeys].some((k) => currentKeys.has(k) && k === key);
   }
 
   try {
-    for (const r of state.reports || []) {
-      if (!r || r.type !== 'PRINT') continue;
+    for (const r of _ihracatGetPrintReports()) {
+      if (!r || String(r.type || '').toUpperCase() !== 'PRINT') continue;
       const d = r.data || {};
-      const plates = [d.plaka, d.plate, d.cekiciPlaka, d.dorsePlaka];
+      const plates = [d.plaka, d.plate, r.plaka, d.cekiciPlaka, d.dorsePlaka];
       for (const raw of plates) {
         const p = normPlate(raw || '');
         if (p && _ihracatPlateKey(p) === key) return true;
@@ -11434,6 +11483,116 @@ function _ihracatFirmaMatchesExcel(firmaRaw, excelFirma) {
   return fa.includes(fb) || fb.includes(fa);
 }
 
+/** Sunucudaki yazdırma kayıtları (/api/reports = print_history). F5 sonrası localStorage yetmez. */
+window.__ihracatRemotePrintCache = window.__ihracatRemotePrintCache || { ts: 0, reports: [], loading: null, loaded: false };
+
+function _ihracatInvalidatePrintReportsCache() {
+  const cache = window.__ihracatRemotePrintCache;
+  if (!cache) return;
+  cache.ts = 0;
+  cache.loaded = false;
+  cache.reports = [];
+  cache.loading = null;
+}
+window._ihracatInvalidatePrintReportsCache = _ihracatInvalidatePrintReportsCache;
+
+async function _ihracatFetchRemotePrintReports(force) {
+  const cache = window.__ihracatRemotePrintCache;
+  const now = Date.now();
+  if (!force && cache.loaded && (now - cache.ts) < 45000) {
+    return cache.reports;
+  }
+  if (cache.loading) {
+    try { return await cache.loading; } catch (e) { return cache.reports; }
+  }
+  cache.loading = (async () => {
+    try {
+      const r = await fetch('/api/reports?limit=2000&_=' + now, {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+      });
+      if (r.ok) {
+        const data = await r.json();
+        cache.reports = Array.isArray(data) ? data : [];
+        cache.ts = Date.now();
+        cache.loaded = true;
+      }
+    } catch (e) {
+      console.warn('İhracat yazdırma listesi alınamadı:', e);
+    } finally {
+      cache.loading = null;
+    }
+    return cache.reports;
+  })();
+  try { return await cache.loading; } catch (e) { return cache.reports; }
+}
+window._ihracatFetchRemotePrintReports = _ihracatFetchRemotePrintReports;
+
+/** Yazdırma olayları — sunucu listesi tek kaynak; offline ise localStorage yedek. */
+function _ihracatGetPrintReports() {
+  const cache = window.__ihracatRemotePrintCache || {};
+  const isPrint = (r) => r && String(r.type || '').toUpperCase() === 'PRINT';
+
+  if (cache.loaded) {
+    return (cache.reports || []).filter(isPrint);
+  }
+
+  const merged = [];
+  const seen = new Set();
+  const push = (r) => {
+    if (!isPrint(r)) return;
+    const data = r.data || {};
+    const id = String(r.id || `${r.ts || 0}__${data.plaka || r.plaka || ''}`);
+    if (seen.has(id)) return;
+    seen.add(id);
+    merged.push(r);
+  };
+  try {
+    (cache.reports || []).forEach(push);
+    if (state.reports && Array.isArray(state.reports) && state.reports.length) {
+      state.reports.forEach(push);
+    } else if (window.Report && typeof window.Report.getEvents === 'function') {
+      (window.Report.getEvents() || []).forEach(push);
+    }
+  } catch (e) { /* ignore */ }
+  return merged;
+}
+
+function _ihracatReportMatchesExcelFirmalar(report, firmalar) {
+  if (!(firmalar instanceof Set) || firmalar.size === 0) return true;
+  const data = (report && report.data) || {};
+  const firma = String(report.firma || data.firma || data.firmaKodu || data.firmaSelect || '').trim();
+  if (!firma) return true;
+  for (const ef of firmalar) {
+    if (_ihracatFirmaMatchesExcel(firma, ef)) return true;
+  }
+  return false;
+}
+
+/** Rapor / sunucu yazdırma kayıtlarından plaka başına yazdırma adedi. */
+function _ihracatCollectReportPrintCountsByPlate(meta, excelFirmalar) {
+  const map = new Map();
+  const pk = (value) => _ihracatPlateKey(value);
+  const firmalar = excelFirmalar instanceof Set ? excelFirmalar : new Set();
+  const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+
+  _ihracatGetPrintReports().forEach((r) => {
+    const ts = Number(r.ts || (r.data && r.data.ts) || 0);
+    if (Number.isFinite(ts) && ts > 0 && ts < twoDaysAgo) return;
+    if (!_ihracatReportMatchesExcelFirmalar(r, firmalar)) return;
+
+    const data = r.data || {};
+    const raw = data.plaka || data.plate || r.plaka || data.cekiciPlaka || data.dorsePlaka || '';
+    const k = pk(raw);
+    if (!k) return;
+    map.set(k, (map.get(k) || 0) + 1);
+  });
+
+  return map;
+}
+
 /** Takip formu yazdırılmış; Excel satırında olmayan plakaları yazdırmaya ekle. */
 function _ihracatCollectPrintedExitRows(shipments, meta, existingRows) {
   const excelFirmalar = [];
@@ -11447,7 +11606,6 @@ function _ihracatCollectPrintedExitRows(shipments, meta, existingRows) {
   });
   if (!excelFirmalar.length) return [];
 
-  const importTs = Number(new Date(meta?.importedAt || 0));
   const plateKeys = new Set((existingRows || []).map((r) => _ihracatPlateKey(r.plaka)).filter(Boolean));
   const addedKeys = new Set();
   const out = [];
@@ -11486,7 +11644,7 @@ function _ihracatCollectPrintedExitRows(shipments, meta, existingRows) {
     const snap = v.lastPrintSnapshot;
     const snapTs = Number(snap?.ts || snap?.timestamp || 0);
     if (!Number.isFinite(snapTs) || snapTs <= 0) return;
-    if (importTs && snapTs < importTs) return;
+    if (!_ihracatPrintSnapValidForMeta(snapTs, meta)) return;
     if ((Number(v.printCount || 0) || 0) <= 0) return;
     const firma = snap.firmaKodu || snap.firmaSelect || v.defaultFirma || '';
     const payload = { ...snap, malzeme: snap.malzeme || v.defaultMalzeme };
@@ -11497,14 +11655,12 @@ function _ihracatCollectPrintedExitRows(shipments, meta, existingRows) {
   });
 
   try {
-    (state.reports || [])
-      .filter((r) => r && r.type === 'PRINT')
+    _ihracatGetPrintReports()
+      .filter((r) => r && String(r.type || '').toUpperCase() === 'PRINT')
       .forEach((r) => {
-        const ts = Number(r.ts || 0);
-        if (importTs && ts > 0 && ts < importTs) return;
         const d = r.data || {};
         const firma = d.firma || d.firmaKodu || d.firmaSelect || r.firma || '';
-        pushExit(d.plaka || d.plate || d.cekiciPlaka, firma, d);
+        pushExit(d.plaka || d.plate || r.plaka || d.cekiciPlaka, firma, d);
       });
   } catch (e) {
     console.warn('Yazdırılmış plaka listesi okunamadı:', e);
@@ -11822,13 +11978,23 @@ function _printIhracatDetailsFromModal(modal, ctx) {
   else frame.onload = () => setTimeout(doPrint, 200);
 }
 
-/** Yazdırılmış plaka: yalnızca yazdırma anındaki plakalar ve hâlâ araç kaydında olanlar sayılır. */
+/** Yazdırılmış plaka: rapor listesi (print_history) tek kaynak; silinince durum düşer. */
 function _ihracatCollectPrintedCapacityByPlate(meta, excelFirmalar) {
   const map = new Map();
-  const pk = (value) => _ihracatPlateKey(value);
-  const importTimestamp = Number(new Date(meta?.importedAt || 0));
   const firmalar = excelFirmalar instanceof Set ? excelFirmalar : new Set();
 
+  try {
+    const reportCounts = _ihracatCollectReportPrintCountsByPlate(meta, firmalar);
+    reportCounts.forEach((count, k) => map.set(k, count));
+  } catch (e) {
+    console.warn('Raporlardan yazdırılma durumu kontrol edilemedi:', e);
+  }
+
+  if (window.__ihracatRemotePrintCache?.loaded) {
+    return map;
+  }
+
+  const pk = (value) => _ihracatPlateKey(value);
   const creditKeys = (keys, count) => {
     const n = Number(count);
     if (!Number.isFinite(n) || n <= 0) return;
@@ -11844,7 +12010,7 @@ function _ihracatCollectPrintedCapacityByPlate(meta, excelFirmalar) {
     const snap = v.lastPrintSnapshot || {};
     const snapTs = Number(snap?.ts || snap?.timestamp || 0);
     if (!Number.isFinite(snapTs) || snapTs <= 0) return;
-    if (importTimestamp && snapTs < importTimestamp) return;
+    if (!_ihracatPrintSnapValidForMeta(snapTs, meta)) return;
 
     const snapKeys = new Set();
     [snap.plaka, snap.cekiciPlaka, snap.dorsePlaka, snap.plate].forEach((raw) => {
@@ -11868,28 +12034,6 @@ function _ihracatCollectPrintedCapacityByPlate(meta, excelFirmalar) {
     creditKeys(keysToCredit, printCount);
   });
 
-  try {
-    if (state.reports && Array.isArray(state.reports) && firmalar.size > 0) {
-      const now = new Date();
-      const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-      state.reports
-        .filter((r) => r.type === 'PRINT' && Number(r.ts || 0) >= twoDaysAgo.getTime() && firmalar.has(r.firma))
-        .forEach((r) => {
-          const data = r.data || {};
-          [data.cekiciPlaka, data.dorsePlaka, data.plaka, data.plate].forEach((raw) => {
-            const k = pk(raw || '');
-            if (!k || (map.get(k) || 0) > 0) return;
-            const veh = _ihracatFindVehicleByPlate(raw);
-            if (!veh) return;
-            const stillOn = [veh.cekiciPlaka, veh.dorsePlaka, veh.plaka].some((p) => pk(p) === k);
-            if (stillOn) map.set(k, Math.max(map.get(k) || 0, 1));
-          });
-        });
-    }
-  } catch (e) {
-    console.warn('Raporlardan yazdırılma durumu kontrol edilemedi:', e);
-  }
-
   return map;
 }
 
@@ -11902,33 +12046,41 @@ function _ihracatCreateStatusApi(meta, excelFirmalar) {
     missing: 'background:#f1f5f9;color:#0f172a;',
   };
 
-  const capacityMap = () => _ihracatCollectPrintedCapacityByPlate(meta, excelFirmalar);
+  let cachedCapacityMap = null;
+  const capacityMap = () => {
+    if (!cachedCapacityMap) {
+      cachedCapacityMap = _ihracatCollectPrintedCapacityByPlate(meta, excelFirmalar);
+    }
+    return cachedCapacityMap;
+  };
 
-  const statusForPlate = (plateRaw) => {
+  const resolveRowStatus = (plateRaw, assignmentCountByPlate) => {
     const key = plateKeyFn(plateRaw);
     if (!key) return 'missing';
-    if ((capacityMap().get(key) || 0) > 0) return 'printed';
+    const allowed = capacityMap().get(key) || 0;
+    const alreadyAssigned = assignmentCountByPlate.get(key) || 0;
+    if (allowed > alreadyAssigned) {
+      assignmentCountByPlate.set(key, alreadyAssigned + 1);
+      return 'printed';
+    }
     if (_ihracatFindVehicleByPlate(plateRaw)) return 'pending';
     return 'missing';
   };
 
+  const statusForPlate = (plateRaw) => {
+    const counter = new Map();
+    return resolveRowStatus(plateRaw, counter);
+  };
+
   const getShipmentStatus = (shipment, assignmentCountByPlate) => {
-    const key = plateKeyFn(shipment.plaka || '');
-    if (!key) return 'missing';
-    const allowed = capacityMap().get(key) || 0;
-    if (allowed > 0) {
-      const alreadyAssigned = assignmentCountByPlate.get(key) || 0;
-      assignmentCountByPlate.set(key, alreadyAssigned + 1);
-      return 'printed';
-    }
-    if (_ihracatFindVehicleByPlate(shipment.plaka)) return 'pending';
-    return 'missing';
+    return resolveRowStatus(shipment.plaka, assignmentCountByPlate);
   };
 
   return {
     normalizePlate,
     plateKey: plateKeyFn,
     statusForPlate,
+    resolveRowStatus,
     getShipmentStatus,
     statusStyle,
     durumLabel: (st) => _ihracatDurumPlainText(st, ''),
@@ -11941,17 +12093,35 @@ function _ihracatCreateStatusApi(meta, excelFirmalar) {
 function _ihracatRefreshOpenModalStatuses() {
   const modal = document.getElementById('ihracatDetailsModal');
   if (!modal) return;
-  const meta = modal.__ihrMeta || ((typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {});
-  const firmalar = modal.__ihrExcelFirmalar || new Set();
-  const statusApi = _ihracatCreateStatusApi(meta, firmalar);
-  modal.__ihracatStatusApi = statusApi;
-  modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
-    const plate =
-      row.querySelector('[data-field="plaka-text"]')?.textContent?.trim() ||
-      row.querySelector('[data-field="plaka"]')?.value?.trim() ||
-      '';
-    _ihracatApplyDurumCell(row.querySelector('[data-field="durum"]'), row, plate, statusApi);
-  });
+  const apply = () => {
+    const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : (modal.__ihrMeta || {});
+    modal.__ihrMeta = meta;
+
+    let firmalar = modal.__ihrExcelFirmalar;
+    if (!(firmalar instanceof Set) || firmalar.size === 0) {
+      firmalar = new Set();
+      const rows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+      rows.forEach((s) => {
+        const firma = String(s.firma || '').trim();
+        if (firma) firmalar.add(firma);
+      });
+    }
+    modal.__ihrExcelFirmalar = firmalar;
+
+    const statusApi = _ihracatCreateStatusApi(meta, firmalar);
+    modal.__ihracatStatusApi = statusApi;
+    const assignmentCountByPlate = new Map();
+
+    modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
+      const plate =
+        row.querySelector('[data-field="plaka-text"]')?.textContent?.trim() ||
+        row.querySelector('[data-field="plaka"]')?.value?.trim() ||
+        '';
+      const st = statusApi.resolveRowStatus(plate, assignmentCountByPlate);
+      _ihracatApplyDurumCell(row.querySelector('[data-field="durum"]'), row, plate, statusApi, st);
+    });
+  };
+  _ihracatFetchRemotePrintReports(false).then(apply).catch(apply);
 }
 
 function _ihracatSyncVehiclePlatesFromTakipForm() {
@@ -11973,10 +12143,23 @@ function _ihracatSyncVehiclePlatesFromTakipForm() {
   _ihracatRefreshOpenModalStatuses();
 }
 
+function _ihracatOnReportsChanged() {
+  try { _ihracatInvalidatePrintReportsCache(); } catch (e) {}
+  _ihracatFetchRemotePrintReports(true)
+    .then(() => { try { _ihracatRefreshOpenModalStatuses(); } catch (e) {} })
+    .catch(() => {});
+}
+window._ihracatOnReportsChanged = _ihracatOnReportsChanged;
 window._ihracatRefreshOpenModalStatuses = _ihracatRefreshOpenModalStatuses;
 
 // İhracat Excel Detay Modal
-function showIhracatDetailsModal() {
+async function showIhracatDetailsModal() {
+  try {
+    await _ihracatFetchRemotePrintReports(true);
+    if (window.Report && typeof window.Report.getEvents === 'function') {
+      state.reports = window.Report.getEvents();
+    }
+  } catch (e) { /* ignore */ }
   const shipments = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
   const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
   const tarih = meta.dateKey ? meta.dateKey.replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1') : 'Bilinmiyor';
@@ -12386,6 +12569,7 @@ window.showIhracatDetailsModal = showIhracatDetailsModal;
       if (typeof refreshReportCache === 'function') {
         refreshReportCache();
       }
+      try { _ihracatOnReportsChanged(); } catch (e) {}
     });
 
     window.SyncManager.on('reports_deleted', (data) => {
@@ -12393,6 +12577,7 @@ window.showIhracatDetailsModal = showIhracatDetailsModal;
       if (typeof refreshReportCache === 'function') {
         refreshReportCache();
       }
+      try { _ihracatOnReportsChanged(); } catch (e) {}
     });
 
     // Manual refresh trigger

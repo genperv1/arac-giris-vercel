@@ -719,6 +719,11 @@
           if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
             await window.piyasa.reconcileOrderPrintCountsFromReports();
           }
+          try {
+            if (typeof window._ihracatOnReportsChanged === 'function') {
+              window._ihracatOnReportsChanged();
+            }
+          } catch (e) {}
           uiAlert('Kayıt silindi.', 'success');
           render();
         } catch(e) {
@@ -1068,6 +1073,11 @@
             if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
               await window.piyasa.reconcileOrderPrintCountsFromReports();
             }
+            try {
+              if (typeof window._ihracatOnReportsChanged === 'function') {
+                window._ihracatOnReportsChanged();
+              }
+            } catch (e) {}
             alert('✅ Seçili kayıtlar silindi.');
             render();
           } catch(e) {

@@ -154,7 +154,7 @@
 
   const YUKLEME_NOTU_FIT_STORAGE_KEY = 'yuklemeNotuFit_v1';
   const YUKLEME_NOTU_FIT_DEFAULTS = {
-    ihracat: { headPt: 8.5, descPt: 6.35, minHeadPt: 8, minDescPt: 5.65, headStep: 0.08, descStep: 0.1 },
+    ihracat: { headPt: 8.5, descPt: 7.5, minHeadPt: 8, minDescPt: 6.5, headStep: 0.08, descStep: 0.08 },
     piyasa: { headPt: 10, descPt: 8.5, minHeadPt: 9, minDescPt: 7.75, headStep: 0.05, descStep: 0.06 },
     screen: {
       ihracat: { minPx: 9, maxPx: 11 },
@@ -216,13 +216,36 @@
     return /BBT\s+HP|NET\s+BOŞ\s+AĞIRLIK|ORGANİZE\s+EDİLMESİ|ORGANIZE\s+EDILMESI|ÖDEME\s+TÜRÜ|ODEME\s+TURU|RİCA\s+OLUNUR|RICA\s+OLUNUR|ANALİZ\s+SERTİFİKA|NETSİS|UNUTULMAMALIDIR|SİPARİŞ\s+NUMARASI|SIPARIS\s+NUMARASI/i.test(s);
   }
 
-  /** Excel satır kırıklarını kaldır, nokta sonrası boşluk düzelt */
+  /** Excel satır kırıklarını kaldır; DD.MM.YYYY tarihini tek parça tut */
   function normalizePiyasaDescText(raw) {
-    return String(raw || '')
+    let t = String(raw || '')
       .replace(/\r?\n+/g, ' ')
       .replace(/\s+/g, ' ')
-      .replace(/\.(?=[A-ZÇĞİÖŞÜ0-9])/g, '. ')
       .trim();
+    t = t.replace(/(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})\b/g, '$1.$2.$3');
+    t = t.replace(/\.(?=[A-ZÇĞİÖŞÜa-zçğıöşü])/g, '. ');
+    return t.trim();
+  }
+
+  /** Tarih parçalarını birleştir (18. + 04. + 2026 … → 18.04.2026 …) */
+  function mergePiyasaDateLineChunks(chunks) {
+    const L = (chunks || []).map((s) => String(s || '').trim()).filter(Boolean);
+    if (L.length < 2) return L;
+    const out = [];
+    for (let i = 0; i < L.length; i++) {
+      if (/^\d{1,2}\.$/.test(L[i]) && i + 2 < L.length && /^\d{1,2}\.$/.test(L[i + 1]) && /^\d{4}\b/.test(L[i + 2])) {
+        out.push(`${L[i]}${L[i + 1]}${L[i + 2]}`.replace(/\s+/g, ' '));
+        i += 2;
+        continue;
+      }
+      if (/^\d{1,2}\.$/.test(L[i]) && i + 1 < L.length && /^\d{1,2}\.\s*\d{4}\b/.test(L[i + 1])) {
+        out.push(`${L[i]}${L[i + 1]}`.replace(/\s+/g, ' '));
+        i += 1;
+        continue;
+      }
+      out.push(L[i]);
+    }
+    return out;
   }
 
   /** Piyasa açıklaması: geniş satır, en fazla 3 cümle satırı (+ opsiyonel boş ağırlık) */
@@ -230,12 +253,17 @@
     const t = normalizePiyasaDescText(text);
     if (!t) return [];
 
-    let chunks = t.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    let chunks = t
+      .split(/(?<=[!?])\s+|(?<=\.)(?<!\d)\s+(?!\d)/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    chunks = mergePiyasaDateLineChunks(chunks);
     if (chunks.length <= 1 && t.includes('.')) {
       chunks = t
-        .split(/\.\s+/)
+        .split(/\.(?=\s+(?!\d))/)
         .map((s, i, arr) => (i < arr.length - 1 ? `${s.trim()}.` : s.trim()))
         .filter(Boolean);
+      chunks = mergePiyasaDateLineChunks(chunks);
     }
     if (!chunks.length) chunks = [t];
 
@@ -275,9 +303,28 @@
     return wrapYuklemeNotuText(L.join(' '), maxChars).slice(0, maxLines);
   }
 
-  /** Takip formu: piyasa siparişi mi, ihracat Excel satırı mı */
+  function isIhracatFormContext(t) {
+    try {
+      const ch = window.__activeExcelShipment || window.__lastChosenShipment;
+      if (ch && (ch.blockMeta || ch.headerText)) return true;
+      const chTxt = String(ch?.headerText || ch?.firma || ch?.yuklemeNotu || '');
+      if (/YD\d/i.test(chTxt)) return true;
+    } catch (e) {}
+    try {
+      const fk = String(document.getElementById('firmaKodu')?.value || '').trim();
+      if (/YD\d/i.test(fk)) return true;
+    } catch (e) {}
+    const note = String(t || '').trim();
+    if (/SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(note)) return true;
+    if (/^İrsaliye\s*No\s*:/im.test(note) && !looksLikePiyasaNote(note)) return true;
+    return false;
+  }
+
+  /** Takip formu: ihracat ve piyasa ayrı — önce ihracat bağlamı, sonra piyasa siparişi */
   function resolveYuklemeNotuKind(raw) {
     const t = String(raw ?? document.getElementById('yuklemeNotu')?.value ?? '').trim();
+    if (isIhracatFormContext(t)) return 'ihracat';
+
     try {
       const pending = window.__pendingPrintCommit;
       if (pending && pending.piyasaOrderIdx != null && pending.piyasaOrderIdx !== '') return 'piyasa';
@@ -289,13 +336,6 @@
       }
     } catch (e) {}
     if (looksLikePiyasaNote(t)) return 'piyasa';
-    try {
-      const ch = window.__activeExcelShipment || window.__lastChosenShipment;
-      if (ch && (ch.blockMeta || ch.headerText)) return 'ihracat';
-      if (ch && ch.plaka && /YD\d/i.test(String(ch.headerText || ch.firma || ch.yuklemeNotu || ''))) return 'ihracat';
-    } catch (e) {}
-    if (/SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(t)) return 'ihracat';
-    if (/^İrsaliye\s*No\s*:/im.test(t) && t.length > 100 && !looksLikePiyasaNote(t)) return 'ihracat';
     return 'piyasa';
   }
 
@@ -316,11 +356,37 @@
     return ARAC_BOS_LINE_RE.test(s) || /^NET\s+BOŞ\s+AĞIRLIK/i.test(s);
   }
 
+  /** İhracat: yalnızca cümle satırları (en fazla 3), kelime kırma yok — piyasa ile ayrı */
+  function splitIhracatDescIntoLines(text, maxLines = 3) {
+    let t = String(text || '').replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!t) return [];
+    t = t.replace(/\.([A-ZÇĞİÖŞÜa-zçğıöşü])/g, '. $1');
+
+    let chunks = t
+      .split(/(?<=[.!?])\s+(?!\d)/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (chunks.length <= 1 && t.includes('.')) {
+      chunks = t
+        .split(/\.(?=\s+(?!\d))/)
+        .map((s, i, arr) => (i < arr.length - 1 ? `${s.trim()}.` : s.trim()))
+        .filter(Boolean);
+    }
+    if (!chunks.length) chunks = [t];
+
+    if (chunks.length > maxLines) {
+      const head = chunks.slice(0, maxLines - 1);
+      const tail = chunks.slice(maxLines - 1).join(' ');
+      chunks = [...head, tail];
+    }
+    return chunks;
+  }
+
   function buildDescLinesForPrint(descParts, kind) {
     const parts = (descParts || []).map((s) => String(s || '').trim()).filter(Boolean);
     if (!parts.length) return [];
     if (kind === 'ihracat') {
-      return wrapDescForPrint(parts.join(' '));
+      return splitIhracatDescIntoLines(parts.join(' '), 3);
     }
 
     const aracBosLine = parts.filter(isAracBosNoteLine).pop() || '';
@@ -333,15 +399,6 @@
     }
     if (aracBosLine) lines.push(aracBosLine);
     return lines.length ? lines : splitPiyasaDescIntoLines(parts.join(' '), 3);
-  }
-
-  /** Açıklama: tam 2 satır (kelime ortadan bölünür, 4 satıra taşmaz) */
-  function wrapDescForPrint(text) {
-    const words = String(text || '').trim().split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    if (words.length === 1) return [words[0]];
-    const half = Math.ceil(words.length / 2);
-    return [words.slice(0, half).join(' '), words.slice(half).join(' ')].filter(Boolean);
   }
 
   function sanitizeYuklemeNotuLines(lines) {
@@ -389,7 +446,8 @@
       const headEl = inner.querySelector('.note-head');
       const descRows = inner.querySelectorAll('.note-row');
       let headPt = preset.headPt;
-      let descPt = preset.descPt;
+      const headDescGap = Math.max(0.75, preset.headPt - preset.descPt);
+      let descPt = Math.max(preset.minDescPt, headPt - headDescGap);
       const minHeadPt = preset.minHeadPt;
       const minDescPt = preset.minDescPt;
 
@@ -404,14 +462,26 @@
         return Math.max(12, box.clientHeight - pad - 6);
       };
 
+      const rowTooWide = () => {
+        if (!win) return false;
+        return Array.from(descRows).some(
+          (row) => row.scrollWidth > row.clientWidth + 1
+        );
+      };
+
       const applySizes = () => {
+        descPt = Math.max(minDescPt, headPt - headDescGap);
         if (headEl) {
-          headEl.style.lineHeight = '1.1';
+          headEl.style.lineHeight = kind === 'ihracat' ? '1.12' : '1.1';
           headEl.style.fontSize = headPt + 'pt';
         }
         descRows.forEach((row) => {
-          row.style.lineHeight = kind === 'piyasa' ? '1.18' : '1.06';
+          row.style.lineHeight = kind === 'piyasa' ? '1.18' : '1.08';
           row.style.fontSize = descPt + 'pt';
+          if (kind === 'ihracat') {
+            row.style.whiteSpace = 'nowrap';
+            row.style.letterSpacing = '0';
+          }
         });
       };
 
@@ -419,7 +489,7 @@
       const skipShrink = kind === 'piyasa' && descRows.length <= 4;
       let guard = 0;
       if (!skipShrink) {
-        while (inner.scrollHeight > availH() && guard < 40) {
+        while (guard < 48 && (inner.scrollHeight > availH() + 1 || rowTooWide())) {
           if (descPt > minDescPt) {
             descPt -= preset.descStep;
           } else if (headEl && headPt > minHeadPt) {
@@ -430,6 +500,19 @@
           applySizes();
           guard++;
         }
+      }
+
+      const overflow = inner.scrollHeight > availH() + 1 || rowTooWide();
+      if (overflow && kind === 'ihracat') {
+        const scale = Math.max(0.72, Math.min(1, (availH() / inner.scrollHeight) * 0.98));
+        inner.style.transform = `scale(${scale})`;
+        inner.style.transformOrigin = 'top left';
+        if (scale < 1) inner.style.width = `${(100 / scale).toFixed(2)}%`;
+      } else if (overflow) {
+        const scale = Math.max(0.68, Math.min(1, (availH() / inner.scrollHeight) * 0.97));
+        inner.style.transform = `scale(${scale})`;
+        inner.style.transformOrigin = 'top left';
+        if (scale < 1) inner.style.width = `${(100 / scale).toFixed(2)}%`;
       }
 
       // Piyasa: kutuda boşluk kalıyorsa hafifçe büyüt (satır sayısı az olduğu için)
@@ -1298,10 +1381,14 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
       return t;
     };
 
-    const notKind = resolveYuklemeNotuKind(yuklemeNotu);
+    const notKind = isIhracatFormContext(yuklemeNotu)
+      ? 'ihracat'
+      : resolveYuklemeNotuKind(yuklemeNotu);
     const buildYuklemeNotuPrintHtml = (raw, kind) => {
       const t = normalizeToLines(raw);
-      const noteKind = kind || resolveYuklemeNotuKind(t);
+      const noteKind = kind === 'ihracat' || kind === 'piyasa'
+        ? kind
+        : (isIhracatFormContext(t) ? 'ihracat' : resolveYuklemeNotuKind(t));
       if (!t) return `<div class="note-inner" data-not-kind="${noteKind}"></div>`;
       const lines = sanitizeYuklemeNotuLines(t.split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
       const esc = (s) => escapeHtml(s);
@@ -1321,10 +1408,11 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
         if (irs) irsLine = `İrsaliye No: ${irs}`;
       }
 
+      const descJoined = descParts.join(' ').replace(/\s+/g, ' ').trim();
       const descInput =
         noteKind === 'piyasa'
-          ? [normalizePiyasaDescText(descParts.join(' '))].filter(Boolean)
-          : descParts;
+          ? [normalizePiyasaDescText(descJoined)].filter(Boolean)
+          : [descJoined].filter(Boolean);
       const descLines = buildDescLinesForPrint(descInput, noteKind);
 
       const parts = [];
@@ -1338,7 +1426,8 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
         );
       });
 
-      return `<div class="note-inner" data-not-kind="${noteKind}">${parts.join('')}</div>`;
+      const layoutAttr = noteKind === 'ihracat' ? ' data-not-layout="ihracat-3line-v2"' : '';
+      return `<div class="note-inner" data-not-kind="${noteKind}"${layoutAttr}>${parts.join('')}</div>`;
     };
 
     const formatSevkYeriPrint = (value) => {
@@ -1745,8 +1834,12 @@ const bosBbtText = amb.bosBbt;
 }
 .note--ihracat .note-row,
 .note-inner[data-not-kind="ihracat"] .note-row{
-  font-size:6.35pt;
-  line-height:1.06;
+  font-size:7.5pt;
+  line-height:1.08;
+  white-space:nowrap;
+  word-break:normal;
+  overflow-wrap:normal;
+  margin:0 0 0.15mm 0;
 }
 
 .imza-text {
@@ -2281,10 +2374,11 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: '20260602-yukleme-notu-piyasa-v3',
+    __aracBosRev: '20260603-ihracat-not-3line-v2',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;
+  window.isIhracatFormContext = isIhracatFormContext;
   window.YuklemeNotuFitSettings = {
     storageKey: YUKLEME_NOTU_FIT_STORAGE_KEY,
     defaults: YUKLEME_NOTU_FIT_DEFAULTS,

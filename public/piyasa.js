@@ -903,14 +903,11 @@
   function findOrderForPrint(opts) {
     const orderIdx = opts?.orderIdx;
     if (orderIdx != null) {
-      const byIdx = (state.orders || []).find((x) => x.__idx === orderIdx);
-      if (byIdx) return byIdx;
+      const byKey = getOrderByIdx(orderIdx);
+      if (byKey) return byKey;
     }
     const last = state._lastAppliedOrder;
-    if (last) {
-      const byLast = (state.orders || []).find((x) => x.__idx === last.__idx);
-      if (byLast) return byLast;
-    }
+    if (last) return last;
     const firma = String(opts?.firma || '').trim();
     const malzeme = String(opts?.malzeme || '').trim();
     if (firma && malzeme) {
@@ -943,7 +940,7 @@
       }
     }
 
-    if (state._lastAppliedOrder && state._lastAppliedOrder.__idx === order.__idx) {
+    if (state._lastAppliedOrder && getOrderPickKey(state._lastAppliedOrder) === getOrderPickKey(order)) {
       state._lastAppliedOrder.printCount = order.printCount;
       state._lastAppliedOrder.lastPrintAt = order.lastPrintAt;
       state._lastAppliedOrder.lastPrintPlate = order.lastPrintPlate;
@@ -958,16 +955,50 @@
     return `${normFirmaKey(firma)}\x1e${String(malzeme || '').trim()}`;
   }
 
+  /** Siparişi benzersiz tanımla: hafta arşivinde aynı __idx çakışmasın */
+  function getOrderPickKey(o) {
+    if (!o) return null;
+    return o._pickKey || o.__archiveKey || (o.__idx != null ? String(o.__idx) : null);
+  }
+
+  function orderKeyMatches(o, key) {
+    if (o == null || key == null || key === '') return false;
+    const k = String(key);
+    const pick = getOrderPickKey(o);
+    if (pick != null && String(pick) === k) return true;
+    if (o.__archiveKey != null && String(o.__archiveKey) === k) return true;
+    if (o._pickKey != null && String(o._pickKey) === k) return true;
+    return String(o.__idx) === k;
+  }
+
+  function findOrderByPickKey(key, orders) {
+    return (orders || []).find((x) => orderKeyMatches(x, key)) || null;
+  }
+
   function getOrderByIdx(idx) {
-    if (idx == null) return null;
-    const n = Number(idx);
-    const cur = (state.orders || []).find((x) => x.__idx === n || String(x.__idx) === String(idx));
-    if (cur) return cur;
+    if (idx == null || idx === '') return null;
+    const key = String(idx);
+
+    const last = state._lastAppliedOrder;
+    if (last && orderKeyMatches(last, key)) return last;
+
+    let hit = findOrderByPickKey(key, state.orders);
+    if (hit) return hit;
     for (const block of state.weekArchive || []) {
-      const hit = (block.orders || []).find((x) => x.__idx === n || String(x.__idx) === String(idx));
+      hit = findOrderByPickKey(key, block.orders);
       if (hit) return hit;
     }
-    return null;
+
+    const n = Number(idx);
+    if (!Number.isFinite(n)) return null;
+
+    if (last && last.__idx === n) return last;
+
+    for (const block of state.weekArchive || []) {
+      hit = (block.orders || []).find((x) => x.__idx === n);
+      if (hit) return hit;
+    }
+    return (state.orders || []).find((x) => x.__idx === n) || null;
   }
 
   /** Rapor (print_history) silindikten sonra sipariş yazdırma rozetlerini yeniden hesapla */
@@ -1031,7 +1062,8 @@
     }
 
     if (state._lastAppliedOrder) {
-      const updated = (state.orders || []).find((x) => x.__idx === state._lastAppliedOrder.__idx);
+      const pickKey = getOrderPickKey(state._lastAppliedOrder);
+      const updated = pickKey != null ? getOrderByIdx(pickKey) : null;
       if (updated) {
         state._lastAppliedOrder.printCount = updated.printCount;
         state._lastAppliedOrder.lastPrintAt = updated.lastPrintAt;
@@ -1046,7 +1078,7 @@
   }
 
   function getActiveOrderIdx() {
-    return state._lastAppliedOrder?.__idx ?? null;
+    return getOrderPickKey(state._lastAppliedOrder) ?? state._lastAppliedOrder?.__idx ?? null;
   }
 
   /** Liste hücresi için hafif sayaç — geçmiş taraması modalda yapılır */

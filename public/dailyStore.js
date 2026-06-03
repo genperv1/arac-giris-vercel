@@ -52,12 +52,25 @@
   }
 
   async function _serverLoad(){
-    try{ const resp = await fetch('/api/daily_rows'); if (resp.ok){ const rows = await resp.json(); return { rows: Array.isArray(rows) ? rows : [], meta: { loaded_from: 'server', ts: Date.now() } }; } }catch(e){}
+    try{
+      const resp = await fetch('/api/daily_rows', { credentials: 'include' });
+      if (resp.ok){ const rows = await resp.json(); return { rows: Array.isArray(rows) ? rows : [], meta: { loaded_from: 'server', ts: Date.now() } }; }
+    }catch(e){}
     return null;
   }
 
   async function _serverSave(rows, meta){
-    try{ for (const r of (rows || [])) { await fetch('/api/daily_rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({}, r, { created_at: r.created_at || Date.now() })) }); } return true; }catch(e){ return false; }
+    try{
+      for (const r of (rows || [])) {
+        await fetch('/api/daily_rows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(Object.assign({}, r, { created_at: r.created_at || Date.now() })),
+        });
+      }
+      return true;
+    }catch(e){ return false; }
   }
 
   async function _serverClearAll(){

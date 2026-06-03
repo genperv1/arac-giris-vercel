@@ -1358,65 +1358,73 @@ api.post('/logout', (req, res) => {
   return res.json({ ok: true });
 });
 
-// ✅ ENHANCED SESSION VALIDATION MIDDLEWARE
-// Kritik işlemler için ek oturum kontrolü
-function requireValidSession(req, res, next) {
-  // Token zaten auth.verifyToken tarafından doğrulanmış
-  // Ek kontroller burada
-  
-  // 1. Token expiration kontrolü (daha katı)
+function extractAuthTokenFromRequest(req) {
   const authHeader = req.headers.authorization || req.headers.Authorization;
-  const token = authHeader && authHeader.startsWith('Bearer ') 
-    ? authHeader.slice(7) 
-    : null;
-    
-  if (!token) {
-    return res.status(401).json({ 
-      error: 'Session required',
-      code: 'SESSION_MISSING',
-      message: 'Oturum süreniz dolmuş. Lütfen tekrar giriş yapınız.' 
-    });
+  if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7);
   }
-  
-  try {
-    // Token'ı tekrar decode eterek expiration kontrolü yap
-    const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Token expiration'ı kontrol et (5 dakika kala uyar)
-    const now = Math.floor(Date.now() / 1000);
-    const exp = decoded.exp || 0;
-    const timeUntilExpiry = exp - now;
-    
-    // Eğer token süresi dolmuşsa
-    if (timeUntilExpiry <= 0) {
-      return res.status(401).json({ 
-        error: 'Session expired',
-        code: 'SESSION_EXPIRED',
-        message: 'Oturum süreniz dolmuş. Lütfen tekrar giriş yapınız.' 
+  if (req.headers && req.headers.cookie && typeof req.headers.cookie === 'string') {
+    const cookies = req.headers.cookie.split(';').map((s) => s.trim());
+    for (const c of cookies) {
+      const idx = c.indexOf('=');
+      if (idx <= 0) continue;
+      const k = c.slice(0, idx).trim();
+      const v = c.slice(idx + 1).trim();
+      if (k === AUTH_COOKIE_NAME || k === 'auth_token' || k === 'token') {
+        return decodeURIComponent(v);
+      }
+    }
+  }
+  return null;
+}
+
+// Kritik yazma işlemleri: verifyToken sonrası req.user veya httpOnly çerez ile oturum
+function requireValidSession(req, res, next) {
+  const jwt = require('jsonwebtoken');
+  let decoded = req.user;
+
+  if (!decoded) {
+    const token = extractAuthTokenFromRequest(req);
+    if (!token) {
+      return res.status(401).json({
+        error: 'Session required',
+        code: 'SESSION_MISSING',
+        message: 'Oturum süreniz dolmuş. Lütfen tekrar giriş yapınız.',
       });
     }
-    
-    // Oturum bitimine ~%10 veya en fazla 30 dk kala uyarı header'ı
-    const sessionWarnSec = Math.min(1800, Math.max(300, Math.floor(AUTH_SESSION_HOURS * 3600 * 0.1)));
-    if (timeUntilExpiry <= sessionWarnSec) {
-      res.setHeader('X-Session-Warning', 'Session expiring soon');
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
+    } catch (jwtError) {
+      console.error('Session validation error:', jwtError.message);
+      return res.status(401).json({
+        error: 'Invalid session',
+        code: 'SESSION_INVALID',
+        message: 'Oturum geçersiz. Lütfen tekrar giriş yapınız.',
+      });
     }
-    
-    // User bilgisini req'e ekle
-    req.user = decoded;
-    req.sessionExpiresIn = timeUntilExpiry;
-    
-    next();
-  } catch (jwtError) {
-    console.error('Session validation error:', jwtError.message);
-    return res.status(401).json({ 
-      error: 'Invalid session',
-      code: 'SESSION_INVALID',
-      message: 'Oturum geçersiz. Lütfen tekrar giriş yapınız.' 
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const exp = decoded.exp || 0;
+  const timeUntilExpiry = exp - now;
+
+  if (timeUntilExpiry <= 0) {
+    return res.status(401).json({
+      error: 'Session expired',
+      code: 'SESSION_EXPIRED',
+      message: 'Oturum süreniz dolmuş. Lütfen tekrar giriş yapınız.',
     });
   }
+
+  const sessionWarnSec = Math.min(1800, Math.max(300, Math.floor(AUTH_SESSION_HOURS * 3600 * 0.1)));
+  if (timeUntilExpiry <= sessionWarnSec) {
+    res.setHeader('X-Session-Warning', 'Session expiring soon');
+  }
+
+  req.user = decoded;
+  req.sessionExpiresIn = timeUntilExpiry;
+  next();
 }
 
 // Bulk delete reports (before auth middleware to use cookie-based auth)
