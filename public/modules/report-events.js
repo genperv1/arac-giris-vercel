@@ -190,11 +190,19 @@
         }
       } catch (e) {}
 
+      const isPrint = String(type || '').toUpperCase() === 'PRINT';
+      const hasLockedPrintFields = isPrint && (
+        (baseData.firma || baseData.firmaKodu)
+        || baseData.malzeme
+        || baseData.sevkYeri
+      );
       if (!baseData.saat) baseData.saat = (saat || '').slice(0, 15);
       if (!baseData.vardiya) baseData.vardiya = (vardiya || '').slice(0, 10);
       if (!baseData.kantar) baseData.kantar = (kantar || '').slice(0, 25);
-      if (!baseData.malzeme) baseData.malzeme = (malzeme || '').slice(0, 30);
-      if (!baseData.sevkYeri) baseData.sevkYeri = (sevkYeri || '').slice(0, 30);
+      if (!hasLockedPrintFields) {
+        if (!baseData.malzeme) baseData.malzeme = (malzeme || '').slice(0, 30);
+        if (!baseData.sevkYeri) baseData.sevkYeri = (sevkYeri || '').slice(0, 30);
+      }
 
       const ev = {
         id: 'EV' + Date.now().toString(36) + Math.random().toString(16).slice(2),

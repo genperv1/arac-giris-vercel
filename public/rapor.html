@@ -414,6 +414,11 @@
       border-color: #fecaca;
     }
 
+    body.rp-page .report-action-btn.is-busy {
+      opacity: 0.65;
+      pointer-events: none;
+    }
+
     /* Kurumsal dialog */
     .rp-dialog-overlay {
       position: fixed;
@@ -659,7 +664,7 @@
   <script src="storage.js"></script>
   <script src="sync-manager.js"></script>
   <script src="rp-dialog.js?v=20260520-native"></script>
-  <script src="report.js?v=20260602-wa2"></script>
+  <script src="report.js?v=20260604-wa1line"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

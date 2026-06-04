@@ -3597,46 +3597,47 @@ api.delete("/signatures/:id", async (req, res) => {
 const sseClients = new Set();
 
 // Unified SSE endpoint for all real-time updates
-app.get('/api/events-stream', (req, res) => {
+const SSE_PING_INTERVAL_MS = 25000;
+
+function attachSseClient(req, res, initialPayload) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Cache-Control'
   });
 
-  sseClients.add(res);
-  
-  // Send initial connection message with client ID
-  const clientId = crypto.randomUUID();
-  res.write(`data: ${JSON.stringify({type: "connected", clientId, timestamp: Date.now()})}\n\n`);
+  if (typeof res.flushHeaders === 'function') {
+    try { res.flushHeaders(); } catch (e) { /* ignore */ }
+  }
 
-  // Remove client when connection closes
+  sseClients.add(res);
+  res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);
+
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch (e) {
+      clearInterval(pingInterval);
+      sseClients.delete(res);
+    }
+  }, SSE_PING_INTERVAL_MS);
+
   req.on('close', () => {
+    clearInterval(pingInterval);
     sseClients.delete(res);
   });
+}
+
+app.get('/api/events-stream', (req, res) => {
+  attachSseClient(req, res, { type: 'connected', clientId: crypto.randomUUID(), timestamp: Date.now() });
 });
 
 // Legacy reports-stream endpoint for backward compatibility
 app.get('/api/reports-stream', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Cache-Control'
-  });
-
-  sseClients.add(res);
-  
-  // Send initial connection message
-  res.write('data: {"type":"connected"}\n\n');
-
-  // Remove client when connection closes
-  req.on('close', () => {
-    sseClients.delete(res);
-  });
+  attachSseClient(req, res, { type: 'connected', timestamp: Date.now() });
 });
 
 // Enhanced broadcast function for all data updates

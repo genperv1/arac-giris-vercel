@@ -1325,6 +1325,261 @@ if (firmaSelect && firmaInput) {
             document.getElementById('takipFormuModal').classList.add('hidden');
         }
 
+// =========================
+// Malzeme: parçalama + tek satır basım + kutuya göre font (78mm alan)
+// =========================
+const MALZEME_PRINT_BOX = { wMm: 78, hMm: 9.2, maxPt: 11, minPt: 5.5 };
+
+const BBT_BLOCK_START_RE = /(?<![\d.])(?<=\s|^)(\d+\s+BBT\b)/gi;
+const HP_MALZEME_TAIL_RE = /\s+(?=HP\d+\s+MALZEMESİ)/i;
+
+function normalizeMalzemeSpacing(one) {
+  let s = String(one ?? '').trim();
+  if (!s) return '';
+  // 0.6016 BBT → 0.60 16 BBT (ondalık + yapışık adet)
+  s = s.replace(/(\d\.)(\d{2})(\d{1,3})(\s+BBT\b)/gi, (_, a, b, c, d) => a + b + ' ' + c + d);
+  // (SERT)8 BBT → (SERT) 8 BBT
+  s = s.replace(/(\))(\d{1,3}\s+BBT\b)/gi, (_, a, b) => a + ' ' + b);
+  // YUMUŞAK5 BBT → YUMUŞAK 5 BBT
+  s = s.replace(/([A-ZÇĞİÖŞÜ]{4,})(\d+\s+BBT\b)/gi, (_, a, b) => a + ' ' + b);
+  // 0.60HP100 MALZEMESİ → 0.60 HP100 MALZEMESİ
+  s = s.replace(/([\d.)])(HP\d+\s+MALZEMESİ)/gi, (_, a, b) => a + ' ' + b);
+  s = s.replace(/\s*\/\s*(HP\d+)/gi, (_, hp) => ' / ' + hp);
+  // /8 BBT ve " / 5 BBT" → tutarlı " / N BBT"
+  s = s.replace(/\s*\/\s*(\d+\s+BBT\b)/gi, (_, bbt) => ' / ' + bbt);
+  s = s.replace(/(\s\/\s)+/g, ' / ');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/** Parça içinde yapışık HP100… kuyruğunu ayır */
+function expandMalzemeItems(items) {
+  const out = [];
+  items.forEach((it) => {
+    const s = String(it ?? '').trim();
+    if (!s) return;
+    const glued = s.match(
+      /^(.+?\d(?:\.\d+)?(?:-\d+(?:\.\d+)?)?(?:\([^)]*\))?)(HP\d+\s+MALZEMESİ[\s\S]*)$/i
+    );
+    if (glued) {
+      out.push(glued[1].trim(), glued[2].trim());
+      return;
+    }
+    const spaced = s.match(/^(.+?)\s+(HP\d+\s+MALZEMESİ[\s\S]*)$/i);
+    if (spaced && /\d\s+BBT/i.test(spaced[1])) {
+      out.push(spaced[1].trim(), spaced[2].trim());
+      return;
+    }
+    out.push(s);
+  });
+  return out;
+}
+
+function splitMalzemeLine(line) {
+  let one = normalizeMalzemeSpacing(String(line ?? ''));
+  if (!one) return [];
+
+  if (/\s\/\s/.test(one)) {
+    const slashParts = one.split(/\s\/\s/).map((s) => s.trim()).filter(Boolean);
+    if (slashParts.length >= 2 && slashParts.every((p) => /\d+\s+BBT\b/i.test(p))) {
+      return slashParts;
+    }
+  }
+
+  const starts = [];
+  let m;
+  BBT_BLOCK_START_RE.lastIndex = 0;
+  while ((m = BBT_BLOCK_START_RE.exec(one)) !== null) {
+    starts.push(m.index);
+  }
+
+  if (!starts.length) return [one];
+
+  const segments = [];
+  for (let i = 0; i < starts.length; i++) {
+    const chunk = one.slice(starts[i], starts[i + 1] ?? one.length).trim();
+    chunk.split(HP_MALZEME_TAIL_RE)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((p) => segments.push(p));
+  }
+
+  if (starts[0] > 0) {
+    const prefix = one.slice(0, starts[0]).trim();
+    if (prefix) segments.unshift(prefix);
+  }
+
+  return segments;
+}
+
+function splitMalzemeItems(raw) {
+  let t = String(raw ?? '').trim();
+  if (!t) return [];
+  t = t.replace(/''\s*/g, '\n').replace(/[ \t]{2,}/g, ' ');
+  const lines = t.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  const inputs = lines.length ? lines : [t];
+  const out = [];
+  inputs.forEach((line) => {
+    splitMalzemeLine(line).forEach((p) => out.push(p));
+  });
+  return out;
+}
+
+/** Uzun listelerde 2 satır (malzeme başına " / " ile) */
+function layoutMalzemeLines(items) {
+  const parts = expandMalzemeItems(items);
+  if (!parts.length) return { lines: [''], twoLine: false };
+  if (parts.length === 1) return { lines: [parts[0]], twoLine: false };
+
+  const joined = parts.join(' / ');
+  const tryTwo = parts.length >= 3 || joined.length >= 68;
+  if (!tryTwo) return { lines: [joined], twoLine: false };
+
+  const hpIdx = parts.findIndex((it) => /^HP\d+\s+MALZEMESİ/i.test(String(it).trim()));
+  if (hpIdx > 0) {
+    return {
+      lines: [
+        parts.slice(0, hpIdx).join(' / ') + ' /',
+        parts.slice(hpIdx).join(' / '),
+      ],
+      twoLine: true,
+    };
+  }
+
+  // 3+ BBT parça: üstte hepsi son hariç, altta "/ son parça" (büyük puntoda okunur)
+  if (parts.length >= 3) {
+    const line1 = parts.slice(0, -1).join(' / ') + ' /';
+    let line2 = '/ ' + parts[parts.length - 1];
+    if (line1.length > 76 && parts.length >= 4) {
+      const alt1 = parts.slice(0, -2).join(' / ') + ' /';
+      const alt2 = '/ ' + parts.slice(-2).join(' / ');
+      if (Math.max(alt1.length, alt2.length) < Math.max(line1.length, line2.length)) {
+        return { lines: [alt1, alt2], twoLine: true };
+      }
+    }
+    return { lines: [line1, line2], twoLine: true };
+  }
+
+  // 2 parça ama çok uzun: dengeli böl
+  let best = null;
+  for (let i = 1; i < parts.length; i++) {
+    const line1 = parts.slice(0, i).join(' / ') + ' /';
+    const line2 = '/ ' + parts.slice(i).join(' / ');
+    const score = Math.max(line1.length, line2.length);
+    if (!best || score < best.score) best = { lines: [line1, line2], score };
+  }
+  return { lines: best.lines, twoLine: true };
+}
+
+/** Yazdırma / önizleme metni (2 satırda \n ile) */
+function formatMalzemeForPrint(raw) {
+  const items = splitMalzemeItems(raw);
+  if (!items.length) return '';
+  const { lines, twoLine } = layoutMalzemeLines(items);
+  return twoLine ? lines.join('\n') : lines[0];
+}
+
+/** 78mm kutu: en uzun satıra göre font (2 satırda satır başına daha büyük) */
+function estimateMalzemeFontPt(textOrLines, wMm = MALZEME_PRINT_BOX.wMm) {
+  const lines = Array.isArray(textOrLines)
+    ? textOrLines
+    : [String(textOrLines || '')];
+  const n = Math.max(0, ...lines.map((l) => String(l).length));
+  const scale = wMm / MALZEME_PRINT_BOX.wMm;
+  const cap = (x) => Math.round(x * scale);
+  const two = lines.length >= 2;
+
+  if (two) {
+    if (n <= cap(44)) return 10.5;
+    if (n <= cap(54)) return 10;
+    if (n <= cap(64)) return 9.5;
+    if (n <= cap(74)) return 9;
+    return 8.5;
+  }
+
+  if (n <= cap(38)) return MALZEME_PRINT_BOX.maxPt;
+  if (n <= cap(48)) return 10.5;
+  if (n <= cap(58)) return 10;
+  if (n <= cap(70)) return 9.5;
+  if (n <= cap(82)) return 9;
+  if (n <= cap(95)) return 8.5;
+  if (n <= cap(108)) return 8;
+  if (n <= cap(122)) return 7.5;
+  return MALZEME_PRINT_BOX.minPt;
+}
+
+function buildMalzemePrintHtml(raw, escapeHtml, boxWMm = MALZEME_PRINT_BOX.wMm) {
+  const items = splitMalzemeItems(raw);
+  if (!items.length) return '';
+
+  const { lines, twoLine } = layoutMalzemeLines(items);
+  const pt = estimateMalzemeFontPt(twoLine ? lines : lines[0], boxWMm);
+  const esc = escapeHtml || ((s) => String(s ?? ''));
+
+  if (!twoLine) {
+    return `<div class="malz-inline" style="font-size:${pt}pt">${esc(lines[0])}</div>`;
+  }
+
+  const rows = lines.map((ln) => `<div class="malz-row">${esc(ln)}</div>`).join('');
+  return `<div class="malz-inline malz-inline--2" style="font-size:${pt}pt">${rows}</div>`;
+}
+
+function fitMalzemeInlineEl(el, w) {
+  try {
+    if (!el || !w) return;
+    const minPx = MALZEME_PRINT_BOX.minPt * (96 / 72);
+    const box = w.document.getElementById('printMalzeme');
+    const rows = el.querySelectorAll('.malz-row');
+
+    const shrinkUntilFit = () => {
+      let size = parseFloat(w.getComputedStyle(el).fontSize) || (MALZEME_PRINT_BOX.maxPt * (96 / 72));
+      let guard = 0;
+      const fits = () => {
+        const widthOk = rows.length
+          ? Array.from(rows).every((r) => r.scrollWidth <= r.clientWidth + 1)
+          : el.scrollWidth <= el.clientWidth + 1;
+        const heightOk = !box || box.scrollHeight <= box.clientHeight + 1;
+        return widthOk && heightOk;
+      };
+      while (guard < 55 && !fits() && size > minPx) {
+        size -= 0.5;
+        el.style.fontSize = size + 'px';
+        guard++;
+      }
+    };
+
+    shrinkUntilFit();
+  } catch (e) {}
+}
+
+function fitMalzemeInput(el) {
+  try {
+    if (!el) return;
+    const formatted = formatMalzemeForPrint(el.value);
+    if (formatted) el.value = formatted;
+    const lines = String(formatted || el.value || '').split(/\r?\n/);
+    const pt = estimateMalzemeFontPt(lines.length >= 2 ? lines : (lines[0] || ''));
+    el.style.fontWeight = '800';
+    el.style.whiteSpace = lines.length >= 2 ? 'pre-line' : 'nowrap';
+    el.style.overflow = 'hidden';
+    el.style.textOverflow = 'ellipsis';
+    el.style.lineHeight = lines.length >= 2 ? '1.15' : '';
+    let px = Math.round(pt * 1.333);
+    const minPx = Math.round(MALZEME_PRINT_BOX.minPt * 1.333);
+    const maxPx = Math.round(MALZEME_PRINT_BOX.maxPt * 1.333);
+    for (let s = px; s >= minPx; s--) {
+      el.style.fontSize = s + 'px';
+      const wOk = el.scrollWidth <= el.clientWidth + 1;
+      const hOk = lines.length < 2 || el.scrollHeight <= el.clientHeight + 2;
+      if (wOk && hOk) break;
+    }
+  } catch (e) {}
+}
+
+window.formatMalzemeForPrint = formatMalzemeForPrint;
+window.splitMalzemeItems = splitMalzemeItems;
+window.fitMalzemeInput = fitMalzemeInput;
+window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
+
         // Takip Formunu Yazdır
     function yazdirForm(opts = {}) {
 
@@ -1343,7 +1598,6 @@ if (firmaSelect && firmaInput) {
 
     const firmaKodu = document.getElementById('firmaKodu')?.value || '';
     const malzeme = document.getElementById('malzeme')?.value || '';
-    console.log('DEBUG: malzeme değeri:', malzeme); // DEBUG
     // ✅ Yükleme sırası: kullanıcı yazdıysa onu baz al, boşsa otomatik
     const yuklemeSirasiInput = document.getElementById('yuklemeSirasi');
     const manualStr = (yuklemeSirasiInput?.value || '').trim();
@@ -1467,98 +1721,8 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
       return escapeHtml(raw).replace(/\r?\n/g, '<br>');
     };
 
-    // --- MALZEME'yi 2/3 kolon yap: üstte miktar (BBT), altta açıklama (HP...) ---
-    const splitMalzemeItems = (raw) => {
-      let t = normalizeToLines(raw);
-      if (!t) return [];
-
-      // newline varsa direkt böl
-      let parts = t.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-
-      // tek satırda birden fazla malzeme varsa split ile ayır
-      if (parts.length === 1) {
-        const one = parts[0];
-        console.log('DEBUG: Single line detected:', one); // DEBUG
-        // Önce BBT'leri ayır
-        const bbtParts = one.split(/(\d+\s*BBT)/gi);
-        console.log('DEBUG: BBT parts:', bbtParts); // DEBUG
-        const finalMatches = [];
-        
-        for (let i = 1; i < bbtParts.length; i++) {
-          const current = bbtParts[i];
-          const next = bbtParts[i + 1] || '';
-          if (current.includes('BBT')) {
-            let malzeme = current;
-            // Sonraki kısmı ekle (BBT olmayan kısım)
-            if (next && !next.includes('BBT')) {
-              malzeme += next;
-              i++; // next'ı atla
-            }
-            finalMatches.push(malzeme.trim());
-          }
-        }
-        
-        console.log('DEBUG: Final matches:', finalMatches); // DEBUG
-        if (finalMatches.length >= 2) parts = finalMatches;
-      }
-      
-      console.log('DEBUG: Returning parts:', parts); // DEBUG
-      return parts;
-    };
-
-    const splitQtyDesc = (item) => {
-      const s = String(item ?? '').trim();
-      if (!s) return { qty: '', desc: '' };
-
-      // Hem "HP" hem de "hp" pattern'ini ara, daha esnek regex kullan
-      const hpMatch = s.match(/(\d+\s*BBT)(.*)/i);
-      if (hpMatch) {
-        const qty = hpMatch[1].trim();
-        const desc = hpMatch[2].trim();
-        console.log('DEBUG: splitQtyDesc - qty:', qty, 'desc:', desc); // DEBUG
-        return { qty, desc };
-      }
-      
-      // Fallback: eski yöntem
-      const up = s.toUpperCase();
-      const idx = up.indexOf('HP');
-      if (idx > 0) {
-        return {
-          qty: s.slice(0, idx).trim(),
-          desc: s.slice(idx).trim()
-        };
-      }
-      return { qty: s, desc: '' };
-    };
-
-    const buildMalzemeHtml = (raw) => {
-      const items = splitMalzemeItems(raw);
-      if (!items.length) return '';
-
-      // 1 ürünse klasik bas
-      if (items.length === 1) {
-        return escapeHtml(normalizeToLines(items[0])).replace(/\r?\n/g, "<br>");
-      }
-
-      // Tüm malzemeleri yatay olarak göster (sınırlama kaldırıldı)
-      const parsed = items.map(splitQtyDesc);
-      const cols = items.length;
-
-      const cells = parsed.map(p => {
-        const qty = escapeHtml(p.qty);
-        const desc = escapeHtml(p.desc);
-        return `
-          <td style="border-left: 1px solid #000; padding: 0.3mm 1.2mm 0mm 1.2mm; vertical-align: top;">
-            <div style="font-weight: 800; font-size: 8pt; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1; margin-top: -1.3mm;">${qty}</div>
-            <div style="font-weight: 800; font-size: 6.5pt; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1;">${desc}</div>
-          </td>
-        `;
-      }).join('');
-
-      return `<table style="width: 100%; border-collapse: collapse;"><tr>${cells}</tr></table>`;
-    };
-
-    const malzemeGridHtml = buildMalzemeHtml(malzeme);
+    const malzemeLayout = layoutMalzemeLines(splitMalzemeItems(malzeme));
+    const malzemeGridHtml = buildMalzemePrintHtml(malzeme, escapeHtml, MALZEME_PRINT_BOX.wMm);
     const yuklemeNotuPrint = buildYuklemeNotuPrintHtml(yuklemeNotu, notKind);
 
     // ✅ Takip formu alanları artık span *veya* input olabilir.
@@ -1680,6 +1844,10 @@ const bosBbtText = amb.bosBbt;
 
     // ✅ Seçili sayfa boyutuna göre P'yi belirle
     const P = pageSize === 'A4' ? P_A4 : P_A5;
+    const malzemeTopMm = P.malzeme.top - (malzemeLayout.twoLine ? 1.8 : 0);
+    const malzemeBoxClass = malzemeLayout.twoLine
+      ? 'field malzeme-print-box malzeme-print-box--2'
+      : 'field malzeme-print-box';
 
     // ✅ Sayfa boyutuna göre CSS parametrelerini ayarla
     const pageParams = pageSize === 'A4' 
@@ -1879,7 +2047,48 @@ const bosBbtText = amb.bosBbt;
 
 			
 
-/* ✅ MALZEME 2/3 kolon görünüm (BBT üstte, HP altta) */
+/* ✅ Malzeme kutusu: 78mm — taşma yok (ambalaj sütununa binmesin) */
+#printMalzeme.malzeme-print-box{
+  overflow: hidden !important;
+  box-sizing: border-box;
+  padding-right: 0.5mm;
+  white-space: normal !important;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding-top: 0 !important;
+  line-height: 1;
+}
+#printMalzeme.malzeme-print-box--2{
+  padding-top: 0 !important;
+  padding-bottom: 0.6mm;
+}
+.malz-inline{
+  font-weight: 800;
+  white-space: nowrap;
+  line-height: 1.05;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  display: block;
+}
+.malz-inline--2{
+  white-space: normal;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+}
+.malz-inline--2 .malz-row{
+  white-space: nowrap;
+  overflow: hidden;
+  line-height: 1.02;
+}
+.malz-inline--2 .malz-row + .malz-row{
+  margin-top: 0.12mm;
+}
+
+/* ✅ MALZEME 2/3 kolon görünüm (BBT üstte, HP altta) — eski grid (uyumluluk) */
 .malz-grid{
   /* ✅ Hücre içinde yukarı çek (HP satırı daha okunur olsun) */
   position: relative;
@@ -2049,7 +2258,7 @@ const bosBbtText = amb.bosBbt;
         ${firmaKodu}
     </div>
 
-    <div id="printMalzeme" class="field" style="left:${P.malzeme.left}mm; top:${P.malzeme.top}mm; width:${P.malzeme.w}mm; height:${P.malzeme.h + 3}mm; overflow:visible;">
+    <div id="printMalzeme" class="${malzemeBoxClass}" style="left:${P.malzeme.left}mm; top:${malzemeTopMm}mm; width:${P.malzeme.w}mm; height:${P.malzeme.h + (malzemeLayout.twoLine ? 4 : 3)}mm;">
         ${malzemeGridHtml}
     </div>
 
@@ -2134,9 +2343,9 @@ const bosBbtText = amb.bosBbt;
 
     
     const w = window.open("", "_blank");
-    if (!w.document) {
-      alert("❌ Yazdırma penceresi erişilemedi (popup/sekme kısıtlaması). Lütfen popup izni verin.");
-      return;
+    if (!w || !w.document) {
+      alert("❌ Yazdırma penceresi açılamadı (popup engeli veya tarayıcı kısıtı). Site için açılır pencere izni verip tekrar deneyin.");
+      return null;
     }
     w.document.open();
     w.document.write(printHTML);
@@ -2240,6 +2449,12 @@ const bosBbtText = amb.bosBbt;
         try {
           const box = w.document.getElementById('printMalzeme');
           if (!box) return;
+
+          const inlineEl = box.querySelector('.malz-inline');
+          if (inlineEl) {
+            fitMalzemeInlineEl(inlineEl, w);
+            return;
+          }
 
           // önce CSS fontlarını baz al
           const qtyEls  = box.querySelectorAll('.malz-qty');
@@ -2548,6 +2763,9 @@ window.fitYuklemeNotuOnScreen = fitYuklemeNotuOnScreen;
         fitToBoxInput(document.getElementById('ambalajBilgisi'), 9, 16);
         fitToBoxInput(document.getElementById('sevkYeri'), 9, 16);
         fitYuklemeNotuOnScreen(document.getElementById('yuklemeNotu'));
+        if (window.fitMalzemeInput) {
+          try { window.fitMalzemeInput(document.getElementById('malzeme')); } catch (e) {}
+        }
       } catch(e) {}
       return orig.call(window.Print, opts);
     };
@@ -2574,6 +2792,22 @@ function fitToBoxDiv(el, minPx = 8, maxPx = 14, allowHeightOverflow = false) {
   } catch(e) {}
 }
 
+(function hookMalzemeInputFit() {
+  const bind = () => {
+    const el = document.getElementById('malzeme');
+    if (!el || el.__malzemeFitHooked) return;
+    el.__malzemeFitHooked = true;
+    el.addEventListener('blur', () => {
+      try { fitMalzemeInput(el); } catch (e) {}
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+})();
+
 (function hookPrintFit2(){
   try {
     if (!window.Print || window.Print.__fitHooked2) return;
@@ -2595,7 +2829,11 @@ function fitToBoxDiv(el, minPx = 8, maxPx = 14, allowHeightOverflow = false) {
         setTimeout(() => {
           try {
             const pw = ret && ret.document ? ret : null;
-            if (pw && pw.document) window.fitYuklemeNotuPrint(pw.document.getElementById('printNot'), pw);
+            if (pw && pw.document) {
+              window.fitYuklemeNotuPrint(pw.document.getElementById('printNot'), pw);
+              const malzEl = pw.document.querySelector('#printMalzeme .malz-inline');
+              if (malzEl) fitMalzemeInlineEl(malzEl, pw);
+            }
           } catch (e) {}
         }, 150);
       } catch(e) {}

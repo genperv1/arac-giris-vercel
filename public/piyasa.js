@@ -2293,7 +2293,15 @@
 
     const writeOrderValues = () => {
       if (firmaKodu) firmaKodu.value = firmaVal;
-      if (malzeme) malzeme.value = o.malzeme || '';
+      if (malzeme) {
+        const rawMal = o.malzeme || '';
+        malzeme.value = typeof window.formatMalzemeForPrint === 'function'
+          ? window.formatMalzemeForPrint(rawMal) || rawMal
+          : rawMal;
+        if (typeof window.fitMalzemeInput === 'function') {
+          try { window.fitMalzemeInput(malzeme); } catch (e) {}
+        }
+      }
       if (malzemeSelect) {
         const target = (o.malzeme || '').trim();
         const opt = Array.from(malzemeSelect.options || []).find(x => (x.value||'').trim() === target);
@@ -2488,6 +2496,8 @@
          </div>`
       : `<div id="piyasaG1DateBadge" style="flex:1;min-width:0;"></div>`;
     const overlay = document.createElement('div');
+    overlay.id = 'piyasaOrderPickerOverlay';
+    overlay.setAttribute('data-piyasa-order-picker', '1');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:14px;max-width:min(96vw,1400px);width:100%;max-height:88vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
@@ -2555,20 +2565,28 @@
     const close = ()=> {
       _pickerRenderHook = null;
       window.__piyasaPickerOpen = false;
+      try { delete window.__piyasaCloseOrderPicker; } catch (_) { window.__piyasaCloseOrderPicker = null; }
       overlay.remove();
-      document.removeEventListener('keydown', handleEsc);
+      document.removeEventListener('keydown', handleEsc, true);
     };
+    window.__piyasaCloseOrderPicker = close;
     overlay.querySelector('#piyasaModalClose').onclick = close;
     overlay.onclick = null;
     
-    // ESC: üstte başka piyasa katmanı (geçmiş, boş tonaj vb.) varsa sadece o kapanır
+    // ESC (capture): app.js global ESC önce preventDefault yapar; bubble dinleyici çalışmaz
+    // Üstte başka piyasa katmanı (geçmiş, boş tonaj vb.) varsa sadece o kapanır
     const handleEsc = (e) => {
       if (e.key !== 'Escape') return;
-      if (e.defaultPrevented) return;
+      if (!document.body.contains(overlay)) {
+        document.removeEventListener('keydown', handleEsc, true);
+        return;
+      }
       if (hasOpenPiyasaModalLayer()) return;
+      e.preventDefault();
+      e.stopPropagation();
       close();
     };
-    document.addEventListener('keydown', handleEsc);
+    document.addEventListener('keydown', handleEsc, true);
 
     const tbody = overlay.querySelector('#piyasaTbody');
     const countEl = overlay.querySelector('#piyasaCount');
@@ -3420,6 +3438,10 @@
   window.piyasa = window.piyasa || {};
   window.piyasa.hasOrders = ()=> (state.orders && state.orders.length > 0);
   window.piyasa.openOrderPicker = openOrderPicker;
+  window.piyasa.closeOrderPicker = function closeOrderPicker() {
+    if (typeof window.__piyasaCloseOrderPicker === 'function') window.__piyasaCloseOrderPicker();
+    else document.getElementById('piyasaModalClose')?.click();
+  };
   window.piyasa.applyOrderToForm = applyOrderToForm;
   window.piyasa.applyOrderFromPicker = applyOrderFromPicker;
   window.piyasa.maybePromptAracBosuBeforePrint = maybePromptAracBosuBeforePrint;

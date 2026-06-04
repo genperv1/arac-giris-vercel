@@ -8,7 +8,9 @@
     const SESSION_CACHE_VALID_MS = 5 * 60 * 1000;   // geçerli oturumda /api/me en fazla 5 dk'da bir
     const SESSION_CACHE_INITIAL_MS = 2 * 60 * 1000; // ilk kontrollerde 2 dk
     const KEEPALIVE_INTERVAL_MS = 20 * 60 * 1000;   // arka plan kontrolü 20 dk
-    const SESSION_NETWORK_GRACE_MS = 3 * 60 * 1000; // ağ/sunucu hatasında kısa süre modal gösterme
+    const SESSION_NETWORK_GRACE_MS = 15 * 60 * 1000; // ağ/sunucu hatasında oturumu koru (yanlış çıkış önleme)
+    const SESSION_CHECK_RETRIES = 3;
+    const SESSION_CHECK_RETRY_MS = 500;
     
     // Oturum durumunu cache'lemek için
     let sessionCache = {
@@ -20,6 +22,48 @@
     // Oturum süresi dolu uyarısını göstermek için
     let isShowingSessionExpired = false;
     
+    function isAuthFailureStatus(status) {
+        return status === 401 || status === 403;
+    }
+
+    function isTransientStatus(status) {
+        return !status || status >= 500 || status === 408 || status === 429 || status === 502 || status === 503 || status === 504;
+    }
+
+    /** Geçici ağ/sunucu hatasında oturumu koru; yalnızca 401/403 gerçek çıkış sayılır */
+    function keepSessionDuringTransientIssue(reason) {
+        const now = Date.now();
+        if (sessionCache.isValid && (now - sessionCache.lastCheck) < SESSION_NETWORK_GRACE_MS) {
+            console.warn('[SessionManager] Geçici sorun, oturum korunuyor:', reason);
+            sessionCache.lastCheck = now;
+            return true;
+        }
+        return false;
+    }
+
+    async function fetchSessionMe() {
+        let lastError = null;
+        for (let attempt = 1; attempt <= SESSION_CHECK_RETRIES; attempt++) {
+            try {
+                const response = await fetch(SESSION_CHECK_ENDPOINT, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    },
+                    credentials: 'include'
+                });
+                return response;
+            } catch (error) {
+                lastError = error;
+                if (attempt < SESSION_CHECK_RETRIES) {
+                    await new Promise((r) => setTimeout(r, SESSION_CHECK_RETRY_MS * attempt));
+                }
+            }
+        }
+        throw lastError || new Error('session check failed');
+    }
+
     // Server'a oturum durumunu kontrol et
     async function checkSessionValidity() {
         const now = Date.now();
@@ -29,47 +73,36 @@
             return true;
         }
         
-        function applyNetworkGrace() {
-            if (sessionCache.isValid && (now - sessionCache.lastCheck) < SESSION_NETWORK_GRACE_MS) {
-                return true;
-            }
-            return null;
-        }
-        
         try {
-            const response = await fetch(SESSION_CHECK_ENDPOINT, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'no-cache'
-                },
-                credentials: 'include'
-            });
+            const response = await fetchSessionMe();
             
             if (!response.ok) {
-                // 401/403: gerçek oturum bitişi; 5xx: geçici sunucu sorunu
-                if (response.status === 401 || response.status === 403) {
+                if (isAuthFailureStatus(response.status)) {
                     sessionCache = { isValid: false, lastCheck: now, checkInterval: 0 };
                     return false;
                 }
-                const grace = applyNetworkGrace();
-                if (grace !== null) return grace;
+                if (isTransientStatus(response.status) && keepSessionDuringTransientIssue('HTTP ' + response.status)) {
+                    return true;
+                }
+                if (sessionCache.isValid && keepSessionDuringTransientIssue('HTTP ' + response.status)) {
+                    return true;
+                }
                 sessionCache = { isValid: false, lastCheck: now, checkInterval: 0 };
                 return false;
             }
             
-            const isValid = true;
             sessionCache = {
-                isValid: isValid,
+                isValid: true,
                 lastCheck: now,
                 checkInterval: SESSION_CACHE_VALID_MS
             };
             
-            return isValid;
+            return true;
         } catch (error) {
-            console.error('Oturum kontrolü sırasında hata:', error);
-            const grace = applyNetworkGrace();
-            if (grace !== null) return grace;
+            console.warn('Oturum kontrolü sırasında ağ hatası:', error && error.message ? error.message : error);
+            if (keepSessionDuringTransientIssue('network')) {
+                return true;
+            }
             sessionCache = {
                 isValid: false,
                 lastCheck: now,
@@ -498,8 +531,18 @@
         }
     }
     
+    function markSessionValid() {
+        const now = Date.now();
+        sessionCache = {
+            isValid: true,
+            lastCheck: now,
+            checkInterval: SESSION_CACHE_VALID_MS
+        };
+    }
+
     // Public API
     window.SessionManager = {
+        markSessionValid,
         checkSessionValidity,
         requireValidSession,
         withSessionCheck,

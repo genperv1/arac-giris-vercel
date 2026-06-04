@@ -85,7 +85,7 @@
     }
     if (printPromise) return printPromise;
     printPromise = loadScript('/signatures-registry.js')
-      .then(function () { return loadScript('/print.js?rev=20260603-ihracat-not-3line-v2'); })
+      .then(function () { return loadScript('/print.js?rev=20260604-malzeme-2line-v6'); })
       .then(function () {
         if (window.Print) window.Print.__aracBosRev = '20260603-ihracat-not-3line-v2';
       })

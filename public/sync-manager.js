@@ -6,7 +6,7 @@
   // Configuration
   const CONFIG = {
     RECONNECT_DELAY: 3000,
-    MAX_RECONNECT_ATTEMPTS: 10,
+    MAX_RECONNECT_ATTEMPTS: 50,
     STORAGE_KEY: 'sync_last_update',
     TAB_ID_KEY: 'sync_tab_id',
     HEARTBEAT_INTERVAL: 30000
@@ -158,7 +158,13 @@
         };
 
         eventSource.onerror = (error) => {
-          console.error('SSE connection error:', error);
+          // SSE kopması oturumu sonlandırmaz; yalnızca canlı senkronu etkiler
+          const state = eventSource ? eventSource.readyState : EventSource.CLOSED;
+          if (state === EventSource.CONNECTING) {
+            console.warn('SSE yeniden bağlanıyor...');
+            return;
+          }
+          console.warn('SSE bağlantısı koptu, yeniden denenecek');
           this.disconnect();
           this.scheduleReconnect();
         };

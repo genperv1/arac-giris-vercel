@@ -109,70 +109,38 @@
     ].join('\n');
   }
 
-  function copyNetsisData(vehicle) {
+  async function copyNetsisData(vehicle) {
     const text = copyNetsisVehicleText(vehicle);
     if (!text || !normalizeNetsisPlate(vehicle && vehicle.cekiciPlaka)) {
-      uiAlert('NETSIS verisi bulunamadı.', 'warning');
-      return;
+      return false;
     }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        uiAlert('NETSIS verileri kopyalandı.', 'success');
-      }).catch(() => {
-        uiAlert('Kopyalama yapılamadı.', 'danger');
-      });
-    } else {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.left = '-9999px';
-      document.body.appendChild(textarea);
-      textarea.select();
-      try {
-        document.execCommand('copy');
-        uiAlert('NETSIS verileri kopyalandı.', 'success');
-      } catch (e) {
-        uiAlert('Kopyalama yapılamadı.', 'danger');
-      }
-      textarea.remove();
+    try {
+      return await copyTextToClipboard(text);
+    } catch (e) {
+      return false;
     }
   }
   // ===== NETSIS FONKSIYONLARI BITTI =====
 
   function buildWhatsAppCopyText(data) {
-    const plate = (data.cekiciPlaka || data.plaka || '').toString().trim();
+    const plate = (data.cekiciPlaka || data.plaka || '').toString().trim() || '-';
     const firma = (data.firma || data.firmaKodu || data.firmaSelect || '-').toString().trim();
     const girisYeri = (data.basimYeri || data.girisYeri || '-').toString().trim();
     const malzeme = (data.malzeme || '').toString().trim();
     const sevkYeri = (data.sevkYeri || '').toString().trim();
     const bilgi = [malzeme, sevkYeri].filter(Boolean).join(' • ').trim();
-    return [
-      'Plaka: ' + (plate || '-'),
-      'Firma: ' + firma,
-      'Giris Yeri: ' + girisYeri,
-      'Bilgi: ' + (bilgi ? ('• ' + bilgi) : '-'),
-      'GIRIS YAPTI.'
-    ].join('\n');
+    const parts = [plate, firma, girisYeri];
+    if (bilgi) parts.push('(' + bilgi + ')');
+    parts.push('GİRİŞ YAPTI.');
+    return parts.join(' - ');
   }
 
   async function copyWhatsAppData(data) {
     const text = buildWhatsAppCopyText(data || {});
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.left = '-9999px';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        textarea.remove();
-      }
-      uiAlert('WhatsApp metni kopyalandi.', 'success');
+      return await copyTextToClipboard(text);
     } catch (e) {
-      uiAlert('WhatsApp metni kopyalanamadi.', 'danger');
+      return false;
     }
   }
 
@@ -223,6 +191,104 @@
 
   // cache last loaded events so delete handlers can reuse
   let _latestEvents = [];
+  const _vehicleLookupCache = new Map();
+
+  function parseRowEventData(tr) {
+    if (!tr) return {};
+    const eventDataStr = tr.getAttribute('data-event-data') || '{}';
+    try { return JSON.parse(eventDataStr) || {}; } catch (e) { return {}; }
+  }
+
+  async function lookupVehicleCached(plate) {
+    const key = normPlateKey(plate);
+    if (!key) return null;
+    if (_vehicleLookupCache.has(key)) return _vehicleLookupCache.get(key);
+    try {
+      const resp = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+      if (resp.ok) {
+        const v = await resp.json();
+        const result = (v && typeof v === 'object' && !Array.isArray(v)) ? v : null;
+        _vehicleLookupCache.set(key, result);
+        return result;
+      }
+    } catch (e) { /* ignore */ }
+    _vehicleLookupCache.set(key, null);
+    return null;
+  }
+
+  function prefetchVehicleLookups(plates) {
+    const unique = [...new Set((plates || []).map(p => String(p || '').trim()).filter(Boolean))]
+      .filter(p => !_vehicleLookupCache.has(normPlateKey(p)))
+      .slice(0, 80);
+    if (!unique.length) return;
+    fetch('/api/vehicles/lookup-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plates: unique })
+    }).then(r => r.ok ? r.json() : {}).then(data => {
+      Object.entries(data || {}).forEach(([pnorm, v]) => {
+        _vehicleLookupCache.set(pnorm, v || null);
+      });
+      unique.forEach(plate => {
+        const k = normPlateKey(plate);
+        if (!_vehicleLookupCache.has(k)) _vehicleLookupCache.set(k, null);
+      });
+    }).catch(() => {});
+  }
+
+  function flashBtnBusy(btn) {
+    if (!btn || btn.__busy) return;
+    btn.__busy = true;
+    btn.classList.add('is-busy');
+    btn.disabled = true;
+    const reset = () => {
+      btn.__busy = false;
+      btn.classList.remove('is-busy');
+      btn.disabled = false;
+    };
+    setTimeout(reset, 400);
+  }
+
+  function flashBtnCopied(btn) {
+    if (!btn) return;
+    btn.__busy = false;
+    btn.classList.remove('is-busy');
+    btn.disabled = false;
+    if (btn.__copyFlashTimer) clearTimeout(btn.__copyFlashTimer);
+    const originalHTML = btn.innerHTML;
+    const originalBg = btn.style.backgroundColor;
+    const originalColor = btn.style.color;
+    btn.innerHTML = '<i class="fas fa-check"></i> Kopyalandı';
+    btn.style.backgroundColor = '#059669';
+    btn.style.color = 'white';
+    btn.__copyFlashTimer = setTimeout(() => {
+      btn.innerHTML = originalHTML;
+      btn.style.backgroundColor = originalBg;
+      btn.style.color = originalColor;
+      btn.__copyFlashTimer = null;
+    }, 1200);
+  }
+
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      textarea.remove();
+    }
+  }
 
   // pagination defaults (client-side)
   if (!window.__reportsPage) window.__reportsPage = 1;
@@ -230,6 +296,11 @@
 
   function normPlate(s){
     return String(s||'').toLowerCase().replace(/[\s-]+/g,'');
+  }
+
+  /** Sunucu /api/vehicles/lookup-batch ile aynı plaka anahtarı */
+  function normPlateKey(s) {
+    return String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9ığüşöç]/gi, '');
   }
 
   function splitSoforForExcel(full) {
@@ -265,13 +336,7 @@
   async function resolveReportRowVehicleData(tr) {
     const plate = String(tr.getAttribute('data-plate') || '').trim();
     const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
-    const eventDataStr = tr.getAttribute('data-event-data') || '{}';
-    let d = {};
-    try { d = JSON.parse(eventDataStr); } catch (e) { d = {}; }
-
-    const lastEv = findLastPrintEvent({ id: vehicleId, cekiciPlaka: plate });
-    const lastEvData = (lastEv && lastEv.data && typeof lastEv.data === 'object') ? lastEv.data : {};
-    const sourceData = Object.assign({}, lastEvData, d);
+    const sourceData = parseRowEventData(tr);
 
     let vehicleData = null;
     const hasPhone = sourceData.iletisim || sourceData.phone || sourceData.driverPhone || sourceData.phoneNumber;
@@ -286,11 +351,7 @@
           if (cached && typeof cached === 'object') vehicleData = cached;
         }
         if (!vehicleData) {
-          const resp = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
-          if (resp.ok) {
-            const v = await resp.json();
-            if (v && typeof v === 'object' && !Array.isArray(v)) vehicleData = v;
-          }
+          vehicleData = await lookupVehicleCached(plate);
         }
       } catch (e) {
         console.warn('Vehicle lookup for NETSIS failed:', e);
@@ -436,8 +497,8 @@
       tr.setAttribute('data-vehicle-id', String(v.id || '')); // fallback for existing handlers
       tr.setAttribute('data-plate', plate || '');
 
-      // find last PRINT event for this vehicle
-      const lastEv = findLastPrintEvent(v);
+      // use row's own print event (no full-list scan)
+      const lastEv = v.rawEvent || null;
       let lastPrintHtml = '-';
       let ts = (lastEv && lastEv.ts) || (v.lastPrintSnapshot && v.lastPrintSnapshot.ts) || null;
       let d = (lastEv && lastEv.data) ? lastEv.data : {};
@@ -596,321 +657,7 @@
       }
     }catch(e){}
 
-    // ===== bind NETSIS button =====
-    tbody.querySelectorAll('.netsisBtn').forEach(btn => {
-      if (btn.__boundNetsis) return;
-      btn.__boundNetsis = true;
-      btn.addEventListener('click', async () => {
-        try {
-          const tr = btn.closest('tr');
-          if (!tr) return;
-          const vehicle = await resolveReportRowVehicleData(tr);
-          copyNetsisData(vehicle);
-        } catch(e) {
-          console.error('NETSIS button error:', e);
-          uiAlert('NETSIS verisi kopyalanırken hata oluştu.', 'danger');
-        }
-      });
-    });
-    // ===== NETSIS button binding bitti =====
-
-    // bind reprint
-    tbody.querySelectorAll('.reprintBtn').forEach(btn => {
-      if (btn.__bound) return;
-      btn.__bound = true;
-      btn.addEventListener('click', () => {
-        const tr = btn.closest('tr');
-        if (!tr) return;
-        const vehicleId = tr.getAttribute('data-vehicle-id') || btn.getAttribute('data-id') || '';
-        const plate = tr.getAttribute('data-plate') || '';
-        const eventDataStr = tr.getAttribute('data-event-data') || '';
-        
-        if (!vehicleId && !plate) return;
-        try{
-          // Vehicle ID'sini URL parametresi olarak GIRIS.html'e gönder
-          const url = new URL('GIRIS.html', window.location.origin);
-          if (vehicleId) url.searchParams.set('reprint', vehicleId);
-          if (plate) url.searchParams.set('plate', plate);
-          
-          // Tablodaki tüm event data'sını kullan
-          let d = {};
-          try {
-            if (eventDataStr) d = JSON.parse(eventDataStr);
-          } catch(e) {}
-          
-          // Eğer data yoksa lastEv'den al (fallback)
-          if (!d || !Object.keys(d).length) {
-            const v = { id: vehicleId, cekiciPlaka: plate };
-            const lastEv = findLastPrintEvent(v);
-            if (lastEv && lastEv.data) d = lastEv.data;
-          }
-          
-          // Firma: firma || firmaKodu || firmaSelect (aynı tabloda olduğu gibi)
-          const firma = d.firma || d.firmaKodu || d.firmaSelect;
-          if (firma) url.searchParams.set('firma', firma);
-          if (d.malzeme) url.searchParams.set('malzeme', d.malzeme);
-          if (d.sevkYeri) url.searchParams.set('sevkYeri', d.sevkYeri);
-          if (d.kantar) url.searchParams.set('kantar', d.kantar);
-          if (d.basimYeri) url.searchParams.set('basimYeri', d.basimYeri);
-          if (d.ambalaj) url.searchParams.set('ambalaj', d.ambalaj);
-          if (d.baskiNotu) url.searchParams.set('baskiNotu', d.baskiNotu);
-          
-          console.log('🔍 Oluşturulan URL:', url.toString());
-          
-          // Event data'yı localStorage'a geçici olarak kaydet (app.js'de kullanılacak)
-          try {
-            localStorage.setItem('tempReprintData', JSON.stringify(d));
-            console.log('🔍 Event data localStorage\'a kaydedildi:', d);
-          } catch(e) {
-            console.error('🔍 Event data kaydetme hatası:', e);
-          }
-          
-          if (window.SessionManager && typeof window.SessionManager.openHomePage === 'function') {
-            window.SessionManager.openHomePage(url.pathname + url.search);
-          } else {
-            window.location.href = url.toString();
-          }
-        }catch(e){
-          console.error('Reprint error:', e);
-          alert('❌ Tekrar yazdırma isteği başarısız.');
-        }
-      });
-    });
-
-    // bind single-row delete
-    tbody.querySelectorAll('.deleteRowBtn').forEach(btn => {
-      if (btn.__boundDel) return;
-      btn.__boundDel = true;
-      btn.addEventListener('click', async () => {
-        // ✅ Oturum kontrolü
-        if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
-          const isValidSession = await window.SessionManager.requireValidSession();
-          if (!isValidSession) {
-            return; // Oturum geçersizse işlemi durdur
-          }
-        }
-
-        const tr = btn.closest('tr');
-        if (!tr) return;
-        const v = {
-          id: tr.getAttribute('data-vehicle-id') || btn.getAttribute('data-id') || '',
-          cekiciPlaka: tr.getAttribute('data-plate') || ''
-        };
-        if (!v.id && !v.cekiciPlaka) return;
-
-        const okDel = await uiConfirm('Bu kaydın yazdırma geçmişi silinsin mi?');
-        if (!okDel) return;
-        const okPass = await ensureDeletePassword();
-        if (!okPass) return;
-
-        const ids = collectPrintEventIdsForVehicle(v) || [];
-        if (!ids.length) {
-          uiAlert('Silinecek kayıt bulunamadı.', 'warning');
-          return;
-        }
-        try {
-          await fetch('/api/reports/bulk-delete', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ ids })
-          });
-          if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
-            await window.piyasa.reconcileOrderPrintCountsFromReports();
-          }
-          try {
-            if (typeof window._ihracatOnReportsChanged === 'function') {
-              window._ihracatOnReportsChanged();
-            }
-          } catch (e) {}
-          uiAlert('Kayıt silindi.', 'success');
-          render();
-        } catch(e) {
-          uiAlert('Silme işlemi başarısız: ' + e.message, 'danger');
-        }
-      });
-    });
-
-    // bind Excel row copy
-    tbody.querySelectorAll('.copyExcelBtn').forEach(btn => {
-      if (btn.__boundExcel) return;
-      btn.__boundExcel = true;
-      btn.addEventListener('click', async () => {
-        const tr = btn.closest('tr');
-        if (!tr) return;
-
-        function safeText(value) {
-          return String(value || '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ').trim();
-        }
-
-        function formatPhoneForExcel(value) {
-          const raw = safeText(value);
-          if (!raw || raw === '-') return '-';
-          const digits = raw.replace(/\D/g, '');
-          // Accept 10 digits (5xx...) or 11 digits with leading 0 (05xx...)
-          let local = digits;
-          if (local.length === 11 && local.startsWith('0')) local = local.slice(1);
-          if (local.length !== 10) return raw;
-          return `(${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`;
-        }
-
-        function buildDateTime(data, dateKeys, timeKeys) {
-          const date = dateKeys.map(k => String(data[k] || '').trim()).find(Boolean) || '';
-          const time = timeKeys.map(k => String(data[k] || '').trim()).find(Boolean) || '';
-          return [date, time].filter(Boolean).join(' ').trim();
-        }
-
-        try {
-          const plate = safeText(tr.getAttribute('data-plate') || '');
-          const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
-          const eventDataStr = tr.getAttribute('data-event-data') || '';
-          let d = {};
-          if (eventDataStr) {
-            try { d = JSON.parse(eventDataStr); } catch (e) { d = {}; }
-          }
-
-          console.log('📋 Excel Copy Debug - Plate:', plate, 'VehicleId:', vehicleId);
-          console.log('📋 Event Data:', d);
-
-          const lastEv = findLastPrintEvent({ id: vehicleId, cekiciPlaka: plate });
-          const lastEvData = (lastEv && lastEv.data && typeof lastEv.data === 'object') ? lastEv.data : {};
-          const sourceData = Object.assign({}, lastEvData, d);
-
-          console.log('📋 Last Event Data:', lastEvData);
-          console.log('📋 Merged Source Data:', sourceData);
-
-          let vehicleData = null;
-          const hasName = sourceData.sofor || sourceData.soforAdi || sourceData.driverName || sourceData.isim || sourceData.name;
-          const hasPhone = sourceData.iletisim || sourceData.phone || sourceData.driverPhone || sourceData.phoneNumber;
-          
-          console.log('📋 Has Name:', hasName, 'Has Phone:', hasPhone);
-          if (!hasName || !hasPhone) {
-            try {
-              if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
-                const cached = window.storage.load('vehicle_' + vehicleId);
-                if (cached && typeof cached === 'object') {
-                  vehicleData = cached;
-                }
-              }
-              if (!vehicleData) {
-                // Always try plate matching first since print_history and vehicles use different ID formats
-                if (plate) {
-                  console.log('🔍 Looking up vehicle by plate:', plate);
-                  const resp = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
-                  if (resp.ok) {
-                    vehicleData = await resp.json();
-                    if (vehicleData && typeof vehicleData === 'object' && !Array.isArray(vehicleData)) {
-                      // ok
-                    } else {
-                      vehicleData = null;
-                    }
-                    console.log('🔍 Found vehicle by plate:', vehicleData);
-                  }
-                }
-                // Skip vehicle ID lookup to avoid 404 errors
-              }
-            } catch (e) {
-              console.warn('Excel copy vehicle lookup failed:', e);
-            }
-          }
-          // Yazdırma kaydındaki şoför, plaka lookup'tan gelen eski kaydı ezmesin
-          const src = Object.assign({}, vehicleData || {}, sourceData);
-
-          const fullFromEvent = safeText(sourceData.sofor || '');
-          const firstName = fullFromEvent
-            ? safeText(splitSoforForExcel(fullFromEvent).soforAdi)
-            : safeText(src.soforAdi || src.driverName || src.isim || src.name || '');
-          const lastName = fullFromEvent
-            ? safeText(splitSoforForExcel(fullFromEvent).soforSoyadi)
-            : safeText(src.soforSoyadi || src.driverSurname || src.soyisim || src.surname || '');
-          const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || '-';
-          const phone = formatPhoneForExcel(src.iletisim || src.phone || src.driverPhone || src.phoneNumber || '-');
-          
-          console.log('📋 Final Driver Data - First Name:', firstName, 'Last Name:', lastName, 'Full Name:', fullName, 'Phone:', phone);
-
-          let entry = safeText(buildDateTime(src, ['tarih','girisTarihi','girisTarih','giris','entryDate','date'], ['saat','girisSaati','girisSaat','time','entryTime']));
-          if (!entry && lastEv) {
-            const date = safeText(lastEv.tarih || lastEvData.tarih || '');
-            let time = safeText(lastEv.saat || lastEvData.saat || '');
-            // If no time available, use timestamp to generate time in consistent format (Turkey timezone)
-            if (!time && lastEv.ts) {
-              const tr = trDateTimeFromMs(lastEv.ts);
-              if (tr) time = tr.saat;
-            }
-            entry = [date, time].filter(Boolean).join(' ').trim() || '-';
-          }
-          if (!entry) entry = '-';
-
-          let exit = safeText(buildDateTime(src, ['cikisTarihi','cikisTarih','cikis','exitDate'], ['cikisSaati','cikisSaat','cikisTime','exitTime']));
-          if (!exit) {
-            exit = entry;
-          }
-          if (!exit) exit = '-';
-
-          const copyText = [fullName, phone, entry, exit].join('\t');
-          
-          // Show immediate feedback before clipboard operation
-          const originalHTML = btn.innerHTML;
-          const originalBg = btn.style.backgroundColor;
-          btn.innerHTML = '<i class="fas fa-file-excel"></i> Excel';
-          btn.style.backgroundColor = '#059669';
-          btn.style.color = 'white';
-          
-          // Perform clipboard operation
-          await navigator.clipboard.writeText(copyText);
-          
-          // Reset button after delay
-          setTimeout(() => {
-            btn.innerHTML = originalHTML;
-            btn.style.backgroundColor = originalBg;
-            btn.style.color = '';
-          }, 1500);
-        } catch (e) {
-          console.error('Excel kopyalama hatası:', e);
-          alert('❌ Excel kopyalama başarısız. Tarayıcı klipboarda erişime izin veremedi.');
-        }
-      });
-    });
-
-    // bind WhatsApp row copy
-    tbody.querySelectorAll('.copyWhatsappBtn').forEach(btn => {
-      if (btn.__boundWhatsapp) return;
-      btn.__boundWhatsapp = true;
-      btn.addEventListener('click', async () => {
-        try {
-          const tr = btn.closest('tr');
-          if (!tr) return;
-          const plate = tr.getAttribute('data-plate') || '';
-          const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
-          const eventDataStr = tr.getAttribute('data-event-data') || '{}';
-          let d = {};
-          try { d = JSON.parse(eventDataStr); } catch(e) { d = {}; }
-
-          let vehicleData = null;
-          if (plate) {
-            try {
-              if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
-                const cached = window.storage.load('vehicle_' + vehicleId);
-                if (cached && typeof cached === 'object') vehicleData = cached;
-              }
-              if (!vehicleData) {
-                const resp = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
-                if (resp.ok) {
-                  const found = await resp.json();
-                  if (found && typeof found === 'object' && !Array.isArray(found)) vehicleData = found;
-                }
-              }
-            } catch (e) {}
-          }
-
-          const payload = Object.assign({}, vehicleData || {}, d, { plaka: plate || d.plaka || '' });
-          await copyWhatsAppData(payload);
-        } catch (e) {
-          uiAlert('WhatsApp verisi hazirlanirken hata olustu.', 'danger');
-        }
-      });
-    });
+    prefetchVehicleLookups(pageRows.map(v => v.cekiciPlaka));
     } catch (error) {
       console.error('Render error:', error);
       const tbody = document.getElementById('tbody');
@@ -1097,6 +844,210 @@
       plate.addEventListener('input', () => { window.__reportsPage = 1; window.clearTimeout(window.__rdeb); window.__rdeb = window.setTimeout(render, 120); });
     }
 
+    bindRowActions();
+  }
+
+  async function handleExcelCopy(btn, tr) {
+    function safeText(value) {
+      return String(value || '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ').trim();
+    }
+
+    function formatPhoneForExcel(value) {
+      const raw = safeText(value);
+      if (!raw || raw === '-') return '-';
+      const digits = raw.replace(/\D/g, '');
+      let local = digits;
+      if (local.length === 11 && local.startsWith('0')) local = local.slice(1);
+      if (local.length !== 10) return raw;
+      return `(${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`;
+    }
+
+    function buildDateTime(data, dateKeys, timeKeys) {
+      const date = dateKeys.map(k => String(data[k] || '').trim()).find(Boolean) || '';
+      const time = timeKeys.map(k => String(data[k] || '').trim()).find(Boolean) || '';
+      return [date, time].filter(Boolean).join(' ').trim();
+    }
+
+    const plate = safeText(tr.getAttribute('data-plate') || '');
+    const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
+    const sourceData = parseRowEventData(tr);
+
+    let vehicleData = null;
+    const hasName = sourceData.sofor || sourceData.soforAdi || sourceData.driverName || sourceData.isim || sourceData.name;
+    const hasPhone = sourceData.iletisim || sourceData.phone || sourceData.driverPhone || sourceData.phoneNumber;
+
+    if (!hasName || !hasPhone) {
+      if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
+        const cached = window.storage.load('vehicle_' + vehicleId);
+        if (cached && typeof cached === 'object') vehicleData = cached;
+      }
+      if (!vehicleData && plate) {
+        vehicleData = await lookupVehicleCached(plate);
+      }
+    }
+
+    const src = Object.assign({}, vehicleData || {}, sourceData);
+    const fullFromEvent = safeText(sourceData.sofor || '');
+    const firstName = fullFromEvent
+      ? safeText(splitSoforForExcel(fullFromEvent).soforAdi)
+      : safeText(src.soforAdi || src.driverName || src.isim || src.name || '');
+    const lastName = fullFromEvent
+      ? safeText(splitSoforForExcel(fullFromEvent).soforSoyadi)
+      : safeText(src.soforSoyadi || src.driverSurname || src.soyisim || src.surname || '');
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || '-';
+    const phone = formatPhoneForExcel(src.iletisim || src.phone || src.driverPhone || src.phoneNumber || '-');
+
+    let entry = safeText(buildDateTime(src, ['tarih','girisTarihi','girisTarih','giris','entryDate','date'], ['saat','girisSaati','girisSaat','time','entryTime']));
+    if (!entry) entry = '-';
+
+    let exit = safeText(buildDateTime(src, ['cikisTarihi','cikisTarih','cikis','exitDate'], ['cikisSaati','cikisSaat','cikisTime','exitTime']));
+    if (!exit) exit = entry;
+    if (!exit) exit = '-';
+
+    const copyText = [fullName, phone, entry, exit].join('\t');
+    await navigator.clipboard.writeText(copyText);
+    flashBtnCopied(btn);
+  }
+
+  function handleReprint(btn, tr) {
+    const vehicleId = tr.getAttribute('data-vehicle-id') || btn.getAttribute('data-id') || '';
+    const plate = tr.getAttribute('data-plate') || '';
+    if (!vehicleId && !plate) return;
+
+    const d = parseRowEventData(tr);
+    const url = new URL('GIRIS.html', window.location.origin);
+    if (vehicleId) url.searchParams.set('reprint', vehicleId);
+    if (plate) url.searchParams.set('plate', plate);
+
+    const firma = d.firma || d.firmaKodu || d.firmaSelect;
+    if (firma) url.searchParams.set('firma', firma);
+    if (d.malzeme) url.searchParams.set('malzeme', d.malzeme);
+    if (d.sevkYeri) url.searchParams.set('sevkYeri', d.sevkYeri);
+    if (d.kantar) url.searchParams.set('kantar', d.kantar);
+    if (d.basimYeri) url.searchParams.set('basimYeri', d.basimYeri);
+    if (d.ambalaj) url.searchParams.set('ambalaj', d.ambalaj);
+    if (d.baskiNotu) url.searchParams.set('baskiNotu', d.baskiNotu);
+
+    try {
+      localStorage.setItem('tempReprintData', JSON.stringify(d));
+    } catch (e) { /* ignore */ }
+
+    if (window.SessionManager && typeof window.SessionManager.openHomePage === 'function') {
+      window.SessionManager.openHomePage(url.pathname + url.search);
+    } else {
+      window.location.href = url.toString();
+    }
+  }
+
+  function collectPrintEventIdsForVehicle(vehicle){
+    try{
+      if (vehicle && vehicle.id) {
+        const exists = (_latestEvents || []).some(ev => ev && String(ev.id) === String(vehicle.id));
+        if (exists) return [String(vehicle.id)];
+      }
+      const plateNorm = normPlate(vehicle.cekiciPlaka || '');
+      const evs = (_latestEvents || []).filter(ev => ev && ev.type === 'PRINT' && ev.data);
+      const ids = [];
+      evs.forEach(ev => {
+        try{
+          const d = ev.data || {};
+          if (d.vehicleId && String(d.vehicleId) === String(vehicle.id)) { if (ev.id) ids.push(String(ev.id)); return; }
+          if (d.plaka && normPlate(d.plaka || '') === plateNorm) { if (ev.id) ids.push(String(ev.id)); return; }
+        }catch(e){}
+      });
+      return ids;
+    }catch(e){ return []; }
+  }
+
+  function bindRowActions() {
+    const tbody = document.getElementById('tbody');
+    if (!tbody || tbody.__actionBound) return;
+    tbody.__actionBound = true;
+
+    tbody.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.netsisBtn, .copyExcelBtn, .copyWhatsappBtn, .reprintBtn, .deleteRowBtn');
+      if (!btn || btn.disabled) return;
+      const tr = btn.closest('tr');
+      if (!tr) return;
+
+      if (btn.classList.contains('netsisBtn')) {
+        flashBtnBusy(btn);
+        try {
+          const vehicle = await resolveReportRowVehicleData(tr);
+          if (await copyNetsisData(vehicle)) flashBtnCopied(btn);
+        } catch (e) { /* ignore */ }
+        return;
+      }
+
+      if (btn.classList.contains('copyWhatsappBtn')) {
+        flashBtnBusy(btn);
+        try {
+          const plate = tr.getAttribute('data-plate') || '';
+          const d = parseRowEventData(tr);
+          if (await copyWhatsAppData(Object.assign({}, d, { plaka: plate || d.plaka || '' }))) {
+            flashBtnCopied(btn);
+          }
+        } catch (e) { /* ignore */ }
+        return;
+      }
+
+      if (btn.classList.contains('copyExcelBtn')) {
+        flashBtnBusy(btn);
+        try {
+          await handleExcelCopy(btn, tr);
+        } catch (e) { /* ignore */ }
+        return;
+      }
+
+      if (btn.classList.contains('reprintBtn')) {
+        handleReprint(btn, tr);
+        return;
+      }
+
+      if (btn.classList.contains('deleteRowBtn')) {
+        if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+          const isValidSession = await window.SessionManager.requireValidSession();
+          if (!isValidSession) return;
+        }
+
+        const v = {
+          id: tr.getAttribute('data-vehicle-id') || btn.getAttribute('data-id') || '',
+          cekiciPlaka: tr.getAttribute('data-plate') || ''
+        };
+        if (!v.id && !v.cekiciPlaka) return;
+
+        const okDel = await uiConfirm('Bu kaydın yazdırma geçmişi silinsin mi?');
+        if (!okDel) return;
+        const okPass = await ensureDeletePassword();
+        if (!okPass) return;
+
+        const eventId = tr.getAttribute('data-print-event-id') || tr.getAttribute('data-vehicle-id') || btn.getAttribute('data-id') || '';
+        const ids = eventId ? [String(eventId)] : (collectPrintEventIdsForVehicle(v) || []);
+        if (!ids.length) {
+          uiAlert('Silinecek kayıt bulunamadı.', 'warning');
+          return;
+        }
+        try {
+          await fetch('/api/reports/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids })
+          });
+          if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
+            await window.piyasa.reconcileOrderPrintCountsFromReports();
+          }
+          try {
+            if (typeof window._ihracatOnReportsChanged === 'function') {
+              window._ihracatOnReportsChanged();
+            }
+          } catch (e) {}
+          uiAlert('Kayıt silindi.', 'success');
+          render();
+        } catch (e) {
+          uiAlert('Silme işlemi başarısız: ' + e.message, 'danger');
+        }
+      }
+    });
   }
 
   async function ensureDeletePassword(){

@@ -103,7 +103,7 @@ function showSessionExpiredModal() {
         <div class="session-modal-box" style="max-width: 520px; width: 90%; padding: 32px 28px; background: #ffffff; border-radius: 18px; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24); text-align: center;">
           <div class="session-modal-icon" style="font-size: 48px; margin-bottom: 18px;">⚠️</div>
           <h2 class="session-modal-title" style="font-size: 24px; font-weight: 700; color: #111827; margin: 0 0 16px;">Oturumunuz Sonlandı</h2>
-          <p class="session-modal-text" style="font-size: 16px; color: #475569; line-height: 1.7; margin: 0 0 28px;">30 dakika işlem yapılmadığından güvenlik nedeniyle oturumunuz kapanmıştır.</p>
+          <p class="session-modal-text" style="font-size: 16px; color: #475569; line-height: 1.7; margin: 0 0 28px;">Uzun süre işlem yapılmadığından güvenlik nedeniyle oturumunuz kapanmıştır.</p>
           <button id="session-modal-confirm" class="session-modal-btn" style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); color: white; border: none; padding: 14px 26px; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer;">Gördüm - Tekrar Giriş Yap</button>
         </div>
       </div>
@@ -883,7 +883,7 @@ const DAILY_SHIPMENT_META = 'daily_shipments_meta';
 
 // TR plaka normalize (eşleştirme için) -> "43ADD516" == "43 ADD 516"
 function normPlate(v) {
-  return formatTRPlate(String(v || '')).replace(/\s+/g, ' ').trim();
+  return formatPlakaForInput(String(v || '')).replace(/\s+/g, ' ').trim();
 }
 
 function _plateKeyForMatch(p) {
@@ -964,8 +964,73 @@ function driverFieldsFromSnapshot(snap) {
   };
 }
 
+function _isIhracatPrintContext(pending) {
+  if (pending && pending.fromIhracat) return true;
+  try {
+    if (window.__ihracatActivePrintShipment) return true;
+    const ch = window.__activeExcelShipment || window.__lastChosenShipment;
+    if (ch && (ch.blockMeta || ch.headerText || ch._ihracatEdited)) return true;
+    if (document.getElementById('ihracatDetailsModal') || window.__ihracatParkedDetailsModal) return true;
+  } catch (e) { /* ignore */ }
+  try {
+    const note = String(document.getElementById('yuklemeNotu')?.value || '').trim();
+    if (window.isIhracatFormContext && window.isIhracatFormContext(note)) return true;
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+/** print.js ile aynı anda okunan değerler — rapor = kağıttaki (WYSIWYG) */
+function captureTakipPrintPayloadForReport(get) {
+  const g = typeof get === 'function'
+    ? get
+    : (id) => {
+      try { return (document.getElementById(id)?.value || '').trim(); } catch (e) { return ''; }
+    };
+  const excel = window.__ihracatActivePrintShipment
+    || window.__activeExcelShipment
+    || window.__lastChosenShipment
+    || null;
+  const firmaForm = g('firmaKodu') || g('firmaSelect');
+  const malzemeForm = g('malzeme') || g('malzemeSelect');
+  const firma = String(
+    firmaForm
+    || (excel && String(excel.firma || '').trim())
+    || _takipFirmaFromExcelContext()
+    || ''
+  ).trim();
+  const malzeme = String(
+    malzemeForm
+    || (excel && String(excel.malzeme || '').trim())
+    || ''
+  ).trim();
+  const driver = getTakipFormDriverPayload();
+  return {
+    firma,
+    firmaKodu: firma,
+    firmaSelect: g('firmaSelect'),
+    malzeme,
+    sevkYeri: g('sevkYeri') || String(excel?.sevkYeri || '').trim(),
+    basimYeri: g('basimYeri'),
+    tonaj: g('tonaj') || String(excel?.tonajKg ?? '').trim(),
+    ambalajBilgisi: g('ambalajBilgisi'),
+    yuklemeNotu: g('yuklemeNotu'),
+    yuklemeSirasi: g('yuklemeSirasi'),
+    plaka: g('cekiciPlakaBilgi'),
+    sofor: driver.sofor,
+    soforAdi: driver.soforAdi,
+    soforSoyadi: driver.soforSoyadi,
+    tcKimlik: driver.tcKimlik,
+    iletisim: driver.iletisim,
+    dorsePlaka: driver.dorsePlaka || g('dorsePlakaBilgi'),
+    excelShipmentKey: (() => {
+      try { return excel ? _ihracatShipmentKey(excel) : ''; } catch (e) { return ''; }
+    })(),
+  };
+}
+
 function applyPiyasaOrderToPrintEvent(printEv, pending) {
   if (!printEv || !pending || pending.piyasaOrderIdx == null) return printEv;
+  if (_isIhracatPrintContext(pending)) return printEv;
   try {
     const o = window.piyasa && typeof window.piyasa.getOrderByIdx === 'function'
       ? window.piyasa.getOrderByIdx(pending.piyasaOrderIdx)
@@ -984,6 +1049,16 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
 }
 
 function piyasaSevkiyatIdForPrint(pending) {
+  if (pending && pending.fromIhracat) {
+    const key = pending.printPayload?.excelShipmentKey
+      || (() => {
+        try {
+          const sh = window.__ihracatActivePrintShipment || window.__activeExcelShipment;
+          return sh ? _ihracatShipmentKey(sh) : '';
+        } catch (e) { return ''; }
+      })();
+    if (key) return 'ihracat:' + key;
+  }
   if (pending && pending.piyasaOrderIdx != null) {
     return 'piyasa:' + String(pending.piyasaOrderIdx);
   }
@@ -994,12 +1069,57 @@ function piyasaSevkiyatIdForPrint(pending) {
   }
 }
 
+/** İhracat / Excel bağlamından firma (YD…); HP2 gibi rota kodları firma sayılmaz */
+function _takipFirmaFromExcelContext() {
+  try {
+    const ch = window.__ihracatActivePrintShipment
+      || window.__activeExcelShipment
+      || window.__lastChosenShipment;
+    if (!ch) return '';
+    const direct = String(ch.firma || '').trim();
+    if (direct && /\bYD\d{1,4}\b/i.test(direct)) return direct;
+    if (direct && !/^HP\d/i.test(direct)) return direct;
+    const fromHeader = _extractFirmaKod(ch.headerText || '');
+    if (fromHeader) return fromHeader;
+    const yd = String(ch.ydKey || '').trim();
+    return /\bYD\d{1,4}\b/i.test(yd) ? yd : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** Yazdır onayı öncesi: bekleyen snapshot = ekrandaki takip formu (eski defaultFirma ezmesin) */
+function refreshPendingPrintSnapshotFromForm(pending) {
+  if (!pending) return;
+  const get = (id) => {
+    try { return (document.getElementById(id)?.value || '').trim(); } catch (e) { return ''; }
+  };
+  const prev = (pending.snapshot && typeof pending.snapshot === 'object') ? pending.snapshot : {};
+  const excelFirma = _takipFirmaFromExcelContext();
+  pending.snapshot = Object.assign({}, prev, {
+    firmaKodu: get('firmaKodu') || prev.firmaKodu || excelFirma,
+    firmaSelect: get('firmaSelect') || prev.firmaSelect,
+    malzeme: get('malzeme') || prev.malzeme,
+    malzemeSelect: get('malzemeSelect') || prev.malzemeSelect,
+    sevkYeri: get('sevkYeri') || prev.sevkYeri,
+    ambalajBilgisi: get('ambalajBilgisi') || prev.ambalajBilgisi,
+    tonaj: get('tonaj') || prev.tonaj,
+    yuklemeNotu: get('yuklemeNotu') || prev.yuklemeNotu,
+    yuklemeSirasi: get('yuklemeSirasi') || prev.yuklemeSirasi,
+    basimYeri: get('basimYeri') || prev.basimYeri || pending.basimYeri,
+  }, getTakipFormDriverPayload());
+}
+
 function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
+  refreshPendingPrintSnapshotFromForm(pending);
   const snap = (pending && pending.snapshot) || {};
+  const pp = (pending && pending.printPayload && typeof pending.printPayload === 'object')
+    ? pending.printPayload
+    : null;
   const formGet = (id) => {
     try { return (document.getElementById(id)?.value || '').trim(); } catch (e) { return ''; }
   };
-  const driver = driverFieldsFromSnapshot(snap);
+  const driver = driverFieldsFromSnapshot(pp || snap);
   if (!driver.sofor) {
     try {
       const live = getTakipFormDriverPayload();
@@ -1007,12 +1127,30 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     } catch (e) { /* ignore */ }
   }
 
-  const plaka = String(pending?.plaka || vehicle?.cekiciPlaka || formGet('cekiciPlakaBilgi') || '').trim();
+  const plaka = String(
+    pending?.plaka || pp?.plaka || vehicle?.cekiciPlaka || formGet('cekiciPlakaBilgi') || ''
+  ).trim();
+  const excelFirma = _takipFirmaFromExcelContext();
+  const excel = window.__ihracatActivePrintShipment
+    || window.__activeExcelShipment
+    || window.__lastChosenShipment
+    || null;
+
+  // ✅ Rapor: yazdır tıklanınca kilitlenen printPayload (kağıt = modal = rapor)
   const firma = String(
-    snap.firmaKodu || snap.firmaSelect || vehicle?.defaultFirma || formGet('firmaKodu') || formGet('firmaSelect') || ''
+    pp?.firma || pp?.firmaKodu
+    || formGet('firmaKodu') || formGet('firmaSelect')
+    || snap.firmaKodu || snap.firmaSelect || snap.firma
+    || (excel && String(excel.firma || '').trim())
+    || excelFirma
+    || (_isIhracatPrintContext(pending) ? '' : (vehicle?.defaultFirma || ''))
   ).trim();
   const malzeme = String(
-    snap.malzeme || snap.malzemeSelect || vehicle?.defaultMalzeme || formGet('malzeme') || formGet('malzemeSelect') || ''
+    pp?.malzeme
+    || formGet('malzeme') || formGet('malzemeSelect')
+    || snap.malzeme || snap.malzemeSelect
+    || (excel && String(excel.malzeme || '').trim())
+    || (_isIhracatPrintContext(pending) ? '' : (vehicle?.defaultMalzeme || ''))
   ).trim();
 
   return {
@@ -1021,23 +1159,27 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     plate: plaka,
     firma,
     firmaKodu: firma,
-    firmaSelect: String(snap.firmaSelect || formGet('firmaSelect') || '').trim(),
+    firmaSelect: String(pp?.firmaSelect || formGet('firmaSelect') || snap.firmaSelect || '').trim(),
     malzeme,
-    sevkYeri: String(snap.sevkYeri || vehicle?.defaultSevkYeri || formGet('sevkYeri') || '').trim(),
-    basimYeri: String(snap.basimYeri || pending?.basimYeri || formGet('basimYeri') || '').trim(),
-    tonaj: String(snap.tonaj || formGet('tonaj') || '').trim(),
-    yuklemeSirasi: String(pending?.yuklemeSirasi || snap.yuklemeSirasi || formGet('yuklemeSirasi') || '').trim(),
+    sevkYeri: String(
+      pp?.sevkYeri || formGet('sevkYeri') || snap.sevkYeri
+      || (excel && String(excel.sevkYeri || '').trim())
+      || (_isIhracatPrintContext(pending) ? '' : (vehicle?.defaultSevkYeri || ''))
+    ).trim(),
+    basimYeri: String(pp?.basimYeri || snap.basimYeri || pending?.basimYeri || formGet('basimYeri') || '').trim(),
+    tonaj: String(pp?.tonaj || snap.tonaj || formGet('tonaj') || '').trim(),
+    yuklemeSirasi: String(pending?.yuklemeSirasi || pp?.yuklemeSirasi || snap.yuklemeSirasi || formGet('yuklemeSirasi') || '').trim(),
     printCount: printCount || 1,
     tarih: tarihTr || '',
     kantar: formGet('imzaKantarAd'),
-    ambalajBilgisi: String(snap.ambalajBilgisi || formGet('ambalajBilgisi') || '').trim(),
-    yuklemeNotu: String(snap.yuklemeNotu || formGet('yuklemeNotu') || '').trim(),
-    sofor: driver.sofor,
-    soforAdi: driver.soforAdi,
-    soforSoyadi: driver.soforSoyadi,
-    tcKimlik: driver.tcKimlik,
-    iletisim: driver.iletisim,
-    dorsePlaka: driver.dorsePlaka || String(snap.dorsePlaka || formGet('dorsePlakaBilgi') || '').trim(),
+    ambalajBilgisi: String(pp?.ambalajBilgisi || snap.ambalajBilgisi || formGet('ambalajBilgisi') || '').trim(),
+    yuklemeNotu: String(pp?.yuklemeNotu || snap.yuklemeNotu || formGet('yuklemeNotu') || '').trim(),
+    sofor: pp?.sofor || driver.sofor,
+    soforAdi: pp?.soforAdi || driver.soforAdi,
+    soforSoyadi: pp?.soforSoyadi || driver.soforSoyadi,
+    tcKimlik: pp?.tcKimlik || driver.tcKimlik,
+    iletisim: pp?.iletisim || driver.iletisim,
+    dorsePlaka: pp?.dorsePlaka || driver.dorsePlaka || String(snap.dorsePlaka || formGet('dorsePlakaBilgi') || '').trim(),
     ts: pending?.nowTs || Date.now(),
   };
 }
@@ -5892,6 +6034,7 @@ try {
 
                 // ✅ 2) Yazdırma raporu + printCount kesinleştir
                 try {
+                    try { refreshPendingPrintSnapshotFromForm(pending); } catch (e) {}
                     const plateForResolve = String(pending.plaka || '').trim();
                     const vid = resolveTakipVehicleIdForPrint(plateForResolve, pending.vehicleId);
                     if (vid && vid !== 'manual') {
@@ -5932,6 +6075,20 @@ try {
                                 pending
                               );
                               const firma = printEv.firma;
+                              if (printEv.firma || printEv.malzeme || printEv.sevkYeri) {
+                                const snapFix = Object.assign({}, updated.lastPrintSnapshot || {}, {
+                                  firmaKodu: printEv.firma || '',
+                                  firmaSelect: printEv.firmaSelect || printEv.firma || '',
+                                  malzeme: printEv.malzeme || '',
+                                  sevkYeri: printEv.sevkYeri || '',
+                                });
+                                updated.lastPrintSnapshot = snapFix;
+                                try { window.storage?.save('vehicle_' + updated.id, updated); } catch (e) {}
+                                state.vehicles = (state.vehicles || []).map(v =>
+                                  String(v.id) === String(updated.id) ? updated : v
+                                );
+                                try { saveVehicleToDatabase(updated); } catch (e) {}
+                              }
 
                               try{
                                 window.Report?.addEvent('PRINT', printEv);
@@ -6596,13 +6753,27 @@ function copyNetsisData(vehicle) {
   }
 }
 
+function isTurkishPlateInput(raw) {
+  const compact = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return /^\d{2}/.test(compact);
+}
+
+function formatForeignPlate(input) {
+  if (!input) return '';
+  return String(input)
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s\-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function formatTRPlate(input) {
   if (!input) return '';
   const raw = String(input).toUpperCase().replace(/[^A-Z0-9]/g, '');
 
   // İlk 2 karakter il kodu olmalı (rakam)
   const il = raw.slice(0, 2);
-  if (!/^\d{2}$/.test(il)) return raw;
+  if (!/^\d{2}$/.test(il)) return formatForeignPlate(input);
 
   const rest = raw.slice(2);
 
@@ -6651,40 +6822,50 @@ function formatTRPhone(input) {
 }
 
 
+function formatPlakaForInput(plaka) {
+  const raw = String(plaka || '').trim();
+  if (!raw) return '';
+  if (isTurkishPlateInput(raw)) return formatTRPlate(raw);
+  return formatForeignPlate(raw);
+}
+
 function formatPlaka(plaka) {
-  return formatTRPlate(plaka);
+  return formatPlakaForInput(plaka);
 }
 
 // Input alanı için plaka formatlama
 function formatPlakaInput(input) {
   if (!input) return;
-  let value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  
-  if (value.length >= 2) {
-    let first = value.substring(0, 2);
-    let rest = value.substring(2);
-    
-    // Harf ve rakam kısmını ayır
-    let letters = '';
-    let numbers = '';
-    for (let i = 0; i < rest.length; i++) {
-      if (isNaN(rest[i])) {
-        letters += rest[i];
-      } else {
-        numbers = rest.substring(i);
-        break;
+  if (isTurkishPlateInput(input.value)) {
+    let value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    if (value.length >= 2) {
+      let first = value.substring(0, 2);
+      let rest = value.substring(2);
+
+      let letters = '';
+      let numbers = '';
+      for (let i = 0; i < rest.length; i++) {
+        if (isNaN(rest[i])) {
+          letters += rest[i];
+        } else {
+          numbers = rest.substring(i);
+          break;
+        }
       }
-    }
-    
-    if (letters && numbers) {
-      input.value = first + ' ' + letters + ' ' + numbers;
-    } else if (letters) {
-      input.value = first + ' ' + letters;
+
+      if (letters && numbers) {
+        input.value = first + ' ' + letters + ' ' + numbers;
+      } else if (letters) {
+        input.value = first + ' ' + letters;
+      } else {
+        input.value = first;
+      }
     } else {
-      input.value = first;
+      input.value = value;
     }
   } else {
-    input.value = value;
+    input.value = formatForeignPlate(input.value);
   }
 }
 
@@ -7256,7 +7437,7 @@ const sevkYeri = document.getElementById('eslestirmeSevkYeriInput')?.value.trim(
                                     const vid = state.editingId;
                                     state.vehicles = (state.vehicles || []).map((v) => {
                                         if (String(v.id) !== String(vid)) return v;
-                                        return { ...v, [field]: formatTRPlate(value) };
+                                        return { ...v, [field]: formatPlakaForInput(value) };
                                     });
                                     try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
                                 }
@@ -7564,6 +7745,18 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
 
                 // ESC -> önce modalları kapat, değilse formu kapat, değilse aramayı temizle
                 if (e.key === 'Escape') {
+                    if (window.__piyasaPickerOpen) {
+                        if (!document.querySelector('[data-piyasa-modal-layer="1"]')) {
+                            e.preventDefault();
+                            try {
+                              if (typeof window.__piyasaCloseOrderPicker === 'function') window.__piyasaCloseOrderPicker();
+                              else document.getElementById('piyasaModalClose')?.click();
+                            } catch (_) {}
+                            return;
+                        }
+                        return;
+                    }
+
                     const takipModal = document.getElementById('takipFormuModal');
                     if (takipModal && !takipModal.classList.contains('hidden')) {
                         e.preventDefault();
@@ -7627,10 +7820,7 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
             }, true);
         }
 
-// Input için plaka formatlama fonksiyonu// Input için plaka formatlama fonksiyonu
-function formatPlakaForInput(plaka) {
-  return formatTRPlate(plaka);
-}
+
             
 
         // Giriş fonksiyonu
@@ -7753,6 +7943,9 @@ async function login() {
     try { localStorage.setItem('currentUserId', id); } catch(e){}
     try { localStorage.setItem('isLoggedIn', 'true'); } catch(e){}
     isLoggedIn = true;
+    if (window.SessionManager && typeof window.SessionManager.markSessionValid === 'function') {
+      window.SessionManager.markSessionValid();
+    }
     try { if (window.storage && typeof window.storage.invalidate === 'function') window.storage.invalidate(); } catch (e) {}
     state.vehiclesLoading = true;
     try { document.documentElement.classList.add('logged-in'); } catch(e){}
@@ -7786,7 +7979,7 @@ async function login() {
 async function validateToken() {
   // Validate server-side session via /api/me (cookie based)
   try {
-    const resp = await fetch('/api/me', { method: 'GET' });
+    const resp = await fetch('/api/me', { method: 'GET', credentials: 'include' });
     if (resp.ok) {
       const j = await resp.json().catch(()=>null);
       isLoggedIn = true;
@@ -7797,11 +7990,35 @@ async function validateToken() {
         try { localStorage.setItem('currentUserId', j.user.username); } catch(e){}
       }
       try { if (typeof startPostLoginTasks === 'function') startPostLoginTasks(); } catch(e){}
+      if (window.SessionManager && typeof window.SessionManager.markSessionValid === 'function') {
+        window.SessionManager.markSessionValid();
+      }
       return;
     }
-  } catch (e) {}
+    // Yalnızca gerçek oturum bitişinde çıkış — geçici sunucu/ağ hatasında local oturumu koru
+    if (resp.status !== 401 && resp.status !== 403) {
+      console.warn('validateToken: geçici /api/me hatası, oturum korunuyor:', resp.status);
+      isLoggedIn = true;
+      try { localStorage.setItem('isLoggedIn', 'true'); } catch(e){}
+      try { document.documentElement.classList.add('logged-in'); } catch(e){}
+      if (window.SessionManager && typeof window.SessionManager.markSessionValid === 'function') {
+        window.SessionManager.markSessionValid();
+      }
+      try { if (typeof startPostLoginTasks === 'function') startPostLoginTasks(); } catch(e){}
+      return;
+    }
+  } catch (e) {
+    console.warn('validateToken: ağ hatası, oturum korunuyor:', e && e.message ? e.message : e);
+    isLoggedIn = true;
+    try { localStorage.setItem('isLoggedIn', 'true'); } catch(e){}
+    try { document.documentElement.classList.add('logged-in'); } catch(e){}
+    if (window.SessionManager && typeof window.SessionManager.markSessionValid === 'function') {
+      window.SessionManager.markSessionValid();
+    }
+    try { if (typeof startPostLoginTasks === 'function') startPostLoginTasks(); } catch(e){}
+    return;
+  }
 
-  // invalid or error -> clear stored auth flags
   isLoggedIn = false;
   try { localStorage.removeItem('isLoggedIn'); } catch(e){}
   try { localStorage.removeItem('currentUserId'); } catch(e){}
@@ -8060,8 +8277,8 @@ function stopSessionMonitoring() {
         // Kayıt ekle/güncelle
         function saveFromForm() {
             // Tüm alanları büyük harfe çevir ve plakaları formatla
-            state.formData.cekiciPlaka = formatTRPlate(document.getElementById('cekiciPlaka').value);
-            state.formData.dorsePlaka = formatTRPlate(document.getElementById('dorsePlaka').value);
+            state.formData.cekiciPlaka = formatPlakaForInput(document.getElementById('cekiciPlaka').value);
+            state.formData.dorsePlaka = formatPlakaForInput(document.getElementById('dorsePlaka').value);
             state.formData.soforAdi = document.getElementById('soforAdi').value.toUpperCase();
             state.formData.soforSoyadi = document.getElementById('soforSoyadi').value.toUpperCase();
             state.formData.sofor2Adi = document.getElementById('sofor2Adi')?.value?.toUpperCase() || '';
@@ -8465,8 +8682,8 @@ function setupTakipFormButtons() {
             // Prevent multiple rapid clicks
             if (yazdirBtn.__printing) return;
             yazdirBtn.__printing = true;
-            setTimeout(() => { yazdirBtn.__printing = false; }, 500);
 
+            try {
             // ✅ Oturum kontrolü
             if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                 const isValidSession = await window.SessionManager.requireValidSession();
@@ -8477,7 +8694,10 @@ function setupTakipFormButtons() {
 
             try {
                 const validateFunc = window.__takipFormValidate;
-                if (typeof validateFunc === 'function') validateFunc();
+                if (typeof validateFunc === 'function') {
+                    const valid = validateFunc();
+                    if (valid === false) return;
+                }
             } catch(e) {}
 
             // ✅ KANTAR: seçimi zorunlu tekrar tekrar istemesin
@@ -8563,10 +8783,11 @@ function setupTakipFormButtons() {
 
             const snap = (() => {
                 try {
+                    const excelFirma = _takipFirmaFromExcelContext();
                     const s = Object.assign({
                         ts: nowTs,
                         firmaSelect: get('firmaSelect'),
-                        firmaKodu: get('firmaKodu'),
+                        firmaKodu: get('firmaKodu') || excelFirma,
                         malzemeSelect: get('malzemeSelect'),
                         malzeme: get('malzeme'),
                         sevkYeri: get('sevkYeri'),
@@ -8581,6 +8802,12 @@ function setupTakipFormButtons() {
                 } catch (e) { return null; }
             })();
 
+            const fromIhracat = _isIhracatPrintContext(null);
+            const printPayload = captureTakipPrintPayloadForReport(get);
+            printPayload.basimYeri = basimYeriValue;
+            printPayload.yuklemeSirasi = get('yuklemeSirasi');
+            printPayload.plaka = plateFromForm;
+
             window.__pendingPrintCommit = {
                 vehicleId: vid,
                 plaka: plateFromForm,
@@ -8588,18 +8815,20 @@ function setupTakipFormButtons() {
                 yuklemeSirasi: get('yuklemeSirasi'),
                 basimYeri: basimYeriValue,
                 snapshot: snap,
-                piyasaOrderIdx: (window.piyasa && typeof window.piyasa.getActiveOrderIdx === 'function')
-                  ? window.piyasa.getActiveOrderIdx()
-                  : null,
+                printPayload,
+                fromIhracat,
+                piyasaOrderIdx: fromIhracat
+                  ? null
+                  : ((window.piyasa && typeof window.piyasa.getActiveOrderIdx === 'function')
+                    ? window.piyasa.getActiveOrderIdx()
+                    : null),
             };
 
-            // Plaka + şoför bilgisini DB ile eşitle (rapor Excel/NETSIS doğru şoförü görsün)
+            // Plaka + şoför: yazdırmayı bekletme (ağ yavaşsa pencere hiç açılmıyordu)
             if (plateFromForm) {
-                try {
-                    await saveCurrentVehicleToDatabase(plateFromForm);
-                } catch (e) {
-                    console.warn('Yazdırma öncesi araç kaydı atlandı:', e);
-                }
+                Promise.resolve(saveCurrentVehicleToDatabase(plateFromForm)).catch((e) => {
+                    console.warn('Yazdırma sırasında araç kaydı atlandı:', e);
+                });
             }
 
             window.__afterTakipPrintRequested = true;
@@ -8607,8 +8836,25 @@ function setupTakipFormButtons() {
 
             const runYazdir = () => {
             let w = null;
-            try { w = window.Print?.yazdirForm({ preview: false }); } catch(e) {}
+            let printErr = null;
+            try {
+                if (!window.Print || typeof window.Print.yazdirForm !== 'function') {
+                    throw new Error('print-not-loaded');
+                }
+                w = window.Print.yazdirForm({ preview: false });
+            } catch (err) {
+                printErr = err;
+            }
             try { window.__lastPrintWin = w || null; } catch(e) {}
+
+            if (!w) {
+                const msg = printErr && printErr.message === 'print-not-loaded'
+                  ? 'Yazdırma bileşeni hazır değil. Sayfayı yenileyip tekrar deneyin.'
+                  : 'Yazdırma penceresi açılamadı. Tarayıcıda açılır pencere (popup) iznini kontrol edin veya sayfayı yenileyin.';
+                alert('❌ ' + msg);
+                window.__afterTakipPrintRequested = false;
+                return;
+            }
 
             // ✅ Fallback: bazı tarayıcılarda opener.afterTakipPrint gelmeyebilir.
             try {
@@ -8626,6 +8872,9 @@ function setupTakipFormButtons() {
             Promise.resolve(typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null)
               .then(runYazdir)
               .catch(function(){ alert('Yazdırma bileşeni yüklenemedi. Sayfayı yenileyip tekrar deneyin.'); });
+            } finally {
+                setTimeout(() => { yazdirBtn.__printing = false; }, 800);
+            }
         });
     }
 
@@ -8704,6 +8953,20 @@ if (!window.__escCloseBound) {
         closeExcelReviewUI();
       } catch (_) {}
       e.preventDefault();
+      return;
+    }
+
+    // Piyasa Sipariş Seç (üst katman: geçmiş / boş tonaj vb. varsa onlar önce kapanır)
+    if (window.__piyasaPickerOpen) {
+      if (!document.querySelector('[data-piyasa-modal-layer="1"]')) {
+        try {
+          if (typeof window.__piyasaCloseOrderPicker === 'function') window.__piyasaCloseOrderPicker();
+          else document.getElementById('piyasaModalClose')?.click();
+        } catch (_) {}
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       return;
     }
 
@@ -9952,7 +10215,11 @@ function _applyExcelShipmentFieldsToTakipForm(chosen) {
   const bosCuval = document.getElementById('bosCuval');
   const yuklemeNotu = document.getElementById('yuklemeNotu');
 
-  const firmaVal = String(chosen.firma || chosen.ydKey || '').trim();
+  const firmaFromRow = String(chosen.firma || '').trim();
+  const ydOnly = String(chosen.ydKey || '').trim();
+  const firmaVal = firmaFromRow
+    || (/\bYD\d{1,4}\b/i.test(ydOnly) ? ydOnly : '')
+    || _extractFirmaKod(chosen.headerText || '');
   const malzemeVal = String(chosen.malzeme || '').trim();
   if (firmaKodu && firmaVal) firmaKodu.value = firmaVal;
   if (firmaSelect && firmaVal) {
@@ -10108,9 +10375,22 @@ function _ihracatPlateKey(value) {
   return _plateKeyForMatch(formatted || value);
 }
 
+function _ihracatBuildVehiclePlateMap() {
+  const map = new Map();
+  (state.vehicles || []).forEach((v) => {
+    [v.cekiciPlaka, v.dorsePlaka, v.plaka].forEach((raw) => {
+      const k = _ihracatPlateKey(raw);
+      if (k && !map.has(k)) map.set(k, v);
+    });
+  });
+  return map;
+}
+
 function _ihracatFindVehicleByPlate(plateRaw) {
   const key = _ihracatPlateKey(plateRaw);
   if (!key) return null;
+  const modalMap = window.__ihracatModalVehicleMap;
+  if (modalMap instanceof Map) return modalMap.get(key) || null;
   return (state.vehicles || []).find((v) => {
     const plates = [v.cekiciPlaka, v.dorsePlaka, v.plaka].filter(Boolean);
     return plates.some((p) => _ihracatPlateKey(p) === key);
@@ -11208,6 +11488,11 @@ async function _ihracatOpenFullTakipFromRow(row, modal) {
     prefilledShipment: prefilled,
     skipExcelReview: true,
   };
+  try {
+    window.__activeExcelShipment = prefilled;
+    window.__lastChosenShipment = prefilled;
+    window.__ihracatActivePrintShipment = prefilled;
+  } catch (e) {}
   _ihracatParkDetailsModal(modal);
   showTakipFormu(vehicle);
   const takipModal = document.getElementById('takipFormuModal');
@@ -11529,6 +11814,38 @@ async function _ihracatFetchRemotePrintReports(force) {
   try { return await cache.loading; } catch (e) { return cache.reports; }
 }
 window._ihracatFetchRemotePrintReports = _ihracatFetchRemotePrintReports;
+
+/** Modal açılışı: önbellek taze ise anında; eskiyse arka planda yenile. İlk yükleme devam ediyorsa aynı isteği paylaş. */
+function _ihracatPreparePrintReportsForModal() {
+  const cache = window.__ihracatRemotePrintCache;
+  if (cache.loading) {
+    return cache.loading.catch(() => cache.reports);
+  }
+  const fresh = cache.loaded && (Date.now() - cache.ts) < 45000;
+  if (fresh) return Promise.resolve(cache.reports);
+  return _ihracatFetchRemotePrintReports(true)
+    .then((reports) => {
+      if (document.getElementById('ihracatDetailsModal')) {
+        try { _ihracatRefreshOpenModalStatuses(); } catch (e) {}
+      }
+      return reports;
+    })
+    .catch(() => cache.reports);
+}
+
+function _ihracatShowDetailsLoading() {
+  if (document.getElementById('ihracatDetailsLoading') || document.getElementById('ihracatDetailsModal')) return;
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `<div id="ihracatDetailsLoading" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;">
+      <div style="background:#fff;padding:20px 28px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.25);font-size:14px;color:#334155;font-weight:600;">📄 İhracat detayları yükleniyor…</div>
+    </div>`
+  );
+}
+
+function _ihracatHideDetailsLoading() {
+  document.getElementById('ihracatDetailsLoading')?.remove();
+}
 
 /** Yazdırma olayları — sunucu listesi tek kaynak; offline ise localStorage yedek. */
 function _ihracatGetPrintReports() {
@@ -12130,8 +12447,8 @@ function _ihracatSyncVehiclePlatesFromTakipForm() {
   const read = (id) => String(document.getElementById(id)?.value || '').trim();
   let cekici = read('cekiciPlakaBilgi');
   let dorse = read('dorsePlakaBilgi');
-  try { cekici = formatTRPlate(formatPlakaForInput(cekici)); } catch (_) {}
-  try { dorse = formatTRPlate(formatPlakaForInput(dorse)); } catch (_) {}
+  try { cekici = formatPlakaForInput(cekici); } catch (_) {}
+  try { dorse = formatPlakaForInput(dorse); } catch (_) {}
   const patch = (v) => {
     if (!v || String(v.id) !== vid) return v;
     return { ...v, cekiciPlaka: cekici || v.cekiciPlaka, dorsePlaka: dorse };
@@ -12154,19 +12471,38 @@ window._ihracatRefreshOpenModalStatuses = _ihracatRefreshOpenModalStatuses;
 
 // İhracat Excel Detay Modal
 async function showIhracatDetailsModal() {
+  if (document.getElementById('ihracatDetailsModal')) return;
+
+  _ihracatShowDetailsLoading();
+
+  const cache = window.__ihracatRemotePrintCache;
+  const prepPromise = _ihracatPreparePrintReportsForModal();
+  // Sayfa ilk açılışında prefetch bitmediyse bekle; önbellek taze ise modalı bloklama
+  if (cache.loading && !cache.loaded) {
+    try { await prepPromise; } catch (e) { /* ignore */ }
+  } else {
+    prepPromise.catch(() => {});
+  }
+
   try {
-    await _ihracatFetchRemotePrintReports(true);
     if (window.Report && typeof window.Report.getEvents === 'function') {
       state.reports = window.Report.getEvents();
     }
   } catch (e) { /* ignore */ }
+
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
   const shipments = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
   const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
   const tarih = meta.dateKey ? meta.dateKey.replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1') : 'Bilinmiyor';
   if (!shipments.length) {
+    _ihracatHideDetailsLoading();
     showToast('❌ İhracat verisi bulunamadı.');
     return;
   }
+
+  window.__ihracatModalVehicleMap = _ihracatBuildVehiclePlateMap();
+  try {
 
   // Excel'deki firmaları topla (rapor filtreleme için)
   const excelFirmalar = new Set();
@@ -12425,6 +12761,10 @@ async function showIhracatDetailsModal() {
   `;
 
   document.body.insertAdjacentHTML('beforeend', modalHtml);
+  } finally {
+    window.__ihracatModalVehicleMap = null;
+    _ihracatHideDetailsLoading();
+  }
 
   const modal = document.getElementById('ihracatDetailsModal');
   if (modal) {
@@ -12610,8 +12950,8 @@ window.showIhracatDetailsModal = showIhracatDetailsModal;
     });
 
     // Connection status monitoring
-    window.SyncManager.on('connected', (data) => {
-      console.log('🔄 Connected to synchronization server:', data);
+    window.SyncManager.on('connected', (data, meta) => {
+      console.log('🔄 Connected to synchronization server:', data || meta);
     });
 
     console.log('✅ Cross-tab synchronization handlers initialized');

@@ -245,7 +245,13 @@
       return _cache.notes;
     }
     try {
-      const res = await fetch('/api/operation-notes?active=1', { credentials: 'include' });
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, 6000) : null;
+      const res = await fetch('/api/operation-notes?active=1', {
+        credentials: 'include',
+        signal: ctrl ? ctrl.signal : undefined
+      });
+      if (timer) clearTimeout(timer);
       if (!res.ok) return _cache.notes || [];
       const data = await res.json();
       const notes = Array.isArray(data.notes) ? data.notes : [];
