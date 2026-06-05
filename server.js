@@ -94,7 +94,7 @@ const SQL_SLOW_MS = (() => {
 const VEH_LIST_KEYSET_BATCH = envNumber('VEH_LIST_KEYSET_BATCH', 650, { min: 50, max: 5000 });
 
 /** Statik .js / .css için Cache-Control max-age (saniye). 0 = önbellek yok. */
-const STATIC_MAX_AGE_SEC = envNumber('STATIC_MAX_AGE_SEC', 300, { min: 0, max: 86400 });
+const STATIC_MAX_AGE_SEC = envNumber('STATIC_MAX_AGE_SEC', 60, { min: 0, max: 86400 });
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '2mb';
 const URLENCODED_BODY_LIMIT = process.env.URLENCODED_BODY_LIMIT || '2mb';
 
@@ -2093,6 +2093,108 @@ api.post("/piyasa", auth.verifyToken, async (req, res) => {
   }
 });
 
+const PIYASA_CUSTOMERS_KV = 'piyasa_customer_list_v1';
+
+function sanitizePiyasaCustomerEntry(raw, index) {
+  if (!raw || typeof raw !== 'object') return null;
+  const kod = sanitizeString(String(raw.kod || '').trim(), 50);
+  if (!kod) return null;
+  const ad = sanitizeString(String(raw.ad || '').trim(), 200);
+  if (/^(AD|CARİ UNVAN|CARI UNVAN)$/i.test(ad) && /^(KOD|MÜŞTERİ KODU|MUSTERI KODU)$/i.test(kod)) return null;
+  let id = raw.id;
+  if (id == null || id === '') id = `row-${index + 1}`;
+  else id = sanitizeString(String(id), 40);
+  return {
+    id,
+    kod,
+    ad,
+    urunTipi: sanitizeString(String(raw.urunTipi || '').trim(), 80),
+    sektor: sanitizeString(String(raw.sektor || '').trim(), 80),
+    il: sanitizeString(String(raw.il || '').trim(), 80),
+    adres: sanitizeString(String(raw.adres || '').trim(), 300),
+    ambalaj: sanitizeString(String(raw.ambalaj || '').trim(), 120),
+  };
+}
+
+function normalizePiyasaCustomersPayload(body) {
+  const list = Array.isArray(body?.customers) ? body.customers : [];
+  if (!list.length) return null;
+  if (list.length > 20000) throw new Error('Müşteri listesi çok büyük (max 20000)');
+  const customers = [];
+  for (let i = 0; i < list.length; i++) {
+    const c = sanitizePiyasaCustomerEntry(list[i], i);
+    if (c) customers.push(c);
+  }
+  if (!customers.length) return null;
+  return {
+    version: 2,
+    source: sanitizeString(String(body.source || 'manual'), 120) || 'manual',
+    updatedAt: Date.now(),
+    customers,
+  };
+}
+
+async function seedPiyasaCustomersIfEmpty() {
+  try {
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [PIYASA_CUSTOMERS_KV]);
+    if (r.rows[0]) {
+      try {
+        const parsed = JSON.parse(r.rows[0].value);
+        if (parsed && Array.isArray(parsed.customers) && parsed.customers.length > 0) {
+          console.log(`ℹ️ Piyasa müşteri listesi mevcut (${parsed.customers.length} kayıt)`);
+          return;
+        }
+      } catch (_) { /* re-seed below */ }
+    }
+    const seedPath = path.join(__dirname, 'data', 'piyasa-customers-seed.json');
+    if (!fs.existsSync(seedPath)) {
+      console.warn('⚠️ Piyasa müşteri seed dosyası yok:', seedPath);
+      return;
+    }
+    const raw = fs.readFileSync(seedPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.customers) || !parsed.customers.length) {
+      console.warn('⚠️ Piyasa müşteri seed dosyası boş');
+      return;
+    }
+    await q(
+      `INSERT INTO kv_store(key, value) VALUES($1,$2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [PIYASA_CUSTOMERS_KV, raw]
+    );
+    console.log(`✅ Piyasa müşteri listesi seed edildi (${parsed.customers.length} kayıt)`);
+  } catch (err) {
+    console.error('Piyasa müşteri seed hatası:', err.message || err);
+  }
+}
+
+api.get('/piyasa/customers', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [PIYASA_CUSTOMERS_KV]);
+    if (!r.rows[0]) return res.json({ version: 1, customers: [], updatedAt: 0 });
+    try { return res.json(JSON.parse(r.rows[0].value)); } catch { return res.json({ version: 1, customers: [], updatedAt: 0 }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+api.post('/piyasa/customers', auth.verifyToken, async (req, res) => {
+  try {
+    const normalized = normalizePiyasaCustomersPayload(req.body || {});
+    if (!normalized) return res.status(400).json({ ok: false, error: 'Geçersiz müşteri listesi' });
+    const raw = JSON.stringify(normalized);
+    await q(
+      `INSERT INTO kv_store(key, value) VALUES($1,$2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [PIYASA_CUSTOMERS_KV, raw]
+    );
+    res.json({ ok: true, count: normalized.customers.length, updatedAt: normalized.updatedAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Generic KV
 api.get("/kv/:key", async (req, res) => {
   try {
@@ -3776,6 +3878,7 @@ async function initializeApp() {
       }
       
       await prepareSchema();
+      await seedPiyasaCustomersIfEmpty();
       console.log("✅ Connected to PostgreSQL and ensured schema.");
       
       // Periodic health monitoring (every 15 minutes)

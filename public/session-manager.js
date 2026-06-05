@@ -7,7 +7,7 @@
     const SESSION_CHECK_ENDPOINT = '/api/me';
     const SESSION_CACHE_VALID_MS = 5 * 60 * 1000;   // geçerli oturumda /api/me en fazla 5 dk'da bir
     const SESSION_CACHE_INITIAL_MS = 2 * 60 * 1000; // ilk kontrollerde 2 dk
-    const KEEPALIVE_INTERVAL_MS = 20 * 60 * 1000;   // arka plan kontrolü 20 dk
+    const KEEPALIVE_INTERVAL_MS = 3 * 60 * 1000;    // periyodik oturum kontrolü 3 dk
     const SESSION_NETWORK_GRACE_MS = 15 * 60 * 1000; // ağ/sunucu hatasında oturumu koru (yanlış çıkış önleme)
     const SESSION_CHECK_RETRIES = 3;
     const SESSION_CHECK_RETRY_MS = 500;
@@ -151,7 +151,7 @@
                     
                     <div>
                         <button id="reloginBtn" class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg hover:bg-indigo-700 font-medium transition-colors">
-                            Oturum Aç
+                            Giriş Yap
                         </button>
                     </div>
                 </div>
@@ -510,11 +510,11 @@
     let keepAliveInterval = null;
     
     function startSessionKeepAlive() {
-        if (isHomePath(window.location.pathname)) return;
+        if (keepAliveInterval) return;
         keepAliveInterval = setInterval(async () => {
             try {
                 const isValid = await checkSessionValidity();
-                if (!isValid && !isHomePath(window.location.pathname)) {
+                if (!isValid) {
                     stopSessionKeepAlive();
                     showSessionExpiredModal();
                 }

@@ -4,7 +4,7 @@
   var VER =
     typeof window !== 'undefined' && window.__ASSET_VER != null && String(window.__ASSET_VER).trim() !== ''
       ? String(window.__ASSET_VER).trim()
-      : '20260603-ihracat-not-3line-v2';
+      : '20260605-fixes-v1';
 
   function qs() {
     return 'v=' + encodeURIComponent(VER);
@@ -74,7 +74,7 @@
   var printPromise = null;
   window.ensurePrintLoaded = function () {
     var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
-    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260603-ihracat-not-3line-v2';
+    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260605-fixes-v1';
     if (!needPrint && !stalePrint) return Promise.resolve();
     if (stalePrint) {
       try {
@@ -85,9 +85,9 @@
     }
     if (printPromise) return printPromise;
     printPromise = loadScript('/signatures-registry.js')
-      .then(function () { return loadScript('/print.js?rev=20260604-malzeme-2line-v6'); })
+      .then(function () { return loadScript('/print.js?rev=20260605-fixes-v1'); })
       .then(function () {
-        if (window.Print) window.Print.__aracBosRev = '20260603-ihracat-not-3line-v2';
+        if (window.Print) window.Print.__aracBosRev = '20260605-fixes-v1';
       })
       .catch(function (e) {
       printPromise = null;

@@ -144,7 +144,8 @@
 
   function resolveYuklemeNotuForPrint(raw) {
     let t = String(raw ?? '').trim();
-    // Boş ağırlık yalnızca yuklemeNotu içinde (üst başlıkta ayrı basılmaz)
+    const noteKind = resolveYuklemeNotuKind(t);
+    if (noteKind === 'piyasa') return t;
     if (!/^İrsaliye\s*No\s*:/im.test(t) && !/^IRSALIYE\s*NO\s*:/im.test(t)) {
       const irs = resolveIrsaliyeForPrint();
       if (irs) t = t ? `İrsaliye No: ${irs}\n${t}` : `İrsaliye No: ${irs}`;
@@ -389,7 +390,6 @@
       return splitIhracatDescIntoLines(parts.join(' '), 3);
     }
 
-    const aracBosLine = parts.filter(isAracBosNoteLine).pop() || '';
     const mainParts = parts.filter((p) => !isAracBosNoteLine(p));
     const mainText = normalizePiyasaDescText(mainParts.join(' '));
 
@@ -397,7 +397,6 @@
     if (!lines.length && mainText) {
       lines = mergeWrapLinesToMax(wrapYuklemeNotuText(mainText, 84), 3, 84);
     }
-    if (aracBosLine) lines.push(aracBosLine);
     return lines.length ? lines : splitPiyasaDescIntoLines(parts.join(' '), 3);
   }
 
@@ -1657,10 +1656,11 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
           descParts.push(line);
         }
       }
-      if (!irsLine) {
+      if (!irsLine && noteKind !== 'piyasa') {
         const irs = resolveIrsaliyeForPrint();
         if (irs) irsLine = `İrsaliye No: ${irs}`;
       }
+      if (noteKind === 'piyasa') irsLine = '';
 
       const descJoined = descParts.join(' ').replace(/\s+/g, ' ').trim();
       const descInput =
@@ -2589,7 +2589,7 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: '20260603-ihracat-not-3line-v2',
+    __aracBosRev: '20260605-fixes-v1',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;

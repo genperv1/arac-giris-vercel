@@ -28,7 +28,24 @@
   let _syncInFlight = false;
   let _pickerRenderHook = null;
 
+  const CUSTOMER_LIST_LS_KEY = 'piyasa_customer_list_cache_v2';
+  let _customerStore = {
+    customers: [],
+    byKod: new Map(),
+    searchIndex: [],
+    updatedAt: 0,
+    loaded: false,
+    loading: false,
+  };
+
   const PIYASA_MODAL_LAYER_ATTR = 'data-piyasa-modal-layer';
+  const PIYASA_Z_BASE = 1000060;
+  const PIYASA_Z_LAYER = 1000070;
+  const PIYASA_Z_TOP = 1000080;
+
+  function piyasaOverlayStyle(zIndex) {
+    return `position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:${zIndex || PIYASA_Z_BASE};display:flex;align-items:center;justify-content:center;padding:16px;isolation:isolate;`;
+  }
 
   function markPiyasaModalLayer(overlay) {
     if (overlay) overlay.setAttribute(PIYASA_MODAL_LAYER_ATTR, '1');
@@ -460,23 +477,89 @@
     };
   }
 
-  function _getPickerSourceOrders(includeAllWeeks) {
+  function _getPickerSourceOrders() {
     const currentWeek = state.week;
     const currentSheet = state.sheet;
-    if (!includeAllWeeks) {
-      return (state.orders || []).map((o) => _decoratePickerOrder(o, { week: currentWeek, sheet: currentSheet }, currentWeek, currentSheet));
-    }
-    const archive = state.weekArchive || [];
-    if (archive.length) {
-      const out = [];
-      for (const block of archive) {
-        for (const o of block.orders || []) {
-          out.push(_decoratePickerOrder(o, block, currentWeek, currentSheet));
-        }
-      }
-      return out;
-    }
     return (state.orders || []).map((o) => _decoratePickerOrder(o, { week: currentWeek, sheet: currentSheet }, currentWeek, currentSheet));
+  }
+
+  function _pickerSheetKey(week, sheet) {
+    return `${week ?? ''}:${sheet ?? ''}`;
+  }
+
+  function _getPickerSheetOptions() {
+    const seen = new Set();
+    const opts = [];
+    const push = (week, sheet, orders, sheetDate, sheetDateRaw) => {
+      if (!sheet) return;
+      const key = _pickerSheetKey(week, sheet);
+      if (seen.has(key)) return;
+      seen.add(key);
+      opts.push({
+        key,
+        week,
+        sheet: String(sheet),
+        label: String(sheet),
+        orders: orders || [],
+        sheetDate: sheetDate || null,
+        sheetDateRaw: sheetDateRaw || null,
+      });
+    };
+    for (const b of state.weekArchive || []) {
+      push(b.week, b.sheet, b.orders, b.sheetDate, b.sheetDateRaw);
+    }
+    if (state.sheet) {
+      push(state.week, state.sheet, state.orders, state.sheetDate, state.sheetDateRaw);
+    }
+    return opts.sort((a, b) => (Number(b.week) - Number(a.week)) || String(b.sheet).localeCompare(String(a.sheet), 'tr'));
+  }
+
+  function _decorateOrdersForPicker(orders, block, currentWeek, currentSheet) {
+    return (orders || []).map((o) => _decoratePickerOrder(o, block, currentWeek, currentSheet));
+  }
+
+  function _getAllArchivePickerOrders() {
+    const currentWeek = state.week;
+    const currentSheet = state.sheet;
+    const out = [];
+    const seenKeys = new Set();
+    for (const block of state.weekArchive || []) {
+      for (const o of block.orders || []) {
+        const pk = o.__archiveKey || `${block.week}:${block.sheet}:${o.__idx}`;
+        if (seenKeys.has(pk)) continue;
+        seenKeys.add(pk);
+        out.push(_decoratePickerOrder(o, block, currentWeek, currentSheet));
+      }
+    }
+    if (!out.length) return _getPickerSourceOrders();
+    return out;
+  }
+
+  function _g1DateLabelFromBlock(block) {
+    if (!block) return getPiyasaG1DateLabel();
+    if (block.sheetDateRaw && !looksLikeExcelSerial(block.sheetDateRaw)) {
+      return String(block.sheetDateRaw).trim();
+    }
+    if (block.sheetDate) {
+      const d = new Date(block.sheetDate);
+      if (!isNaN(d.getTime())) return formatDateUTCAsLocalString(d);
+    }
+    if (block.sheetDateRaw && looksLikeExcelSerial(block.sheetDateRaw)) {
+      const d = parseExcelSerialString(block.sheetDateRaw);
+      if (d) return formatDateUTCAsLocalString(d);
+    }
+    return '';
+  }
+
+  function _countPickerGpHp(orders) {
+    let gp = 0;
+    let hp = 0;
+    for (const x of orders || []) {
+      const t = getOrderSevkiyatTipi(x);
+      if (t === 'Yİ-GP') gp++;
+      else if (t === 'Yİ-HP') hp++;
+    }
+    return { gp, hp };
   }
 
   function _debounce(fn, waitMs) {
@@ -847,7 +930,7 @@
       : (getFirmaFullName(firmaCode) || '');
 
     const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100001;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_LAYER);
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:14px;max-width:min(96vw,760px);width:100%;max-height:80vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid #eee;">
@@ -1158,8 +1241,8 @@
     overlay.id = 'piyasaExcelLoadingOverlay';
     overlay.setAttribute('role', 'status');
     overlay.setAttribute('aria-live', 'polite');
-    overlay.style.cssText =
-      'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_LAYER);
+    markPiyasaModalLayer(overlay);
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:14px;padding:20px 24px;max-width:360px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);text-align:center;">
         <div style="width:36px;height:36px;border:3px solid #e5e7eb;border-top-color:#111827;border-radius:50%;margin:0 auto 14px;animation:piyasaExcelSpin .8s linear infinite;"></div>
@@ -1530,7 +1613,6 @@
         sevkYeri: pick(r, ['SEVK','SEVK YERİ','SEVKYERI']),
         il: pick(r, ['İL','IL']),
         miktar: miktarVal,
-        irsaliyeNo: pick(r, ['İRSALİYE NO','IRSALIYE NO','İRSALİYE','IRSALIYE']),
         _raw: r
       };
 
@@ -1637,7 +1719,7 @@
     }
 
     const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:1000007;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_TOP);
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:12px;max-width:720px;width:100%;max-height:90vh;overflow:auto;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);">
         <div style="font-weight:800;margin-bottom:8px;">Piyasa yükleme özeti</div>
@@ -1934,9 +2016,10 @@
     const defaultWeek = weeks[0] ?? null;
 
     const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_LAYER);
+    markPiyasaModalLayer(overlay);
     overlay.innerHTML = `
-      <div style="background:#fff;border-radius:14px;max-width:780px;width:100%;max-height:82vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
+      <div style="position:relative;z-index:1;background:#fff;border-radius:14px;max-width:780px;width:100%;max-height:82vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #eee;gap:12px;">
           <div style="font-weight:900;">PİYASA Excel • Kitap Seç</div>
           <button id="piyasaSheetModalClose" style="border:0;background:#eee;border-radius:10px;padding:6px 10px;cursor:pointer;">Kapat</button>
@@ -2080,122 +2163,11 @@
     setTimeout(()=> searchEl.focus(), 0);
   }
 
-  /** Piyasa sipariş seçiminden sonra başlık altına "boş : …" yazar. Kapat = yazmaz. */
-  function promptAracBosuTonaj() {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
-      overlay.innerHTML = `
-        <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden;">
-          <div style="padding:14px 16px;border-bottom:1px solid #eee;">
-            <div style="font-weight:900;font-size:16px;">Arabanın boşu kaç?</div>
-            <div style="font-size:12px;color:#666;margin-top:4px;">HP / hp / Hp ile başlayan tüm firmalarda yazdırırken sorulur (elle veya Piyasa Excel). İsteğe bağlı — Kapat ile atlanır.</div>
-          </div>
-          <div style="padding:14px 16px;">
-            <label style="display:block;font-size:12px;color:#555;margin-bottom:6px;">Boş ağırlık (kg)</label>
-            <input id="piyasaBosTonajInput" type="text" inputmode="numeric" placeholder="ör. 14400" autocomplete="off"
-              style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:15px;box-sizing:border-box;">
-          </div>
-          <div style="display:flex;gap:10px;justify-content:flex-end;padding:12px 16px;border-top:1px solid #eee;">
-            <button type="button" id="piyasaBosTonajClose" style="border:0;background:#eee;border-radius:10px;padding:10px 14px;cursor:pointer;">Kapat</button>
-            <button type="button" id="piyasaBosTonajOk" style="border:0;background:#111827;color:#fff;border-radius:10px;padding:10px 14px;cursor:pointer;">Tamam</button>
-          </div>
-        </div>
-      `;
-      markPiyasaModalLayer(overlay);
-      document.body.appendChild(overlay);
-
-      const input = overlay.querySelector('#piyasaBosTonajInput');
-      const okBtn = overlay.querySelector('#piyasaBosTonajOk');
-      const closeBtn = overlay.querySelector('#piyasaBosTonajClose');
-
-      const finish = (val) => {
-        overlay.remove();
-        document.removeEventListener('keydown', onKey, true);
-        resolve(val);
-      };
-
-      const onKey = (e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          finish(null);
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          submit();
-        }
-      };
-
-      const submit = () => {
-        const raw = String(input?.value || '').trim().replace(/\s+/g, '');
-        if (!raw) {
-          input?.focus();
-          return;
-        }
-        finish(raw);
-      };
-
-      closeBtn.onclick = () => finish(null);
-      okBtn.onclick = submit;
-      document.addEventListener('keydown', onKey, true);
-      setTimeout(() => input?.focus(), 0);
-    });
-  }
-
-  const ARAC_BOS_LINE_RE = /^NET\s+BOŞ\s+AĞIRLIK\s*:/i;
-
-  function formatAracBosuText(bosKg) {
-    if (bosKg == null || bosKg === '') return '';
-    return `NET BOŞ AĞIRLIK : ${bosKg}`;
-  }
-
-  function mergeAracBosuIntoYuklemeNotu(notuEl, text) {
-    if (!notuEl) return;
-    let lines = String(notuEl.value || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-    lines = lines.filter((ln) => !ARAC_BOS_LINE_RE.test(ln));
-    if (text) lines.push(text);
-    notuEl.value = lines.join('\n');
-  }
-
-  function applyAracBosuToForm(bosKg) {
-    const text = formatAracBosuText(bosKg);
-    const hidden = document.getElementById('aracBosuBilgi');
-    const line = document.getElementById('aracBosuSatir');
-    if (hidden) hidden.value = '';
-    if (line) {
-      line.textContent = '';
-      line.hidden = true;
-    }
-    mergeAracBosuIntoYuklemeNotu(document.getElementById('yuklemeNotu'), text);
-  }
-
-  function firmaKodFromInput(str) {
-    try {
-      if (typeof getFirmaKodOnly === 'function') return getFirmaKodOnly(str);
-    } catch (_) {}
-    return String(str || '').split('/')[0].trim();
-  }
-
-  function isHpFirma(firmaStr) {
-    const kod = firmaKodFromInput(firmaStr);
-    return /^hp/i.test(kod);
-  }
-
-  function getCurrentFirmaKodu() {
-    const inp = document.getElementById('firmaKodu');
-    const sel = document.getElementById('firmaSelect');
-    return (inp?.value || '').trim() || (sel?.value || '').trim();
-  }
-
-  /** Yazdır: HP / hp / Hp ile başlayan firmada her zaman sor (elle veya Piyasa Excel) */
-  async function maybePromptAracBosuBeforePrint() {
-    const firma = getCurrentFirmaKodu();
-    if (!isHpFirma(firma)) return;
-    const bosKg = await promptAracBosuTonaj();
-    applyAracBosuToForm(bosKg);
-  }
+  /** Boş ağırlık sistemi devre dışı */
+  function promptAracBosuTonaj() { return Promise.resolve(null); }
+  function applyAracBosuToForm() {}
+  async function maybePromptAracBosuBeforePrint() {}
+  function isHpFirma() { return false; }
 
   function applyOrderFromPicker(o) {
     const plate = (document.getElementById('cekiciPlaka') || {}).value || '';
@@ -2395,11 +2367,361 @@
     setTimeout(() => { window.__piyasaApplyingOrder = false; }, 80);
   }
 
-  // Map a firma code to a human-friendly firma name using global `firmaListesi` if available
+  function _isHeaderLikeCustomer(c) {
+    if (!c) return true;
+    const k = String(c.kod || '').toUpperCase();
+    const a = String(c.ad || '').toUpperCase();
+    return /^(KOD|MÜŞTERİ KODU|MUSTERI KODU)$/.test(k)
+      || (/^(AD|CARİ UNVAN|CARI UNVAN)$/.test(a) && /^(KOD|MÜŞTERİ KODU|MUSTERI KODU)$/.test(k));
+  }
+
+  function _normalizeCustomerEntry(raw, index) {
+    if (!raw || typeof raw !== 'object') return null;
+    const kod = String(raw.kod || '').trim();
+    if (!kod) return null;
+    const c = {
+      id: raw.id != null && String(raw.id).trim() !== '' ? String(raw.id).trim() : `row-${(index || 0) + 1}`,
+      kod,
+      ad: String(raw.ad || '').trim(),
+      urunTipi: String(raw.urunTipi || '').trim(),
+      sektor: String(raw.sektor || '').trim(),
+      il: String(raw.il || '').trim(),
+      adres: String(raw.adres || '').trim(),
+      ambalaj: String(raw.ambalaj || '').trim(),
+    };
+    if (_isHeaderLikeCustomer(c)) return null;
+    return c;
+  }
+
+  function _rebuildCustomerStore(customers, updatedAt, source) {
+    const list = [];
+    const byKod = new Map();
+    const searchIndex = [];
+    for (let i = 0; i < (customers || []).length; i++) {
+      const c = _normalizeCustomerEntry(customers[i], i);
+      if (!c) continue;
+      list.push(c);
+      const key = c.kod.toUpperCase();
+      if (!byKod.has(key)) byKod.set(key, c);
+      searchIndex.push({
+        c,
+        hay: `${c.kod} ${c.ad} ${c.il} ${c.sektor} ${c.urunTipi} ${c.adres} ${c.ambalaj}`.toLowerCase(),
+      });
+    }
+    _customerStore = {
+      customers: list,
+      byKod,
+      searchIndex,
+      updatedAt: updatedAt || Date.now(),
+      source: source || _customerStore.source || '',
+      loaded: true,
+      loading: false,
+    };
+    try {
+      localStorage.setItem(CUSTOMER_LIST_LS_KEY, JSON.stringify({
+        updatedAt: _customerStore.updatedAt,
+        source: _customerStore.source,
+        customers: list,
+      }));
+    } catch (_) {}
+    return list;
+  }
+
+  function _loadCustomersFromLocalCache() {
+    try {
+      const raw = localStorage.getItem(CUSTOMER_LIST_LS_KEY);
+      if (!raw) return false;
+      const payload = JSON.parse(raw);
+      if (!payload || !Array.isArray(payload.customers) || !payload.customers.length) return false;
+      _rebuildCustomerStore(payload.customers, payload.updatedAt, payload.source);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function loadPiyasaCustomers(force) {
+    if (_customerStore.loading) return _customerStore.customers;
+    if (_customerStore.loaded && !force) return _customerStore.customers;
+    if (!_customerStore.loaded && !force) _loadCustomersFromLocalCache();
+    _customerStore.loading = true;
+    try {
+      const resp = await fetch('/api/piyasa/customers?_=' + Date.now(), {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (resp.ok) {
+        const payload = await resp.json().catch(() => null);
+        if (payload && Array.isArray(payload.customers) && payload.customers.length) {
+          const rebuilt = _rebuildCustomerStore(payload.customers, payload.updatedAt, payload.source);
+          if (!force && payload.customers.length > rebuilt.length) {
+            console.warn('Piyasa müşteri listesi sunucuda daha fazla satır içeriyor, tam liste yüklendi.');
+          }
+          return rebuilt;
+        }
+      }
+    } catch (e) {
+      console.warn('Piyasa müşteri listesi yüklenemedi:', e);
+    } finally {
+      _customerStore.loading = false;
+      _customerStore.loaded = true;
+    }
+    return _customerStore.customers;
+  }
+
+  async function savePiyasaCustomers(customers, source) {
+    const list = _rebuildCustomerStore(customers, Date.now(), source || _customerStore.source || 'manual');
+    const resp = await fetch('/api/piyasa/customers', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: source || _customerStore.source || 'manual',
+        customers: list,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || 'Müşteri listesi kaydedilemedi');
+    }
+    return list;
+  }
+
+  function getPiyasaCustomerByKod(kod) {
+    const key = String(kod || '').trim().toUpperCase();
+    if (!key) return null;
+    return _customerStore.byKod.get(key) || null;
+  }
+
+  function openPiyasaCustomerListModal() {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_LAYER);
+    markPiyasaModalLayer(overlay);
+    overlay.innerHTML = `
+      <div style="position:relative;z-index:1;background:#fff;border-radius:14px;max-width:min(96vw,920px);width:100%;max-height:88vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #eee;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:900;font-size:16px;">Piyasa Müşteri / Bayi Listesi</div>
+            <div id="piyasaCustMeta" style="font-size:12px;color:#666;margin-top:2px;">Yükleniyor…</div>
+          </div>
+          <button type="button" id="piyasaCustClose" style="border:0;background:#eee;border-radius:10px;padding:6px 10px;cursor:pointer;">Kapat</button>
+        </div>
+        <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #eee;flex-wrap:wrap;">
+          <input id="piyasaCustSearch" placeholder="Kod, ad, il, sektör ara…" style="flex:1;min-width:220px;padding:10px;border:1px solid #ddd;border-radius:10px;outline:none;box-shadow:none;">
+          <button type="button" id="piyasaCustAddBtn" style="border:0;background:#111827;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;">+ Ekle</button>
+        </div>
+        <div id="piyasaCustAddForm" style="display:none;padding:10px 14px;border-bottom:1px solid #eee;background:#f8fafc;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;">
+            <input id="piyasaCustNewKod" placeholder="Kod *" style="padding:8px;border:1px solid #ddd;border-radius:8px;">
+            <input id="piyasaCustNewAd" placeholder="Ad / Firma *" style="padding:8px;border:1px solid #ddd;border-radius:8px;">
+            <input id="piyasaCustNewIl" placeholder="İl" style="padding:8px;border:1px solid #ddd;border-radius:8px;">
+            <input id="piyasaCustNewSektor" placeholder="Sektör" style="padding:8px;border:1px solid #ddd;border-radius:8px;">
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+            <button type="button" id="piyasaCustAddCancel" style="border:0;background:#eee;border-radius:8px;padding:8px 12px;cursor:pointer;">İptal</button>
+            <button type="button" id="piyasaCustAddSave" style="border:0;background:#4f46e5;color:#fff;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Kaydet</button>
+          </div>
+        </div>
+        <div style="padding:0 14px 0;border-bottom:1px solid #eee;background:#f6f6f6;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;">
+            <colgroup><col style="width:14%"><col style="width:38%"><col style="width:14%"><col style="width:24%"><col style="width:10%"></colgroup>
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:8px;border:1px solid #eee;">KOD</th>
+                <th style="text-align:left;padding:8px;border:1px solid #eee;">AD</th>
+                <th style="text-align:left;padding:8px;border:1px solid #eee;">İL</th>
+                <th style="text-align:left;padding:8px;border:1px solid #eee;">SEKTÖR</th>
+                <th style="text-align:center;padding:8px;border:1px solid #eee;">SİL</th>
+              </tr>
+            </thead>
+          </table>
+        </div>
+        <div id="piyasaCustTableWrap" style="padding:0 14px 14px;overflow:auto;flex:1;min-height:0;-webkit-overflow-scrolling:touch;">
+          <div id="piyasaCustVirtualInner" style="position:relative;width:100%;">
+            <table id="piyasaCustVirtualTable" style="position:absolute;left:0;right:0;width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;">
+              <colgroup><col style="width:14%"><col style="width:38%"><col style="width:14%"><col style="width:24%"><col style="width:10%"></colgroup>
+              <tbody id="piyasaCustTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('#piyasaCustClose').onclick = close;
+    bindPiyasaOverlayEsc(overlay, close);
+
+    const metaEl = overlay.querySelector('#piyasaCustMeta');
+    const searchEl = overlay.querySelector('#piyasaCustSearch');
+    const scrollWrap = overlay.querySelector('#piyasaCustTableWrap');
+    const virtualInner = overlay.querySelector('#piyasaCustVirtualInner');
+    const virtualTable = overlay.querySelector('#piyasaCustVirtualTable');
+    const tbody = overlay.querySelector('#piyasaCustTbody');
+    const addForm = overlay.querySelector('#piyasaCustAddForm');
+    const addBtn = overlay.querySelector('#piyasaCustAddBtn');
+    const addCancel = overlay.querySelector('#piyasaCustAddCancel');
+    const addSave = overlay.querySelector('#piyasaCustAddSave');
+
+    const CUST_ROW_H = 38;
+    const CUST_ROW_BUFFER = 10;
+    let custFilteredRows = _customerStore.searchIndex;
+    let custScrollRaf = 0;
+
+    function getCustFilteredRows(filter) {
+      const f = String(filter || '').trim().toLowerCase();
+      if (!f) return _customerStore.searchIndex;
+      return _customerStore.searchIndex.filter((e) => e.hay.includes(f));
+    }
+
+    function custRowHtml(entry) {
+      const c = entry.c;
+      return `<tr style="height:${CUST_ROW_H}px;">
+        <td style="padding:7px 8px;border:1px solid #eee;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(c.kod)}">${escapeHtml(c.kod)}</td>
+        <td style="padding:7px 8px;border:1px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.ad || '')}">${escapeHtml(c.ad || '—')}</td>
+        <td style="padding:7px 8px;border:1px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.il || '')}">${escapeHtml(c.il || '—')}</td>
+        <td style="padding:7px 8px;border:1px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(c.sektor || c.urunTipi || '')}">${escapeHtml(c.sektor || c.urunTipi || '—')}</td>
+        <td style="padding:7px 8px;border:1px solid #eee;text-align:center;">
+          <button type="button" data-del-id="${escapeHtml(String(c.id))}" style="border:0;background:#fee2e2;color:#b91c1c;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;">Sil</button>
+        </td>
+      </tr>`;
+    }
+
+    function updateCustMeta(filter, matchCount) {
+      const total = _customerStore.customers.length;
+      const f = String(filter || '').trim();
+      metaEl.textContent = f
+        ? `${matchCount} eşleşme · toplam ${total} kayıt`
+        : `${total} kayıt · kaydırarak gezin`;
+    }
+
+    function renderCustomersVirtual(filter, scrollTop) {
+      custFilteredRows = getCustFilteredRows(filter);
+      const totalMatches = custFilteredRows.length;
+      updateCustMeta(filter, totalMatches);
+
+      if (!totalMatches) {
+        virtualInner.style.height = '120px';
+        virtualTable.style.top = '0px';
+        tbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:#666;">Kayıt bulunamadı</td></tr>`;
+        return;
+      }
+
+      const viewH = Math.max(scrollWrap.clientHeight || 0, 320);
+      const st = Math.max(0, Number(scrollTop) || 0);
+      const start = Math.max(0, Math.floor(st / CUST_ROW_H) - CUST_ROW_BUFFER);
+      const visibleCount = Math.ceil(viewH / CUST_ROW_H) + (CUST_ROW_BUFFER * 2);
+      const end = Math.min(totalMatches, start + visibleCount);
+
+      virtualInner.style.height = `${totalMatches * CUST_ROW_H}px`;
+      virtualTable.style.top = `${start * CUST_ROW_H}px`;
+
+      const parts = [];
+      for (let i = start; i < end; i++) parts.push(custRowHtml(custFilteredRows[i]));
+      tbody.innerHTML = parts.join('');
+    }
+
+    function scheduleCustRender(resetScroll) {
+      if (resetScroll) scrollWrap.scrollTop = 0;
+      if (custScrollRaf) cancelAnimationFrame(custScrollRaf);
+      const run = () => {
+        custScrollRaf = 0;
+        renderCustomersVirtual(searchEl.value, scrollWrap.scrollTop);
+      };
+      custScrollRaf = requestAnimationFrame(() => {
+        run();
+        requestAnimationFrame(run);
+      });
+    }
+
+    scrollWrap.addEventListener('scroll', () => {
+      if (custScrollRaf) return;
+      custScrollRaf = requestAnimationFrame(() => {
+        custScrollRaf = 0;
+        renderCustomersVirtual(searchEl.value, scrollWrap.scrollTop);
+      });
+    }, { passive: true });
+
+    tbody.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-del-id]');
+      if (!btn) return;
+      const id = btn.getAttribute('data-del-id');
+      if (!id) return;
+      const row = _customerStore.customers.find((c) => String(c.id) === String(id));
+      const label = row ? `${row.kod} — ${row.ad || ''}` : id;
+      const ok = window.confirm(`Bu satırı silmek istiyor musunuz?\n${label}`);
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        const next = _customerStore.customers.filter((c) => String(c.id) !== String(id));
+        await savePiyasaCustomers(next);
+        scheduleCustRender(false);
+        toast('Kayıt silindi', 'success');
+      } catch (err) {
+        alert('❌ ' + (err.message || 'Silinemedi'));
+        btn.disabled = false;
+      }
+    });
+
+    addBtn.onclick = () => { addForm.style.display = 'block'; overlay.querySelector('#piyasaCustNewKod')?.focus(); };
+    addCancel.onclick = () => { addForm.style.display = 'none'; };
+    addSave.onclick = async () => {
+      const entry = _normalizeCustomerEntry({
+        kod: overlay.querySelector('#piyasaCustNewKod')?.value,
+        ad: overlay.querySelector('#piyasaCustNewAd')?.value,
+        il: overlay.querySelector('#piyasaCustNewIl')?.value,
+        sektor: overlay.querySelector('#piyasaCustNewSektor')?.value,
+      });
+      if (!entry || !entry.ad) {
+        alert('Kod ve ad zorunludur.');
+        return;
+      }
+      addSave.disabled = true;
+      try {
+        entry.id = `manual-${Date.now()}`;
+        const next = _customerStore.customers.slice();
+        next.push(entry);
+        await savePiyasaCustomers(next);
+        addForm.style.display = 'none';
+        ['#piyasaCustNewKod', '#piyasaCustNewAd', '#piyasaCustNewIl', '#piyasaCustNewSektor'].forEach((sel) => {
+          const el = overlay.querySelector(sel);
+          if (el) el.value = '';
+        });
+        scheduleCustRender(true);
+        toast('Müşteri eklendi', 'success');
+      } catch (err) {
+        alert('❌ ' + (err.message || 'Eklenemedi'));
+      } finally {
+        addSave.disabled = false;
+      }
+    };
+
+    const renderDebounced = _debounce(() => scheduleCustRender(true), 120);
+    searchEl.oninput = () => renderDebounced();
+
+    setTimeout(() => searchEl.focus(), 0);
+
+    if (_customerStore.customers.length) {
+      scheduleCustRender(true);
+      loadPiyasaCustomers(false).then(() => scheduleCustRender(false)).catch(() => {});
+    } else {
+      metaEl.textContent = 'Liste yükleniyor…';
+      loadPiyasaCustomers(false).then(() => {
+        scheduleCustRender(true);
+      }).catch(() => {
+        metaEl.textContent = 'Liste yüklenemedi';
+      });
+    }
+  }
+
+  // Map a firma code to a human-friendly firma name using müşteri listesi + `firmaListesi`
   function getFirmaFullName(code){
     try{
       const k = String(code||'').trim();
       if (!k) return '';
+      const cust = getPiyasaCustomerByKod(k);
+      if (cust && cust.ad) return cust.ad;
       const list = (window.firmaListesi && Array.isArray(window.firmaListesi)) ? window.firmaListesi : (typeof firmaListesi !== 'undefined' && Array.isArray(firmaListesi) ? firmaListesi : []);
       // Try exact or prefix match (e.g. 'HP3' matches 'HP3 / BOZÜYÜK')
       for (const entry of list){
@@ -2477,8 +2799,10 @@
     doc.close();
   }
 
-  async function openOrderPicker(){
+  async function openOrderPicker(opts = {}){
     if (window.__piyasaPickerOpen) return;
+    const searchAllSheets = !!opts.searchAllSheets;
+    const initialQuery = String(opts.initialQuery || '').trim();
     if (!state.orders || !state.orders.length) {
       try { loadState(); } catch (e) {}
     }
@@ -2488,8 +2812,15 @@
     }
     window.__piyasaPickerOpen = true;
 
+    const sheetOptions = _getPickerSheetOptions();
+    let pickerViewKey = searchAllSheets ? null : _pickerSheetKey(state.week, state.sheet);
+    let pickerViewSheet = sheetOptions.find((o) => o.key === pickerViewKey) || sheetOptions[0] || null;
+    if (!searchAllSheets && pickerViewSheet) pickerViewKey = pickerViewSheet.key;
+
     const skippedCount = (state.lastSkippedRows || []).length;
-    const g1DateLabel = getPiyasaG1DateLabel();
+    const g1DateLabel = searchAllSheets
+      ? ''
+      : _g1DateLabelFromBlock(pickerViewSheet) || getPiyasaG1DateLabel();
     const g1DateHtml = g1DateLabel
       ? `<div id="piyasaG1DateBadge" style="flex:1;display:flex;align-items:center;justify-content:center;min-width:0;padding:0 16px;">
            <span style="font-size:clamp(24px,3.5vw,36px);font-weight:800;color:#4338ca;letter-spacing:-0.02em;line-height:1.1;white-space:nowrap;">${escapeHtml(g1DateLabel)}</span>
@@ -2498,9 +2829,9 @@
     const overlay = document.createElement('div');
     overlay.id = 'piyasaOrderPickerOverlay';
     overlay.setAttribute('data-piyasa-order-picker', '1');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_BASE);
     overlay.innerHTML = `
-      <div style="background:#fff;border-radius:14px;max-width:min(96vw,1400px);width:100%;max-height:88vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
+      <div style="position:relative;z-index:1;background:#fff;border-radius:14px;max-width:min(96vw,1400px);width:100%;max-height:88vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
         <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #eee;">
           <div style="flex:0 1 auto;min-width:0;">
             <div style="font-weight:900;">Piyasa Sipariş Seç</div>
@@ -2509,18 +2840,24 @@
           ${g1DateHtml}
           <div style="flex:0 1 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             ${skippedCount ? `<button type="button" id="piyasaSkippedBtn" style="border:0;background:#fef3c7;color:#92400e;border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;font-weight:700;">Elenen satırlar (${skippedCount})</button>` : ''}
-            <div style="font-size:12px;color:#666;">${state.sheet ? `Sheet: <b>${escapeHtml(state.sheet)}</b>` : ''}</div>
+            ${searchAllSheets
+              ? `<div style="font-size:12px;color:#4338ca;font-weight:700;white-space:nowrap;">Tüm sayfalarda ara</div>`
+              : `<label style="font-size:12px;color:#666;display:flex;align-items:center;gap:6px;white-space:nowrap;">
+                  <span>Sheet:</span>
+                  <select id="piyasaPickerSheet" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:12px;font-weight:700;max-width:min(42vw,240px);cursor:pointer;"></select>
+                </label>`}
             <button id="piyasaModalClose" style="border:0;background:#eee;border-radius:10px;padding:6px 10px;cursor:pointer;">Kapat</button>
           </div>
         </div>
         <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #eee;flex-wrap:wrap;">
-          <input id="piyasaSearch" placeholder="Firma / Malzeme / İl ara… (yazınca geçmiş haftalar da gelir)" style="flex:1;min-width:200px;padding:10px;border:1px solid #ddd;border-radius:10px;">
+          <input id="piyasaSearch" placeholder="${searchAllSheets ? 'Firma / Malzeme / İl ara… (tüm sayfalar)' : 'Firma / Malzeme / İl ara… (seçili sheet)'}" style="flex:1;min-width:200px;padding:10px;border:1px solid #ddd;border-radius:10px;">
           <select id="piyasaSevkiyatFilter" style="padding:10px;border:1px solid #ddd;border-radius:10px;font-size:13px;" title="Excel SEVKİYAT TİPİ">
             <option value="all">Tüm siparişler</option>
             <option value="Yİ-GP">Yİ-GP</option>
             <option value="Yİ-HP">Yİ-HP</option>
           </select>
-          <button type="button" id="piyasaPrintBtn" title="A4 yatay yazdır — Kenar: Yok, Ölçek: %100" style="border:0;background:#4f46e5;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">🖨️ Yazdır</button>
+          <button type="button" id="piyasaCustomerListBtn" title="Sabit müşteri/bayi listesi" style="border:0;background:#0f766e;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">📋 Müşteri Listesi</button>
+          <button type="button" id="piyasaPrintBtn" title="A4 yatay yazdır — Kenar: Yok, Ölçek: %100" style="position:relative;z-index:5;border:0;background:#4f46e5;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;pointer-events:auto;">🖨️ Yazdır</button>
           <div style="font-size:12px;color:#666;min-width:140px;text-align:right;" id="piyasaCount"></div>
         </div>
         <div id="piyasaTableScroll" style="padding:0 14px 14px;overflow-x:hidden;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;">
@@ -2618,48 +2955,76 @@
         .join('');
     }
 
-    const pickerCacheCurrent = _buildPickerSearchCache(_getPickerSourceOrders(false));
-    let pickerCacheAll = null;
-    let pickerCacheAllReady = false;
-    let pickerCacheAllBuilding = false;
+    let pickerCacheCurrent = _buildPickerSearchCache(
+      searchAllSheets
+        ? _getAllArchivePickerOrders()
+        : _decorateOrdersForPicker(
+            pickerViewSheet?.orders || state.orders,
+            { week: pickerViewSheet?.week ?? state.week, sheet: pickerViewSheet?.sheet ?? state.sheet },
+            state.week,
+            state.sheet
+          )
+    );
     let visiblePickerRows = [];
+    let pickerGpHp = _countPickerGpHp(
+      searchAllSheets ? _getAllArchivePickerOrders() : (pickerViewSheet?.orders || state.orders)
+    );
 
-    const pickerGpHp = (() => {
-      let gp = 0;
-      let hp = 0;
-      for (const x of state.orders || []) {
-        const t = getOrderSevkiyatTipi(x);
-        if (t === 'Yİ-GP') gp++;
-        else if (t === 'Yİ-HP') hp++;
-      }
-      return { gp, hp };
-    })();
+    const sheetSelectEl = overlay.querySelector('#piyasaPickerSheet');
+    const g1DateBadgeEl = overlay.querySelector('#piyasaG1DateBadge');
 
-    function ensurePickerAllWeeksCache(done) {
-      if (pickerCacheAllReady) {
-        if (typeof done === 'function') done();
-        return;
+    function updateG1DateBadge() {
+      if (!g1DateBadgeEl || searchAllSheets) return;
+      const label = _g1DateLabelFromBlock(pickerViewSheet) || getPiyasaG1DateLabel();
+      if (label) {
+        g1DateBadgeEl.innerHTML = `<span style="font-size:clamp(24px,3.5vw,36px);font-weight:800;color:#4338ca;letter-spacing:-0.02em;line-height:1.1;white-space:nowrap;">${escapeHtml(label)}</span>`;
+      } else {
+        g1DateBadgeEl.innerHTML = '';
       }
-      if (pickerCacheAllBuilding) return;
-      pickerCacheAllBuilding = true;
-      setTimeout(() => {
-        try {
-          pickerCacheAll = _buildPickerSearchCache(_getPickerSourceOrders(true));
-          pickerCacheAllReady = true;
-        } finally {
-          pickerCacheAllBuilding = false;
-          if (typeof done === 'function') done();
-        }
-      }, 0);
     }
 
-    ensurePickerAllWeeksCache();
+    function rebuildPickerCacheForView() {
+      if (searchAllSheets) {
+        const allOrders = _getAllArchivePickerOrders();
+        pickerCacheCurrent = _buildPickerSearchCache(allOrders);
+        pickerGpHp = _countPickerGpHp(allOrders);
+        return;
+      }
+      pickerViewSheet = sheetOptions.find((o) => o.key === pickerViewKey) || sheetOptions[0] || null;
+      if (pickerViewSheet) pickerViewKey = pickerViewSheet.key;
+      const viewOrders = pickerViewSheet?.orders || state.orders || [];
+      pickerCacheCurrent = _buildPickerSearchCache(
+        _decorateOrdersForPicker(
+          viewOrders,
+          { week: pickerViewSheet?.week ?? state.week, sheet: pickerViewSheet?.sheet ?? state.sheet },
+          state.week,
+          state.sheet
+        )
+      );
+      pickerGpHp = _countPickerGpHp(viewOrders);
+      updateG1DateBadge();
+    }
+
+    if (sheetSelectEl) {
+      sheetOptions.forEach((opt) => {
+        const el = document.createElement('option');
+        el.value = opt.key;
+        const weekHint = opt.week != null ? `${opt.week}. hafta — ` : '';
+        el.textContent = `${weekHint}${opt.label}`;
+        if (opt.key === pickerViewKey) el.selected = true;
+        sheetSelectEl.appendChild(el);
+      });
+      sheetSelectEl.onchange = () => {
+        pickerViewKey = sheetSelectEl.value;
+        rebuildPickerCacheForView();
+        render(searchEl.value);
+      };
+    }
 
     function getPickerRows(filter, tipMode) {
       const f = String(filter || '').trim().toLowerCase();
       const mode = tipMode || 'all';
-      const includeAllWeeks = !!f;
-      const cache = includeAllWeeks ? (pickerCacheAll || pickerCacheCurrent) : pickerCacheCurrent;
+      const cache = pickerCacheCurrent;
       const rows = [];
       const firmaCount = {};
 
@@ -2676,7 +3041,7 @@
         if (firmaCount[firma] > 1) duplicateFirmas.add(firma);
       }
 
-      return { rows, duplicateFirmas, filterText: f, tipMode: mode, includeAllWeeks };
+      return { rows, duplicateFirmas, filterText: f, tipMode: mode };
     }
 
     function rowHtml(o, duplicateFirmas, options) {
@@ -2723,8 +3088,8 @@
         : `<td${printDupClass || printUsedClass} style="${cellStyle(false)}${STATUS_CELL_EXTRA}">${statusInner}</td>`;
       const rowClass = forPrint && isDuplicate ? ' class="piyasa-print-strong"' : '';
       const rowStyle = (!forPrint && isUsed && !isDuplicate && printCount < 2) ? ' style="opacity:.92;"' : '';
-      const weekBadge = (showWeek && o._weekLabel)
-        ? `<span style="font-size:9px;color:${o._isCurrentWeek ? '#059669' : '#6366f1'};font-weight:700;display:block;margin-top:2px;line-height:1.2;">${escapeHtml(o._weekLabel)}</span>`
+      const weekBadge = (showWeek && (o._weekLabel || o._sourceSheet))
+        ? `<span style="font-size:9px;color:${o._isCurrentWeek ? '#059669' : '#6366f1'};font-weight:700;display:block;margin-top:2px;line-height:1.2;">${escapeHtml([o._weekLabel, o._sourceSheet].filter(Boolean).join(' · '))}</span>`
         : '';
       const noCellStyle = forPrint ? '' : `${cellStyle(false)}${NO_CELL_EXTRA}`;
 
@@ -2759,8 +3124,10 @@
       const searchQ = String(searchEl.value || '').trim();
       const now = new Date();
       const printedAt = `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      const sheetLine = state.sheet ? `Sheet: ${escapeHtml(state.sheet)}` : '';
-      const weekLine = state.week ? `Hafta: ${escapeHtml(String(state.week))}` : '';
+      const viewedSheet = searchAllSheets ? 'Tüm sayfalar' : (pickerViewSheet?.sheet || state.sheet || '');
+      const viewedWeek = searchAllSheets ? '' : (pickerViewSheet?.week ?? state.week);
+      const sheetLine = viewedSheet ? `Sheet: ${escapeHtml(viewedSheet)}` : '';
+      const weekLine = viewedWeek != null && viewedWeek !== '' ? `Hafta: ${escapeHtml(String(viewedWeek))}` : '';
       const dupWarn = duplicateFirmas.size > 0
         ? '<div class="piyasa-print-warn">⚠ Aynı firma birden fazla satırda var — seçerken dikkat ediniz.</div>'
         : '';
@@ -2892,17 +3259,7 @@
 
     function render(filter){
       const tipMode = sevkiyatFilterEl ? sevkiyatFilterEl.value : 'all';
-      const filterText = String(filter || '').trim();
-      if (filterText && !pickerCacheAllReady) {
-        const scopeLabel = ' • tüm haftalar';
-        countEl.textContent = `Geçmiş haftalar hazırlanıyor…${scopeLabel}`;
-        ensurePickerAllWeeksCache(() => {
-          if (overlay.isConnected) render(searchEl.value);
-        });
-        return;
-      }
-
-      const { rows, duplicateFirmas, includeAllWeeks } = getPickerRows(filter, tipMode);
+      const { rows, duplicateFirmas } = getPickerRows(filter, tipMode);
       visiblePickerRows = rows;
 
       const warningEl = overlay.querySelector('#duplicateWarning');
@@ -2910,12 +3267,14 @@
         warningEl.style.display = duplicateFirmas.size > 0 ? 'block' : 'none';
       }
 
-      const scopeLabel = includeAllWeeks ? ' • tüm haftalar' : '';
       const truncated = rows.length > PICKER_MAX_VISIBLE_ROWS;
       const displayRows = truncated ? rows.slice(0, PICKER_MAX_VISIBLE_ROWS) : rows;
       const truncNote = truncated ? ` (ilk ${PICKER_MAX_VISIBLE_ROWS}, aramayı daraltın)` : '';
-      countEl.textContent = `${rows.length} sipariş${scopeLabel}${truncNote} • GP:${pickerGpHp.gp} HP:${pickerGpHp.hp}`;
-      tbody.innerHTML = displayRows.map((o) => rowHtml(o, duplicateFirmas, { showWeek: includeAllWeeks })).join('');
+      const sheetLabel = searchAllSheets
+        ? ' • tüm sayfalar'
+        : (pickerViewSheet?.sheet ? ` • ${pickerViewSheet.sheet}` : (state.sheet ? ` • ${state.sheet}` : ''));
+      countEl.textContent = `${rows.length} sipariş${sheetLabel}${truncNote} • GP:${pickerGpHp.gp} HP:${pickerGpHp.hp}`;
+      tbody.innerHTML = displayRows.map((o) => rowHtml(o, duplicateFirmas, { showWeek: searchAllSheets })).join('');
     }
 
     if (!tbody._piyasaPickerClickBound) {
@@ -2960,15 +3319,27 @@
       });
     }
 
+    const customerListBtn = overlay.querySelector('#piyasaCustomerListBtn');
+    if (customerListBtn) customerListBtn.onclick = () => openPiyasaCustomerListModal();
+
     const printBtn = overlay.querySelector('#piyasaPrintBtn');
-    if (printBtn) printBtn.onclick = () => printPiyasaPickerTable();
+    if (printBtn && !printBtn._piyasaPrintBound) {
+      printBtn._piyasaPrintBound = true;
+      printBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        printPiyasaPickerTable();
+      }, true);
+    }
 
     const renderDebounced = _debounce((v) => render(v), PICKER_SEARCH_DEBOUNCE_MS);
     searchEl.oninput = () => renderDebounced(searchEl.value);
     if (sevkiyatFilterEl) sevkiyatFilterEl.onchange = () => render(searchEl.value);
     _pickerRenderHook = () => render(searchEl.value);
+    if (initialQuery) searchEl.value = initialQuery;
     setTimeout(()=> searchEl.focus(), 0);
-    render('');
+    render(initialQuery);
 
     requestPiyasaSyncIfRemoteNewer({}).catch(() => {});
     reconcileOrderPrintCountsFromReports()
@@ -2998,7 +3369,8 @@
   function showWeekPickerModal(metas, wb, currentSheetName, onConfirm){
     try{
       const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_LAYER);
+      markPiyasaModalLayer(overlay);
       overlay.innerHTML = `
         <div style="background:#fff;border-radius:12px;max-width:640px;width:100%;box-shadow:0 8px 24px rgba(0,0,0,.2);">
           <div style="padding:14px 18px;border-bottom:1px solid #eee;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
@@ -3121,7 +3493,8 @@
       }
 
       const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_LAYER);
+      markPiyasaModalLayer(overlay);
       overlay.innerHTML = `
         <div style="background:#fff;border-radius:12px;max-width:520px;width:100%;box-shadow:0 8px 24px rgba(0,0,0,.2);">
           <div style="padding:16px 18px;border-bottom:1px solid #eee;font-weight:700;">Hafta Bilgisi</div>
@@ -3403,6 +3776,7 @@
     }
     if (!onLoginScreen) {
       setupPiyasaSyncListeners();
+      loadPiyasaCustomers(false).catch(() => {});
       if (typeof window.ensureXlsxLoaded === 'function') {
         window.ensureXlsxLoaded().catch(() => {});
       }
@@ -3458,6 +3832,9 @@
   window.piyasa.getOrderByIdx = getOrderByIdx;
   window.piyasa.showSkippedRows = showPiyasaSkippedRowsModal;
   window.piyasa.syncFromServer = syncPiyasaFromServer;
+  window.piyasa.loadCustomers = loadPiyasaCustomers;
+  window.piyasa.openCustomerList = openPiyasaCustomerListModal;
+  window.piyasa.getCustomerByKod = getPiyasaCustomerByKod;
 
   // Chip'ten çağrılmak için modal açma fonksiyonu
   window.piyasaShowOrdersModal = function() {

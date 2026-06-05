@@ -104,7 +104,7 @@ function showSessionExpiredModal() {
           <div class="session-modal-icon" style="font-size: 48px; margin-bottom: 18px;">⚠️</div>
           <h2 class="session-modal-title" style="font-size: 24px; font-weight: 700; color: #111827; margin: 0 0 16px;">Oturumunuz Sonlandı</h2>
           <p class="session-modal-text" style="font-size: 16px; color: #475569; line-height: 1.7; margin: 0 0 28px;">Uzun süre işlem yapılmadığından güvenlik nedeniyle oturumunuz kapanmıştır.</p>
-          <button id="session-modal-confirm" class="session-modal-btn" style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); color: white; border: none; padding: 14px 26px; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer;">Gördüm - Tekrar Giriş Yap</button>
+          <button id="session-modal-confirm" class="session-modal-btn" style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); color: white; border: none; padding: 14px 26px; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer;">Giriş Yap</button>
         </div>
       </div>
     `;
@@ -4369,9 +4369,6 @@ function showTakipFormu(vehicle) {
 
             <div class="takip-form">
                 <h1 class="takip-form__doc-title">SEVKİYAT YÜKLEMESİ TAKİP FORMU</h1>
-                <input type="hidden" id="aracBosuBilgi" value="">
-                <p id="aracBosuSatir" class="takip-form__arac-bos" hidden></p>
-
                 <section class="takip-form__section highlight-section">
                   <h3 class="takip-form__section-title">Şoför Bilgileri</h3>
                   <div class="takip-form__driver-grid">
@@ -5648,7 +5645,8 @@ try {
     // PİYASA yüklüyse: firma seçmek yerine sipariş listesi aç
     try {
       if (window.piyasa && typeof window.piyasa.hasOrders === 'function' && window.piyasa.hasOrders()) {
-        window.piyasa.openOrderPicker();
+        const q = (document.getElementById('firmaKodu')?.value || '').trim();
+        window.piyasa.openOrderPicker({ searchAllSheets: true, initialQuery: q });
         return;
       }
     } catch(_) {}
@@ -5666,6 +5664,13 @@ try {
   });
 
   if (malzemeAraBtn) addOnce(malzemeAraBtn, 'click', ()=>{
+    try {
+      if (window.piyasa && typeof window.piyasa.hasOrders === 'function' && window.piyasa.hasOrders()) {
+        const q = (document.getElementById('malzeme')?.value || '').trim();
+        window.piyasa.openOrderPicker({ searchAllSheets: true, initialQuery: q });
+        return;
+      }
+    } catch (_) {}
     const q = (document.getElementById('malzeme')?.value || '').trim();
     const opts = (malzemeListesi || []).slice();
     _openQuickPick({
@@ -5836,7 +5841,7 @@ try {
             const ids = [
                 'firmaKodu','malzeme','sevkYeri','tonaj','ambalajBilgisi','seperatorBilgisi',
                 'bbt','bosBbt','cuval','bosCuval','palet','torba',
-                'yuklemeNotu','aracBosuBilgi',
+                'yuklemeNotu',
                 // ❌ yuklemeSirasi'i TEMIZLEME (updateQueueDisplay() çalışınca otomatik güncellenir)
                 // imzaKantarAd bilerek temizlenmiyor
                 'imzaSahaAd','imzaYukleyenAd','imzaKaliteAd'
@@ -5879,20 +5884,20 @@ try {
             // dropdown'ları da sıfırla
             try { const fs = document.getElementById('firmaSelect'); if (fs) fs.value = ''; } catch(e){}
             try { const ms = document.getElementById('malzemeSelect'); if (ms) ms.value = ''; } catch(e){}
-            try {
-              const ab = document.getElementById('aracBosuSatir');
-              if (ab) { ab.textContent = ''; ab.hidden = true; }
-            } catch(e){}
         }
 
-        function validateTakipForm(){
+        function validateTakipForm(opts = {}){
             _clearTakipFormErrors();
 
+            if (opts.forPrint) return true;
+
             const required = [
-                { id:'firmaKodu', label:'Firma/Müşteri Kodu' },
                 { id:'malzeme',   label:'Malzeme' },
                 { id:'sevkYeri',  label:'Sevk Yeri' }
             ];
+            if (opts.requireFirma !== false) {
+                required.unshift({ id:'firmaKodu', label:'Firma/Müşteri Kodu' });
+            }
 
             const missing = [];
             let firstEl = null;
@@ -8023,6 +8028,13 @@ async function validateToken() {
   try { localStorage.removeItem('isLoggedIn'); } catch(e){}
   try { localStorage.removeItem('currentUserId'); } catch(e){}
   try { document.documentElement.classList.remove('logged-in'); } catch(e){}
+  try {
+    const mainApp = document.getElementById('mainApp');
+    const loginScreen = document.getElementById('loginScreen');
+    if (mainApp) mainApp.style.display = 'none';
+    if (loginScreen) loginScreen.style.display = 'flex';
+  } catch (e) {}
+  try { showSessionExpiredModal(); } catch (e) {}
 }
 
 function startPostLoginTasks() {
@@ -8083,6 +8095,33 @@ function startSessionMonitoring() {
   sessionCheckInterval = setInterval(async () => {
     const now = Date.now();
     const timeSinceActivity = now - lastActivityTime;
+
+    // Sunucu oturum kontrolü (JWT süresi dolmuşsa giriş ekranına yönlendir)
+    if (isLoggedIn && window.SessionManager && typeof window.SessionManager.checkSessionValidity === 'function') {
+      try {
+        const serverValid = await window.SessionManager.checkSessionValidity();
+        if (!serverValid) {
+          if (sessionCheckInterval) {
+            clearInterval(sessionCheckInterval);
+            sessionCheckInterval = null;
+          }
+          stopSessionMonitoring();
+          isLoggedIn = false;
+          try { localStorage.removeItem('isLoggedIn'); } catch (e) {}
+          try { localStorage.removeItem('currentUserId'); } catch (e) {}
+          try { document.documentElement.classList.remove('logged-in'); } catch (e) {}
+          const mainApp = document.getElementById('mainApp');
+          const loginScreen = document.getElementById('loginScreen');
+          if (mainApp) mainApp.style.display = 'none';
+          if (loginScreen) loginScreen.style.display = 'flex';
+          await showSessionExpiredModal();
+          try { fetch('/api/logout', { method: 'POST' }).catch(() => {}); } catch (e) {}
+          return;
+        }
+      } catch (e) {
+        console.warn('Sunucu oturum kontrolü atlandı:', e && e.message ? e.message : e);
+      }
+    }
 
     // Check if user has been inactive
     if (timeSinceActivity > INACTIVITY_TIMEOUT_MS) {
@@ -8695,7 +8734,7 @@ function setupTakipFormButtons() {
             try {
                 const validateFunc = window.__takipFormValidate;
                 if (typeof validateFunc === 'function') {
-                    const valid = validateFunc();
+                    const valid = validateFunc({ forPrint: true });
                     if (valid === false) return;
                 }
             } catch(e) {}
@@ -8740,17 +8779,15 @@ function setupTakipFormButtons() {
             const VALID_BASIM_YERLERI = ['1.OSB', 'AVDAN'];
 
             if (!basimYeriValue) {
-                alert('❌ Basım Yeri seçilmedi!');
-                return;
+                basimYeriValue = '1.OSB';
+            } else {
+                const isValid = VALID_BASIM_YERLERI.some(v => v.toUpperCase() === basimYeriValue.toUpperCase());
+                if (!isValid) {
+                    alert(`❌ Hatalı Basım Yeri: "${basimYeriValue}"\n\nKabul edilen: ${VALID_BASIM_YERLERI.join(', ')}`);
+                    return;
+                }
+                basimYeriValue = basimYeriValue.toUpperCase();
             }
-
-            const isValid = VALID_BASIM_YERLERI.some(v => v.toUpperCase() === basimYeriValue.toUpperCase());
-            if (!isValid) {
-                alert(`❌ Hatalı Basım Yeri: "${basimYeriValue}"\n\nKabul edilen: ${VALID_BASIM_YERLERI.join(', ')}`);
-                return;
-            }
-
-            basimYeriValue = basimYeriValue.toUpperCase();
 
             try {
                 if (window.OperationNotesAlert && typeof window.OperationNotesAlert.confirmBeforePrint === 'function') {
@@ -8771,14 +8808,6 @@ function setupTakipFormButtons() {
                 }
             } catch (exErr) {
                 console.warn('Excel tutarlılık:', exErr);
-            }
-
-            try {
-                if (window.piyasa && typeof window.piyasa.maybePromptAracBosuBeforePrint === 'function') {
-                    await window.piyasa.maybePromptAracBosuBeforePrint();
-                }
-            } catch (bosErr) {
-                console.warn('Araç boş ağırlık sorusu:', bosErr);
             }
 
             const snap = (() => {
