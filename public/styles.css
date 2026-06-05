@@ -1323,7 +1323,7 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .netsis-btn:hover {
 .rp-dialog-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10000;
+  z-index: 1000090;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -161,6 +161,19 @@
       } catch (e2) { /* ignore */ }
     }
 
+    const RP_DIALOG_Z_MIN = 1000090;
+
+    function resolveDialogZIndex() {
+      var maxZ = RP_DIALOG_Z_MIN;
+      try {
+        document.querySelectorAll('[data-piyasa-modal-layer]').forEach(function (el) {
+          var z = parseInt(el.style.zIndex, 10);
+          if (!isNaN(z) && z >= maxZ) maxZ = z + 10;
+        });
+      } catch (e) { /* ignore */ }
+      return String(maxZ);
+    }
+
     const ICONS = {
       success: { cls: 'is-success', icon: 'fa-check', title: 'Başarılı' },
       warning: { cls: 'is-warning', icon: 'fa-exclamation-triangle', title: 'Uyarı' },
@@ -243,6 +256,7 @@
         });
         previousFocus = document.activeElement;
         blurBackgroundFocus();
+        overlay.style.zIndex = resolveDialogZIndex();
         overlay.hidden = false;
         overlay.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';

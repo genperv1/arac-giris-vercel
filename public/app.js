@@ -1039,13 +1039,36 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
     const snapFirma = String(printEv.firmaKodu || printEv.firma || '').trim();
     const f = String(o.firma || '').trim();
     const m = String(o.malzeme || '').trim();
+    const sehir = String(o.il || o.sevkYeri || '').trim();
+    const yuk = String(o.yuklemeTuru || '').trim();
     if (f && (!snapFirma || snapFirma === f)) {
       printEv.firma = f;
       printEv.firmaKodu = f;
     }
     if (m) printEv.malzeme = m;
+    if (sehir) printEv.sevkYeri = sehir;
+    if (yuk) {
+      printEv.yuklemeTuru = yuk;
+      if (!String(printEv.ambalajBilgisi || '').trim()) printEv.ambalajBilgisi = yuk;
+    }
   } catch (e) { /* ignore */ }
   return printEv;
+}
+
+function buildPrintHistoryPostBody(printEv, pending, commitTs) {
+  const yuk = String(printEv.yuklemeTuru || printEv.ambalajBilgisi || '').trim();
+  return {
+    plaka: printEv.plaka,
+    firma: printEv.firma || printEv.firmaKodu || '',
+    malzeme: printEv.malzeme || '',
+    tonaj: printEv.tonaj || '',
+    basim_yeri: printEv.basimYeri || '',
+    sevkiyat_id: piyasaSevkiyatIdForPrint(pending),
+    sofor: printEv.sofor || '',
+    sevk_yeri: String(printEv.sevkYeri || '').trim(),
+    yukleme_turu: yuk,
+    tarih: commitTs,
+  };
 }
 
 function piyasaSevkiyatIdForPrint(pending) {
@@ -1060,6 +1083,13 @@ function piyasaSevkiyatIdForPrint(pending) {
     if (key) return 'ihracat:' + key;
   }
   if (pending && pending.piyasaOrderIdx != null) {
+    try {
+      const o = window.piyasa && typeof window.piyasa.getOrderByIdx === 'function'
+        ? window.piyasa.getOrderByIdx(pending.piyasaOrderIdx)
+        : null;
+      const pickKey = o && (o._pickKey || o.__archiveKey);
+      if (pickKey) return 'piyasa:' + String(pickKey);
+    } catch (e) { /* ignore */ }
     return 'piyasa:' + String(pending.piyasaOrderIdx);
   }
   try {
@@ -6100,22 +6130,23 @@ try {
 
                                 // Print history'ye ekle
                                 try {
-                                  const phRes = await fetch('/api/print_history', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      plaka: printEv.plaka,
-                                      firma: firma,
-                                      malzeme: printEv.malzeme || '',
-                                      tonaj: printEv.tonaj || '',
-                                      basim_yeri: printEv.basimYeri || '',
-                                      sevkiyat_id: piyasaSevkiyatIdForPrint(pending),
-                                      sofor: printEv.sofor || '',
-                                      tarih: commitTs
-                                    })
-                                  });
-                                  if (phRes && phRes.ok) {
-                                    try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
+                                  const durumBlocked = window.piyasa?.isDurumFrozen?.();
+                                  if (!durumBlocked) {
+                                    const phRes = await fetch('/api/print_history', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
+                                    });
+                                    if (phRes && phRes.ok) {
+                                      try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
+                                    } else if (phRes && phRes.status === 403) {
+                                      try {
+                                        const errBody = await phRes.json();
+                                        if (errBody?.error === 'PIYASA_DURUM_FROZEN') {
+                                          window.showToast?.(errBody.message || 'DURUM kaydı Pazartesi başlayacak.', 'info');
+                                        }
+                                      } catch (e) {}
+                                    }
                                   }
                                 } catch(e) { console.warn('Print history save failed:', e); }
                               } catch(e) { }
@@ -6135,22 +6166,23 @@ try {
 
                               // Print history'ye ekle (manual için)
                               try {
-                                const phRes = await fetch('/api/print_history', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    plaka: printEv.plaka,
-                                    firma: firma,
-                                    malzeme: printEv.malzeme || '',
-                                    tonaj: printEv.tonaj || '',
-                                    basim_yeri: printEv.basimYeri || '',
-                                    sevkiyat_id: piyasaSevkiyatIdForPrint(pending),
-                                    sofor: printEv.sofor || '',
-                                    tarih: commitTs
-                                  })
-                                });
-                                if (phRes && phRes.ok) {
-                                  try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
+                                const durumBlocked = window.piyasa?.isDurumFrozen?.();
+                                if (!durumBlocked) {
+                                  const phRes = await fetch('/api/print_history', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
+                                  });
+                                  if (phRes && phRes.ok) {
+                                    try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
+                                  } else if (phRes && phRes.status === 403) {
+                                    try {
+                                      const errBody = await phRes.json();
+                                      if (errBody?.error === 'PIYASA_DURUM_FROZEN') {
+                                        window.showToast?.(errBody.message || 'DURUM kaydı Pazartesi başlayacak.', 'info');
+                                      }
+                                    } catch (e) {}
+                                  }
                                 }
                               } catch(e) { console.warn('Print history save failed:', e); }
                             } catch(e) { }

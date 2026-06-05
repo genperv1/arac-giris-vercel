@@ -305,6 +305,8 @@ async function prepareSchema() {
   // Legacy DB'ler için kolon migrasyonu
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS basim_yeri TEXT;`);
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS sofor TEXT;`);
+  await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS sevk_yeri TEXT;`);
+  await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS yukleme_turu TEXT;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS operation_notes(
@@ -364,6 +366,8 @@ async function prepareSchema() {
   // Global ORDER BY tarih (GET /reports, unfiltered lists) — composite (plaka, tarih) is for per-plate only.
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_tarih_desc ON print_history(tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_basim_yeri ON print_history(basim_yeri);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_malzeme_tarih ON print_history(malzeme, tarih DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_firma_malzeme ON print_history(firma, malzeme);`);
 
   try {
     await pool.query('ANALYZE vehicles');
@@ -1063,6 +1067,120 @@ function isBanExemptApiPath(req) {
 const SETTINGS_ACCESS_PASSWORD = String(
   process.env.SETTINGS_ACCESS_PASSWORD || process.env.SHIFT_NOTES_DELETE_PASSWORD || '2026genper'
 );
+
+const PIYASA_DURUM_META_KV = 'piyasa_durum_meta_v1';
+
+function getPiyasaDurumFreezeUntilMs() {
+  const raw = String(process.env.PIYASA_DURUM_FREEZE_UNTIL || '2026-06-07T22:00:00+03:00').trim();
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) return new Date(`${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}T00:00:00+03:00`).getTime();
+  const dateTime = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (dateTime) {
+    const sec = dateTime[6] || '00';
+    return new Date(`${dateTime[1]}-${dateTime[2]}-${dateTime[3]}T${dateTime[4]}:${dateTime[5]}:${sec}+03:00`).getTime();
+  }
+  const n = Date.parse(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function isPiyasaDurumFrozen() {
+  const until = getPiyasaDurumFreezeUntilMs();
+  return until > 0 && Date.now() < until;
+}
+
+function piyasaDurumFreezeMessage() {
+  const until = getPiyasaDurumFreezeUntilMs();
+  if (!until || !isPiyasaDurumFrozen()) return '';
+  const label = new Date(until).toLocaleString('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `Piyasa DURUM sayaçları ${label} tarihinden itibaren başlayacak.`;
+}
+
+function stripPiyasaOrderPrintFields(order) {
+  if (!order || typeof order !== 'object') return order;
+  return {
+    ...order,
+    printCount: 0,
+    lastPrintAt: null,
+    lastPrintPlate: null,
+    printPlates: {},
+  };
+}
+
+function stripPiyasaStatePrintStats(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const out = { ...payload, updatedAt: Date.now() };
+  if (Array.isArray(out.orders)) {
+    out.orders = out.orders.map(stripPiyasaOrderPrintFields);
+  }
+  if (Array.isArray(out.weekArchive)) {
+    out.weekArchive = out.weekArchive.map((block) => ({
+      ...block,
+      orders: Array.isArray(block.orders) ? block.orders.map(stripPiyasaOrderPrintFields) : [],
+    }));
+  }
+  return out;
+}
+
+async function readPiyasaDurumMeta() {
+  try {
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [PIYASA_DURUM_META_KV]);
+    if (!r.rows[0]?.value) return { resetEpoch: 0, freezeUntil: getPiyasaDurumFreezeUntilMs() };
+    const parsed = JSON.parse(r.rows[0].value);
+    return {
+      resetEpoch: Number(parsed.resetEpoch) || 0,
+      freezeUntil: Number(parsed.freezeUntil) || getPiyasaDurumFreezeUntilMs(),
+    };
+  } catch (e) {
+    return { resetEpoch: 0, freezeUntil: getPiyasaDurumFreezeUntilMs() };
+  }
+}
+
+async function writePiyasaDurumMeta(meta) {
+  const raw = JSON.stringify({
+    resetEpoch: Number(meta.resetEpoch) || Date.now(),
+    freezeUntil: Number(meta.freezeUntil) || getPiyasaDurumFreezeUntilMs(),
+    resetAt: new Date().toISOString(),
+  });
+  await q(
+    `INSERT INTO kv_store(key, value) VALUES($1,$2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [PIYASA_DURUM_META_KV, raw]
+  );
+}
+
+async function resetPiyasaDurumData() {
+  const del = await q('DELETE FROM print_history');
+  const deleted = del.rowCount || 0;
+  const resetEpoch = Date.now();
+  await writePiyasaDurumMeta({ resetEpoch, freezeUntil: getPiyasaDurumFreezeUntilMs() });
+
+  try {
+    const pr = await q('SELECT value FROM kv_store WHERE key = $1', ['piyasa_state_v1']);
+    if (pr.rows[0]?.value) {
+      let payload = {};
+      try { payload = JSON.parse(pr.rows[0].value); } catch (e) { payload = {}; }
+      const cleaned = stripPiyasaStatePrintStats(payload);
+      await q(
+        `INSERT INTO kv_store(key, value) VALUES($1,$2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        ['piyasa_state_v1', JSON.stringify(cleaned)]
+      );
+      broadcastEvent('piyasa_updated', { updatedAt: cleaned.updatedAt, orderCount: (cleaned.orders || []).length });
+    }
+  } catch (e) {
+    console.warn('Piyasa state print reset skipped:', e.message || e);
+  }
+
+  broadcastReportUpdate({ type: 'piyasa_durum_reset', data: { resetEpoch, deleted } });
+  return { deleted, resetEpoch };
+}
 const SETTINGS_TOKEN_TTL_MS = 30 * 60 * 1000;
 const settingsAccessTokens = new Map();
 
@@ -2093,6 +2211,32 @@ api.post("/piyasa", auth.verifyToken, async (req, res) => {
   }
 });
 
+api.get('/piyasa/durum-status', auth.verifyToken, async (req, res) => {
+  try {
+    const meta = await readPiyasaDurumMeta();
+    res.json({
+      frozen: isPiyasaDurumFrozen(),
+      freezeUntil: getPiyasaDurumFreezeUntilMs(),
+      resetEpoch: meta.resetEpoch || 0,
+      message: piyasaDurumFreezeMessage(),
+    });
+  } catch (err) {
+    sendApiError(res, err, 500, 'PIYASA_DURUM_STATUS_FAILED');
+  }
+});
+
+api.post('/piyasa/reset-durum', auth.verifyToken, async (req, res) => {
+  try {
+    if (!verifySettingsPassword(req.body?.password || req.body?.settingsPassword)) {
+      return res.status(403).json({ ok: false, error: 'Parola gerekli' });
+    }
+    const result = await resetPiyasaDurumData();
+    res.json({ ok: true, ...result, frozen: isPiyasaDurumFrozen(), message: piyasaDurumFreezeMessage() });
+  } catch (err) {
+    sendApiError(res, err, 500, 'PIYASA_DURUM_RESET_FAILED');
+  }
+});
+
 const PIYASA_CUSTOMERS_KV = 'piyasa_customer_list_v1';
 
 function sanitizePiyasaCustomerEntry(raw, index) {
@@ -2399,7 +2543,7 @@ api.delete('/operation-notes/:id', async (req, res) => {
 api.get("/reports", async (req, res) => {
   try {
     const { limit, offset } = parsePagination(req, { defaultLimit: 5000, maxLimit: 20000 });
-    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
+    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
     
     const parsed = (r.rows || []).map((row) => {
       try {
@@ -2423,6 +2567,9 @@ api.get("/reports", async (req, res) => {
           basimYeri: row.basim_yeri,
           sevkiyat_id: row.sevkiyat_id,
           sofor: row.sofor || '',
+          sevkYeri: row.sevk_yeri || '',
+          yuklemeTuru: row.yukleme_turu || '',
+          ambalajBilgisi: row.yukleme_turu || '',
           tarih: tarihStr,
           saat: saatStr
         };
@@ -3206,7 +3353,7 @@ api.get("/print_history", async (req, res) => {
     const basimYeri = basimYeriRaw ? basimYeriRaw.toUpperCase() : "";
     const limit = Math.min(Number(req.query.limit || 100), 1000);
     
-    let query = "SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih FROM print_history";
+    let query = "SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, tarih FROM print_history";
     let params = [];
     
     if (plaka) {
@@ -3215,6 +3362,8 @@ api.get("/print_history", async (req, res) => {
     }
     const firmaFilter = sanitizeString(req.query.firma || '', 100).trim();
     const malzemeFilter = sanitizeString(req.query.malzeme || '', 100).trim();
+    const yuklemeFilter = sanitizeString(req.query.yuklemeTuru || req.query.yukleme_turu || '', 100).trim();
+    const sevkFilter = sanitizeString(req.query.sevkYeri || req.query.sevk_yeri || '', 200).trim();
     if (firmaFilter) {
       query += params.length ? ' AND' : ' WHERE';
       query += ' firma = $' + (params.length + 1);
@@ -3230,6 +3379,16 @@ api.get("/print_history", async (req, res) => {
       query += " basim_yeri = $" + (params.length + 1);
       params.push(basimYeri);
     }
+    if (yuklemeFilter) {
+      query += params.length ? ' AND' : ' WHERE';
+      query += ' yukleme_turu = $' + (params.length + 1);
+      params.push(yuklemeFilter);
+    }
+    if (sevkFilter) {
+      query += params.length ? ' AND' : ' WHERE';
+      query += ' sevk_yeri = $' + (params.length + 1);
+      params.push(sevkFilter);
+    }
     
     query += " ORDER BY tarih DESC LIMIT $" + (params.length + 1);
     params.push(limit);
@@ -3244,6 +3403,12 @@ api.get("/print_history", async (req, res) => {
 
 api.post("/print_history", auth.verifyToken, async (req, res) => {
   try {
+    if (isPiyasaDurumFrozen()) {
+      return res.status(403).json({
+        error: 'PIYASA_DURUM_FROZEN',
+        message: piyasaDurumFreezeMessage(),
+      });
+    }
     const body = req.body || {};
     const id = String(body.id || (Date.now().toString() + Math.random().toString(16).slice(2)));
     
@@ -3255,14 +3420,16 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
     const basim_yeri = sanitizeString(body.basim_yeri || body.basimYeri || "", 20).toUpperCase();
     const sevkiyat_id = sanitizeString(body.sevkiyat_id || "", 100);
     const sofor = sanitizeString(body.sofor || "", 120);
+    const sevk_yeri = sanitizeString(body.sevk_yeri || body.sevkYeri || "", 200);
+    const yukleme_turu = sanitizeString(body.yukleme_turu || body.yuklemeTuru || body.ambalajBilgisi || "", 100);
     // Her zaman sunucu saati (NTP); istemci Windows tarihi ileri/geri olsa bile rapor doğru anı tutar
     const tarih = Date.now();
     
     if (!plaka) return res.status(400).json({ error: "plaka required" });
     
     await q(`
-      INSERT INTO print_history(id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih)
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO print_history(id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, tarih)
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (id) DO UPDATE SET
         firma = EXCLUDED.firma,
         malzeme = EXCLUDED.malzeme,
@@ -3270,13 +3437,15 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
         basim_yeri = EXCLUDED.basim_yeri,
         sevkiyat_id = EXCLUDED.sevkiyat_id,
         sofor = EXCLUDED.sofor,
+        sevk_yeri = EXCLUDED.sevk_yeri,
+        yukleme_turu = EXCLUDED.yukleme_turu,
         tarih = EXCLUDED.tarih
-    `, [id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih]);
+    `, [id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, tarih]);
     
     // Broadcast real-time update to all connected clients
     broadcastReportUpdate({
       type: 'new_report',
-      data: { id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, tarih }
+      data: { id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, tarih }
     });
     
     res.json({ ok: true, id });

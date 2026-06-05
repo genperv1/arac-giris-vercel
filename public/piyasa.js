@@ -29,6 +29,81 @@
   let _pickerRenderHook = null;
 
   const CUSTOMER_LIST_LS_KEY = 'piyasa_customer_list_cache_v2';
+  const CUSTOMER_LIST_PASSWORD = '2026genper';
+  const DURUM_RESET_EPOCH_LS = 'piyasa_durum_reset_epoch_v1';
+  let _durumStatus = { frozen: false, freezeUntil: 0, resetEpoch: 0, message: '' };
+
+  function clearAllOrderPrintStatsInState() {
+    const strip = (o) => {
+      if (!o) return;
+      o.printCount = 0;
+      o.lastPrintAt = null;
+      o.lastPrintPlate = null;
+      o.printPlates = {};
+    };
+    for (const o of state.orders || []) strip(o);
+    for (const block of state.weekArchive || []) {
+      for (const o of block.orders || []) strip(o);
+    }
+    if (state._lastAppliedOrder) strip(state._lastAppliedOrder);
+    try { saveState(); } catch (e) {}
+  }
+
+  function applyDurumResetFromServer(resetEpoch) {
+    const local = parseInt(localStorage.getItem(DURUM_RESET_EPOCH_LS) || '0', 10) || 0;
+    if (!resetEpoch || resetEpoch <= local) return false;
+    clearAllOrderPrintStatsInState();
+    try { localStorage.setItem(DURUM_RESET_EPOCH_LS, String(resetEpoch)); } catch (e) {}
+    try { localStorage.removeItem('report_events_v1'); } catch (e) {}
+    try {
+      if (window.Report && typeof window.Report.clearEvents === 'function') window.Report.clearEvents();
+    } catch (e) {}
+    return true;
+  }
+
+  async function refreshDurumStatus() {
+    try {
+      const r = await fetch('/api/piyasa/durum-status?_=' + Date.now(), {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!r.ok) return _durumStatus;
+      const data = await r.json();
+      _durumStatus = {
+        frozen: !!data.frozen,
+        freezeUntil: Number(data.freezeUntil) || 0,
+        resetEpoch: Number(data.resetEpoch) || 0,
+        message: String(data.message || ''),
+      };
+      applyDurumResetFromServer(_durumStatus.resetEpoch);
+      return _durumStatus;
+    } catch (e) {
+      return _durumStatus;
+    }
+  }
+
+  function isDurumFrozen() {
+    return !!_durumStatus.frozen;
+  }
+
+  async function verifyCustomerListPassword(message) {
+    const ui = window.rpUi || {};
+    let entered = null;
+    if (typeof ui.password === 'function') {
+      entered = await ui.password(message);
+    } else if (window.rpDialog && typeof window.rpDialog.password === 'function') {
+      entered = await window.rpDialog.password(message);
+    } else {
+      entered = prompt(message);
+    }
+    if (entered == null || entered === false) return false;
+    if (String(entered).trim() !== CUSTOMER_LIST_PASSWORD) {
+      if (typeof ui.alert === 'function') await ui.alert('Şifre hatalı.', 'danger');
+      else alert('Şifre hatalı.');
+      return false;
+    }
+    return true;
+  }
   let _customerStore = {
     customers: [],
     byKod: new Map(),
@@ -299,6 +374,12 @@
     });
     window.SyncManager.on('reports_deleted', () => {
       reconcileOrderPrintCountsFromReports().catch(() => {});
+    });
+    window.SyncManager.on('piyasa_durum_reset', (data) => {
+      const epoch = Number(data && data.resetEpoch) || Date.now();
+      applyDurumResetFromServer(epoch);
+      reconcileOrderPrintCountsFromReports().catch(() => {});
+      try { if (_pickerRenderHook) _pickerRenderHook(); } catch (e) {}
     });
   }
 
@@ -618,8 +699,154 @@
     return String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
   }
 
+  /** "MD1 / Eti Gümüş" → "MD1" (app.js getFirmaKodOnly ile uyumlu) */
+  function firmaKodFromInput(s) {
+    if (typeof window.getFirmaKodOnly === 'function') return window.getFirmaKodOnly(s);
+    try { return String(s || '').split('/')[0].trim(); }
+    catch (e) { return String(s || '').trim(); }
+  }
+
   function normFirmaKey(s) {
     return String(firmaKodFromInput(s) || '').trim().toUpperCase();
+  }
+
+  /** HP2, HP3… — malzeme aynı; yükleme türü / şehir ile ayır */
+  function isHpStyleFirma(firma) {
+    return /^HP\d/i.test(normFirmaKey(firma));
+  }
+
+  function normYuklemeTuruKey(s) {
+    return String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  }
+
+  function normSehirKey(s) {
+    return String(s || '').trim().toUpperCase().replace(/\s+/g, ' ').replace(/\s*\/\s*/g, '/');
+  }
+
+  function orderSehirKey(order) {
+    return normSehirKey(order && (order.il || order.sevkYeri || order.sehir || ''));
+  }
+
+  function normalizeHistoryRowInfo(raw) {
+    const r = raw || {};
+    return {
+      firma: r.firma || r.firmaKodu || '',
+      malzeme: r.malzeme || '',
+      yuklemeTuru: r.yuklemeTuru || r.yukleme_turu || r.ambalajBilgisi || '',
+      sevkYeri: r.sevkYeri || r.sevk_yeri || r.sehir || r.il || '',
+      sevkiyatId: r.sevkiyatId || r.sevkiyat_id || '',
+    };
+  }
+
+  function resolveOrderFromSevkiyatId(sevkiyatId) {
+    const sid = String(sevkiyatId || '').trim();
+    if (!sid.startsWith('piyasa:')) return null;
+    const key = sid.slice(7);
+    if (!key) return null;
+    // Tam arşiv anahtarı: "22:22-HAFTA :40" — güvenilir
+    if (key.includes(':')) return getOrderByIdx(key);
+    // Eski "piyasa:40" — hafta/sheet yok, __idx çakışması yapmasın
+    return null;
+  }
+
+  function hpOrderContextParts(order) {
+    return {
+      yuk: normYuklemeTuruKey(order && order.yuklemeTuru),
+      sehir: orderSehirKey(order),
+    };
+  }
+
+  /** HP: siparişteki yükleme türü VE şehir birlikte eşleşmeli (ikisi de varsa ikisi de). */
+  function hpContextsMatch(wantOrder, got) {
+    const want = hpOrderContextParts(wantOrder);
+    if (!want.yuk && !want.sehir) return true;
+    if (!got) return false;
+    if (want.yuk) {
+      if (!got.yuk || got.yuk !== want.yuk) return false;
+    }
+    if (want.sehir) {
+      if (!got.sehir || got.sehir !== want.sehir) return false;
+    }
+    return true;
+  }
+
+  function contextPartsFromHistoryInfo(info) {
+    const ctx = normalizeHistoryRowInfo(info);
+    let yuk = normYuklemeTuruKey(ctx.yuklemeTuru);
+    let sehir = normSehirKey(ctx.sevkYeri);
+    if ((!yuk || !sehir) && ctx.sevkiyatId) {
+      const linked = resolveOrderFromSevkiyatId(ctx.sevkiyatId);
+      if (linked) {
+        if (!yuk) yuk = normYuklemeTuruKey(linked.yuklemeTuru);
+        if (!sehir) sehir = orderSehirKey(linked);
+      }
+    }
+    return { yuk, sehir, sevkiyatId: ctx.sevkiyatId };
+  }
+
+  function hpStatsKeySuffix(parts) {
+    const bits = [];
+    if (parts.yuk) bits.push(`Y:${parts.yuk}`);
+    if (parts.sehir) bits.push(`S:${parts.sehir}`);
+    return bits.join('\x1e');
+  }
+
+  /** HP firmalarında yükleme türü + şehir; diğerlerinde malzeme */
+  function matchesOrderContextForHistory(info, opts) {
+    const order = opts && opts.order;
+    const ctx = normalizeHistoryRowInfo(info);
+    const firmaCode = normFirmaKey((opts && opts.firma) || (order && order.firma) || ctx.firma);
+
+    if (order && isHpStyleFirma(firmaCode)) {
+      const want = hpOrderContextParts(order);
+      if (!want.yuk && !want.sehir) return true;
+      const got = contextPartsFromHistoryInfo(info);
+      if (!got.yuk && !got.sehir) return false;
+      return hpContextsMatch(order, got);
+    }
+
+    const targetMal = normMalzemeKey((opts && opts.malzeme) || (order && order.malzeme) || '');
+    if (!targetMal) return true;
+    return normMalzemeKey(ctx.malzeme) === targetMal;
+  }
+
+  function orderPrintStatsKeyFromOrder(order) {
+    const firma = normFirmaKey(order && order.firma);
+    if (isHpStyleFirma(firma)) {
+      const suffix = hpStatsKeySuffix(hpOrderContextParts(order));
+      if (suffix) return `${firma}\x1e${suffix}`;
+      const pickKey = getOrderPickKey(order);
+      if (pickKey) return `${firma}\x1eI:${pickKey}`;
+      return `${firma}\x1e*`;
+    }
+    return `${firma}\x1e${String((order && order.malzeme) || '').trim()}`;
+  }
+
+  function orderPrintStatsKeyFromEvent(d, ev) {
+    const firma = normFirmaKey(d.firma || d.firmaKodu || d.firmaSelect || (ev && ev.firma) || '');
+    if (isHpStyleFirma(firma)) {
+      const got = contextPartsFromHistoryInfo({
+        yuklemeTuru: d.yuklemeTuru || d.ambalajBilgisi || '',
+        sevkYeri: d.sevkYeri || d.sehir || d.il || '',
+        sevkiyatId: d.sevkiyat_id || (ev && ev.sevkiyat_id) || '',
+      });
+      const suffix = hpStatsKeySuffix(got);
+      if (suffix) return `${firma}\x1e${suffix}`;
+      return `${firma}\x1e*`;
+    }
+    return `${firma}\x1e${String(d.malzeme || (ev && ev.malzeme) || '').trim()}`;
+  }
+
+  function historyFilterHint(order) {
+    if (!order) return '';
+    if (isHpStyleFirma(order.firma)) {
+      const bits = [];
+      if (order.yuklemeTuru) bits.push('Yükleme: ' + order.yuklemeTuru);
+      const sehir = orderSehirKey(order);
+      if (sehir) bits.push('Şehir: ' + sehir);
+      return bits.join(' · ') || 'Yükleme türü / şehre göre filtrelenir';
+    }
+    return order.malzeme ? `Malzeme: ${order.malzeme}` : '';
   }
 
   function matchesFirmaForOrder(firmaVal, opts) {
@@ -673,17 +900,27 @@
   }
 
   async function fetchPrintHistoryRows(malzeme, opts) {
+    const order = opts && opts.order;
+    const firmaQ = normFirmaKey(opts && opts.firma);
+    const hpStyle = isHpStyleFirma(firmaQ);
     const malzemeQ = String(malzeme || '').trim();
-    if (!malzemeQ) return [];
+    if (!hpStyle && !malzemeQ) return [];
     try {
-      const params = new URLSearchParams({ malzeme: malzemeQ, limit: '500' });
+      const params = new URLSearchParams({ limit: '500' });
+      if (firmaQ) params.set('firma', firmaQ);
+      if (!hpStyle && malzemeQ) params.set('malzeme', malzemeQ);
+      // HP firmalarında eski kayıtlar yükleme/şehir içermeyebilir — filtre istemci tarafında
       const r = await fetch('/api/print_history?' + params.toString(), {
         credentials: 'include',
         cache: 'no-store',
       });
       if (!r.ok) return [];
       const rows = await r.json();
-      return (rows || []).filter((row) => matchesFirmaForOrder(row.firma, opts));
+      if (!Array.isArray(rows)) return [];
+      return rows.filter((row) =>
+        matchesFirmaForOrder(row.firma, opts)
+        && matchesOrderContextForHistory(row, opts)
+      );
     } catch (e) {
       return [];
     }
@@ -804,9 +1041,13 @@
     });
   }
 
-  function renderMalzemeHistoryRows(history) {
+  function renderMalzemeHistoryRows(history, order) {
     if (!history.length) {
-      return `<tr><td colspan="6" style="padding:20px;text-align:center;color:#64748b;">Bu malzeme için kayıtlı araç bulunamadı.</td></tr>`;
+      const hint = historyFilterHint(order);
+      const msg = isHpStyleFirma(order && order.firma)
+        ? 'Bu yükleme türü / şehir için kayıtlı araç bulunamadı.'
+        : 'Bu malzeme için kayıtlı araç bulunamadı.';
+      return `<tr><td colspan="6" style="padding:20px;text-align:center;color:#64748b;">${escapeHtml(msg)}${hint ? `<div style="font-size:11px;margin-top:6px;">${escapeHtml(hint)}</div>` : ''}</td></tr>`;
     }
     return history.map((h) => `
       <tr>
@@ -821,13 +1062,16 @@
   }
 
   function _ingestMalzemeHistoryIntoMap(map, malzeme, opts, ingestOpts) {
+    const order = opts && opts.order;
+    const hpStyle = isHpStyleFirma((opts && opts.firma) || (order && order.firma));
     const target = normMalzemeKey(malzeme);
-    if (!target) return;
+    if (!target && !hpStyle) return;
 
     function upsert(plate, info) {
       const pk = normPlateKey(plate);
       if (!pk) return;
       if (!matchesFirmaForOrder(info.firma, opts)) return;
+      if (!matchesOrderContextForHistory(info, opts)) return;
       const displayPlate = String(plate || '').trim().toUpperCase();
       const cur = map.get(pk) || {
         plate: displayPlate,
@@ -860,31 +1104,37 @@
       map.set(pk, cur);
     }
 
-    const order = opts && opts.order;
     if (order) {
       Object.entries(_normalizePrintPlates(order.printPlates)).forEach(([plate, count]) => {
         upsert(plate, {
           count,
           ts: order.lastPrintAt || 0,
           firma: order.firma || '',
+          malzeme: order.malzeme || '',
+          yuklemeTuru: order.yuklemeTuru || '',
+          sevkYeri: order.il || order.sevkYeri || '',
         });
       });
     }
 
     (ingestOpts.printHistoryRows || []).forEach((row) => {
-      if (normMalzemeKey(row.malzeme) !== target) return;
+      if (!hpStyle && normMalzemeKey(row.malzeme) !== target) return;
       upsert(row.plaka, {
         add: true,
         count: 1,
         ts: Number(row.tarih) || 0,
         firma: row.firma || '',
+        malzeme: row.malzeme || '',
+        yuklemeTuru: row.yukleme_turu || row.yuklemeTuru || '',
+        sevkYeri: row.sevk_yeri || row.sevkYeri || '',
+        sevkiyatId: row.sevkiyat_id || '',
         sofor: row.sofor || '',
       });
     });
 
     collectReportPrintEventsDeduped().forEach((ev) => {
       const d = ev.data || {};
-      if (normMalzemeKey(d.malzeme) !== target) return;
+      if (!hpStyle && normMalzemeKey(d.malzeme) !== target) return;
       const evFirma = d.firma || d.firmaKodu || d.firmaSelect || '';
       if (!matchesFirmaForOrder(evFirma, opts)) return;
       upsert(d.plaka || d.plate || d.cekiciPlaka, {
@@ -892,8 +1142,11 @@
         add: true,
         ts: ev.ts || 0,
         firma: evFirma,
-        tonaj: d.tonaj || '',
+        malzeme: d.malzeme || '',
+        yuklemeTuru: d.yuklemeTuru || d.ambalajBilgisi || '',
         sevkYeri: d.sevkYeri || '',
+        sevkiyatId: d.sevkiyat_id || ev.sevkiyat_id || '',
+        tonaj: d.tonaj || '',
         tarih: d.tarih || '',
         sofor: d.sofor || '',
       });
@@ -939,7 +1192,11 @@
             <div style="font-size:12px;color:#475569;margin-top:4px;line-height:1.4;">
               <b>${escapeHtml(malzeme || '—')}</b>${firmaAdi ? ` · ${escapeHtml(firmaAdi)}` : ''}
             </div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">${firmaCode ? `Bu firma (${escapeHtml(firmaCode)}) ve malzeme için yazdırılan araçlar` : 'Daha önce bu malzemeyi saran / yazdırılan araçlar'}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">${escapeHtml(
+              isHpStyleFirma(firmaCode)
+                ? `Bu firma (${firmaCode}) — ${historyFilterHint(order) || 'yükleme türü / şehre göre'} yazdırılan araçlar`
+                : (firmaCode ? `Bu firma (${firmaCode}) ve malzeme için yazdırılan araçlar` : 'Daha önce bu malzemeyi saran / yazdırılan araçlar')
+            )}</div>
           </div>
           <button type="button" id="piyasaHistoryClose" style="border:0;background:#eee;border-radius:10px;padding:6px 12px;cursor:pointer;flex-shrink:0;">Kapat</button>
         </div>
@@ -971,14 +1228,34 @@
 
     const tbody = overlay.querySelector('#piyasaHistoryTbody');
     const historyOpts = { firma: firmaCode, firmaAdi, order };
+
+    function renderHistorySafe(entries) {
+      if (!tbody || !document.body.contains(overlay)) return;
+      try {
+        tbody.innerHTML = renderMalzemeHistoryRows(entries, order);
+      } catch (err) {
+        console.warn('Malzeme araç geçmişi çizilemedi:', err);
+        tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#64748b;">Araç bilgileri gösterilemedi.</td></tr>';
+      }
+    }
+
+    // Önce yerel/rapor önbelleğini göster (DB beklenirken takılmasın)
+    try {
+      renderHistorySafe(collectMalzemeVehicleHistorySync(malzeme, historyOpts));
+    } catch (e) {
+      console.warn('Malzeme araç geçmişi (yerel) yüklenemedi:', e);
+    }
+
     try {
       const baseHistory = await collectMalzemeVehicleHistory(malzeme, historyOpts);
       const history = await enrichMalzemeHistoryEntries(baseHistory);
-      if (tbody) tbody.innerHTML = renderMalzemeHistoryRows(history);
+      renderHistorySafe(history);
     } catch (e) {
-      console.warn('Malzeme araç geçmişi yüklenemedi:', e);
-      if (tbody) {
-        tbody.innerHTML = renderMalzemeHistoryRows(collectMalzemeVehicleHistorySync(malzeme, historyOpts));
+      console.warn('Malzeme araç geçmişi (sunucu) yüklenemedi:', e);
+      try {
+        renderHistorySafe(collectMalzemeVehicleHistorySync(malzeme, historyOpts));
+      } catch (err) {
+        renderHistorySafe([]);
       }
     }
   }
@@ -1002,6 +1279,7 @@
   }
 
   function recordOrderPrint(opts) {
+    if (isDurumFrozen()) return false;
     const order = findOrderForPrint(opts || {});
     if (!order) return false;
 
@@ -1032,10 +1310,6 @@
 
     try { saveState(); } catch (e) {}
     return true;
-  }
-
-  function orderPrintStatsKey(firma, malzeme) {
-    return `${normFirmaKey(firma)}\x1e${String(malzeme || '').trim()}`;
   }
 
   /** Siparişi benzersiz tanımla: hafta arşivinde aynı __idx çakışmasın */
@@ -1110,7 +1384,7 @@
       const firma = normFirmaKey(d.firma || d.firmaKodu || d.firmaSelect || ev.firma || '');
       const malzeme = String(d.malzeme || ev.malzeme || '').trim();
       if (!firma && !malzeme) continue;
-      const key = orderPrintStatsKey(firma, malzeme);
+      const key = orderPrintStatsKeyFromEvent(d, ev);
       let rec = statsByKey.get(key);
       if (!rec) {
         rec = { count: 0, plates: {}, lastTs: 0, lastPlate: '' };
@@ -1127,16 +1401,18 @@
     }
 
     function applyStats(order) {
-      const rec = statsByKey.get(orderPrintStatsKey(order.firma, order.malzeme));
+      const rec = statsByKey.get(orderPrintStatsKeyFromOrder(order));
       if (!rec || rec.count <= 0) {
         order.printCount = 0;
         order.lastPrintAt = null;
         order.lastPrintPlate = null;
+        order.printPlates = {};
         return;
       }
       order.printCount = rec.count;
       order.lastPrintAt = rec.lastTs || null;
       order.lastPrintPlate = rec.lastPlate || null;
+      order.printPlates = { ...(rec.plates || {}) };
     }
 
     for (const order of state.orders || []) applyStats(order);
@@ -1190,15 +1466,17 @@
 
     const pickKey = escapeHtml(o._pickKey || String(o.__idx));
     const when = formatOrderPrintWhen(o.lastPrintAt);
+    const ctxHint = historyFilterHint(o);
     const truckTitle = [
       truckCount > 0 ? `${truckCount} plaka kayıtlı` : '',
       pc > 0 ? `bu sipariş: ${pc} kez yazdırıldı` : '',
       o.lastPrintPlate ? `son plaka: ${o.lastPrintPlate}` : '',
       when ? `son: ${when}` : '',
       formatPrintPlatesSummary(o.printPlates, 6) ? `plakalar: ${formatPrintPlatesSummary(o.printPlates, 6)}` : '',
+      ctxHint || '',
       isUsed ? `seçildi${o.usedPlate ? ': ' + o.usedPlate : ''}` : '',
       'detay için tıklayın',
-    ].filter(Boolean).join(' · ') || 'Bu firma ve malzeme için geçmiş araç yok';
+    ].filter(Boolean).join(' · ') || (isHpStyleFirma(o.firma) ? 'Bu yükleme türü / şehir için geçmiş araç yok' : 'Bu firma ve malzeme için geçmiş araç yok');
     const truckLabel = truckCount > 0 ? `🚛${truckCount}` : '🚛';
     const usedMark = isUsed
       ? `<span style="color:#4b5563;font-weight:700;line-height:1;" title="Seçildi${o.usedPlate ? ': ' + escapeHtml(o.usedPlate) : ''}">✓</span>`
@@ -2650,8 +2928,16 @@
       if (!id) return;
       const row = _customerStore.customers.find((c) => String(c.id) === String(id));
       const label = row ? `${row.kod} — ${row.ad || ''}` : id;
-      const ok = window.confirm(`Bu satırı silmek istiyor musunuz?\n${label}`);
+      const ui = window.rpUi || {};
+      let ok = false;
+      if (typeof ui.confirm === 'function') {
+        ok = await ui.confirm(`Bu satırı silmek istiyor musunuz?\n${label}`, { okLabel: 'Sil' });
+      } else {
+        ok = window.confirm(`Bu satırı silmek istiyor musunuz?\n${label}`);
+      }
       if (!ok) return;
+      const pwdOk = await verifyCustomerListPassword('Silme şifresini giriniz:');
+      if (!pwdOk) return;
       btn.disabled = true;
       try {
         const next = _customerStore.customers.filter((c) => String(c.id) !== String(id));
@@ -2677,11 +2963,13 @@
         alert('Kod ve ad zorunludur.');
         return;
       }
+      const pwdOk = await verifyCustomerListPassword('Ekleme şifresini giriniz:');
+      if (!pwdOk) return;
       addSave.disabled = true;
       try {
         entry.id = `manual-${Date.now()}`;
         const next = _customerStore.customers.slice();
-        next.push(entry);
+        next.unshift(entry);
         await savePiyasaCustomers(next);
         addForm.style.display = 'none';
         ['#piyasaCustNewKod', '#piyasaCustNewAd', '#piyasaCustNewIl', '#piyasaCustNewSektor'].forEach((sel) => {
@@ -2810,6 +3098,7 @@
       alert('❌ PİYASA Excel yüklü değil ya da sipariş yok.');
       return;
     }
+    await refreshDurumStatus().catch(() => {});
     window.__piyasaPickerOpen = true;
 
     const sheetOptions = _getPickerSheetOptions();
@@ -2830,8 +3119,12 @@
     overlay.id = 'piyasaOrderPickerOverlay';
     overlay.setAttribute('data-piyasa-order-picker', '1');
     overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_BASE);
+    const durumFreezeBanner = isDurumFrozen() && _durumStatus.message
+      ? `<div style="padding:8px 14px;background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;border-bottom:1px solid #fde68a;">⏸ DURUM sıfır — ${escapeHtml(_durumStatus.message)}</div>`
+      : '';
     overlay.innerHTML = `
       <div style="position:relative;z-index:1;background:#fff;border-radius:14px;max-width:min(96vw,1400px);width:100%;max-height:88vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
+        ${durumFreezeBanner}
         <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #eee;">
           <div style="flex:0 1 auto;min-width:0;">
             <div style="font-weight:900;">Piyasa Sipariş Seç</div>
@@ -3776,6 +4069,7 @@
     }
     if (!onLoginScreen) {
       setupPiyasaSyncListeners();
+      refreshDurumStatus().then(() => reconcileOrderPrintCountsFromReports().catch(() => {})).catch(() => {});
       loadPiyasaCustomers(false).catch(() => {});
       if (typeof window.ensureXlsxLoaded === 'function') {
         window.ensureXlsxLoaded().catch(() => {});
@@ -3827,6 +4121,9 @@
   window.piyasa.showSuggestionBar = showPiyasaSuggestionBar;
   window.piyasa.markOrderUsed = markOrderUsed;
   window.piyasa.recordOrderPrint = recordOrderPrint;
+  window.piyasa.isDurumFrozen = isDurumFrozen;
+  window.piyasa.refreshDurumStatus = refreshDurumStatus;
+  window.piyasa.clearAllOrderPrintStats = clearAllOrderPrintStatsInState;
   window.piyasa.reconcileOrderPrintCountsFromReports = reconcileOrderPrintCountsFromReports;
   window.piyasa.getActiveOrderIdx = getActiveOrderIdx;
   window.piyasa.getOrderByIdx = getOrderByIdx;
