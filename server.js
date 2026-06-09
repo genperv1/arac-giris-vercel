@@ -396,6 +396,51 @@ async function prepareSchema() {
   } catch (e) {
     console.warn('seedDemoVehicleEditLogs skipped:', e.message || e);
   }
+
+  try {
+    await applySupabaseSecurity();
+  } catch (e) {
+    console.warn('applySupabaseSecurity skipped:', e.message || e);
+  }
+}
+
+async function applySupabaseSecurity() {
+  await pool.query(`ALTER VIEW public.users_safe SET (security_invoker = true);`);
+  for (const table of [
+    'operation_notes',
+    'print_history',
+    'signatures',
+    'vehicle_edit_log',
+  ]) {
+    await pool.query(`ALTER TABLE public.${table} ENABLE ROW LEVEL SECURITY;`);
+  }
+  for (const table of [
+    'daily_rows',
+    'events',
+    'kv_store',
+    'problems',
+    'report',
+    'vehicles',
+  ]) {
+    await pool.query(`DROP POLICY IF EXISTS "Authenticated full access" ON public.${table};`);
+  }
+  await pool.query(`DROP POLICY IF EXISTS "Block client select" ON public.users;`);
+  for (const target of [
+    'TABLE public.daily_rows',
+    'TABLE public.events',
+    'TABLE public.kv_store',
+    'TABLE public.problems',
+    'TABLE public.report',
+    'TABLE public.vehicles',
+    'TABLE public.operation_notes',
+    'TABLE public.print_history',
+    'TABLE public.signatures',
+    'TABLE public.vehicle_edit_log',
+    'TABLE public.users',
+    'public.users_safe',
+  ]) {
+    await pool.query(`REVOKE ALL ON ${target} FROM anon, authenticated;`);
+  }
 }
 
 function plateNormSql(col) {
@@ -1099,7 +1144,7 @@ function piyasaDurumFreezeMessage() {
     hour: '2-digit',
     minute: '2-digit',
   });
-  return `Piyasa DURUM sayaçları ${label} tarihinden itibaren başlayacak.`;
+  return `Piyasa sipariş listesi DURUM sayacı ${label} tarihinden itibaren başlayacak (raporlar etkilenmez).`;
 }
 
 function stripPiyasaOrderPrintFields(order) {
@@ -1155,31 +1200,12 @@ async function writePiyasaDurumMeta(meta) {
   );
 }
 
-async function resetPiyasaDurumData() {
-  const del = await q('DELETE FROM print_history');
-  const deleted = del.rowCount || 0;
+/** Yalnızca Piyasa DURUM sayaç eşiğini günceller — print_history / raporlar silinmez. */
+async function resetPiyasaDurumDisplayOnly() {
   const resetEpoch = Date.now();
   await writePiyasaDurumMeta({ resetEpoch, freezeUntil: getPiyasaDurumFreezeUntilMs() });
-
-  try {
-    const pr = await q('SELECT value FROM kv_store WHERE key = $1', ['piyasa_state_v1']);
-    if (pr.rows[0]?.value) {
-      let payload = {};
-      try { payload = JSON.parse(pr.rows[0].value); } catch (e) { payload = {}; }
-      const cleaned = stripPiyasaStatePrintStats(payload);
-      await q(
-        `INSERT INTO kv_store(key, value) VALUES($1,$2)
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-        ['piyasa_state_v1', JSON.stringify(cleaned)]
-      );
-      broadcastEvent('piyasa_updated', { updatedAt: cleaned.updatedAt, orderCount: (cleaned.orders || []).length });
-    }
-  } catch (e) {
-    console.warn('Piyasa state print reset skipped:', e.message || e);
-  }
-
-  broadcastReportUpdate({ type: 'piyasa_durum_reset', data: { resetEpoch, deleted } });
-  return { deleted, resetEpoch };
+  broadcastReportUpdate({ type: 'piyasa_durum_reset', data: { resetEpoch } });
+  return { resetEpoch };
 }
 const SETTINGS_TOKEN_TTL_MS = 30 * 60 * 1000;
 const settingsAccessTokens = new Map();
@@ -2214,9 +2240,11 @@ api.post("/piyasa", auth.verifyToken, async (req, res) => {
 api.get('/piyasa/durum-status', auth.verifyToken, async (req, res) => {
   try {
     const meta = await readPiyasaDurumMeta();
+    const countStartMs = getPiyasaDurumFreezeUntilMs();
     res.json({
       frozen: isPiyasaDurumFrozen(),
-      freezeUntil: getPiyasaDurumFreezeUntilMs(),
+      freezeUntil: countStartMs,
+      durumCountStartMs: countStartMs,
       resetEpoch: meta.resetEpoch || 0,
       message: piyasaDurumFreezeMessage(),
     });
@@ -2230,7 +2258,7 @@ api.post('/piyasa/reset-durum', auth.verifyToken, async (req, res) => {
     if (!verifySettingsPassword(req.body?.password || req.body?.settingsPassword)) {
       return res.status(403).json({ ok: false, error: 'Parola gerekli' });
     }
-    const result = await resetPiyasaDurumData();
+    const result = await resetPiyasaDurumDisplayOnly();
     res.json({ ok: true, ...result, frozen: isPiyasaDurumFrozen(), message: piyasaDurumFreezeMessage() });
   } catch (err) {
     sendApiError(res, err, 500, 'PIYASA_DURUM_RESET_FAILED');
@@ -3403,12 +3431,6 @@ api.get("/print_history", async (req, res) => {
 
 api.post("/print_history", auth.verifyToken, async (req, res) => {
   try {
-    if (isPiyasaDurumFrozen()) {
-      return res.status(403).json({
-        error: 'PIYASA_DURUM_FROZEN',
-        message: piyasaDurumFreezeMessage(),
-      });
-    }
     const body = req.body || {};
     const id = String(body.id || (Date.now().toString() + Math.random().toString(16).slice(2)));
     

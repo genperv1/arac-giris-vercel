@@ -352,6 +352,76 @@
         return null;
     }
 
+    /**
+     * Rapor sayfasından yeniden yazdır: mümkünse ana sayfayı yenilemeden takip formunu aç.
+     * @param {{ vehicleId?: string, plate?: string }} payload
+     */
+    function openHomeForReprint(payload) {
+        payload = payload || {};
+        const vehicleId = String(payload.vehicleId || payload.reprint || '').trim();
+        const plate = String(payload.plate || '').trim();
+
+        try {
+            localStorage.setItem('pendingReprint', JSON.stringify({
+                reprint: vehicleId,
+                plate: plate,
+                at: Date.now()
+            }));
+        } catch (e) { /* ignore */ }
+
+        if (isHomePath(window.location.pathname)) {
+            try {
+                if (typeof window.checkReprintParam === 'function') {
+                    window.checkReprintParam();
+                } else {
+                    window.dispatchEvent(new CustomEvent('gpm-reprint-request'));
+                }
+            } catch (e) { /* ignore */ }
+            window.focus();
+            return window;
+        }
+
+        let homeWin = null;
+        try {
+            homeWin = window.open('', HOME_WINDOW_NAME);
+        } catch (e) {
+            homeWin = null;
+        }
+
+        if (homeWin && !homeWin.closed) {
+            try {
+                if (typeof homeWin.checkReprintParam === 'function') {
+                    homeWin.checkReprintParam();
+                    try { homeWin.focus(); } catch (e) { /* ignore */ }
+                    tryCloseSubPageTab();
+                    return homeWin;
+                }
+            } catch (e) { /* ignore */ }
+
+            try {
+                homeWin.postMessage({ type: 'GPM_REPRINT', vehicleId: vehicleId, plate: plate }, window.location.origin);
+                try { homeWin.focus(); } catch (e) { /* ignore */ }
+                tryCloseSubPageTab();
+                return homeWin;
+            } catch (e) { /* ignore */ }
+
+            const q = new URLSearchParams();
+            if (vehicleId) q.set('reprint', vehicleId);
+            if (plate) q.set('plate', plate);
+            const qs = q.toString();
+            homeWin.location.href = resolveAppUrl(HOME_PAGE + (qs ? '?' + qs : ''));
+            try { homeWin.focus(); } catch (e) { /* ignore */ }
+            tryCloseSubPageTab();
+            return homeWin;
+        }
+
+        const q = new URLSearchParams();
+        if (vehicleId) q.set('reprint', vehicleId);
+        if (plate) q.set('plate', plate);
+        const qs = q.toString();
+        return openHomePage(HOME_PAGE + (qs ? '?' + qs : ''), { closeSubTab: true });
+    }
+
     // Ana sayfaya dön: ana sayfa sekmesine geç, alt sayfa sekmesini kapat
     function navigateToHome() {
         if (isHomePath(window.location.pathname)) {
@@ -555,6 +625,7 @@
         navigateToHome,
         openAppPage,
         openHomePage,
+        openHomeForReprint,
         bindHomeNavigation,
         bindAppPageNavigation,
         claimHomeWindow

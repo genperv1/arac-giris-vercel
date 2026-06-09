@@ -770,11 +770,34 @@ function normalizeIrsaliyeNo(raw) {
   const s = String(raw ?? '').trim();
   if (!s) return '';
   const compact = s.replace(/\s+/g, '');
-  const m = compact.match(/^(R\d{1,3})(\d{6,12})$/i);
-  if (m) return `${m[1].toUpperCase()} ${m[2]}`;
-  const m2 = s.match(/^(R\d{1,3})\s+(\d{6,12})$/i);
-  if (m2) return `${m2[1].toUpperCase()} ${m2[2]}`;
-  return s;
+  if (!/^R\d{7,15}$/i.test(compact)) return s;
+
+  const digitsOnly = compact.slice(1);
+  const candidates = [];
+  for (let prefixLen = 1; prefixLen <= 3; prefixLen++) {
+    const numLen = digitsOnly.length - prefixLen;
+    if (numLen >= 6 && numLen <= 12) {
+      candidates.push({
+        prefix: 'R' + digitsOnly.slice(0, prefixLen),
+        num: digitsOnly.slice(prefixLen),
+      });
+    }
+  }
+  if (!candidates.length) return s;
+
+  const score = (c) => {
+    let sc = 0;
+    if (/^R\d{2}$/i.test(c.prefix)) sc += 100;
+    else if (/^R\d{1}$/i.test(c.prefix)) sc += 50;
+    if (/^0/.test(c.num)) sc -= 80;
+    if (/^20\d{6}$/.test(c.num)) sc += 60;
+    if (c.num.length === 8) sc += 30;
+    if (c.num.length === 10) sc += 20;
+    return sc;
+  };
+  candidates.sort((a, b) => score(b) - score(a));
+  const best = candidates[0];
+  return `${best.prefix.toUpperCase()} ${best.num}`;
 }
 
 function resolveIrsaliyeFromRow(d, cols) {
@@ -6128,25 +6151,15 @@ try {
                               try{
                                 window.Report?.addEvent('PRINT', printEv);
 
-                                // Print history'ye ekle
+                                // Print history'ye ekle (raporlar — DURUM dondurmasından bağımsız)
                                 try {
-                                  const durumBlocked = window.piyasa?.isDurumFrozen?.();
-                                  if (!durumBlocked) {
-                                    const phRes = await fetch('/api/print_history', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
-                                    });
-                                    if (phRes && phRes.ok) {
-                                      try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
-                                    } else if (phRes && phRes.status === 403) {
-                                      try {
-                                        const errBody = await phRes.json();
-                                        if (errBody?.error === 'PIYASA_DURUM_FROZEN') {
-                                          window.showToast?.(errBody.message || 'DURUM kaydı Pazartesi başlayacak.', 'info');
-                                        }
-                                      } catch (e) {}
-                                    }
+                                  const phRes = await fetch('/api/print_history', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
+                                  });
+                                  if (phRes && phRes.ok) {
+                                    try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
                                   }
                                 } catch(e) { console.warn('Print history save failed:', e); }
                               } catch(e) { }
@@ -6166,23 +6179,13 @@ try {
 
                               // Print history'ye ekle (manual için)
                               try {
-                                const durumBlocked = window.piyasa?.isDurumFrozen?.();
-                                if (!durumBlocked) {
-                                  const phRes = await fetch('/api/print_history', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
-                                  });
-                                  if (phRes && phRes.ok) {
-                                    try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
-                                  } else if (phRes && phRes.status === 403) {
-                                    try {
-                                      const errBody = await phRes.json();
-                                      if (errBody?.error === 'PIYASA_DURUM_FROZEN') {
-                                        window.showToast?.(errBody.message || 'DURUM kaydı Pazartesi başlayacak.', 'info');
-                                      }
-                                    } catch (e) {}
-                                  }
+                                const phRes = await fetch('/api/print_history', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
+                                });
+                                if (phRes && phRes.ok) {
+                                  try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
                                 }
                               } catch(e) { console.warn('Print history save failed:', e); }
                             } catch(e) { }
@@ -8004,7 +8007,10 @@ async function login() {
     } catch(e) {}
 
     // start app
-    try { enterAppWithDelay(0); } catch(e) { try { if (typeof loadVehicles === 'function') loadVehicles(); } catch(e){} }
+    try {
+      enterAppWithDelay(0);
+      try { if (typeof window.checkReprintParam === 'function') window.checkReprintParam(); } catch (e) { /* ignore */ }
+    } catch(e) { try { if (typeof loadVehicles === 'function') loadVehicles(); } catch(e){} }
 
   } catch (e) {
     // Loading overlay removed
@@ -8589,13 +8595,34 @@ async function deleteVehicle(id) {
               platePrm = savedPlatePrm;
               console.log('🔍 Saklanan parametreler kullanılıyor - reprintId:', reprintId, 'platePrm:', platePrm);
             } else {
-              // İlk çağrı - URL'den parametreleri al ve sakla
-              const params = new URLSearchParams(window.location.search);
-              reprintId = params.get('reprint');
-              platePrm = params.get('plate');
-              window.__tempReprintId = reprintId;
-              window.__tempPlatePrm = platePrm;
-              console.log('🔍 Yeni parametreler alındı ve saklandı - reprintId:', reprintId, 'platePrm:', platePrm);
+              // Rapor sayfasından yeniden yazdır (sayfa yenilemeden localStorage)
+              try {
+                const pendingRaw = localStorage.getItem('pendingReprint');
+                if (pendingRaw) {
+                  const pending = JSON.parse(pendingRaw);
+                  const age = Date.now() - (Number(pending.at) || 0);
+                  if (age < 120000) {
+                    reprintId = pending.reprint || pending.vehicleId || '';
+                    platePrm = pending.plate || '';
+                    window.__tempReprintId = reprintId;
+                    window.__tempPlatePrm = platePrm;
+                    localStorage.removeItem('pendingReprint');
+                    console.log('🔍 pendingReprint kullanıldı - reprintId:', reprintId, 'platePrm:', platePrm);
+                  } else {
+                    localStorage.removeItem('pendingReprint');
+                  }
+                }
+              } catch (e) { /* ignore */ }
+
+              if (!reprintId && !platePrm) {
+                // İlk çağrı - URL'den parametreleri al ve sakla
+                const params = new URLSearchParams(window.location.search);
+                reprintId = params.get('reprint');
+                platePrm = params.get('plate');
+                window.__tempReprintId = reprintId;
+                window.__tempPlatePrm = platePrm;
+                console.log('🔍 Yeni parametreler alındı ve saklandı - reprintId:', reprintId, 'platePrm:', platePrm);
+              }
             }
             
             if (reprintId || platePrm) {
@@ -8692,19 +8719,30 @@ async function deleteVehicle(id) {
             // Hata durumunda da temizle
             delete window.__tempReprintId;
             delete window.__tempPlatePrm;
+            try { localStorage.removeItem('pendingReprint'); } catch (e) { /* ignore */ }
         }
     }
 
+        window.checkReprintParam = checkReprintParam;
+        window.addEventListener('message', function (ev) {
+          if (!ev.data || ev.data.type !== 'GPM_REPRINT') return;
+          if (ev.origin !== window.location.origin) return;
+          try { checkReprintParam(); } catch (e) { /* ignore */ }
+        });
+        window.addEventListener('gpm-reprint-request', function () {
+          try { checkReprintParam(); } catch (e) { /* ignore */ }
+        });
+
 // Ýlk yükleme
         document.addEventListener('DOMContentLoaded', function() {
-    // ✅ Show login screen immediately to prevent white screen
+    const savedLogin = localStorage.getItem('isLoggedIn');
     const loginScreen = document.getElementById('loginScreen');
-    if (loginScreen) {
+    // Oturum kaydı yoksa login göster; varsa head script logged-in sınıfı ile ana uygulama açık kalır
+    if (savedLogin !== 'true' && loginScreen) {
         loginScreen.style.display = 'flex';
     }
 
     // Ù¨ 1) Tarayýcýda 'isLoggedIn' kaydý var mý diye bak
-    const savedLogin = localStorage.getItem('isLoggedIn');
     if (savedLogin === 'true') {
         // Daha önce giriþ yapýlmýþ ise token geçerli mi kontrol et
         validateToken().then(() => {
@@ -12563,17 +12601,19 @@ async function showIhracatDetailsModal() {
   }
 
   window.__ihracatModalVehicleMap = _ihracatBuildVehiclePlateMap();
+  let excelFirmalar;
+  let ihracatStatusApi;
   try {
 
   // Excel'deki firmaları topla (rapor filtreleme için)
-  const excelFirmalar = new Set();
+  excelFirmalar = new Set();
   shipments.forEach(s => {
     const firma = String(s.firma || '').trim();
     if (firma) excelFirmalar.add(firma);
   });
 
   const assignmentCountByPlate = new Map();
-  const ihracatStatusApi = _ihracatCreateStatusApi(meta, excelFirmalar);
+  ihracatStatusApi = _ihracatCreateStatusApi(meta, excelFirmalar);
   const { statusStyle, getShipmentStatus } = ihracatStatusApi;
 
   const getStatus = (shipment) => shipment._status || 'pending';
@@ -12828,12 +12868,12 @@ async function showIhracatDetailsModal() {
   }
 
   const modal = document.getElementById('ihracatDetailsModal');
-  if (modal) {
-    modal.__ihrMeta = meta;
-    modal.__ihrExcelFirmalar = excelFirmalar;
-    modal.__ihracatStatusApi = ihracatStatusApi;
-  }
-  const closeModal = () => modal?.remove();
+  if (!modal || !ihracatStatusApi) return;
+
+  modal.__ihrMeta = meta;
+  modal.__ihrExcelFirmalar = excelFirmalar;
+  modal.__ihracatStatusApi = ihracatStatusApi;
+  const closeModal = () => modal.remove();
 
   const doSave = () => {
     const ok = _saveIhracatDetailsFromModal(shipments, meta);

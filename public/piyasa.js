@@ -31,7 +31,7 @@
   const CUSTOMER_LIST_LS_KEY = 'piyasa_customer_list_cache_v2';
   const CUSTOMER_LIST_PASSWORD = '2026genper';
   const DURUM_RESET_EPOCH_LS = 'piyasa_durum_reset_epoch_v1';
-  let _durumStatus = { frozen: false, freezeUntil: 0, resetEpoch: 0, message: '' };
+  let _durumStatus = { frozen: false, freezeUntil: 0, durumCountStartMs: 0, resetEpoch: 0, message: '' };
 
   function clearAllOrderPrintStatsInState() {
     const strip = (o) => {
@@ -54,11 +54,18 @@
     if (!resetEpoch || resetEpoch <= local) return false;
     clearAllOrderPrintStatsInState();
     try { localStorage.setItem(DURUM_RESET_EPOCH_LS, String(resetEpoch)); } catch (e) {}
-    try { localStorage.removeItem('report_events_v1'); } catch (e) {}
-    try {
-      if (window.Report && typeof window.Report.clearEvents === 'function') window.Report.clearEvents();
-    } catch (e) {}
     return true;
+  }
+
+  /** DURUM sayacı yalnızca bu tarihten sonraki yazdırmaları sayar; rapor listesi etkilenmez. */
+  function getDurumCountStartMs() {
+    return Number(_durumStatus.durumCountStartMs || _durumStatus.freezeUntil) || 0;
+  }
+
+  function isDurumCountTs(ts) {
+    const start = getDurumCountStartMs();
+    if (!start) return true;
+    return Number(ts) >= start;
   }
 
   async function refreshDurumStatus() {
@@ -72,6 +79,7 @@
       _durumStatus = {
         frozen: !!data.frozen,
         freezeUntil: Number(data.freezeUntil) || 0,
+        durumCountStartMs: Number(data.durumCountStartMs || data.freezeUntil) || 0,
         resetEpoch: Number(data.resetEpoch) || 0,
         message: String(data.message || ''),
       };
@@ -569,13 +577,12 @@
   }
 
   function _getPickerSheetOptions() {
-    const seen = new Set();
     const opts = [];
-    const push = (week, sheet, orders, sheetDate, sheetDateRaw) => {
+    const upsert = (week, sheet, orders, sheetDate, sheetDateRaw) => {
       if (!sheet) return;
       const key = _pickerSheetKey(week, sheet);
-      if (seen.has(key)) return;
-      seen.add(key);
+      const idx = opts.findIndex((o) => o.key === key);
+      if (idx >= 0) opts.splice(idx, 1);
       opts.push({
         key,
         week,
@@ -587,10 +594,11 @@
       });
     };
     for (const b of state.weekArchive || []) {
-      push(b.week, b.sheet, b.orders, b.sheetDate, b.sheetDateRaw);
+      upsert(b.week, b.sheet, b.orders, b.sheetDate, b.sheetDateRaw);
     }
+    // Aktif sheet: state.orders seçim/yazdırma durumunu taşır — arşiv kopyasının üzerine yaz
     if (state.sheet) {
-      push(state.week, state.sheet, state.orders, state.sheetDate, state.sheetDateRaw);
+      upsert(state.week, state.sheet, state.orders, state.sheetDate, state.sheetDateRaw);
     }
     return opts.sort((a, b) => (Number(b.week) - Number(a.week)) || String(b.sheet).localeCompare(String(a.sheet), 'tr'));
   }
@@ -1070,6 +1078,8 @@
     function upsert(plate, info) {
       const pk = normPlateKey(plate);
       if (!pk) return;
+      const rowTs = Number(info.ts) || 0;
+      if (rowTs && !isDurumCountTs(rowTs)) return;
       if (!matchesFirmaForOrder(info.firma, opts)) return;
       if (!matchesOrderContextForHistory(info, opts)) return;
       const displayPlate = String(plate || '').trim().toUpperCase();
@@ -1104,7 +1114,7 @@
       map.set(pk, cur);
     }
 
-    if (order) {
+    if (order && !isDurumFrozen()) {
       Object.entries(_normalizePrintPlates(order.printPlates)).forEach(([plate, count]) => {
         upsert(plate, {
           count,
@@ -1285,28 +1295,32 @@
 
     const plate = String(opts?.plate || '').trim().toUpperCase();
     const ts = Number(opts?.ts) || Date.now();
-
-    order.printCount = getOrderPrintCount(order) + 1;
-    order.lastPrintAt = ts;
-    if (plate) order.lastPrintPlate = plate;
-    if (plate) {
-      if (!order.printPlates || typeof order.printPlates !== 'object') order.printPlates = {};
-      order.printPlates[plate] = (parseInt(order.printPlates[plate], 10) || 0) + 1;
-      const keys = Object.keys(order.printPlates);
-      if (keys.length > 8) {
-        keys.sort((a, b) => order.printPlates[b] - order.printPlates[a]);
-        const trimmed = {};
-        keys.slice(0, 8).forEach((k) => { trimmed[k] = order.printPlates[k]; });
-        order.printPlates = trimmed;
-      }
+    const pickKey = getOrderPickKey(order);
+    const nextCount = getOrderPrintCount(order) + 1;
+    const nextPlates = { ..._normalizePrintPlates(order.printPlates) };
+    if (plate) nextPlates[plate] = (parseInt(nextPlates[plate], 10) || 0) + 1;
+    const plateKeys = Object.keys(nextPlates);
+    if (plateKeys.length > 8) {
+      plateKeys.sort((a, b) => nextPlates[b] - nextPlates[a]);
+      const trimmed = {};
+      plateKeys.slice(0, 8).forEach((k) => { trimmed[k] = nextPlates[k]; });
+      Object.keys(nextPlates).forEach((k) => { delete nextPlates[k]; });
+      Object.assign(nextPlates, trimmed);
     }
 
-    if (state._lastAppliedOrder && getOrderPickKey(state._lastAppliedOrder) === getOrderPickKey(order)) {
-      state._lastAppliedOrder.printCount = order.printCount;
-      state._lastAppliedOrder.lastPrintAt = order.lastPrintAt;
-      state._lastAppliedOrder.lastPrintPlate = order.lastPrintPlate;
-      state._lastAppliedOrder.printPlates = { ...order.printPlates };
-    }
+    const patch = {
+      printCount: nextCount,
+      lastPrintAt: ts,
+      lastPrintPlate: plate || order.lastPrintPlate || null,
+      printPlates: nextPlates,
+    };
+    forEachMatchingOrder(pickKey, (o) => {
+      o.printCount = patch.printCount;
+      o.lastPrintAt = patch.lastPrintAt;
+      o.lastPrintPlate = patch.lastPrintPlate;
+      o.printPlates = { ...patch.printPlates };
+    });
+    state._lastAppliedOrder = resolveCanonicalOrder(order) || order;
 
     try { saveState(); } catch (e) {}
     return true;
@@ -1330,6 +1344,81 @@
 
   function findOrderByPickKey(key, orders) {
     return (orders || []).find((x) => orderKeyMatches(x, key)) || null;
+  }
+
+  function resolveCanonicalOrder(o) {
+    if (!o) return null;
+    const key = getOrderPickKey(o);
+    if (key != null) {
+      const hit = getOrderByIdx(key);
+      if (hit) return hit;
+    }
+    return o;
+  }
+
+  function forEachMatchingOrder(key, fn) {
+    if (key == null || key === '' || typeof fn !== 'function') return;
+    const k = String(key);
+    const visit = (o) => { if (orderKeyMatches(o, k)) fn(o); };
+    for (const o of state.orders || []) visit(o);
+    for (const block of state.weekArchive || []) {
+      for (const o of block.orders || []) visit(o);
+    }
+    if (state._lastAppliedOrder) visit(state._lastAppliedOrder);
+  }
+
+  function mergeOrderPersistedFields(target, source) {
+    if (!target || !source) return;
+    if (source.usedAt) target.usedAt = source.usedAt;
+    if (source.usedPlate) target.usedPlate = source.usedPlate;
+    const srcPc = parseInt(source.printCount, 10) || 0;
+    const tgtPc = parseInt(target.printCount, 10) || 0;
+    if (srcPc > tgtPc) target.printCount = srcPc;
+    if (source.lastPrintAt && (!target.lastPrintAt || source.lastPrintAt >= target.lastPrintAt)) {
+      target.lastPrintAt = source.lastPrintAt;
+      if (source.lastPrintPlate) target.lastPrintPlate = source.lastPrintPlate;
+    }
+    if (source.printPlates && typeof source.printPlates === 'object') {
+      target.printPlates = {
+        ..._normalizePrintPlates(target.printPlates),
+        ..._normalizePrintPlates(source.printPlates),
+      };
+    }
+  }
+
+  function buildPersistedOrderLookup() {
+    const map = new Map();
+    const add = (o, week, sheet) => {
+      if (!o || o.__idx == null) return;
+      const key = o.__archiveKey || `${week ?? ''}:${sheet ?? ''}:${o.__idx}`;
+      const prev = map.get(key);
+      if (!prev) map.set(key, o);
+      else mergeOrderPersistedFields(prev, o);
+    };
+    for (const o of state.orders || []) add(o, state.week, state.sheet);
+    for (const block of state.weekArchive || []) {
+      for (const o of block.orders || []) add(o, block.week, block.sheet);
+    }
+    if (state._lastAppliedOrder) add(state._lastAppliedOrder, state.week, state.sheet);
+    return map;
+  }
+
+  function restorePersistedFieldsOnArchive(archive, lookup) {
+    if (!lookup || !lookup.size) return;
+    for (const block of archive || []) {
+      for (const o of block.orders || []) {
+        const key = o.__archiveKey || `${block.week}:${block.sheet}:${o.__idx}`;
+        const prev = lookup.get(key);
+        if (prev) mergeOrderPersistedFields(o, prev);
+      }
+    }
+    if (state.sheet && state.week != null) {
+      for (const o of state.orders || []) {
+        const key = o.__archiveKey || `${state.week}:${state.sheet}:${o.__idx}`;
+        const arch = lookup.get(key);
+        if (arch) mergeOrderPersistedFields(o, arch);
+      }
+    }
   }
 
   function getOrderByIdx(idx) {
@@ -1364,6 +1453,22 @@
       || (state.weekArchive || []).some((b) => (b.orders || []).length > 0);
     if (!hasOrders) return false;
 
+    if (isDurumFrozen()) {
+      const zeroAll = (order) => {
+        order.printCount = 0;
+        order.lastPrintAt = null;
+        order.lastPrintPlate = null;
+        order.printPlates = {};
+      };
+      for (const order of state.orders || []) zeroAll(order);
+      for (const block of state.weekArchive || []) {
+        for (const order of block.orders || []) zeroAll(order);
+      }
+      if (state._lastAppliedOrder) zeroAll(state._lastAppliedOrder);
+      try { if (_pickerRenderHook) _pickerRenderHook(); } catch (e) {}
+      return true;
+    }
+
     let events = [];
     try {
       const r = await fetch('/api/reports?limit=10000&_=' + Date.now(), {
@@ -1390,8 +1495,9 @@
         rec = { count: 0, plates: {}, lastTs: 0, lastPlate: '' };
         statsByKey.set(key, rec);
       }
-      rec.count += 1;
       const ts = Number(ev.ts || d.ts || 0);
+      if (!isDurumCountTs(ts)) continue;
+      rec.count += 1;
       const plate = String(d.plaka || d.plate || '').trim().toUpperCase();
       if (plate) rec.plates[plate] = (parseInt(rec.plates[plate], 10) || 0) + 1;
       if (ts >= rec.lastTs) {
@@ -1681,20 +1787,48 @@
     return best;
   }
 
-  // Excel'deki bazı satırlar filtre/gizli olabilir. Varsa !rows.hidden bilgisine göre ele.
-  function filterHiddenRowsAoA(ws, table){
-    try{
+  /** SheetJS: gizli satır bilgisi yalnızca cellStyles:true ile okunur. */
+  const PIYASA_XLSX_READ_OPTS = {
+    type: 'array',
+    cellStyles: true,
+    cellNF: false,
+    cellText: false,
+    dense: true,
+  };
+
+  function isExcelRowHidden(ws, zeroBasedRowIndex) {
+    try {
       const rowsMeta = ws && ws['!rows'];
-      if (!rowsMeta || !Array.isArray(rowsMeta)) return table;
-      const out = [];
-      for (let i = 0; i < table.length; i++){
-        const meta = rowsMeta[i];
-        if (meta && meta.hidden) continue;
-        out.push(table[i]);
+      if (!rowsMeta || !Array.isArray(rowsMeta)) return false;
+      const meta = rowsMeta[zeroBasedRowIndex];
+      return !!(meta && meta.hidden);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** Excel'de kullanıcının görmediği (gizli) satırları at — sheet ne gösteriyorsa o yüklenir. */
+  function filterHiddenRowsAoA(ws, table) {
+    const src = table || [];
+    try {
+      const rowsMeta = ws && ws['!rows'];
+      if (!rowsMeta || !Array.isArray(rowsMeta)) {
+        return { table: src, hiddenSkipped: 0, visibilityApplied: false };
       }
-      return out;
-    }catch(e){
-      return table;
+      const out = [];
+      let hiddenSkipped = 0;
+      for (let i = 0; i < src.length; i++) {
+        if (isExcelRowHidden(ws, i)) {
+          hiddenSkipped++;
+          continue;
+        }
+        const row = src[i];
+        if (row && typeof row === 'object') row._excelRowNum = i + 1;
+        out.push(row);
+      }
+      return { table: out, hiddenSkipped, visibilityApplied: true };
+    } catch (e) {
+      return { table: src, hiddenSkipped: 0, visibilityApplied: false };
     }
   }
 
@@ -1717,9 +1851,10 @@
 
   function parseSheetSmart(ws){
     // Bazı dosyalarda başlık satırı 1. satır değildir (üstte boş/sabit satırlar olabilir).
-    // Bu yüzden sheet'i önce tablo (array-of-arrays) olarak okuyup başlık satırını buluyoruz.
-    let table = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    table = filterHiddenRowsAoA(ws, table);
+    // Yalnızca Excel'de görünen satırlar okunur (gizli satırlar atılır).
+    const fullTable = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    const visibility = filterHiddenRowsAoA(ws, fullTable);
+    const table = visibility.table;
     const expected = ['SİRA','SIRA','SEVK','FİRMA','FIRMA','FİRMA ADI','FIRMA ADI','MALZEME','YÜKLEME TÜRÜ','YUKLEME TURU','AÇIKLAMA','ACIKLAMA','İL','IL','LOT NO','LOT','MİKTAR','MIKTAR','MİKTAR DANE','MIKTAR DANE','MIKTARDANE','MİKTARDANE','SEVKİYAT TİPİ','SEVKIYAT TIPI'];
 
     function cellNorm(v){
@@ -1745,9 +1880,19 @@
       }
     }
 
-    // Eğer hiç başlık bulamadıysa, klasik json'a dön.
+    // Başlık bulunamazsa gizli satır filtresi dışı ham json kullanma — boş dön.
     if (bestScore < 2 || headerRowIndex < 0){
-      return XLSX.utils.sheet_to_json(ws, { defval: '' });
+      const empty = [];
+      empty.__parseMeta = {
+        firmaAdiColIndex: -1,
+        miktarUnit: 'kg',
+        templateValidation: { ok: false, missing: ['başlık satırı'] },
+        headerRow: [],
+        headerRowIndex: -1,
+        hiddenSkipped: visibility.hiddenSkipped,
+        visibilityApplied: visibility.visibilityApplied,
+      };
+      return empty;
     }
 
     const header = (table[headerRowIndex] || []).map(v=> String(v||'').trim());
@@ -1773,9 +1918,20 @@
       } else if (row.length > 7) {
         obj._hSutunValue = String(row[7] || '').trim();
       }
+      if (Number.isFinite(row._excelRowNum) && row._excelRowNum > 0) {
+        obj._excelRowNum = row._excelRowNum;
+      }
       out.push(obj);
     }
-    out.__parseMeta = { firmaAdiColIndex, miktarUnit, templateValidation, headerRow: header, headerRowIndex };
+    out.__parseMeta = {
+      firmaAdiColIndex,
+      miktarUnit,
+      templateValidation,
+      headerRow: header,
+      headerRowIndex,
+      hiddenSkipped: visibility.hiddenSkipped,
+      visibilityApplied: visibility.visibilityApplied,
+    };
     return out;
   }
 
@@ -1837,7 +1993,10 @@
     return '';
   }
 
-  function excelRowNumber(parseMeta, dataRowIndex) {
+  function excelRowNumber(parseMeta, dataRowIndex, rawRow) {
+    const fromRow = (rawRow && rawRow._raw && rawRow._raw._excelRowNum)
+      || (rawRow && rawRow._excelRowNum);
+    if (Number.isFinite(fromRow) && fromRow > 0) return fromRow;
     const headerIdx = parseMeta && Number.isFinite(parseMeta.headerRowIndex) ? parseMeta.headerRowIndex : 0;
     return headerIdx + 1 + dataRowIndex + 1;
   }
@@ -1898,7 +2057,7 @@
       if (!check.ok) {
         skipped.push({
           rowIndex: idx + 1,
-          excelRow: excelRowNumber(meta, idx),
+          excelRow: excelRowNumber(meta, idx, o),
           reason: check.reason,
           firma: o.firma,
           malzeme: o.malzeme,
@@ -1911,6 +2070,7 @@
       orders.push(o);
     });
 
+    const hiddenSkipped = parseInt(meta.hiddenSkipped, 10) || 0;
     const report = {
       totalRaw: rows.filter((r) => !(r && r.__parseMeta)).length,
       accepted: orders.length,
@@ -1919,6 +2079,8 @@
       skippedRows: skipped,
       template: meta.templateValidation || null,
       miktarUnit: unit,
+      hiddenRowsSkipped: hiddenSkipped,
+      visibilityApplied: meta.visibilityApplied !== false,
     };
     return { orders, skipped, report };
   }
@@ -1953,15 +2115,39 @@
       if ('sheetDateRaw' in extra) state.sheetDateRaw = extra.sheetDateRaw;
     }
     refreshArchiveForCurrentSheet();
-    if (norm.report && norm.report.totalSkipped > 0) showPiyasaImportReportModal(norm.report);
-    else if (norm.report && norm.report.template && !norm.report.template.ok) showPiyasaImportReportModal(norm.report);
+    const r = norm.report;
+    if (r && (
+      r.totalSkipped > 0
+      || (r.hiddenRowsSkipped > 0)
+      || r.visibilityApplied === false
+      || (r.template && !r.template.ok)
+    )) {
+      showPiyasaImportReportModal(r);
+    }
     return norm;
+  }
+
+  /** Sheet'te Excel'de görünen sipariş sayısı (gizli satırlar hariç). */
+  function countOrdersInVisibleSheet(ws) {
+    try {
+      const rawRows = parseSheetSmart(ws);
+      const norm = normalizeRows(rawRows, rawRows.__parseMeta);
+      return (norm.orders || []).length;
+    } catch (e) {
+      return 0;
+    }
   }
 
   function showPiyasaImportReportModal(report) {
     if (!report) return;
     const labels = (eu().SKIP_REASON_LABELS) || {};
     let lines = `<p><b>${report.accepted}</b> sipariş yüklendi. <b>${report.totalSkipped}</b> satır elendi.</p>`;
+    if (report.hiddenRowsSkipped > 0) {
+      lines += `<p style="color:#4338ca;font-size:12px;">👁 Excel'de gizli <b>${report.hiddenRowsSkipped}</b> satır atlandı (sheet'te görünenler yüklendi).</p>`;
+    }
+    if (report.visibilityApplied === false) {
+      lines += `<p style="color:#b45309;">⚠️ Excel gizli satır bilgisi okunamadı — sheet'te gördüğünüzle birebir eşleşmeyebilir. Dosyayı yeniden kaydedip tekrar yükleyin.</p>`;
+    }
     if (report.template && !report.template.ok) {
       lines += `<p style="color:#b45309;">⚠️ Şablon: eksik başlıklar — ${(report.template.missing || []).join(', ')}</p>`;
     }
@@ -2036,20 +2222,19 @@
       const week = getWeekFromSheetName(name, wb);
       if (!week) continue;
 
-      // HIZLI: tüm sheet'i JSON'a çevirmeden yaklaşık satır sayısı al
-      let approxRows = 0;
-      try{
+      let orderCount = 0;
+      let approx = false;
+      try {
         const ws = wb.Sheets[name];
-        const ref = ws && ws['!ref'];
-        if (ref && XLSX?.utils?.decode_range){
-          const range = XLSX.utils.decode_range(ref);
-          approxRows = (range.e.r - range.s.r + 1) || 0;
+        if (ws) {
+          orderCount = countOrdersInVisibleSheet(ws);
         }
-      }catch(e){
-        approxRows = 0;
+      } catch (e) {
+        orderCount = 0;
+        approx = true;
       }
 
-      metas.push({ name, week, count: approxRows, approx: true, orderIndex: i });
+      metas.push({ name, week, count: orderCount, approx, orderIndex: i });
     }
     return metas;
   }
@@ -2255,7 +2440,11 @@
   function scheduleWeekArchiveBuild(wb) {
     const run = () => {
       try {
-        state.weekArchive = buildWeekArchive(wb);
+        const persisted = buildPersistedOrderLookup();
+        const archive = buildWeekArchive(wb);
+        restorePersistedFieldsOnArchive(archive, persisted);
+        state.weekArchive = archive;
+        refreshArchiveForCurrentSheet();
         if (state.orders && state.orders.length) saveState();
       } catch (e) {
         console.warn('Piyasa week archive build failed', e);
@@ -2448,9 +2637,10 @@
   function isHpFirma() { return false; }
 
   function applyOrderFromPicker(o) {
+    const canon = resolveCanonicalOrder(o) || o;
     const plate = (document.getElementById('cekiciPlaka') || {}).value || '';
-    applyOrderToForm(o, { forceReuse: true });
-    markOrderUsed(o, plate);
+    applyOrderToForm(canon, { forceReuse: true });
+    markOrderUsed(canon, plate);
   }
 
   function showPiyasaSuggestionBar(suggestions, ctx) {
@@ -2520,10 +2710,19 @@
   }
 
   function markOrderUsed(o, plate) {
-    if (!o) return;
-    o.usedAt = Date.now();
-    o.usedPlate = String(plate || '').trim();
-    state._lastAppliedOrder = o;
+    const canon = resolveCanonicalOrder(o);
+    if (!canon) return;
+    const pickKey = getOrderPickKey(canon);
+    const patch = {
+      usedAt: Date.now(),
+      usedPlate: String(plate || '').trim(),
+    };
+    forEachMatchingOrder(pickKey, (hit) => {
+      hit.usedAt = patch.usedAt;
+      hit.usedPlate = patch.usedPlate;
+    });
+    state._lastAppliedOrder = resolveCanonicalOrder(canon) || canon;
+    refreshArchiveForCurrentSheet();
     try { saveState(); } catch (e) {}
   }
 
@@ -3120,7 +3319,7 @@
     overlay.setAttribute('data-piyasa-order-picker', '1');
     overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_BASE);
     const durumFreezeBanner = isDurumFrozen() && _durumStatus.message
-      ? `<div style="padding:8px 14px;background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;border-bottom:1px solid #fde68a;">⏸ DURUM sıfır — ${escapeHtml(_durumStatus.message)}</div>`
+      ? `<div style="padding:8px 14px;background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;border-bottom:1px solid #fde68a;">⏸ ${escapeHtml(_durumStatus.message)}</div>`
       : '';
     overlay.innerHTML = `
       <div style="position:relative;z-index:1;background:#fff;border-radius:14px;max-width:min(96vw,1400px);width:100%;max-height:88vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
@@ -3841,13 +4040,7 @@
       loading.setMessage('Dosya okunuyor…');
       const ab = await file.arrayBuffer();
       loading.setMessage('Excel sayfaları taranıyor…');
-      wb = XLSX.read(ab, {
-        type: 'array',
-        cellStyles: false,
-        cellNF: false,
-        cellText: false,
-        dense: true
-      });
+      wb = XLSX.read(ab, PIYASA_XLSX_READ_OPTS);
 
       const metas = getSheetMetaForPicker(wb);
       if (!metas.length){

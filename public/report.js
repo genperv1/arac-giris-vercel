@@ -930,9 +930,16 @@
 
     try {
       localStorage.setItem('tempReprintData', JSON.stringify(d));
+      localStorage.setItem('pendingReprint', JSON.stringify({
+        reprint: vehicleId,
+        plate: plate,
+        at: Date.now()
+      }));
     } catch (e) { /* ignore */ }
 
-    if (window.SessionManager && typeof window.SessionManager.openHomePage === 'function') {
+    if (window.SessionManager && typeof window.SessionManager.openHomeForReprint === 'function') {
+      window.SessionManager.openHomeForReprint({ vehicleId: vehicleId, plate: plate });
+    } else if (window.SessionManager && typeof window.SessionManager.openHomePage === 'function') {
       window.SessionManager.openHomePage(url.pathname + url.search);
     } else {
       window.location.href = url.toString();

@@ -6,8 +6,13 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <script>
             (function(){
-                // Do not auto-show the app just because localStorage.contains isLoggedIn.
-                // The session must be validated by the server before showing the main UI.
+                // Oturum kaydı varsa login flaşı yerine ana uygulamayı hemen göster;
+                // sunucu doğrulaması başarısız olursa app.js login ekranına döndürür.
+                try {
+                    if (localStorage.getItem('isLoggedIn') === 'true') {
+                        document.documentElement.classList.add('logged-in');
+                    }
+                } catch (e) { /* ignore */ }
             })();
         </script>
         <style>
@@ -232,9 +237,9 @@
         <script src="signatures-registry.js?v=20260605-fixes-v1"></script>
         <script src="ayarlar-gate.js?v=20260605-fixes-v1"></script>
         <script src="excel-utils.js?v=20260605-fixes-v1"></script>
-        <script src="app.js?v=20260605-fixes-v1"></script>
+        <script src="app.js?v=20260609-irsaliye-fix"></script>
         <script src="excel-consistency.js?v=20260605-fixes-v1"></script>
         <script src="excel-ihracat-import.js?v=20260605-fixes-v1"></script>
-        <script src="piyasa.js?v=20260605-durum-freeze"></script>
+        <script src="piyasa.js?v=20260605-durum-fix2"></script>
     </body>
 </html>
