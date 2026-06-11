@@ -1,9 +1,19 @@
 # Tek tikla GitHub yukleme
-$ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 
 $configPath = Join-Path $root ".github-push.local"
+
+function Invoke-Git {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$GitArgs)
+
+    $output = & git @GitArgs 2>&1
+    $code = $LASTEXITCODE
+    foreach ($line in $output) {
+        Write-Host $line
+    }
+    return @{ ExitCode = $code; Text = ($output | ForEach-Object { "$_" }) -join "`n" }
+}
 
 function Get-PushConfig {
     if (Test-Path $configPath) {
@@ -17,12 +27,12 @@ function Save-PushConfig($url) {
 }
 
 function Ensure-Git {
-    git --version *> $null
-    if ($LASTEXITCODE -ne 0) {
+    $r = Invoke-Git --version
+    if ($r.ExitCode -ne 0) {
         throw "Git kurulu degil. https://git-scm.com/download/win adresinden kurun."
     }
     if (-not (Test-Path (Join-Path $root ".git"))) {
-        git init | Out-Null
+        Invoke-Git init | Out-Null
     }
 }
 
@@ -55,29 +65,28 @@ function Setup-FirstTime {
 }
 
 function Ensure-Remote($url) {
-    $remotes = git remote 2>$null
+    $remotes = (& git remote 2>$null)
     if ($remotes -contains "origin") {
-        git remote set-url origin $url | Out-Null
+        Invoke-Git remote set-url origin $url | Out-Null
     } else {
-        git remote add origin $url
+        Invoke-Git remote add origin $url | Out-Null
     }
-    git branch -M main 2>$null | Out-Null
+    Invoke-Git branch -M main | Out-Null
 }
 
 function Invoke-GitPush {
-    $pushLog = git push -u origin main 2>&1 | ForEach-Object { "$_" }
-    $pushLog | ForEach-Object { Write-Host $_ }
-    if ($LASTEXITCODE -eq 0) { return $true }
+    $push = Invoke-Git push -u origin main
+    if ($push.ExitCode -eq 0) { return $true }
 
-    $logText = $pushLog -join "`n"
-    if ($logText -match 'fetch first|rejected') {
+    if ($push.Text -match 'fetch first|rejected') {
         Write-Host ""
         Write-Host "GitHub'da eski kayitlar var, birlestiriliyor..." -ForegroundColor Yellow
-        git pull origin main --allow-unrelated-histories --no-edit -X ours 2>&1 | ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0) { return $false }
-        git push -u origin main 2>&1 | ForEach-Object { Write-Host $_ }
-        return ($LASTEXITCODE -eq 0)
+        $pull = Invoke-Git pull origin main --allow-unrelated-histories --no-edit -X ours
+        if ($pull.ExitCode -ne 0) { return $false }
+        $push2 = Invoke-Git push -u origin main
+        return ($push2.ExitCode -eq 0)
     }
+
     return $false
 }
 
@@ -105,12 +114,15 @@ try {
 
     Write-Host ""
     Write-Host "Dosyalar hazirlaniyor..." -ForegroundColor Cyan
-    git add .
+    Invoke-Git add . | Out-Null
 
-    $changes = git status --porcelain
+    $changes = & git status --porcelain
     if ($changes) {
         $msg = "Guncelleme $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
-        git commit -m $msg
+        $commit = Invoke-Git commit -m $msg
+        if ($commit.ExitCode -ne 0) {
+            throw "Kayit olusturulamadi."
+        }
         Write-Host "Kayit olusturuldu." -ForegroundColor Green
     } else {
         Write-Host "Yeni degisiklik yok, mevcut kayit gonderiliyor..." -ForegroundColor Gray
@@ -118,20 +130,20 @@ try {
 
     Show-TokenHelp
     Write-Host "GitHub'a gonderiliyor..." -ForegroundColor Cyan
-    $pushed = Invoke-GitPush
 
-    if ($pushed) {
+    if (Invoke-GitPush) {
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "  BASARILI! Proje GitHub'a yuklendi." -ForegroundColor Green
         Write-Host "  $url" -ForegroundColor Green
         Write-Host "========================================" -ForegroundColor Green
     } else {
-        throw "Push basarisiz oldu."
+        throw "Push basarisiz oldu. Internet veya token kontrol edin."
     }
 } catch {
     Write-Host ""
     Write-Host "HATA: $($_.Exception.Message)" -ForegroundColor Red
+    Read-Host "Kapatmak icin Enter'a basin"
     exit 1
 }
 
