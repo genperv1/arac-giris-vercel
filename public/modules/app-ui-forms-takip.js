@@ -1911,7 +1911,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           ${state.showForm ? 'İptal' : 'Yeni Kayıt'}
         </button>
         <details class="app-nav-more-menu app-tools-menu">
-          <summary class="app-nav-btn app-nav-more-toggle list-none select-none">
+          <summary class="app-nav-btn app-nav-btn--always app-nav-more-toggle list-none select-none">
             Menü <span class="app-nav-chevron" aria-hidden="true">▾</span>
           </summary>
           <div class="app-nav-more-panel">

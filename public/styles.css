@@ -2777,8 +2777,12 @@ body {
   padding-right: max(1rem, env(safe-area-inset-right, 0));
 }
 
-/* Katlanır menü — masaüstünde düz nav */
+/* Katlanır menü — masaüstünde tüm butonlar görünür (details kutusu kalkar) */
 @media (min-width: 641px) {
+  .app-nav-more-menu {
+    display: contents;
+  }
+
   .app-nav-more-menu > summary.app-nav-more-toggle {
     display: none !important;
   }
@@ -2787,12 +2791,20 @@ body {
     display: contents;
   }
 
+  .app-tools-menu--nested {
+    position: relative;
+    display: inline-flex;
+  }
+
   .app-tools-menu--nested > summary {
     display: inline-flex;
   }
 
   .app-tools-menu--nested .app-dropdown--nested {
     position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    z-index: 60;
   }
 }
 
