@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <meta name="theme-color" content="#4f46e5" />
+  <title>Plaka Ayırma — Yönetim Paneli</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=20260611-mobile">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <script src="core-dom.js"></script>
+  <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
+  <script src="session-manager.js?v=20260605-fixes-v1"></script>
+  <style>
+    :root {
+      --rp-bg: #f1f5f9;
+      --rp-surface: #ffffff;
+      --rp-surface2: #f8fafc;
+      --rp-surface-tint: #f5f3ff;
+      --rp-border: #e2e8f0;
+      --rp-border2: #cbd5e1;
+      --rp-text: #334155;
+      --rp-muted: #64748b;
+      --rp-accent: #4f46e5;
+      --rp-accent-hover: #4338ca;
+      --rp-accent-soft: #eef2ff;
+      --rp-danger: #dc2626;
+      --rp-danger-hover: #b91c1c;
+      --rp-header-from: #1e293b;
+      --rp-header-to: #4338ca;
+      --rp-mono: ui-monospace, Consolas, 'Liberation Mono', monospace;
+      --rp-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+      --rp-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+    }
+
+    body.rp-page {
+      background: var(--rp-bg);
+      color: var(--rp-text);
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .rp-header {
+      background: linear-gradient(to right, var(--rp-header-from), var(--rp-header-to));
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: var(--rp-shadow-md);
+    }
+
+    .rp-logo-box {
+      width: 44px;
+      height: 44px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--rp-mono);
+      font-weight: 700;
+      font-size: 13px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .rp-header-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.3;
+    }
+
+    .rp-header-sub {
+      font-size: 0.8125rem;
+      color: rgba(255, 255, 255, 0.78);
+      margin-top: 2px;
+    }
+
+    .rp-btn-header {
+      font-size: 0.8125rem;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .rp-btn-header:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .rp-page-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+    }
+
+    .rp-page-desc {
+      font-size: 0.875rem;
+      color: var(--rp-muted);
+      margin-top: 0.25rem;
+    }
+
+    .pl-stats {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+    }
+
+    .pl-stat-card {
+      background: var(--rp-surface);
+      border: 1px solid #e0e7ff;
+      border-radius: 10px;
+      padding: 10px 18px;
+      min-width: 100px;
+      box-shadow: var(--rp-shadow-sm);
+    }
+
+    .pl-stat-label {
+      font-size: 0.625rem;
+      color: var(--rp-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .pl-stat-val {
+      font-size: 1.375rem;
+      font-weight: 700;
+      font-family: var(--rp-mono);
+      margin-top: 4px;
+      color: var(--rp-accent);
+    }
+
+    .pl-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .pl-panel {
+      background: var(--rp-surface);
+      border: 1px solid var(--rp-border);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: var(--rp-shadow-sm);
+    }
+
+    .pl-btn-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .pl-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.5rem 0.875rem;
+      border-radius: 8px;
+      border: 1px solid var(--rp-border2);
+      background: var(--rp-surface2);
+      color: var(--rp-text);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .pl-btn:hover {
+      background: #e2e8f0;
+      border-color: #94a3b8;
+    }
+
+    .pl-btn-primary {
+      background: var(--rp-accent);
+      border-color: var(--rp-accent);
+      color: #fff;
+    }
+
+    .pl-btn-primary:hover {
+      background: var(--rp-accent-hover);
+      border-color: var(--rp-accent-hover);
+    }
+
+    .pl-btn-danger {
+      background: var(--rp-danger);
+      border-color: var(--rp-danger);
+      color: #fff;
+    }
+
+    .pl-btn-danger:hover {
+      background: var(--rp-danger-hover);
+      border-color: var(--rp-danger-hover);
+    }
+
+    .pl-btn-sm {
+      padding: 0.375rem 0.6875rem;
+      font-size: 0.6875rem;
+      font-weight: 500;
+    }
+
+    #input {
+      width: 100%;
+      min-height: 260px;
+      padding: 12px 14px;
+      background: var(--rp-surface2);
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      color: var(--rp-text);
+      font-family: var(--rp-mono);
+      font-size: 12px;
+      resize: vertical;
+      line-height: 1.7;
+      outline: none;
+    }
+
+    #input:focus {
+      border-color: var(--rp-accent);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+      background: #fff;
+    }
+
+    #input::placeholder {
+      color: #94a3b8;
+    }
+
+    #search {
+      width: 100%;
+      padding: 9px 12px;
+      background: var(--rp-surface2);
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      color: var(--rp-text);
+      font-family: var(--rp-mono);
+      font-size: 12px;
+      outline: none;
+      margin-bottom: 10px;
+    }
+
+    #search:focus {
+      border-color: var(--rp-accent);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+      background: #fff;
+    }
+
+    #search::placeholder {
+      color: #94a3b8;
+    }
+
+    .pl-copy-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .pl-table-wrap {
+      overflow: auto;
+      max-height: 320px;
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .pl-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .pl-table thead {
+      position: sticky;
+      top: 0;
+      background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+      z-index: 1;
+    }
+
+    .pl-table th {
+      padding: 9px 10px;
+      font-size: 0.6875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--rp-muted);
+      font-weight: 700;
+      border-bottom: 2px solid var(--rp-border);
+    }
+
+    .pl-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #f1f5f9;
+      font-family: var(--rp-mono);
+      color: var(--rp-text);
+    }
+
+    .pl-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .pl-table tbody tr {
+      cursor: pointer;
+    }
+
+    .pl-table tbody tr:hover {
+      background: var(--rp-surface2);
+    }
+
+    .pl-table tbody tr.selected {
+      background: var(--rp-accent-soft);
+    }
+
+    .td-sira {
+      text-align: center;
+      color: var(--rp-muted);
+    }
+
+    .td-bbt {
+      text-align: right;
+      color: var(--rp-accent);
+      font-weight: 600;
+    }
+
+    mark {
+      background: #c7d2fe;
+      color: #3730a3;
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    .empty-row td {
+      text-align: center;
+      color: var(--rp-muted);
+      padding: 28px;
+      font-size: 13px;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      box-shadow: var(--rp-shadow-md);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 999;
+    }
+
+    .toast.show {
+      opacity: 1;
+    }
+
+    .toast.warn {
+      background: #7f1d1d;
+      border-color: #991b1b;
+    }
+
+    .dup-banner {
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-left: 4px solid var(--rp-danger);
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #991b1b;
+      box-shadow: var(--rp-shadow-sm);
+    }
+
+    .dup-banner.show {
+      display: flex;
+    }
+
+    .dup-banner strong {
+      display: block;
+      margin-bottom: 4px;
+      color: #7f1d1d;
+    }
+
+    .dup-banner ul {
+      margin: 6px 0 0 18px;
+      font-family: var(--rp-mono);
+      font-size: 12px;
+    }
+
+    tbody tr.dup-row {
+      background: #fef2f2;
+    }
+
+    tbody tr.dup-row:hover {
+      background: #fee2e2;
+    }
+
+    tbody tr.dup-row.selected {
+      background: #fecaca;
+    }
+
+    .dup-badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 6px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      background: var(--rp-danger);
+      color: #fff;
+      border-radius: 4px;
+      vertical-align: middle;
+    }
+
+    @media (max-width: 768px) {
+      .pl-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .pl-table--responsive thead {
+        display: none;
+      }
+
+      .pl-table--responsive tbody tr {
+        display: block;
+        margin-bottom: 0.65rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--rp-border);
+        border-radius: 10px;
+        background: var(--rp-surface);
+      }
+
+      .pl-table--responsive tbody tr.dup-row {
+        background: #fef2f2;
+      }
+
+      .pl-table--responsive tbody tr.selected {
+        outline: 2px solid var(--rp-accent);
+        outline-offset: -1px;
+      }
+
+      .pl-table--responsive td {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.35rem 0;
+        border: none;
+        text-align: right;
+      }
+
+      .pl-table--responsive td::before {
+        content: attr(data-label);
+        font-size: 0.6875rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--rp-muted);
+        text-align: left;
+        flex-shrink: 0;
+      }
+
+      .pl-table--responsive .td-sira {
+        font-weight: 700;
+      }
+
+      .pl-table--responsive .td-bbt {
+        font-weight: 700;
+        color: var(--rp-accent);
+      }
+
+      .pl-btn-row,
+      .pl-copy-row {
+        flex-wrap: wrap;
+      }
+
+      .pl-btn {
+        min-height: 2.75rem;
+      }
+
+      #input,
+      #search {
+        font-size: 16px;
+      }
+    }
+  </style>
+</head>
+<body class="rp-page">
+
+<header class="rp-header">
+  <div class="max-w-7xl mx-auto px-4 py-5 flex items-center justify-between gap-4 flex-wrap">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="rp-logo-box" aria-hidden="true">AT</div>
+      <div class="min-w-0">
+        <div class="rp-header-title">Araç Takip</div>
+        <div class="rp-header-sub">Yönetim Paneli</div>
+      </div>
+    </div>
+    <button type="button" id="backBtn" class="rp-btn-header">Ana Sayfa</button>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+  <div class="mb-6">
+    <h1 class="rp-page-title">Plaka Ayırma</h1>
+    <p class="rp-page-desc">Toplu plaka listesini yapıştırın, BBT değerlerini ayırın ve kopyalayın.</p>
+  </div>
+
+  <div class="pl-stats">
+    <div class="pl-stat-card">
+      <div class="pl-stat-label">Toplam BBT</div>
+      <div class="pl-stat-val" id="totalBBT">0</div>
+    </div>
+    <div class="pl-stat-card">
+      <div class="pl-stat-label">Plaka sayısı</div>
+      <div class="pl-stat-val" id="count">0</div>
+    </div>
+  </div>
+
+  <div id="dupBanner" class="dup-banner" role="alert">
+    <div>
+      <strong>Tekrarlayan plaka tespit edildi</strong>
+      <span>Aynı plaka listede birden fazla kez var. Nakliyeci yanlışlıkla çift girmiş olabilir.</span>
+      <ul id="dupList"></ul>
+    </div>
+  </div>
+
+  <div class="pl-grid">
+    <div class="pl-panel">
+      <div class="pl-btn-row">
+        <button type="button" class="pl-btn pl-btn-primary" onclick="parse()">
+          <i class="fas fa-cut" aria-hidden="true"></i> Ayır
+        </button>
+        <button type="button" class="pl-btn pl-btn-danger" onclick="clearAll()">
+          <i class="fas fa-eraser" aria-hidden="true"></i> Temizle
+        </button>
+      </div>
+      <textarea id="input" placeholder="Plakaları buraya yapıştır...
+Örnek:
+43RV120	28  ORHANİZE
+03EN380	25
+03ADP790 22  ORHANİZE
+43ABT566 22"></textarea>
+    </div>
+
+    <div class="pl-panel">
+      <input type="search" id="search" placeholder="Plaka ara (ör: 34ABC123)" autocomplete="off">
+      <div class="pl-copy-row">
+        <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(0)">Sıra no</button>
+        <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(1)">Plaka</button>
+        <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(2)">BBT</button>
+      </div>
+      <div class="pl-table-wrap">
+        <table class="pl-table pl-table--responsive">
+          <thead>
+            <tr>
+              <th style="text-align:center">Sıra</th>
+              <th style="text-align:left">Plaka</th>
+              <th style="text-align:right">BBT</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+<script>
+let rows = [], fuse = null, currentTotal = 0, displayedList = [], selectedIndex = -1;
+let duplicatePlates = new Set();
+let toastTimer = null;
+
+const PLATE_RE = /(\d{2})\s*([A-ZÇĞİÖŞÜ]{1,3})\s*(\d{2,5})/i;
+
+function normalizePlate(s) {
+  const m = String(s || '').toUpperCase().match(PLATE_RE);
+  return m ? (m[1] + m[2] + m[3]).replace(/\s+/g, '') : null;
+}
+
+function turkishNormalize(str) {
+  return String(str || '').toLowerCase()
+    .replace(/ç/g,'c').replace(/ğ/g,'g').replace(/ı/g,'i')
+    .replace(/ö/g,'o').replace(/ş/g,'s').replace(/ü/g,'u')
+    .replace(/[^a-z0-9]/g,'');
+}
+
+function extractBBT(line) {
+  if (/iptal/i.test(line)) return null;
+  const bbtMatch = line.match(/(\d+)\s*BBT/i);
+  if (bbtMatch) return parseInt(bbtMatch[1], 10);
+  const plateMatch = String(line || '').match(PLATE_RE);
+  if (!plateMatch) return null;
+  const afterPlate = line.slice(plateMatch.index + plateMatch[0].length);
+  const numMatch = afterPlate.match(/(\d+)/);
+  if (!numMatch) return null;
+  const val = parseInt(numMatch[1], 10);
+  return val > 0 && val <= 9999 ? val : null;
+}
+
+function buildFuse() {
+  const opts = { includeScore: true, includeMatches: true, threshold: 0.3, keys: ['plate'] };
+  fuse = new Fuse(rows.map(r => ({ ...r, plateNorm: turkishNormalize(r.plate) })), opts);
+}
+
+function findDuplicatePlates(list) {
+  const counts = {};
+  (list || []).forEach(r => { counts[r.plate] = (counts[r.plate] || 0) + 1; });
+  return Object.keys(counts).filter(p => counts[p] > 1).sort();
+}
+
+function updateDuplicateWarning(dups) {
+  duplicatePlates = new Set(dups || []);
+  const banner = document.getElementById('dupBanner');
+  const listEl = document.getElementById('dupList');
+  if (!banner || !listEl) return;
+  if (!duplicatePlates.size) {
+    banner.classList.remove('show');
+    listEl.innerHTML = '';
+    return;
+  }
+  const counts = {};
+  rows.forEach(r => { counts[r.plate] = (counts[r.plate] || 0) + 1; });
+  listEl.innerHTML = dups.map(p =>
+    `<li>${escapeHtml(p)} — ${counts[p]} kez</li>`
+  ).join('');
+  banner.classList.add('show');
+}
+
+function parse() {
+  const lines = (document.getElementById('input').value || '').split(/\n+/);
+  rows = [];
+  let total = 0;
+  lines.forEach(l => {
+    if (!l.trim()) return;
+    if (/iptal/i.test(l)) return;
+    const plate = normalizePlate(l);
+    if (!plate) return;
+    const bbt = extractBBT(l);
+    if (plate && bbt != null) { rows.push({ plate, bbt }); total += bbt; }
+  });
+  currentTotal = total;
+  const dups = findDuplicatePlates(rows);
+  updateDuplicateWarning(dups);
+  buildFuse();
+  renderRows(rows);
+  if (dups.length) {
+    toast('Uyarı: ' + dups.length + ' plaka tekrar ediyor — ' + dups.join(', '), true, 5000);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function highlightPlate(text, indices) {
+  if (!indices || !indices.length) return escapeHtml(text);
+  let out = '', last = 0;
+  for (const [s, e] of indices) {
+    out += escapeHtml(text.slice(last, s));
+    out += '<mark>' + escapeHtml(text.slice(s, e + 1)) + '</mark>';
+    last = e + 1;
+  }
+  out += escapeHtml(text.slice(last));
+  return out;
+}
+
+function renderRows(list) {
+  const tb = document.getElementById('tbody');
+  tb.innerHTML = '';
+  displayedList = list || [];
+  if (!displayedList.length) {
+    tb.innerHTML = '<tr class="empty-row"><td colspan="3">Sonuç bulunamadı</td></tr>';
+  } else {
+    displayedList.forEach((r, i) => {
+      const isDup = duplicatePlates.has(r.plate);
+      const isSel = i === selectedIndex ? 'selected' : '';
+      const dupCls = isDup ? 'dup-row' : '';
+      const ph = r._plateHtml || escapeHtml(r.plate);
+      const dupBadge = isDup ? '<span class="dup-badge">Tekrar</span>' : '';
+      tb.insertAdjacentHTML('beforeend',
+        `<tr data-idx="${i}" class="${isSel} ${dupCls}">
+          <td class="td-sira" data-label="Sıra">${i + 1}</td>
+          <td data-label="Plaka">${ph}${dupBadge}</td>
+          <td class="td-bbt" data-label="BBT">${r.bbt || ''}</td>
+        </tr>`);
+    });
+    tb.querySelectorAll('tr[data-idx]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        selectedIndex = Number(tr.dataset.idx);
+        updateSelection();
+        copySelectedPlate();
+      });
+    });
+  }
+  document.getElementById('totalBBT').textContent = currentTotal;
+  document.getElementById('count').textContent = rows.length;
+}
+
+function updateSelection() {
+  document.querySelectorAll('#tbody tr[data-idx]').forEach(tr => {
+    tr.classList.toggle('selected', Number(tr.dataset.idx) === selectedIndex);
+  });
+}
+
+function copySelectedPlate() {
+  if (selectedIndex < 0 || selectedIndex >= displayedList.length) return;
+  const p = displayedList[selectedIndex].plate || '';
+  navigator.clipboard.writeText(p).then(() => toast('Plaka kopyalandı: ' + p)).catch(() => {});
+}
+
+function clearAll() {
+  document.getElementById('input').value = '';
+  document.getElementById('search').value = '';
+  document.getElementById('tbody').innerHTML = '';
+  document.getElementById('totalBBT').textContent = '0';
+  document.getElementById('count').textContent = '0';
+  rows = []; fuse = null; currentTotal = 0; displayedList = []; selectedIndex = -1;
+  duplicatePlates = new Set();
+  updateDuplicateWarning([]);
+}
+
+function copyCol(idx) {
+  let txt = '';
+  if (idx === 0) txt = rows.map((_, i) => String(i + 1)).join('\r\n');
+  if (idx === 1) txt = rows.map(r => r.plate).join('\r\n');
+  if (idx === 2) txt = rows.map(r => r.bbt).join('\r\n');
+  navigator.clipboard.writeText(txt).then(() => toast('Kopyalandı')).catch(() => {});
+}
+
+function toast(msg, isWarn, duration) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.toggle('warn', !!isWarn);
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.classList.remove('show', 'warn');
+    toastTimer = null;
+  }, duration || (isWarn ? 5000 : 2200));
+}
+
+function debounce(fn, wait) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); }; }
+
+function highlightByQuery(text, q) {
+  try {
+    const nt = turkishNormalize(text || ''), nq = turkishNormalize(q || '');
+    const idx = nt.indexOf(nq); if (idx === -1) return escapeHtml(text || '');
+    const orig = String(text || ''); const sub = orig.substr(idx, q.length);
+    const s = orig.indexOf(sub); if (s === -1) return escapeHtml(text || '');
+    return highlightPlate(orig, [[s, s + sub.length - 1]]);
+  } catch(e) { return escapeHtml(text || ''); }
+}
+
+const onSearch = debounce(() => {
+  const q = document.getElementById('search').value || '';
+  selectedIndex = -1;
+  if (!q) { renderRows(rows); return; }
+  if (!fuse) { renderRows(rows); return; }
+  const results = fuse.search(turkishNormalize(q));
+  const mapped = results.map(res => {
+    const item = res.item || res;
+    const match = (res.matches && res.matches.find(m => m.key === 'plate')) || null;
+    return { plate: item.plate, bbt: item.bbt, _plateHtml: highlightPlate(item.plate, match ? match.indices : []) };
+  });
+  renderRows(mapped);
+}, 220);
+
+document.getElementById('search').addEventListener('input', onSearch);
+document.getElementById('search').addEventListener('keydown', ev => {
+  if (ev.key === 'ArrowDown') { ev.preventDefault(); if (displayedList.length) { selectedIndex = Math.min(displayedList.length - 1, selectedIndex + 1); updateSelection(); } }
+  if (ev.key === 'ArrowUp') { ev.preventDefault(); if (displayedList.length) { selectedIndex = Math.max(0, selectedIndex - 1); updateSelection(); } }
+  if (ev.key === 'Enter') { ev.preventDefault(); copySelectedPlate(); }
+});
+
+document.getElementById('backBtn')?.addEventListener('click', function () {
+  try {
+    if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') {
+      window.SessionManager.navigateToHome();
+    } else {
+      location.href = 'GIRIS.html';
+    }
+  } catch (e) {
+    location.href = 'GIRIS.html';
+  }
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="logo.png" />
+    <title>Aylık Raporlar — Yönetim Paneli</title>
+    <link rel="stylesheet" href="tailwind-built.css">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="core-dom.js"></script>
+    <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
+    <script src="session-manager.js?v=20260605-fixes-v1"></script>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-700">
+    <header class="bg-gradient-to-r from-slate-800 to-indigo-700 text-white">
+        <div class="max-w-7xl mx-auto px-4 py-6 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="h-12 w-12 bg-white/10 rounded flex items-center justify-center font-bold">AT</div>
+                <div>
+                    <div class="text-xl font-bold">Araç Takip</div>
+                    <div class="text-sm opacity-80">Aylık Raporlar</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="GIRIS.html" id="backBtn" class="px-4 py-2 bg-white/10 border border-white/20 rounded-md text-sm">Ana Sayfa</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-6">
+        <section class="bg-white shadow-lg rounded-xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm divide-y">
+                    <thead class="bg-gradient-to-r from-white to-slate-50">
+                        <tr class="text-left text-xs text-slate-500 uppercase tracking-wider">
+                            <th class="p-3">Tarih</th>
+                            <th class="p-3">Araç Sayısı</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody" class="bg-white">
+                        <!-- Satırlar manuel eklenecek veya sunucu tarafından verilecek -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="storage.js"></script>
+    <script src="report.js"></script>
+        <script>
+            async function loadAndRender() {
+                const fallback = [{"tarih":"13.01.2026","count":1},{"tarih":"12.01.2026","count":23}];
+                let data = null;
+                try {
+                    const res = await fetch('/api/reportsgroupbydate');
+                    if (res && res.ok) {
+                        const json = await res.json();
+                        if (Array.isArray(json) && json.length) data = json;
+                    }
+                } catch (e) {
+                    data = null;
+                }
+
+                if (!Array.isArray(data) || data.length === 0) data = fallback;
+
+                const tbody = document.getElementById('tbody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                for (const row of data) {
+                            const tarih = String(row.tarih || '');
+                            const count = Number(row.count || 0);
+
+                            const tr = document.createElement('tr');
+                            tr.className = 'border-t group-row';
+                            tr.innerHTML = `<td class="p-3"><button class="toggle-btn text-left text-sm text-slate-700" data-date="${tarih}">▸ ${tarih}</button></td><td class="p-3 font-bold">${count}</td>`;
+                            tbody.appendChild(tr);
+
+                            const detailTr = document.createElement('tr');
+                            detailTr.className = 'detail-row hidden';
+                            detailTr.setAttribute('data-date', tarih);
+                            const safeId = tarih.replace(/\./g, '-');
+                            detailTr.innerHTML = `<td colspan="2" class="p-3 bg-slate-50" id="details-${safeId}"> </td>`;
+                            tbody.appendChild(detailTr);
+                        }
+
+                        // delegate click for toggles
+                        tbody.addEventListener('click', async (e) => {
+                            const btn = e.target.closest && e.target.closest('.toggle-btn');
+                            if (!btn) return;
+                            const date = btn.getAttribute('data-date');
+                            const safeId = date.replace(/\./g, '-');
+                            const detailCell = document.getElementById(`details-${safeId}`);
+                            if (!detailCell) return;
+
+                            const detailRow = detailCell.closest('tr');
+                            const isHidden = detailRow.classList.contains('hidden');
+                            if (!isHidden) {
+                                // collapse
+                                detailRow.classList.add('hidden');
+                                btn.textContent = '▸ ' + date;
+                                return;
+                            }
+
+                            // expand: if empty, fetch
+                            detailCell.innerHTML = '<div class="text-sm text-gray-500">Yükleniyor…</div>';
+                            detailRow.classList.remove('hidden');
+                            btn.textContent = '▾ ' + date;
+
+                            try {
+                                const res = await fetch('/api/reportbydate?date=' + encodeURIComponent(date));
+                                if (!res.ok) throw new Error('fetch failed');
+                                const arr = await res.json();
+                                if (!Array.isArray(arr) || arr.length === 0) {
+                                    detailCell.innerHTML = '<div class="text-sm text-gray-500">Bu güne ait rapor yok.</div>';
+                                    return;
+                                }
+
+                                const list = document.createElement('div');
+                                list.className = 'flex flex-col gap-2';
+                                // helper to escape HTML
+                                function escapeHtml(s){
+                                    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+                                }
+
+                                for (const it of arr) {
+                                    const item = document.createElement('div');
+                                    item.className = 'p-2 bg-white border rounded';
+                                    const saat = (it.data && (it.data.saat || it.data.time)) ? (it.data.saat || it.data.time) : '';
+                                    const vardiya = (it.data && it.data.vardiya) ? it.data.vardiya : '';
+                                    const firma = (it.data && (it.data.firma || it.data.firmaKodu || it.data.firmaSelect)) ? (it.data.firma || it.data.firmaKodu || it.data.firmaSelect) : '';
+                                    const plaka = (it.data && (it.data.plaka || it.data.plate)) ? (it.data.plaka || it.data.plate) : '';
+                                    const previewRaw = (it.data && typeof it.data === 'object') ? JSON.stringify(it.data, null, 2) : String(it.data || '');
+
+                                    item.innerHTML = `
+                                        <div class="w-full overflow-auto">
+                                            <table class="min-w-full text-sm">
+                                                <tr class="border-b"><td class="py-1 font-semibold w-32 text-slate-600">Saat</td><td class="py-1">${escapeHtml(saat) || '-'}</td></tr>
+                                                <tr class="border-b"><td class="py-1 font-semibold text-slate-600">Vardiya</td><td class="py-1">${escapeHtml(vardiya) || '-'}</td></tr>
+                                                <tr class="border-b"><td class="py-1 font-semibold text-slate-600">Firma</td><td class="py-1">${escapeHtml(firma) || '-'}</td></tr>
+                                                <tr class="border-b"><td class="py-1 font-semibold text-slate-600">Plaka</td><td class="py-1">${escapeHtml(plaka) || '-'}</td></tr>
+                                            </table>
+                                            <div class="text-xs text-gray-500 mt-2 whitespace-pre-wrap">${escapeHtml(previewRaw)}</div>
+                                        </div>
+                                    `;
+                                    list.appendChild(item);
+                                }
+                                detailCell.innerHTML = '';
+                                detailCell.appendChild(list);
+                            } catch (err) {
+                                detailCell.innerHTML = '<div class="text-sm text-red-600">Veri alınamadı.</div>';
+                            }
+                        });
+            }
+
+            document.addEventListener('DOMContentLoaded', loadAndRender);
+        </script>
+</body>
+</html>

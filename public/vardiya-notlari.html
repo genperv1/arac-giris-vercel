@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>Vardiya Notları — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <script src="session-manager.js?v=20260605-fixes-v1"></script>
+  <style>
+    body.vn-page { background: #fef2f2; min-height: 100vh; }
+    .vn-header { background: linear-gradient(to right, #7f1d1d, #dc2626); color: #fff; }
+    .vn-card { background: #fff; border: 1px solid #fecaca; border-radius: 14px; box-shadow: 0 4px 14px rgba(127,29,29,0.08); }
+    .vn-label { display: block; font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; }
+    .vn-input { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.875rem; }
+    .vn-input:focus { outline: none; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.15); }
+    .vn-btn-primary { background: #dc2626; color: #fff; border: none; padding: 0.65rem 1.25rem; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; }
+    .vn-btn-primary:hover { background: #b91c1c; }
+    .vn-btn-ghost { background: #fff; border: 1px solid #e2e8f0; padding: 0.4rem 0.75rem; border-radius: 8px; font-size: 0.8125rem; cursor: pointer; }
+    .vn-note-item { border: 1px solid #fecaca; border-radius: 12px; padding: 1rem; margin-bottom: 0.75rem; background: #fff; }
+    .vn-note-item.inactive { opacity: 0.55; background: #f8fafc; border-color: #e2e8f0; }
+    .vn-note-item.is-editing { border-color: #dc2626; box-shadow: 0 0 0 2px rgba(220,38,38,0.2); }
+    .vn-badge { display: inline-block; font-size: 0.6875rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 6px; background: #fee2e2; color: #991b1b; margin-right: 4px; }
+    .vn-excel-status { font-size: 0.8125rem; color: #475569; }
+    .vn-excel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    @media (max-width: 640px) { .vn-excel-grid { grid-template-columns: 1fr; } }
+    .vn-excel-card { background: #fff; border-radius: 10px; padding: 10px 12px; border: 1px solid #e2e8f0; }
+    .vn-excel-card--ihr { border-left: 4px solid #2563eb; }
+    .vn-excel-card--piy { border-left: 4px solid #7c3aed; }
+    .vn-excel-card-title { font-weight: 700; font-size: 0.8125rem; color: #0f172a; margin-bottom: 6px; }
+    .vn-excel-list { margin: 0; padding-left: 1rem; font-size: 0.75rem; line-height: 1.5; color: #475569; }
+    .vn-excel-ok { color: #15803d; font-weight: 600; }
+    .vn-excel-no { color: #94a3b8; font-weight: 600; }
+    .vn-excel-hint { margin: 0; font-size: 0.7rem; line-height: 1.45; color: #64748b; padding: 8px 10px; background: #f1f5f9; border-radius: 8px; }
+    .vn-rule-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+    .vn-rule-row .vn-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.02em;
+      margin-bottom: 0.25rem;
+      line-height: 1.25;
+    }
+    .vn-rule-row .vn-input {
+      padding: 0.45rem 0.55rem;
+      font-size: 0.8125rem;
+    }
+    @media (max-width: 380px) {
+      .vn-rule-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="vn-page text-gray-700">
+  <header class="vn-header">
+    <div class="max-w-7xl mx-auto px-4 py-5 flex items-center justify-between gap-4 flex-wrap">
+      <div class="flex items-center gap-3">
+        <div class="h-12 w-12 bg-white/15 rounded-xl flex items-center justify-center text-lg font-bold">VN</div>
+        <div>
+          <div class="text-xl font-bold">Vardiya Notları</div>
+          <div class="text-sm text-red-100">Excel kurallari — yazdirirken uyari</div>
+        </div>
+      </div>
+      <button type="button" id="vnBackBtn" class="px-5 py-2.5 bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg text-sm font-medium text-white">Ana Sayfa</button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-4 sm:p-6">
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <section class="lg:col-span-2 vn-card p-5">
+        <h2 id="vnFormTitle" class="text-lg font-bold text-red-900 mb-1">Yeni not</h2>
+        <p class="text-sm text-gray-500 mb-4">En az bir kural secin. Yazdir'a basinca eslesen araclarda uyari cikar.</p>
+        <div id="vnExcelStatus" class="vn-excel-status mb-4">Excel durumu yukleniyor...</div>
+        <form id="vnForm" class="space-y-4">
+          <div class="vn-rule-row">
+            <div>
+              <label class="vn-label" for="vnFirmaKodu">Firma (YD256, HP3…)</label>
+              <input id="vnFirmaKodu" class="vn-input" placeholder="HP3" maxlength="80" />
+            </div>
+            <div>
+              <label class="vn-label" for="vnSehir">Şehir (opsiyonel)</label>
+              <input id="vnSehir" class="vn-input" placeholder="Bozüyük" maxlength="80" />
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 -mt-2">Şehir boş: tüm şehirlerde uyar. Şehir dolu: sadece sevk yerinde o şehir geçince (formdaki Sevk Yeri).</p>
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer text-sm">
+              <input type="checkbox" id="vnMalzemeP1P2" class="w-4 h-4 text-red-600 rounded" />
+              <span>Malzemede P1 veya P2 gecince uyar</span>
+            </label>
+          </div>
+          <div>
+            <label class="vn-label" for="vnBody">Not metni</label>
+            <textarea id="vnBody" class="vn-input min-h-[100px]" placeholder="Orn: YD256 araclari eksik cikmayacak" maxlength="2000"></textarea>
+          </div>
+          <p id="vnFormError" class="text-sm text-red-600 hidden"></p>
+          <button type="submit" id="vnSubmitBtn" class="vn-btn-primary">Kaydet</button>
+          <button type="button" id="vnCancelEdit" class="vn-btn-ghost hidden w-full mt-2">İptal</button>
+        </form>
+      </section>
+      <section class="lg:col-span-3 vn-card p-5">
+        <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h2 class="text-lg font-bold text-red-900">Kayitli notlar</h2>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" id="vnShowInactive" />
+            <span>Pasifleri goster</span>
+          </label>
+        </div>
+        <div id="vnListLoading" class="text-sm text-gray-500 py-8 text-center">Yukleniyor...</div>
+        <div id="vnListEmpty" class="text-sm text-gray-500 py-8 text-center hidden">Henuz not yok.</div>
+        <div id="vnList"></div>
+      </section>
+    </div>
+  </main>
+  <script src="dailyStore.js"></script>
+  <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
+  <script src="vardiya-notes.js?v=20260605-fixes-v1"></script>
+</body>
+</html>

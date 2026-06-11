@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="tr">
+    <head>
+        <link rel="icon" type="image/png" href="logo.png">
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <link rel="apple-touch-icon" href="logo.png">
+        <script>
+            (function(){
+                // Oturum kaydı varsa login flaşı yerine ana uygulamayı hemen göster;
+                // sunucu doğrulaması başarısız olursa app.js login ekranına döndürür.
+                try {
+                    if (localStorage.getItem('isLoggedIn') === 'true') {
+                        document.documentElement.classList.add('logged-in');
+                    }
+                } catch (e) { /* ignore */ }
+            })();
+        </script>
+        <style>
+            /* Default: show login screen immediately */
+            body { visibility: visible; }
+            #loginScreen.login-screen { display: flex; }
+            #mainApp { display: none; }
+            #loginLoading { display: none !important; }
+            #iceridekiAraclar, #iceridekiAraclarContainer { display: none; }
+
+            /* When logged-in, show main app and Íçerideki Araçlar */
+            html.logged-in #loginScreen.login-screen,
+            .logged-in #loginScreen.login-screen { display: none !important; }
+            html.logged-in #mainApp,
+            .logged-in #mainApp { display: block !important; }
+            .logged-in #loginLoading{ display: none !important; }
+            .logged-in #iceridekiAraclar, .logged-in #iceridekiAraclarContainer { display: block !important; }
+        </style>
+        <style>
+            /* Gradient for İçerideki Araçlar header: from slate-800 to custom blue */
+            #iceridekiAraclar{
+                --tw-gradient-from: #1e293b;
+                --tw-gradient-to: #4338ca;
+                background-image: linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to));
+            }
+            /* Apply same gradient to the list container */
+            #iceridekiAraclarContainer{
+                --tw-gradient-from: #1e293b;
+                --tw-gradient-to: #4338ca;
+                background-image: linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to));
+            }
+        </style>
+        <meta name="description" content="Araç plaka giriş-çıkış ve sevkiyat takibi">
+        <meta name="theme-color" content="#0f172a">
+        <link rel="manifest" href="manifest.webmanifest">
+        <title>Araç Plaka Takip Sistemi</title>
+        <link rel="stylesheet" href="tailwind-built.css">
+        <link rel="stylesheet" href="styles.css?v=20260611-mobile">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    </head>
+    <body class="min-h-screen text-gray-700">
+        <a class="app-skip-link" href="#loginId">İçeriğe atla</a>
+
+        <!-- Top header: İçerideki Araçlar -->
+        
+
+        <!-- Modal: Plate actions -->
+        <div id="iceridekiPlateModal" class="hidden fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
+            <div class="bg-white rounded-lg w-full max-w-md mx-auto shadow-lg">
+                <div class="p-4 border-b flex items-center justify-between">
+                    <div class="font-bold" id="iceridekiPlateModalTitle">Plaka</div>
+                    <button id="iceridekiPlateModalClose" class="text-gray-500">Kapat</button>
+                </div>
+                <div class="p-4">
+                    <div class="mb-4 text-sm text-gray-600">Şu anki saat:</div>
+                    <div id="iceridekiPlateClock" class="text-2xl font-mono mb-6">--:--:--</div>
+                    <div class="flex gap-2">
+                        <button id="iceridekiPlateCikisBtn" class="flex-1 bg-red-600 text-white py-2 rounded">Çıkış Yap</button>
+                        <button id="iceridekiPlateCancelBtn" class="flex-1 bg-gray-200 text-gray-700 py-2 rounded">İptal</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <main id="main-region" tabindex="-1" aria-label="Ana uygulama">
+
+        <!-- Giriş Ekranı — kurumsal split layout -->
+        <div id="loginScreen" class="login-screen" role="main" aria-label="Giriş">
+            <div class="login-screen__mesh" aria-hidden="true"></div>
+
+            <div class="login-screen__layout">
+                <aside class="login-screen__hero" aria-hidden="false">
+                    <div class="login-screen__hero-inner">
+                        <div class="login-screen__hero-badge">
+                            <i class="fas fa-shield-halved" aria-hidden="true"></i>
+                            <span>Kurumsal Operasyon Platformu</span>
+                        </div>
+                        <img src="logo.png" alt="GPM Genper Mining" class="login-screen__hero-logo" width="160" height="120" decoding="async">
+                        <h1 class="login-screen__hero-title">Araç Plaka Takip</h1>
+                        <p class="login-screen__hero-lead">Giriş–çıkış, sevkiyat ve saha operasyonlarınızı tek merkezden.</p>
+                        <ul class="login-screen__features">
+                            <li><i class="fas fa-truck-fast" aria-hidden="true"></i><span>Anlık plaka giriş &amp; çıkış kaydı</span></li>
+                            <li><i class="fas fa-clipboard-list" aria-hidden="true"></i><span>Sevkiyat takip formları &amp; yazdırma</span></li>
+                            <li><i class="fas fa-chart-line" aria-hidden="true"></i><span>Raporlama ve vardiya notları</span></li>
+                            <li><i class="fas fa-lock" aria-hidden="true"></i><span>Güvenli oturum &amp; yetkilendirme</span></li>
+                        </ul>
+                        <p class="login-screen__hero-foot">GENPER Mining Industry · GPM</p>
+                    </div>
+                </aside>
+
+                <section class="login-screen__panel">
+                    <div class="login-screen__card">
+                        <header class="login-screen__card-head">
+                            <img src="logo.png" alt="" class="login-screen__card-logo" width="72" height="56" decoding="async" aria-hidden="true">
+                            <div>
+                                <h2 class="login-screen__card-title">Hoş geldiniz</h2>
+                                <p class="login-screen__card-sub">Hesabınızla sisteme giriş yapın</p>
+                            </div>
+                        </header>
+
+                        <form class="login-screen__form" onsubmit="return false;" autocomplete="on">
+                            <div class="login-field">
+                                <label class="login-field__label" for="loginId">Kullanıcı ID</label>
+                                <div class="login-field__wrap">
+                                    <i class="fas fa-user login-field__icon" aria-hidden="true"></i>
+                                    <input type="text" id="loginId" name="username" class="login-field__input" placeholder="ID giriniz" autocomplete="username" aria-describedby="loginHelp">
+                                </div>
+                            </div>
+
+                            <div class="login-field">
+                                <label class="login-field__label" for="loginPassword">Şifre</label>
+                                <div class="login-field__wrap">
+                                    <i class="fas fa-key login-field__icon" aria-hidden="true"></i>
+                                    <input type="password" id="loginPassword" name="password" class="login-field__input" placeholder="Şifre giriniz" autocomplete="current-password" aria-describedby="loginHelp">
+                                </div>
+                            </div>
+
+                            <button type="button" id="loginButton" class="login-screen__submit">
+                                <span>Giriş Yap</span>
+                                <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                            </button>
+                        </form>
+
+                        <div id="loginError" class="login-screen__error hidden" role="alert" aria-live="polite">Hatalı ID veya Şifre!</div>
+
+                        <footer class="login-screen__footer">
+                            <p id="loginHelp" class="login-screen__secure">
+                                <i class="fas fa-shield-halved" aria-hidden="true"></i>
+                                Güvenli Giriş Sistemi
+                            </p>
+                        </footer>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Ana Uygulama -->
+        <div id="mainApp" style="display: none;" class="p-4"></div>
+
+        </main>
+        
+        <!-- Takip Formu Modal -->
+        <div id="takipFormuModal" class="takip-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="takipModalTitle">
+            <div class="takip-modal">
+                <header class="takip-modal__header">
+                    <div class="takip-modal__header-main">
+                        <span class="takip-modal__icon" aria-hidden="true"><i class="fas fa-clipboard-list"></i></span>
+                        <div>
+                            <h2 id="takipModalTitle" class="takip-modal__title">Sevkiyat Yüklemesi Takip Formu</h2>
+                            <p class="takip-modal__subtitle">Yükleme bilgilerini girin ve yazdırın</p>
+                        </div>
+                    </div>
+                    <div class="takip-modal__actions">
+                        <button type="button" id="yazdirButton" class="takip-modal__btn takip-modal__btn--primary">
+                            <i class="fas fa-print" aria-hidden="true"></i> Yazdır
+                        </button>
+                        <button type="button" id="onizlemeButton" class="takip-modal__btn takip-modal__btn--secondary">
+                            <i class="fas fa-eye" aria-hidden="true"></i> Önizleme
+                        </button>
+                        <div class="takip-modal__page-size" aria-label="Kağıt boyutu">
+                            <button type="button" id="btnPageSizeA5" class="takip-modal__btn takip-modal__btn--size" title="A5 boyut">A5</button>
+                            <button type="button" id="btnPageSizeA4" class="takip-modal__btn takip-modal__btn--size" title="A4 boyut">A4</button>
+                        </div>
+                        <button type="button" id="kapatButton" class="takip-modal__btn takip-modal__btn--ghost">
+                            <i class="fas fa-times" aria-hidden="true"></i> Kapat
+                        </button>
+                    </div>
+                </header>
+                <div id="takipFormu" class="takip-modal__body"></div>
+            </div>
+        </div>
+
+        <!-- Firma Yönetim Modal -->
+        <div id="firmaYonetimModal" class="firma-mgmt-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden no-print">
+            <div class="firma-mgmt-modal bg-white rounded-lg max-w-2xl w-full max-h-[92vh] overflow-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white z-10 gap-3">
+                    <h2 class="text-xl font-bold">Firma Yönetimi</h2>
+                    <button id="firmaModalKapatButton" class="bg-gray-600 text-white px-4 py-2 rounded min-h-[2.75rem]">Kapat</button>
+                </div>
+                <div class="p-6">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-bold mb-2">Yeni Firma Ekle</h3>
+                        <div class="firma-mgmt-add flex gap-2">
+                            <input type="text" id="yeniFirmaInput" class="flex-grow px-3 py-2 border rounded" placeholder="Firma adı giriniz">
+                            <button id="firmaEkleButton" class="bg-indigo-600 text-white px-4 py-2 rounded min-h-[2.75rem]">Ekle</button>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold mb-2">Kayıtlı Firmalar</h3>
+                        <div id="firmaListesi" class="border rounded-lg p-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOGIN LOADING OVERLAY -->
+        <div id="loginLoading" class="login-loading hidden" role="status" aria-live="polite" aria-busy="true">
+            <div class="login-loading__card">
+                <div class="login-loading__spinner" aria-hidden="true"></div>
+                <div>
+                    <div class="login-loading__title">Giriş yapılıyor…</div>
+                    <div class="login-loading__sub">Lütfen bekleyin</div>
+                </div>
+            </div>
+        </div>
+
+        <script src="core-dom.js?v=20260605-fixes-v1"></script>
+        <script src="asset-version.js?v=20260605-fixes-v1"></script>
+        <script src="asset-loader.js?v=20260605-fixes-v1"></script>
+        <script src="idb.js?v=20260605-fixes-v1"></script>
+        <script src="dailyStore.js?v=20260605-fixes-v1"></script>
+        <script src="modules/report-events.js?v=20260605-fixes-v1"></script>
+        <script src="errorReporter.js?v=20260605-fixes-v1"></script>
+        <script src="storage.js?v=20260605-fixes-v1"></script>
+        <script src="session-manager.js?v=20260605-fixes-v1"></script>
+        <script src="sync-manager.js?v=20260605-fixes-v1"></script>
+        <script src="network-banner.js?v=20260605-fixes-v1"></script>
+        <script src="issues-sync-bus.js?v=20260605-fixes-v1"></script>
+        <script src="operation-notes-alert.js?v=20260605-fixes-v1"></script>
+        <script src="rp-dialog.js?v=20260605-dialog-z-fix"></script>
+        <script src="signatures-registry.js?v=20260605-fixes-v1"></script>
+        <script src="ayarlar-gate.js?v=20260605-fixes-v1"></script>
+        <script src="excel-utils.js?v=20260605-fixes-v1"></script>
+        <!-- Piyasa (globals önce — chip/menü tıklamaları için) -->
+        <script src="modules/piyasa-globals.js?v=20260611-fix2"></script>
+        <script src="modules/piyasa-core.js?v=20260611-fix2"></script>
+        <script src="modules/piyasa-orders.js?v=20260611-fix2"></script>
+        <script src="modules/piyasa-excel.js?v=20260611-fix2"></script>
+        <script src="modules/piyasa-customers.js?v=20260611-fix2"></script>
+        <script src="modules/piyasa-ui.js?v=20260611-fix2"></script>
+        <script src="modules/piyasa-api.js?v=20260611-fix2"></script>
+        <script src="modules/app-modals.js?v=20260611-modular"></script>
+        <script src="modules/app-sofor-history.js?v=20260611-modular"></script>
+        <!-- app.js modülleri (sıra önemli — paylaşılan global kapsam) -->
+        <script src="modules/app-core.js?v=20260611-modular"></script>
+        <script src="modules/app-excel-ihracat.js?v=20260611-modular"></script>
+        <script src="modules/app-shipment-ui.js?v=20260611-modular"></script>
+        <script src="modules/app-signatures-prefs.js?v=20260611-modular"></script>
+        <script src="modules/app-ui-forms-pick.js?v=20260611-modular3"></script>
+        <script src="modules/app-ui-forms-takip.js?v=20260611-mobile"></script>
+        <script src="modules/app-ui-utils.js?v=20260611-modular3"></script>
+        <script src="modules/app-auth.js?v=20260611-mobile"></script>
+        <script src="modules/app-vehicles.js?v=20260611-modular"></script>
+        <script src="modules/app-excel-review.js?v=20260611-modular"></script>
+        <script src="modules/app-issues-core.js?v=20260611-modular"></script>
+        <script src="modules/app-ihracat-modal.js?v=20260611-fix1"></script>
+        <script src="modules/app-ihracat-print.js?v=20260611-fix1"></script>
+        <script src="modules/app-sync-handlers.js?v=20260611-modular"></script>
+        <script src="excel-consistency.js?v=20260605-fixes-v1"></script>
+        <script src="excel-ihracat-import.js?v=20260605-fixes-v1"></script>
+    </body>
+</html>

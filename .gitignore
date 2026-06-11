@@ -1,0 +1,9 @@
+node_modules/
+.github-push.local
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
