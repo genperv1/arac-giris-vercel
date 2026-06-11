@@ -64,6 +64,23 @@ function Ensure-Remote($url) {
     git branch -M main 2>$null | Out-Null
 }
 
+function Invoke-GitPush {
+    $pushLog = git push -u origin main 2>&1 | ForEach-Object { "$_" }
+    $pushLog | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -eq 0) { return $true }
+
+    $logText = $pushLog -join "`n"
+    if ($logText -match 'fetch first|rejected') {
+        Write-Host ""
+        Write-Host "GitHub'da eski kayitlar var, birlestiriliyor..." -ForegroundColor Yellow
+        git pull origin main --allow-unrelated-histories --no-edit -X ours 2>&1 | ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) { return $false }
+        git push -u origin main 2>&1 | ForEach-Object { Write-Host $_ }
+        return ($LASTEXITCODE -eq 0)
+    }
+    return $false
+}
+
 function Show-TokenHelp {
     Write-Host ""
     Write-Host "----------------------------------------" -ForegroundColor Yellow
@@ -101,9 +118,9 @@ try {
 
     Show-TokenHelp
     Write-Host "GitHub'a gonderiliyor..." -ForegroundColor Cyan
-    git push -u origin main
+    $pushed = Invoke-GitPush
 
-    if ($LASTEXITCODE -eq 0) {
+    if ($pushed) {
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "  BASARILI! Proje GitHub'a yuklendi." -ForegroundColor Green
