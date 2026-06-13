@@ -360,6 +360,22 @@ body.kiosk-mode .vehicle-card__value{
   gap: 0.45rem;
 }
 
+.app-tools-menu--nested {
+  position: relative;
+  display: inline-flex;
+}
+
+.app-tools-menu--nested > summary {
+  display: inline-flex;
+}
+
+.app-tools-menu--nested .app-dropdown--nested {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 60;
+}
+
 @media (max-width: 640px) {
   .app-header-toolbar {
     flex-direction: column;
@@ -2777,36 +2793,7 @@ body {
   padding-right: max(1rem, env(safe-area-inset-right, 0));
 }
 
-/* Katlanır menü — masaüstünde tüm butonlar görünür (details kutusu kalkar) */
-@media (min-width: 641px) {
-  .app-nav-more-menu {
-    display: contents;
-  }
-
-  .app-nav-more-menu > summary.app-nav-more-toggle {
-    display: none !important;
-  }
-
-  .app-nav-more-menu .app-nav-more-panel {
-    display: contents;
-  }
-
-  .app-tools-menu--nested {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .app-tools-menu--nested > summary {
-    display: inline-flex;
-  }
-
-  .app-tools-menu--nested .app-dropdown--nested {
-    position: absolute;
-    top: calc(100% + 0.35rem);
-    left: 0;
-    z-index: 60;
-  }
-}
+/* Katlanır menü kaldırıldı — tüm nav butonları doğrudan görünür */
 
 @media (max-width: 640px) {
   #mainApp.p-4 {
@@ -2820,50 +2807,6 @@ body {
 
   .app-nav-btn--always {
     flex-shrink: 0;
-  }
-
-  .app-nav-more-menu {
-    position: relative;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  .app-nav-more-menu > summary.app-nav-more-toggle {
-    display: inline-flex;
-    width: 100%;
-    justify-content: center;
-  }
-
-  .app-nav-more-menu .app-nav-more-panel {
-    display: none;
-    position: absolute;
-    top: calc(100% + 0.35rem);
-    left: 0;
-    right: 0;
-    z-index: 60;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.35rem;
-    padding: 0.5rem;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
-    max-height: min(70vh, 28rem);
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .app-nav-more-menu[open] .app-nav-more-panel {
-    display: flex;
-  }
-
-  .app-nav-more-menu .app-nav-more-panel .app-nav-btn,
-  .app-nav-more-menu .app-nav-more-panel > a.app-nav-btn {
-    width: 100%;
-    justify-content: flex-start;
-    white-space: normal;
-    text-align: left;
   }
 
   .app-tools-menu--nested {
@@ -3060,10 +3003,6 @@ body {
 @media (max-width: 640px) {
   body.kiosk-mode #vehicleList {
     grid-template-columns: 1fr !important;
-  }
-
-  body.kiosk-mode .app-nav-more-menu .app-nav-more-panel {
-    max-height: min(55vh, 20rem);
   }
 
   body.kiosk-mode .app-nav-btn {

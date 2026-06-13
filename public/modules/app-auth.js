@@ -96,16 +96,7 @@ window.openWhatsAppFromCard = openWhatsAppFromCard;
 window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
 
         function syncNavMoreMenu() {
-          try {
-            const more = document.querySelector('.app-nav-more-menu');
-            if (!more) return;
-            const mobile = window.matchMedia('(max-width: 640px)').matches;
-            if (mobile) {
-              more.removeAttribute('open');
-            } else {
-              more.setAttribute('open', '');
-            }
-          } catch (e) { /* ignore */ }
+          /* Katlanır menü kaldırıldı — no-op */
         }
 
         // Event listener'ları ekle

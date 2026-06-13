@@ -1910,33 +1910,26 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <button id="toggleFormButton" class="app-nav-btn app-nav-btn--primary app-nav-btn--always">
           ${state.showForm ? 'İptal' : 'Yeni Kayıt'}
         </button>
-        <details class="app-nav-more-menu app-tools-menu">
-          <summary class="app-nav-btn app-nav-btn--always app-nav-more-toggle list-none select-none">
-            Menü <span class="app-nav-chevron" aria-hidden="true">▾</span>
+        <button id="raporlarLinkGunluk" class="app-nav-btn" title="Günlük Raporlar">Günlük Raporlar</button>
+        <button id="vardiyaNotlariButton" class="app-nav-btn app-nav-btn--danger" title="Vardiya notları — yazdır uyarıları">Vardiya Notları</button>
+        <button id="issuesDashboardButton" class="app-nav-btn" title="Şoför sorun kayıtları">Sorunlar</button>
+        <a href="plaka.html" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
+        <details class="app-tools-menu app-tools-menu--nested relative">
+          <summary class="app-nav-btn list-none select-none">
+            Araçlar <span class="app-nav-chevron" aria-hidden="true">▾</span>
           </summary>
-          <div class="app-nav-more-panel">
-            <button id="raporlarLinkGunluk" class="app-nav-btn" title="Günlük Raporlar">Günlük Raporlar</button>
-            <button id="vardiyaNotlariButton" class="app-nav-btn app-nav-btn--danger" title="Vardiya notları — yazdır uyarıları">Vardiya Notları</button>
-            <button id="issuesDashboardButton" class="app-nav-btn" title="Şoför sorun kayıtları">Sorunlar</button>
-            <a href="plaka.html" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
-            <details class="app-tools-menu app-tools-menu--nested relative">
-              <summary class="app-nav-btn list-none select-none">
-                Araçlar <span class="app-nav-chevron" aria-hidden="true">▾</span>
-              </summary>
-              <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
-                <button id="excelBlockSelectButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Excel dosyasından sevkiyat bloklarını seçerek yükle">📌 İHRACAT Blok Seçerek Yükle</button>
-                <button id="excelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük excel verisini temizle">🗑️ İHRACAT Excel Sil</button>
-                <div class="my-1 border-t"></div>
-                <div class="px-3 py-1 text-xs text-gray-500 font-semibold">PİYASA</div>
-                <button type="button" id="piyasaExcelUploadButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel yükle">🧾 PİYASA Excel Yükle</button>
-                <button type="button" id="piyasaExcelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel verisini temizle">🗑️ PİYASA Excel Sil</button>
-                <div class="my-1 border-t"></div>
-                <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
-              </div>
-            </details>
-            <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>
+          <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
+            <button id="excelBlockSelectButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Excel dosyasından sevkiyat bloklarını seçerek yükle">📌 İHRACAT Blok Seçerek Yükle</button>
+            <button id="excelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük excel verisini temizle">🗑️ İHRACAT Excel Sil</button>
+            <div class="my-1 border-t"></div>
+            <div class="px-3 py-1 text-xs text-gray-500 font-semibold">PİYASA</div>
+            <button type="button" id="piyasaExcelUploadButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel yükle">🧾 PİYASA Excel Yükle</button>
+            <button type="button" id="piyasaExcelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel verisini temizle">🗑️ PİYASA Excel Sil</button>
+            <div class="my-1 border-t"></div>
+            <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
           </div>
         </details>
+        <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>
         <button id="logoutButton" class="app-nav-btn app-nav-btn--danger app-nav-btn--always">Çıkış</button>
       </nav>
       <div class="app-header-status" id="quickStatusRow">

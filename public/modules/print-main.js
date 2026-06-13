@@ -481,7 +481,7 @@
           row.style.lineHeight = kind === 'piyasa' ? '1.18' : '1.08';
           row.style.fontSize = descPt + 'pt';
           if (kind === 'ihracat') {
-            row.style.whiteSpace = 'nowrap';
+            row.style.whiteSpace = 'pre-line';
             row.style.letterSpacing = '0';
           }
         });
@@ -2007,7 +2007,7 @@ const bosBbtText = amb.bosBbt;
 .note-inner[data-not-kind="ihracat"] .note-row{
   font-size:7.5pt;
   line-height:1.08;
-  white-space:nowrap;
+  white-space:pre-line;
   word-break:normal;
   overflow-wrap:normal;
   margin:0 0 0.15mm 0;
