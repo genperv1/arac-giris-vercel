@@ -194,7 +194,8 @@ function _ihracatBindModalPlateAdd(modal, statusApi) {
     row.removeAttribute('data-ihr-add-row');
 
     if (row.cells[0]) {
-      row.cells[0].innerHTML = _ihracatPlakaCellHtml(plate, false, false);
+      const sira = row.getAttribute('data-ihr-sira') || '';
+      row.cells[0].innerHTML = _ihracatPlakaCellHtml(plate, false, false, { sira });
     }
 
     updateRowStatus(row, plate);
@@ -657,7 +658,8 @@ function _printIhracatDetailsFromModal(modal, ctx) {
   const plakaCellHtml = (r) => {
     const plate = String(r.plaka || '').trim();
     const durum = String(r._durumText || '').trim();
-    return `<td class="c-plaka">${plate ? escapeHtml(plate) : '—'}${
+    const sira = _ihracatSiraPrefixHtml(r.sira);
+    return `<td class="c-plaka">${sira}${plate ? escapeHtml(plate) : '—'}${
       durum ? `<div class="c-durum">${escapeHtml(durum)}</div>` : ''
     }</td>`;
   };
@@ -1151,6 +1153,9 @@ async function showIhracatDetailsModal() {
   });
 
   const { collisions: irsCollisions, set: irsCollisionSet } = getIrsaliyeCollisionInfo(shipments);
+  const euModal = window.ExcelUtils || {};
+  const fmtDupPlate = euModal.formatDupPlateRowDetail || ((d) => (d.entries || d.irsaliyeNos || []).join(' · '));
+  const { dupPlateRows, set: dupPlateSet, byKey: dupPlateByKey } = getDuplicatePlateInfo(shipments);
   const collisionByKey = new Map();
   irsCollisions.forEach((c) => {
     collisionByKey.set(irsaliyeCollisionKey(c.irsaliyeNo), c);
@@ -1164,10 +1169,15 @@ async function showIhracatDetailsModal() {
     const irs = getShipmentIrsaliyeNo(s);
     const isManual = s._ihracatManual || String(rowKey).startsWith('new__');
     const isIrsCollision = shipmentHasIrsaliyeCollision(s, irsCollisionSet);
+    const isDupPlate = shipmentHasDuplicatePlate(s, dupPlateSet);
+    const dupDetail = dupPlateByKey.get(plateCollisionKey(s.plaka));
     const rowStyle = statusStyle[status] || '';
     const coll = collisionByKey.get(irsaliyeCollisionKey(irs));
     const irsTitle = coll
       ? `Aynı irsaliye birden fazla plakada: ${(coll.plates || []).join(' · ')}`
+      : '';
+    const plakaTitle = isDupPlate && dupDetail
+      ? `Aynı plaka birden fazla sevkiyatta: ${fmtDupPlate(dupDetail)}`
       : '';
     const irsCellStyle = isIrsCollision
       ? `border:1px solid #eee;padding:6px;${IHR_IRS_COLLISION_CELL_STYLE}`
@@ -1175,9 +1185,13 @@ async function showIhracatDetailsModal() {
     const irsInpStyle = isIrsCollision
       ? `${inpStyle}max-width:130px;background:#111210;color:#FFBF00;font-weight:700;border-color:#FFBF00;`
       : `${inpStyle}max-width:130px;`;
+    const plakaTdStyle = isDupPlate
+      ? `border:1px solid #eee;padding:4px 6px;white-space:nowrap;width:198px;max-width:198px;overflow:hidden;vertical-align:middle;${IHR_IRS_COLLISION_CELL_STYLE}`
+      : IHR_PLAKA_TD_STYLE;
+    const siraAttr = String(s.sira || '').trim();
     return `
-      <tr data-ihr-row-key="${escapeHtml(rowKey)}"${isManual ? ' data-ihr-is-new="1"' : ''}${isIrsCollision ? ' data-ihr-irs-collision="1"' : ''} style="${rowStyle}">
-        <td style="${IHR_PLAKA_TD_STYLE}">${_ihracatPlakaCellHtml(s.plaka, false, false)}</td>
+      <tr data-ihr-row-key="${escapeHtml(rowKey)}"${siraAttr ? ` data-ihr-sira="${escapeHtml(siraAttr)}"` : ''}${isManual ? ' data-ihr-is-new="1"' : ''}${isIrsCollision ? ' data-ihr-irs-collision="1"' : ''}${isDupPlate ? ' data-ihr-plate-collision="1"' : ''} style="${rowStyle}">
+        <td style="${plakaTdStyle}" title="${escapeHtml(plakaTitle)}">${_ihracatPlakaCellHtml(s.plaka, false, false, { isDupPlate, dupPlateTitle: plakaTitle, sira: s.sira })}</td>
         <td data-field="firma" style="border:1px solid #ddd;padding:6px;font-size:11px;">${escapeHtml(s.firma || '')}</td>
         <td data-field="malzeme" style="border:1px solid #ddd;padding:6px;">${escapeHtml(s.malzeme || '')}</td>
         <td style="border:1px solid #ddd;padding:6px;">
@@ -1223,7 +1237,7 @@ async function showIhracatDetailsModal() {
         <table class="ihr-sevkiyat-table" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;">
           <thead>
             <tr style="background:#f5f5f5;">
-              <th style="border:1px solid #ddd;padding:6px;text-align:left;width:172px;">Plaka</th>
+              <th style="border:1px solid #ddd;padding:6px;text-align:left;width:198px;">Sıra / Plaka</th>
               <th style="border:1px solid #ddd;padding:6px;text-align:left;">Firma</th>
               <th style="border:1px solid #ddd;padding:6px;text-align:left;">Malzeme</th>
               <th style="border:1px solid #ddd;padding:6px;text-align:left;">Miktar (Kg)</th>
@@ -1345,6 +1359,17 @@ async function showIhracatDetailsModal() {
       </div>`
     : '';
 
+  const dupPlateBannerHtml = dupPlateRows.length
+    ? `<div style="margin-bottom:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;line-height:1.45;">
+        <div style="font-weight:800;color:#b45309;margin-bottom:6px;">⚠️ AYNI PLAKA BİRDEN FAZLA SEVKİYAT SATIRINDA — Plaka sütunundaki siyah/sarı bantlara dikkat edin</div>
+        <p style="margin:0 0 8px;">Bu uyarı <b>kayıt eksikliği değil</b>. Excel’de aynı plaka <b>birden fazla farklı sevkiyat satırında</b> geçiyor. Hangi satırın doğru olduğunu Excel’den kontrol edin.</p>
+        <ul style="margin:0;padding-left:18px;font-size:11px;">
+          ${dupPlateRows.slice(0, 10).map((d) => `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#111210;color:#FFBF00;font-weight:700;padding:3px 8px;border-radius:4px;">${escapeHtml(d.plaka)}</span> → ${escapeHtml(fmtDupPlate(d))}</li>`).join('')}
+          ${dupPlateRows.length > 10 ? `<li style="color:#b45309;">… ve ${dupPlateRows.length - 10} plaka daha</li>` : ''}
+        </ul>
+      </div>`
+    : '';
+
   const btnSaveStyle = 'background:#16a34a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:700;';
   const btnCloseStyle = 'background:#64748b;color:#fff;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;';
 
@@ -1370,6 +1395,7 @@ async function showIhracatDetailsModal() {
           <button type="button" id="ihracatPrintBtn" title="Ekrandaki liste (güncel miktar/ambalaj) A4 yatay yazdır" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🖨️ Yazdır</button>
           <span style="font-size:11px;color:#64748b;">Boşluklu/boşluksuz yazım fark etmez</span>
         </div>
+        ${dupPlateBannerHtml}
         ${collisionBannerHtml}
         ${modalSections}
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;flex-wrap:wrap;">

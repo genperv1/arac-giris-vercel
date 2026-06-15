@@ -447,7 +447,7 @@ const IHR_AMBALAJ_GRID_STYLE =
 const IHR_AMBALAJ_LABEL_STYLE = 'font-size:9px;color:#64748b;white-space:nowrap;line-height:1.1;text-align:center;';
 const IHR_AMBALAJ_INP_STYLE = 'width:28px;min-width:28px;max-width:32px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;';
 const IHR_AMBALAJ_INP_WIDE_STYLE =
-  'width:42px;min-width:42px;max-width:48px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;';
+  'width:50px;min-width:50px;max-width:54px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;';
 const IHR_AMBALAJ_INP_BOS_CUVAL_STYLE = IHR_AMBALAJ_INP_WIDE_STYLE;
 const IHR_CUVAL_TRANSFER_BTN_STYLE =
   'width:20px;height:22px;min-width:20px;padding:0;border:1px solid #94a3b8;border-radius:4px;background:#e2e8f0;color:#1e40af;font-size:13px;line-height:1;cursor:pointer;font-weight:700;box-sizing:border-box;';
@@ -504,19 +504,20 @@ const IHR_TOPLAM_INP_STYLE =
 const IHR_TOPLAM_AMB_INP_STYLE =
   'width:28px;min-width:28px;max-width:32px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;font-weight:700;background:#fffbeb;color:#0f172a;';
 const IHR_TOPLAM_AMB_INP_WIDE_STYLE =
-  'width:42px;min-width:42px;max-width:48px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;font-weight:700;background:#fffbeb;color:#0f172a;';
+  'width:50px;min-width:50px;max-width:54px;padding:2px 3px;border:1px solid #cbd5e1;border-radius:4px;font-size:11px;box-sizing:border-box;text-align:center;font-weight:700;background:#fffbeb;color:#0f172a;';
 const IHR_TOPLAM_AMB_INP_BOS_CUVAL_STYLE = IHR_TOPLAM_AMB_INP_WIDE_STYLE;
 
 function _ihracatAmbalajFieldInpStyle(field, baseStyle) {
   const isToplam = baseStyle === IHR_TOPLAM_AMB_INP_STYLE;
-  if (field === 'cuval' || field === 'bosCuval') {
+  if (field === 'bbt' || field === 'bosBbt' || field === 'cuval' || field === 'bosCuval') {
     return isToplam ? IHR_TOPLAM_AMB_INP_WIDE_STYLE : IHR_AMBALAJ_INP_WIDE_STYLE;
   }
   return baseStyle || IHR_AMBALAJ_INP_STYLE;
 }
 
 function _ihracatAmbalajFieldMaxLen(field) {
-  return field === 'bosCuval' || field === 'cuval' ? 4 : 2;
+  if (field === 'bbt' || field === 'bosBbt' || field === 'cuval' || field === 'bosCuval') return 4;
+  return 2;
 }
 
 function _ihracatSyncTakipAmbalajFromRow(row) {
@@ -816,7 +817,21 @@ const IHR_PLAKA_WRAP_STYLE = 'display:inline-flex;align-items:center;flex-wrap:n
 const IHR_PLAKA_INP_STYLE = 'width:92px;max-width:92px;flex:0 1 92px;min-width:0;padding:4px 5px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;';
 const IHR_PLAKA_INP_ADD_STYLE = 'width:92px;max-width:92px;flex:0 1 92px;min-width:0;padding:4px 5px;border:1px dashed #f59e0b;border-radius:6px;font-size:12px;box-sizing:border-box;';
 const IHR_PLAKA_TEXT_STYLE = 'display:inline-block;flex:1 1 auto;min-width:0;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;';
-const IHR_PLAKA_TD_STYLE = 'border:1px solid #ddd;padding:4px 6px;white-space:nowrap;width:172px;max-width:172px;overflow:hidden;vertical-align:middle;';
+const IHR_PLAKA_TD_STYLE = 'border:1px solid #ddd;padding:4px 6px;white-space:nowrap;width:198px;max-width:198px;overflow:hidden;vertical-align:middle;';
+const IHR_SIRA_STYLE =
+  'display:inline-block;flex:0 0 auto;min-width:22px;text-align:center;font-size:11px;font-weight:800;color:#475569;margin-right:6px;padding:1px 4px;border-radius:4px;background:#f1f5f9;';
+
+function _ihracatShouldShowSira(sira) {
+  const n = String(sira ?? '').trim();
+  if (!n) return false;
+  if (/^M\d{10,}$/.test(n)) return false;
+  return true;
+}
+
+function _ihracatSiraPrefixHtml(sira) {
+  if (!_ihracatShouldShowSira(sira)) return '';
+  return `<span data-ihr-sira style="${IHR_SIRA_STYLE}" title="Excel sıra no">${escapeHtml(String(sira).trim())}</span>`;
+}
 
 function _ihracatActionBtnsHtml() {
   const btn = 'border:none;background:transparent;cursor:pointer;padding:3px 7px;border-radius:6px;line-height:1;flex-shrink:0;';
@@ -826,18 +841,29 @@ function _ihracatActionBtnsHtml() {
   </span>`;
 }
 
-function _ihracatPlakaCellHtml(plate, editable, isAddRow) {
+function _ihracatPlakaCellHtml(plate, editable, isAddRow, opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const isDupPlate = !!o.isDupPlate;
+  const dupTitle = String(o.dupPlateTitle || '');
+  const siraPrefix = _ihracatSiraPrefixHtml(o.sira);
   const actions = isAddRow ? '' : _ihracatActionBtnsHtml();
   const p = normPlate(plate || '');
   const inpStyle = isAddRow ? IHR_PLAKA_INP_ADD_STYLE : IHR_PLAKA_INP_STYLE;
+  const textStyle = isDupPlate
+    ? 'display:inline-block;flex:1 1 auto;min-width:0;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;background:#111210;color:#FFBF00;font-weight:700;padding:2px 6px;border-radius:4px;'
+    : IHR_PLAKA_TEXT_STYLE;
+  const title = escapeHtml(dupTitle || p || '');
   if (editable) {
+    const editableInpStyle = isDupPlate
+      ? `${inpStyle}background:#111210;color:#FFBF00;font-weight:700;border-color:#FFBF00;`
+      : inpStyle;
     return `<span data-ihr-plaka-wrap style="${IHR_PLAKA_WRAP_STYLE}">
-      <input type="text" data-field="plaka" value="${escapeHtml(p)}" placeholder="${isAddRow ? 'Yeni plaka…' : ''}" style="${inpStyle}" />
+      ${siraPrefix}<input type="text" data-field="plaka" value="${escapeHtml(p)}" placeholder="${isAddRow ? 'Yeni plaka…' : ''}" style="${editableInpStyle}" title="${title}" />
       ${actions}
     </span>`;
   }
   return `<span data-ihr-plaka-wrap style="${IHR_PLAKA_WRAP_STYLE}">
-    <span data-field="plaka-text" style="${IHR_PLAKA_TEXT_STYLE}" title="${escapeHtml(p || '')}">${escapeHtml(p || '—')}</span>
+    ${siraPrefix}<span data-field="plaka-text" style="${textStyle}" title="${title}">${escapeHtml(p || '—')}</span>
     ${actions}
   </span>`;
 }
@@ -1292,7 +1318,8 @@ function _ihracatBindRowActions(modal, statusApi) {
       if (!textEl) return;
       const wrap = row.querySelector('[data-ihr-plaka-wrap]');
       const plate = textEl.textContent || '';
-      wrap.innerHTML = `<input type="text" data-field="plaka" value="${escapeHtml(plate)}" style="${IHR_PLAKA_INP_STYLE}" />${_ihracatActionBtnsHtml()}`;
+      const siraPrefix = _ihracatSiraPrefixHtml(row.getAttribute('data-ihr-sira') || '');
+      wrap.innerHTML = `${siraPrefix}<input type="text" data-field="plaka" value="${escapeHtml(plate)}" style="${IHR_PLAKA_INP_STYLE}" />${_ihracatActionBtnsHtml()}`;
       const inp = wrap.querySelector('[data-field="plaka"]');
       inp.addEventListener('input', () => updateRowStatus(row, inp.value));
       inp.addEventListener('blur', () => {

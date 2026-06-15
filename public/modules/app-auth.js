@@ -1114,11 +1114,6 @@ function startPostLoginTasks() {
       window.storage._readAll().catch(()=>{});
     }
   } catch(e) {}
-  try {
-    if (window.DailyStore && typeof window.DailyStore.syncFromServer === 'function') {
-      window.DailyStore.syncFromServer().catch(() => {});
-    }
-  } catch (e) {}
   // Sunucu sayaçları geldikten sonra kartları tekrar çiz; aksi halde eski localStorage
   // sorunları "hayalet rozet/overlay" olarak kalır.
   try {

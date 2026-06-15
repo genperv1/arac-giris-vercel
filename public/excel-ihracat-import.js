@@ -51,6 +51,26 @@
     });
   }
 
+  function formatDupPlateHelp(dupPlateRows) {
+    if (!dupPlateRows || !dupPlateRows.length) return '';
+    const eu = window.ExcelUtils || {};
+    const fmt = eu.formatDupPlateRowDetail || ((d) => (d.irsaliyeNos || []).join(' · '));
+    let html =
+      `<div style="margin-top:10px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;line-height:1.45;">` +
+      `<div style="font-weight:800;color:#b45309;margin-bottom:6px;">⚠️ Aynı plaka (${dupPlateRows.length} adet)</div>` +
+      `<p style="margin:0 0 8px;">Bu uyarı <b>kayıt eksikliği değil</b>. Excel’de aynı plaka <b>birden fazla farklı sevkiyat satırında</b> geçiyor. Hangi satırın doğru olduğunu Excel’den kontrol edin.</p>` +
+      `<ul style="margin:0;padding-left:18px;font-size:11px;">`;
+    dupPlateRows.slice(0, 8).forEach((d) => {
+      const detail = fmt(d) || '(irsaliye yok)';
+      html += `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#111210;color:#FFBF00;font-weight:700;padding:3px 8px;border-radius:4px;">${esc(d.plaka)}</span> → ${esc(detail)}</li>`;
+    });
+    if (dupPlateRows.length > 8) {
+      html += `<li style="color:#b45309;">… ve ${dupPlateRows.length - 8} plaka daha</li>`;
+    }
+    html += `</ul></div>`;
+    return html;
+  }
+
   function formatIrsaliyeCollisionHelp(collisions) {
     if (!collisions || !collisions.length) return '';
     let html =
@@ -73,11 +93,10 @@
   function showImportPreview(stats, onConfirm) {
     return new Promise((resolve) => {
       const collisions = stats.collisions || [];
+      const dupPlateRows = stats.dupPlateRows || [];
       let body = `<p><b>${stats.accepted || 0}</b> kayıt içe aktarılacak.</p>`;
       if (stats.skipped) body += `<p style="color:#64748b;">Atlanan satır: <b>${stats.skipped}</b></p>`;
-      if (stats.dupPlates) {
-        body += `<p style="color:#b45309;margin-top:8px;">⚠️ ${stats.dupPlates} plaka birden fazla satırda geçiyor (aynı plaka, farklı sevkiyat satırları).</p>`;
-      }
+      body += formatDupPlateHelp(dupPlateRows);
       body += formatIrsaliyeCollisionHelp(collisions);
 
       const overlay = document.createElement('div');

@@ -31,6 +31,20 @@ test('findIrsaliyeCollisions detects duplicate irsaliye on plates', () => {
   assert.strictEqual(c[0].plates.length, 2);
 });
 
+test('findDuplicatePlateRows detects same plate on multiple shipment rows', () => {
+  const rows = [
+    { plaka: '34ABC123', irsaliyeNo: 'R11 1111111111', bbt: '12' },
+    { plaka: '34ABC123', irsaliyeNo: 'R11 2222222222', bbt: '8' },
+    { plaka: '06XYZ99', irsaliyeNo: 'R11 3333333333', bbt: '5' },
+  ];
+  const d = eu.findDuplicatePlateRows(rows);
+  assert.strictEqual(d.length, 1);
+  assert.strictEqual(d[0].plaka, '34ABC123');
+  assert.strictEqual(d[0].entries.length, 2);
+  assert.match(eu.formatDupPlateRowDetail(d[0]), /1111111111 — 12 BBT/);
+  assert.match(eu.formatDupPlateRowDetail(d[0]), /2222222222 — 8 BBT/);
+});
+
 test('validatePiyasaTemplate scores headers', () => {
   const v = eu.validatePiyasaTemplate(['SIRA', 'FIRMA', 'MALZEME', 'MIKTAR']);
   assert.strictEqual(v.ok, true);

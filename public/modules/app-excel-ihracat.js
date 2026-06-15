@@ -106,6 +106,33 @@ function shipmentHasIrsaliyeCollision(shipment, collisionSet) {
   return !!k && collisionSet.has(k);
 }
 
+function plateCollisionKey(raw) {
+  const p = String(raw || '').trim();
+  if (!p) return '';
+  return p.replace(/\s+/g, '').toUpperCase();
+}
+
+function getDuplicatePlateInfo(rows) {
+  const eu = window.ExcelUtils || {};
+  const dupPlateRows = eu.findDuplicatePlateRows ? eu.findDuplicatePlateRows(rows || []) : [];
+  const set = new Set();
+  const byKey = new Map();
+  dupPlateRows.forEach((d) => {
+    const k = plateCollisionKey(d.plaka);
+    if (k) {
+      set.add(k);
+      byKey.set(k, d);
+    }
+  });
+  return { dupPlateRows, set, byKey };
+}
+
+function shipmentHasDuplicatePlate(shipment, collisionSet) {
+  if (!collisionSet || !collisionSet.size || !shipment) return false;
+  const k = plateCollisionKey(shipment.plaka);
+  return !!k && collisionSet.has(k);
+}
+
 const IHR_IRS_COLLISION_CELL_STYLE = 'background:#111210;color:#FFBF00;font-weight:bold;';
 
 function detectIrsaliyeColumnIndex(grid, headerRowIdx, cols) {
@@ -620,7 +647,7 @@ function findNearestColumnValue(grid, rowIdx, colIndex, maxRowsBack = 25) {
 
 function saveDailyShipments(rows, meta) {
   try {
-    // ✅ Yeni katman: DailyStore (memory + IndexedDB). Yoksa localStorage fallback.
+    // DailyStore: memory + localStorage (bu PC'ye özel, sunucu paylaşımı yok)
     if (window.DailyStore && typeof DailyStore.set === 'function') {
       DailyStore.set(rows || [], meta || {});
       return true;
@@ -1706,14 +1733,9 @@ firma: (firma || '').slice(0, 40),
     fileFingerprint: opts.fileFingerprint || null,
   };
 
-  const counts = new Map();
-  for (const r of uniq) {
-    const p = String(r?.plaka || '').trim();
-    if (!p) continue;
-    counts.set(p, (counts.get(p) || 0) + 1);
-  }
-  const dupPlates = Array.from(counts.values()).filter((c) => c > 1).length;
   const eu = window.ExcelUtils || {};
+  const dupPlateRows = eu.findDuplicatePlateRows ? eu.findDuplicatePlateRows(uniq) : [];
+  const dupPlates = dupPlateRows.length;
   const collisions = eu.findIrsaliyeCollisions ? eu.findIrsaliyeCollisions(uniq) : [];
 
   return {
@@ -1725,6 +1747,7 @@ firma: (firma || '').slice(0, 40),
       raw: rowsOut.length,
       skipped: Math.max(0, rowsOut.length - uniq.length),
       dupPlates,
+      dupPlateRows,
       collisions,
     },
   };

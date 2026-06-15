@@ -39,39 +39,7 @@
       }
     });
 
-    // Daily rows synchronization
-    window.SyncManager.on('daily_row_created', (data) => {
-      console.log('🔄 Daily row created in another tab:', data);
-      if (typeof loadDailyShipments === 'function') {
-        loadDailyShipments();
-      }
-      if (typeof rebuildListsFromExcelRows === 'function') {
-        rebuildListsFromExcelRows(loadDailyShipments() || []);
-      }
-    });
-
-    window.SyncManager.on('daily_row_deleted', (data) => {
-      console.log('🔄 Daily row deleted in another tab:', data);
-      if (typeof loadDailyShipments === 'function') {
-        loadDailyShipments();
-      }
-      if (typeof rebuildListsFromExcelRows === 'function') {
-        rebuildListsFromExcelRows(loadDailyShipments() || []);
-      }
-    });
-
-    window.SyncManager.on('daily_rows_cleared', async () => {
-      try {
-        if (window.DailyStore && typeof DailyStore.clear === 'function') {
-          await DailyStore.clear({ localOnly: true });
-        } else if (typeof clearDailyShipments === 'function') {
-          await clearDailyShipments();
-        }
-      } catch (e) {}
-      try { if (typeof rebuildListsFromExcelRows === 'function') rebuildListsFromExcelRows([]); } catch (e) {}
-      try { window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo(); } catch (e) {}
-      try { if (typeof render === 'function') render(); } catch (e) {}
-    });
+    // İHRACAT Excel: bilgisayar başına localStorage — sunucu/SSE ile paylaşılmaz.
 
     // Reports synchronization
     window.SyncManager.on('new_report', (data) => {
@@ -104,11 +72,6 @@
         case 'vehicles':
           refreshVehicleList();
           break;
-        case 'daily_rows':
-          if (typeof loadDailyShipments === 'function') {
-            loadDailyShipments();
-          }
-          break;
         case 'reports':
           if (typeof refreshReportCache === 'function') {
             refreshReportCache();
@@ -116,9 +79,6 @@
           break;
         case 'all':
           refreshVehicleList();
-          if (typeof loadDailyShipments === 'function') {
-            loadDailyShipments();
-          }
           if (typeof refreshReportCache === 'function') {
             refreshReportCache();
           }

@@ -145,11 +145,20 @@
   }
 
   async function getDailyMeta(){
-    try{ const r = await fetch('/api/kv/daily_shipments_meta'); if (r.ok) return await r.json(); }catch(e){}
+    try{
+      const raw = localStorage.getItem('daily_shipments_meta');
+      if (raw) return JSON.parse(raw) || {};
+    }catch(e){}
     return {};
   }
   async function getDailyCount(){
-    try{ const r = await fetch('/api/kv/daily_shipments_current'); if (r.ok) { const a = await r.json(); return Array.isArray(a) ? a.length : 0; } }catch(e){}
+    try{
+      const raw = localStorage.getItem('daily_shipments_current');
+      if (raw) {
+        const a = JSON.parse(raw);
+        return Array.isArray(a) ? a.length : 0;
+      }
+    }catch(e){}
     return 0;
   }
   async function getPiyasaState(){
