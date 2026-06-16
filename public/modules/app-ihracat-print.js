@@ -1183,7 +1183,7 @@ async function showIhracatDetailsModal() {
       ? `border:1px solid #eee;padding:6px;${IHR_IRS_COLLISION_CELL_STYLE}`
       : 'border:1px solid #ddd;padding:6px;';
     const irsInpStyle = isIrsCollision
-      ? `${inpStyle}max-width:130px;background:#111210;color:#FFBF00;font-weight:700;border-color:#FFBF00;`
+      ? `${inpStyle}max-width:130px;background:#fef3c7;color:#92400e;font-weight:700;border-color:#fbbf24;`
       : `${inpStyle}max-width:130px;`;
     const plakaTdStyle = isDupPlate
       ? `border:1px solid #eee;padding:4px 6px;white-space:nowrap;width:198px;max-width:198px;overflow:hidden;vertical-align:middle;${IHR_IRS_COLLISION_CELL_STYLE}`
@@ -1320,7 +1320,7 @@ async function showIhracatDetailsModal() {
       return String(ia?.headerText || '').localeCompare(String(ib?.headerText || ''), 'tr');
     });
     return `
-      <div style="margin-bottom:26px;">
+      <div data-ihr-file-section="1" style="margin-bottom:26px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
           <h4 style="margin:0; font-size:15px;">📄 ${escapeHtml(fileName)} - ${items.length} kayıt</h4>
           <span style="font-size:12px; color:#475569;">Sevkiyat bloğu bazında (Excel başlığı + toplam)</span>
@@ -1350,21 +1350,21 @@ async function showIhracatDetailsModal() {
   }).join('');
 
   const collisionBannerHtml = irsCollisions.length
-    ? `<div style="margin-bottom:14px;padding:10px 12px;background:#FFD700;color:#000;border-radius:8px;font-size:12px;">
-        <div style="font-weight:800;">⚠️ AYNI İRSALİYE NUMARASI BİRDEN FAZLA PLAKADA — İrsaliye No sütunundaki siyah/sarı bantlara dikkat edin</div>
-        <ul style="margin:8px 0 0;padding-left:18px;font-size:11px;font-weight:600;line-height:1.5;">
-          ${irsCollisions.slice(0, 10).map((c) => `<li><span style="background:#111210;color:#FFBF00;padding:2px 6px;border-radius:4px;">${escapeHtml(c.irsaliyeNo)}</span> → ${escapeHtml((c.plates || []).join(' · '))}</li>`).join('')}
-          ${irsCollisions.length > 10 ? `<li>… ve ${irsCollisions.length - 10} irsaliye daha</li>` : ''}
+    ? `<div style="margin-bottom:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;line-height:1.45;">
+        <div style="font-weight:800;color:#b45309;margin-bottom:6px;">⚠️ AYNI İRSALİYE NUMARASI BİRDEN FAZLA PLAKADA — İrsaliye No sütunundaki vurgulu hücrelere dikkat edin</div>
+        <ul style="margin:0;padding-left:18px;font-size:11px;">
+          ${irsCollisions.slice(0, 10).map((c) => `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid #fbbf24;">${escapeHtml(c.irsaliyeNo)}</span> → ${escapeHtml((c.plates || []).join(' · '))}</li>`).join('')}
+          ${irsCollisions.length > 10 ? `<li style="color:#b45309;">… ve ${irsCollisions.length - 10} irsaliye daha</li>` : ''}
         </ul>
       </div>`
     : '';
 
   const dupPlateBannerHtml = dupPlateRows.length
     ? `<div style="margin-bottom:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;line-height:1.45;">
-        <div style="font-weight:800;color:#b45309;margin-bottom:6px;">⚠️ AYNI PLAKA BİRDEN FAZLA SEVKİYAT SATIRINDA — Plaka sütunundaki siyah/sarı bantlara dikkat edin</div>
+        <div style="font-weight:800;color:#b45309;margin-bottom:6px;">⚠️ AYNI PLAKA BİRDEN FAZLA SEVKİYAT SATIRINDA — Plaka sütunundaki vurgulu hücrelere dikkat edin</div>
         <p style="margin:0 0 8px;">Bu uyarı <b>kayıt eksikliği değil</b>. Excel’de aynı plaka <b>birden fazla farklı sevkiyat satırında</b> geçiyor. Hangi satırın doğru olduğunu Excel’den kontrol edin.</p>
         <ul style="margin:0;padding-left:18px;font-size:11px;">
-          ${dupPlateRows.slice(0, 10).map((d) => `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#111210;color:#FFBF00;font-weight:700;padding:3px 8px;border-radius:4px;">${escapeHtml(d.plaka)}</span> → ${escapeHtml(fmtDupPlate(d))}</li>`).join('')}
+          ${dupPlateRows.slice(0, 10).map((d) => `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid #fbbf24;">${escapeHtml(d.plaka)}</span> → ${escapeHtml(fmtDupPlate(d))}</li>`).join('')}
           ${dupPlateRows.length > 10 ? `<li style="color:#b45309;">… ve ${dupPlateRows.length - 10} plaka daha</li>` : ''}
         </ul>
       </div>`
@@ -1392,6 +1392,8 @@ async function showIhracatDetailsModal() {
           <label for="ihracatPlateSearch" style="font-size:12px;font-weight:600;color:#475569;white-space:nowrap;">🔍 Plaka ara</label>
           <input type="text" id="ihracatPlateSearch" placeholder="03 AJH 861 veya 03AJH861…" style="flex:1;min-width:160px;max-width:280px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;box-sizing:border-box;" />
           <button type="button" id="ihracatPlateSearchBtn" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Ara</button>
+          <button type="button" id="ihracatPlateSearchClearBtn" style="padding:8px 14px;font-size:12px;background:#e2e8f0;color:#475569;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Temizle</button>
+          <span id="ihracatSearchResultHint" style="font-size:12px;font-weight:600;color:#64748b;min-width:120px;"></span>
           <button type="button" id="ihracatPrintBtn" title="Ekrandaki liste (güncel miktar/ambalaj) A4 yatay yazdır" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🖨️ Yazdır</button>
           <span style="font-size:11px;color:#64748b;">Boşluklu/boşluksuz yazım fark etmez</span>
         </div>

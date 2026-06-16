@@ -850,12 +850,12 @@ function _ihracatPlakaCellHtml(plate, editable, isAddRow, opts) {
   const p = normPlate(plate || '');
   const inpStyle = isAddRow ? IHR_PLAKA_INP_ADD_STYLE : IHR_PLAKA_INP_STYLE;
   const textStyle = isDupPlate
-    ? 'display:inline-block;flex:1 1 auto;min-width:0;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;background:#111210;color:#FFBF00;font-weight:700;padding:2px 6px;border-radius:4px;'
+    ? `${IHR_PLAKA_TEXT_STYLE}background:#fef3c7;color:#92400e;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #fbbf24;`
     : IHR_PLAKA_TEXT_STYLE;
   const title = escapeHtml(dupTitle || p || '');
   if (editable) {
     const editableInpStyle = isDupPlate
-      ? `${inpStyle}background:#111210;color:#FFBF00;font-weight:700;border-color:#FFBF00;`
+      ? `${inpStyle}background:#fef3c7;color:#92400e;font-weight:700;border-color:#fbbf24;`
       : inpStyle;
     return `<span data-ihr-plaka-wrap style="${IHR_PLAKA_WRAP_STYLE}">
       ${siraPrefix}<input type="text" data-field="plaka" value="${escapeHtml(p)}" placeholder="${isAddRow ? 'Yeni plaka…' : ''}" style="${editableInpStyle}" title="${title}" />
@@ -901,6 +901,80 @@ function _ihracatDurumPlainText(st, plateRaw) {
 function _ihracatKayitEtBtnHtml(plate) {
   const p = escapeHtml(normPlate(plate || ''));
   return `<button type="button" class="ihr-kayit-et-btn" data-plate="${p}" style="margin-top:5px;display:block;width:100%;max-width:110px;padding:4px 8px;font-size:10px;background:#4f46e5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Kayıt Et</button>`;
+}
+
+function _ihracatClearPlateFilter(modal) {
+  if (!modal) return;
+  modal.querySelectorAll('[data-ihr-filter-hidden]').forEach((el) => {
+    el.style.display = '';
+    el.removeAttribute('data-ihr-filter-hidden');
+  });
+  modal.querySelectorAll('tr[data-ihr-row-key][data-ihr-search-match]').forEach((row) => {
+    row.style.outline = '';
+    row.style.outlineOffset = '';
+    row.removeAttribute('data-ihr-search-match');
+  });
+  const hint = modal.querySelector('#ihracatSearchResultHint');
+  if (hint) hint.textContent = '';
+}
+
+function _ihracatFilterByPlate(modal, plateRaw) {
+  if (!modal) return { found: 0 };
+  const key = _ihracatPlateKey(plateRaw);
+  if (!key) return { found: 0 };
+
+  _ihracatClearPlateFilter(modal);
+
+  const allRows = Array.from(modal.querySelectorAll('tr[data-ihr-row-key]'));
+  const matches = allRows.filter((row) => {
+    const p =
+      row.querySelector('[data-field="plaka-text"]')?.textContent ||
+      row.querySelector('[data-field="plaka"]')?.value ||
+      '';
+    return _ihracatPlateKey(p) === key;
+  });
+
+  if (!matches.length) return { found: 0 };
+
+  allRows.forEach((row) => {
+    if (!matches.includes(row)) {
+      row.style.display = 'none';
+      row.setAttribute('data-ihr-filter-hidden', '1');
+    } else {
+      row.style.display = '';
+      row.setAttribute('data-ihr-search-match', '1');
+      row.style.outline = '2px solid #6366f1';
+      row.style.outlineOffset = '1px';
+    }
+  });
+
+  modal.querySelectorAll('tr[data-ihr-add-row], tr[data-ihr-toplam-row]').forEach((row) => {
+    row.style.display = 'none';
+    row.setAttribute('data-ihr-filter-hidden', '1');
+  });
+
+  modal.querySelectorAll('[data-ihr-block-section]').forEach((section) => {
+    const hasMatch = !!section.querySelector('tr[data-ihr-search-match]');
+    section.style.display = hasMatch ? '' : 'none';
+    if (!hasMatch) section.setAttribute('data-ihr-filter-hidden', '1');
+  });
+
+  modal.querySelectorAll('[data-ihr-file-section]').forEach((section) => {
+    const hasMatch = !!section.querySelector('tr[data-ihr-search-match]');
+    section.style.display = hasMatch ? '' : 'none';
+    if (!hasMatch) section.setAttribute('data-ihr-filter-hidden', '1');
+  });
+
+  const first = matches[0];
+  if (first) {
+    try {
+      first.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      first.scrollIntoView(true);
+    }
+  }
+
+  return { found: matches.length };
 }
 
 function _ihracatScrollToPlate(plateRaw, rowKey) {
@@ -1166,21 +1240,54 @@ function _ihracatBindKayitEtAndSearch(modal) {
   const runSearch = () => {
     const inp = modal.querySelector('#ihracatPlateSearch');
     const q = String(inp?.value || '').trim();
+    const hint = modal.querySelector('#ihracatSearchResultHint');
     if (!q) {
+      _ihracatClearPlateFilter(modal);
+      if (hint) hint.textContent = '';
       showToast('Plaka yazın veya yapıştırın.', 'warn');
       return;
     }
-    const ok = _ihracatScrollToPlate(q, '');
-    if (ok) showToast(`✅ Plaka bulundu: ${normPlate(q)}`, 'success');
-    else showToast('❌ Bu plaka listede yok (boşluklu/boşluksuz deneyin).', 'warn');
+    const { found } = _ihracatFilterByPlate(modal, q);
+    const plate = normPlate(q);
+    if (found > 0) {
+      if (hint) {
+        hint.textContent = `${plate}: ${found} kayıt listelendi`;
+        hint.style.color = '#166534';
+      }
+      showToast(`✅ ${plate} — ${found} kayıt bulundu ve listelendi`, 'success');
+    } else {
+      _ihracatClearPlateFilter(modal);
+      if (hint) {
+        hint.textContent = `${plate}: kayıt yok`;
+        hint.style.color = '#b45309';
+      }
+      showToast('❌ Bu plaka listede yok (boşluklu/boşluksuz deneyin).', 'warn');
+    }
+  };
+
+  const runClear = () => {
+    const inp = modal.querySelector('#ihracatPlateSearch');
+    if (inp) inp.value = '';
+    _ihracatClearPlateFilter(modal);
+    const hint = modal.querySelector('#ihracatSearchResultHint');
+    if (hint) hint.textContent = '';
   };
 
   modal.querySelector('#ihracatPlateSearchBtn')?.addEventListener('click', runSearch);
+  modal.querySelector('#ihracatPlateSearchClearBtn')?.addEventListener('click', runClear);
   modal.querySelector('#ihracatPlateSearch')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       runSearch();
     }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      runClear();
+    }
+  });
+  modal.querySelector('#ihracatPlateSearch')?.addEventListener('input', () => {
+    const inp = modal.querySelector('#ihracatPlateSearch');
+    if (!String(inp?.value || '').trim()) runClear();
   });
 }
 

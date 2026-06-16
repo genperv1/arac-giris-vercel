@@ -367,6 +367,21 @@ async function importExcelHeadersOnly_ShowSelection(file){
 
 // Takip formu açılınca plaka ile excel satırını uygula
 
+function _shipmentSiraSortKey(h) {
+  const raw = String(h?.sira ?? '').trim();
+  const n = parseInt(raw.replace(/[^\d]/g, ''), 10);
+  return Number.isFinite(n) ? n : 999999;
+}
+
+function _sortShipmentsByExcelSira(hits) {
+  return (Array.isArray(hits) ? hits.slice() : []).sort((a, b) => {
+    const da = _shipmentSiraSortKey(a);
+    const db = _shipmentSiraSortKey(b);
+    if (da !== db) return da - db;
+    return String(a?.id || '').localeCompare(String(b?.id || ''), 'tr');
+  });
+}
+
 /** Aynı plakaya ait birden fazla Excel sevkiyat kaydı — kurumsal seçim penceresi */
 function openShipmentPickForSamePlate(plate, hits, onPick, onDismiss) {
   try {
@@ -407,7 +422,10 @@ function openShipmentPickForSamePlate(plate, hits, onPick, onDismiss) {
     const list = document.createElement('div');
     list.style.cssText = 'max-height:55vh;overflow:auto;';
 
-    const rows = (hits || []).map((h, i) => {
+    const sortedHits = _sortShipmentsByExcelSira(hits);
+    const rows = sortedHits.map((h, i) => {
+      const sira = String(h.sira ?? '').trim() || '-';
+      const bbt = h.bbt != null && String(h.bbt).trim() !== '' ? String(h.bbt).trim() : '-';
       const ton = h.tonajKg != null && String(h.tonajKg).trim() !== '' ? String(h.tonajKg).trim() : '-';
       const fir = String(h.firma || h.ydKey || '').trim() || '-';
       const mal = String(h.malzeme || '').trim() || '-';
@@ -418,15 +436,16 @@ function openShipmentPickForSamePlate(plate, hits, onPick, onDismiss) {
           style="width:100%;text-align:left;padding:12px 14px;border:none;background:transparent;cursor:pointer;border-bottom:1px solid #f3f4f6;">
           <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
             <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <span style="background:#e0e7ff;color:#3730a3;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;">${i + 1}</span>
-                <strong style="font-size:13px;color:#0f172a;">Tonaj: ${escapeHtml(ton)} kg</strong>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span style="background:#f1f5f9;color:#475569;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:800;">Sıra: ${escapeHtml(sira)}</span>
+                <span style="background:#e0e7ff;color:#3730a3;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">BBT: ${escapeHtml(bbt)}</span>
+                <span style="background:#ecfdf5;color:#166534;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">Tonaj: ${escapeHtml(ton)} kg</span>
               </div>
               <span style="color:#334155;font-size:12px;">Firma: ${escapeHtml(fir)}</span>
               <span style="color:#64748b;font-size:12px;">Malzeme: ${escapeHtml(mal)}</span>
               ${dosyaHtml}
             </div>
-            <span style="flex-shrink:0;background:#111827;color:#fff;border-radius:10px;padding:8px 14px;font-weight:800;font-size:12px;">SEÇ</span>
+            <span style="flex-shrink:0;background:#4f46e5;color:#fff;border-radius:10px;padding:8px 14px;font-weight:800;font-size:12px;">SEÇ</span>
           </div>
         </button>`;
     }).join('');
@@ -446,16 +465,16 @@ function openShipmentPickForSamePlate(plate, hits, onPick, onDismiss) {
       }
     };
 
-    closeBtn.onclick = () => finish((hits || [])[0], true);
+    closeBtn.onclick = () => finish(sortedHits[0], true);
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) finish((hits || [])[0], true);
+      if (e.target === overlay) finish(sortedHits[0], true);
     });
 
     list.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-idx]');
       if (!btn) return;
       const idx = parseInt(btn.getAttribute('data-idx'), 10);
-      const chosen = (hits || [])[idx];
+      const chosen = sortedHits[idx];
       if (chosen) finish(chosen, false);
     });
 

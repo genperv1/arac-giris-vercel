@@ -62,7 +62,7 @@
       `<ul style="margin:0;padding-left:18px;font-size:11px;">`;
     dupPlateRows.slice(0, 8).forEach((d) => {
       const detail = fmt(d) || '(irsaliye yok)';
-      html += `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#111210;color:#FFBF00;font-weight:700;padding:3px 8px;border-radius:4px;">${esc(d.plaka)}</span> → ${esc(detail)}</li>`;
+      html += `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid #fbbf24;">${esc(d.plaka)}</span> → ${esc(detail)}</li>`;
     });
     if (dupPlateRows.length > 8) {
       html += `<li style="color:#b45309;">… ve ${dupPlateRows.length - 8} plaka daha</li>`;
@@ -80,13 +80,13 @@
       `<ul style="margin:0;padding-left:18px;font-size:11px;">`;
     collisions.slice(0, 8).forEach((c) => {
       const plates = (c.plates || []).filter(Boolean).join(' · ') || '(plaka yok)';
-      html += `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#111210;color:#FFBF00;font-weight:700;padding:3px 8px;border-radius:4px;">${esc(c.irsaliyeNo)}</span> → ${esc(plates)}</li>`;
+      html += `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid #fbbf24;">${esc(c.irsaliyeNo)}</span> → ${esc(plates)}</li>`;
     });
     if (collisions.length > 8) {
       html += `<li style="color:#991b1b;">… ve ${collisions.length - 8} çakışma daha</li>`;
     }
     html +=
-      `</ul><p style="margin:8px 0 0;font-size:11px;">Kayıttan sonra <b>İhracat detay</b> tablosunda yalnızca <b>İrsaliye No</b> hücresi siyah/sarı bantlı görünür. İsterseniz yine de kaydedebilirsiniz.</p></div>`;
+      `</ul><p style="margin:8px 0 0;font-size:11px;">Kayıttan sonra <b>İhracat detay</b> tablosunda yalnızca <b>İrsaliye No</b> hücresi vurgulu görünür. İsterseniz yine de kaydedebilirsiniz.</p></div>`;
     return html;
   }
 

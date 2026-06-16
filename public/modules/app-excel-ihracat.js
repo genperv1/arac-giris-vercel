@@ -133,7 +133,7 @@ function shipmentHasDuplicatePlate(shipment, collisionSet) {
   return !!k && collisionSet.has(k);
 }
 
-const IHR_IRS_COLLISION_CELL_STYLE = 'background:#111210;color:#FFBF00;font-weight:bold;';
+const IHR_IRS_COLLISION_CELL_STYLE = 'background:#fef3c7;color:#92400e;font-weight:700;border:1px solid #fbbf24;';
 
 function detectIrsaliyeColumnIndex(grid, headerRowIdx, cols) {
   if (cols.irsaliyeNo !== undefined) return cols.irsaliyeNo;
