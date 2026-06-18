@@ -329,6 +329,220 @@ function showShipmentSelectUI(blocks, fileName){
   });
 }
 
+function _blockKeyFromHeader(headerText) {
+  const ht = String(headerText || '').replace(/\s+/g, ' ').trim();
+  if (!ht) return '';
+  const yd = (ht.match(/\b(YD\d{1,4})\b/i) || [])[1] || '';
+  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1] || '';
+  const mal = _extractMalzeme(ht) || '';
+  return [yd, book, mal].join('|').toUpperCase() || ht.slice(0, 80);
+}
+
+function buildIhracatLoadedRowBlockId(row) {
+  const fileName = String(row?.fileName || '').trim() || '_';
+  const blockKey = String(row?.blockKey || '').trim()
+    || (row?.blockHeaderRow != null ? `BLK_${row.blockHeaderRow}` : '')
+    || _blockKeyFromHeader(row?.headerText)
+    || 'unknown';
+  return `${fileName}::${blockKey}`;
+}
+
+function groupIhracatLoadedRowsIntoBlocks(rows) {
+  const map = new Map();
+  for (const row of (rows || [])) {
+    const id = buildIhracatLoadedRowBlockId(row);
+    if (!map.has(id)) {
+      const ht = String(row.headerText || '').trim();
+      const totals = row.blockTotals || {};
+      map.set(id, {
+        id,
+        fileName: String(row.fileName || '').trim(),
+        blockKey: String(row.blockKey || '').trim(),
+        headerText: ht,
+        firma: String(row.firma || row.ydKey || _extractFirmaKod(ht) || '').trim(),
+        malzeme: String(row.malzeme || _extractMalzeme(ht) || '').trim(),
+        sevkYeri: String(row.sevkYeri || '').trim(),
+        ambalaj: String(row.ambalaj || '').trim(),
+        totalBBT: totals.bbt != null ? String(totals.bbt) : _extractTotal(ht, 'BBT'),
+        totalPalet: totals.palet != null ? String(totals.palet) : _extractTotal(ht, 'PALET'),
+        rowCount: 0,
+      });
+    }
+    const blk = map.get(id);
+    blk.rowCount += 1;
+    if (!blk.sevkYeri && row.sevkYeri) blk.sevkYeri = String(row.sevkYeri).trim();
+    if (!blk.ambalaj && row.ambalaj) blk.ambalaj = String(row.ambalaj).trim();
+    if (!blk.malzeme && row.malzeme) blk.malzeme = String(row.malzeme).trim();
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const fc = (a.fileName || '').localeCompare(b.fileName || '', 'tr');
+    if (fc) return fc;
+    return (a.firma || '').localeCompare(b.firma || '', 'tr');
+  });
+}
+
+function closeIhracatBlockDeleteUI() {
+  document.getElementById('ihracatBlockDeleteOverlay')?.remove();
+}
+
+/** Yüklü İHRACAT kayıtlarını blok tablosu ile seçerek sil (import ekranı ile aynı görünüm) */
+function showIhracatBlockDeleteUI(blocks, meta) {
+  return new Promise((resolve) => {
+    closeIhracatBlockDeleteUI();
+    const list = Array.isArray(blocks) ? blocks : [];
+    if (!list.length) {
+      resolve(null);
+      return;
+    }
+
+    const metaInfo = meta || {};
+    const totalRows = list.reduce((s, b) => s + (b.rowCount || 0), 0);
+    const fileNames = [...new Set(list.map((b) => b.fileName).filter(Boolean))];
+    const multiFile = fileNames.length > 1;
+    const fileLabel = multiFile
+      ? `${fileNames.length} dosya`
+      : (fileNames[0] || metaInfo.fileName || 'İHRACAT Excel');
+
+    const finish = (value) => {
+      closeIhracatBlockDeleteUI();
+      resolve(value);
+    };
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ihracatBlockDeleteOverlay';
+    overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 999999;
+      background: rgba(0,0,0,.55);
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 24px;
+    `;
+
+    const card = document.createElement('div');
+    card.style.cssText = `
+      width: min(1100px, 98vw);
+      max-height: 92vh;
+      overflow: auto;
+      background: #101217;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      padding: 18px;
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 12px;';
+    title.innerHTML = `
+      <div>
+        <div style="font-size:18px; font-weight:800;">🗑️ İHRACAT Excel Blok Silme</div>
+        <div style="opacity:.85; margin-top:4px; font-size:13px;">
+          Kaynak: <b>${escapeHtml(fileLabel)}</b> • Blok: <b>${list.length}</b> • Kayıt: <b>${totalRows}</b>
+        </div>
+        <div style="opacity:.85; margin-top:4px; font-size:12px;">
+          Silmek istediğiniz sevkiyat bloklarını işaretleyin (yüklemedeki gibi).
+        </div>
+      </div>
+      <button type="button" id="ihrBlockDeleteCloseBtn" style="background:#2b2f3a;color:#fff;border:1px solid rgba(255,255,255,.18);padding:10px 14px;border-radius:12px;cursor:pointer;">Kapat</button>
+    `;
+
+    const tableWrap = document.createElement('div');
+    tableWrap.style.cssText = 'margin-top: 10px; border:1px solid rgba(255,255,255,.12); border-radius:12px; overflow:auto; max-height:58vh;';
+    const rowsHtml = list.map((b) => {
+      const headerShort = escapeHtml(_safeStr(b.headerText)).slice(0, 160)
+        + (escapeHtml(_safeStr(b.headerText)).length > 160 ? '…' : '');
+      const fileCell = multiFile
+        ? `<td style="padding:10px; font-size:12px; max-width:140px; white-space:normal; word-break:break-word;">${escapeHtml(b.fileName || '-')}</td>`
+        : '';
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+          <td style="padding:10px; text-align:center;"><input type="checkbox" class="ihrBlockPick" data-id="${escapeAttr(b.id)}" /></td>
+          ${fileCell}
+          <td style="padding:10px; max-width:260px; white-space:normal; overflow-wrap:break-word; word-break:break-word; font-size:13px;"><b>${escapeHtml(b.firma || '-')}</b></td>
+          <td style="padding:10px;">${escapeHtml(b.malzeme || '-')}</td>
+          <td style="padding:10px; white-space:nowrap;">${escapeHtml(b.sevkYeri || '-')}</td>
+          <td style="padding:10px;">${escapeHtml(b.ambalaj || '-')}</td>
+          <td style="padding:10px; text-align:center;">${escapeHtml(b.totalBBT || '-')}</td>
+          <td style="padding:10px; text-align:center;">${escapeHtml(String(b.rowCount || '-'))}</td>
+          <td style="padding:10px; text-align:center;">${escapeHtml(b.totalPalet || '-')}</td>
+          <td style="padding:10px; font-size:12px; opacity:.85;">${headerShort}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const fileHead = multiFile ? '<th style="padding:10px; width:140px;">Dosya</th>' : '';
+    tableWrap.innerHTML = `
+      <table style="width:100%; border-collapse:collapse;">
+        <thead style="background:rgba(255,255,255,.06); position:sticky; top:0; z-index:1;">
+          <tr>
+            <th style="padding:10px; width:60px;">Seç</th>
+            ${fileHead}
+            <th style="padding:10px; width:90px;">Firma</th>
+            <th style="padding:10px; width:160px;">Malzeme</th>
+            <th style="padding:10px; width:120px;">Sevk Yeri</th>
+            <th style="padding:10px;">Ambalaj</th>
+            <th style="padding:10px; width:70px;">BBT</th>
+            <th style="padding:10px; width:70px;">Kayıt</th>
+            <th style="padding:10px; width:70px;">Palet</th>
+            <th style="padding:10px; width:260px;">Başlık (kısa)</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    `;
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex; gap:10px; align-items:center; justify-content:flex-end; margin-top: 14px; flex-wrap:wrap;';
+    actions.innerHTML = `
+      <button type="button" id="ihrBlockPickAll" style="background:#1f6feb;color:#fff;border:none;padding:10px 14px;border-radius:12px;cursor:pointer;">Hepsini Seç</button>
+      <button type="button" id="ihrBlockClearAll" style="background:#2b2f3a;color:#fff;border:1px solid rgba(255,255,255,.18);padding:10px 14px;border-radius:12px;cursor:pointer;">Temizle</button>
+      <button type="button" id="ihrBlockDeleteConfirm" style="background:#dc2626;color:#fff;border:none;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:700;">Seçilenleri Sil</button>
+    `;
+
+    card.appendChild(title);
+    card.appendChild(tableWrap);
+    card.appendChild(actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#ihrBlockDeleteCloseBtn')?.addEventListener('click', () => finish(null));
+    overlay.addEventListener('click', (ev) => {
+      if (ev.target === overlay) finish(null);
+    });
+    overlay.querySelector('#ihrBlockPickAll')?.addEventListener('click', () => {
+      overlay.querySelectorAll('input.ihrBlockPick').forEach((ch) => { ch.checked = true; });
+    });
+    overlay.querySelector('#ihrBlockClearAll')?.addEventListener('click', () => {
+      overlay.querySelectorAll('input.ihrBlockPick').forEach((ch) => { ch.checked = false; });
+    });
+    overlay.querySelector('#ihrBlockDeleteConfirm')?.addEventListener('click', () => {
+      const picks = Array.from(overlay.querySelectorAll('input.ihrBlockPick'))
+        .filter((ch) => ch.checked)
+        .map((ch) => ch.getAttribute('data-id'));
+      if (!picks.length) {
+        alert('Önce en az 1 sevkiyat bloğu seçmelisin.');
+        return;
+      }
+      finish(list.filter((b) => picks.includes(b.id)));
+    });
+  });
+}
+
+async function pickIhracatBlocksToDelete() {
+  const rows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+  if (!rows.length) return null;
+  const blocks = groupIhracatLoadedRowsIntoBlocks(rows);
+  if (!blocks.length) return null;
+  const meta = (typeof loadDailyMeta === 'function') ? loadDailyMeta() : {};
+  return showIhracatBlockDeleteUI(blocks, meta);
+}
+
+try {
+  window.buildIhracatLoadedRowBlockId = buildIhracatLoadedRowBlockId;
+  window.groupIhracatLoadedRowsIntoBlocks = groupIhracatLoadedRowsIntoBlocks;
+  window.showIhracatBlockDeleteUI = showIhracatBlockDeleteUI;
+  window.pickIhracatBlocksToDelete = pickIhracatBlocksToDelete;
+} catch (e) { /* ignore */ }
+
 // Excel oku -> blokları çıkar -> seçim ekranını göster (import yapmaz)
 async function importExcelHeadersOnly_ShowSelection(file){
   if (!file) return { ok:false, msg:'Dosya seçilmedi.' };
@@ -563,9 +777,11 @@ function applyShipmentTonajAndIrsaliye(chosen) {
 }
 
 // ✅ Araç varsayılanlarını takip formuna uygula (Excel'e / kullanıcı girdisine dokunmaz)
-// - Sadece ilgili alan BOŞSA doldurur.
+// - Sadece ilgili alan BOŞSA doldurur (force=true ise reprint değerlerini yazar).
 // - Excel import varsa applyShipmentToTakipForm zaten doldurur; burada tekrar ezmeyiz.
-function applyVehicleDefaultsToTakipForm(vehicle) {
+function applyVehicleDefaultsToTakipForm(vehicle, opts) {
+  opts = opts || {};
+  const force = !!opts.force;
   try {
     if (!vehicle) return;
 
@@ -585,14 +801,20 @@ function applyVehicleDefaultsToTakipForm(vehicle) {
     console.log('🔍 applyVehicleDefaults - vehicle:', vehicle);
     console.log('🔍 Değerler:', { df, dm, ds, dn, dbbt });
 
+    const shouldFill = (el, val) => {
+      if (!el || !val) return false;
+      if (force) return true;
+      return !String(el.value || '').trim();
+    };
+
     // Firma - INPUT (önce input'u doldur)
-    if (firmaKodu && !String(firmaKodu.value || '').trim() && df) {
+    if (shouldFill(firmaKodu, df)) {
       firmaKodu.value = df;
       console.log('✅ Firma input dolduruldu:', df);
     }
     
     // Firma - SELECT
-    if (firmaSelect && !String(firmaSelect.value || '').trim() && df) {
+    if (shouldFill(firmaSelect, df)) {
       try {
         firmaSelect.value = df;
         console.log('✅ Firma select set edildi:', df, '-> sonuç:', firmaSelect.value);
@@ -602,13 +824,13 @@ function applyVehicleDefaultsToTakipForm(vehicle) {
     }
 
     // Malzeme - INPUT (önce input'u doldur)
-    if (malzeme && !String(malzeme.value || '').trim() && dm) {
+    if (shouldFill(malzeme, dm)) {
       malzeme.value = dm;
       console.log('✅ Malzeme input dolduruldu:', dm);
     }
     
     // Malzeme - SELECT
-    if (malzemeSelect && !String(malzemeSelect.value || '').trim() && dm) {
+    if (shouldFill(malzemeSelect, dm)) {
       try {
         const opt = Array.from(malzemeSelect.options || []).find(o => String(o.value||'').trim() === dm);
         if (opt) {
@@ -623,13 +845,13 @@ function applyVehicleDefaultsToTakipForm(vehicle) {
     }
 
     // Sevk yeri
-    if (sevkYeri && !String(sevkYeri.value || '').trim() && ds) {
+    if (shouldFill(sevkYeri, ds)) {
       sevkYeri.value = ds;
       console.log('✅ Sevk yeri dolduruldu:', ds);
     }
 
     // Yükleme notu
-    if (yuklemeNotu && !String(yuklemeNotu.value || '').trim() && dn) {
+    if (shouldFill(yuklemeNotu, dn)) {
       yuklemeNotu.value = dn;
       console.log('✅ Yükleme notu dolduruldu:', dn);
     }

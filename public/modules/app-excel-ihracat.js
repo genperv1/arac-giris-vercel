@@ -275,6 +275,7 @@ function driverFieldsFromSnapshot(snap) {
 }
 
 function _isIhracatPrintContext(pending) {
+  if (pending && pending.piyasaOrderIdx != null && pending.piyasaOrderIdx !== '') return false;
   if (pending && pending.fromIhracat) return true;
   try {
     if (window.__ihracatActivePrintShipment) return true;
@@ -356,7 +357,8 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
       printEv.firmaKodu = f;
     }
     if (m) printEv.malzeme = m;
-    if (sehir) printEv.sevkYeri = sehir;
+    const userSevk = String(printEv.sevkYeri || '').trim();
+    if (sehir && !userSevk) printEv.sevkYeri = sehir;
     if (yuk) {
       printEv.yuklemeTuru = yuk;
       if (!String(printEv.ambalajBilgisi || '').trim()) printEv.ambalajBilgisi = yuk;
@@ -691,6 +693,122 @@ async function clearDailyShipments() {
     localStorage.removeItem(DAILY_SHIPMENT_META);
     return true;
   } catch(e){ return false; }
+}
+
+/** Yüklü İHRACAT Excel dosya adları (meta + satır fileName) */
+function listIhracatExcelSources() {
+  const rows = loadDailyShipments() || [];
+  const meta = loadDailyMeta() || {};
+  const fromMeta = Array.isArray(meta.files) && meta.files.length
+    ? meta.files
+    : (meta.fileName ? String(meta.fileName).split(/\s*\+\s*/).map((s) => s.trim()).filter(Boolean) : []);
+  const fromRows = rows.map((r) => String(r.fileName || '').trim()).filter(Boolean);
+  const seen = new Set();
+  const out = [];
+  [...fromMeta, ...fromRows].forEach((name) => {
+    const n = String(name || '').trim();
+    if (!n || seen.has(n)) return;
+    seen.add(n);
+    out.push(n);
+  });
+  return out;
+}
+
+function countIhracatRowsForSource(sourceName) {
+  const target = String(sourceName || '').trim();
+  if (!target) return 0;
+  const rows = loadDailyShipments() || [];
+  const tagged = rows.filter((r) => String(r.fileName || '').trim() === target);
+  if (tagged.length) return tagged.length;
+  const sources = listIhracatExcelSources();
+  if (sources.length === 1 && sources[0] === target) return rows.length;
+  return 0;
+}
+
+function removeDailyShipmentsBySource(sourceName) {
+  const target = String(sourceName || '').trim();
+  if (!target) return false;
+  const rows = loadDailyShipments() || [];
+  const meta = loadDailyMeta() || {};
+  let kept = rows.filter((r) => String(r.fileName || '').trim() !== target);
+  if (kept.length === rows.length && countIhracatRowsForSource(target) === rows.length) {
+    kept = [];
+  }
+  if (!kept.length) {
+    try {
+      if (window.DailyStore && typeof DailyStore.set === 'function') {
+        DailyStore.set([], {});
+        return true;
+      }
+      localStorage.removeItem(DAILY_SHIPMENT_KEY);
+      localStorage.removeItem(DAILY_SHIPMENT_META);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  const prevFiles = Array.isArray(meta.files) && meta.files.length
+    ? meta.files
+    : (meta.fileName ? String(meta.fileName).split(/\s*\+\s*/).map((s) => s.trim()).filter(Boolean) : []);
+  const nextFiles = prevFiles.filter((f) => String(f).trim() !== target);
+  const rowFiles = [...new Set(kept.map((r) => String(r.fileName || '').trim()).filter(Boolean))];
+  const files = nextFiles.length ? nextFiles : rowFiles;
+  const metaToSave = Object.assign({}, meta, {
+    files: files.length ? files : undefined,
+    fileName: files.length ? files.join(' + ') : '',
+    count: kept.length,
+  });
+  if (!metaToSave.fileName && kept.length) {
+    metaToSave.fileName = files.join(' + ') || meta.fileName || '';
+  }
+  return saveDailyShipments(kept, metaToSave);
+}
+
+function _ihracatLoadedRowBlockId(row) {
+  if (typeof window.buildIhracatLoadedRowBlockId === 'function') {
+    return window.buildIhracatLoadedRowBlockId(row);
+  }
+  const fileName = String(row?.fileName || '').trim() || '_';
+  const blockKey = String(row?.blockKey || '').trim()
+    || (row?.blockHeaderRow != null ? `BLK_${row.blockHeaderRow}` : 'unknown');
+  return `${fileName}::${blockKey}`;
+}
+
+/** Seçilen sevkiyat bloklarına ait satırları kaldır */
+function removeDailyShipmentsByBlocks(selectedBlocks) {
+  const selectedIds = new Set(
+    (selectedBlocks || []).map((b) => String(b.id || '').trim()).filter(Boolean)
+  );
+  if (!selectedIds.size) return false;
+
+  const rows = loadDailyShipments() || [];
+  const meta = loadDailyMeta() || {};
+  const kept = rows.filter((r) => !selectedIds.has(_ihracatLoadedRowBlockId(r)));
+
+  if (!kept.length) {
+    try {
+      if (window.DailyStore && typeof DailyStore.set === 'function') {
+        DailyStore.set([], {});
+        return true;
+      }
+      localStorage.removeItem(DAILY_SHIPMENT_KEY);
+      localStorage.removeItem(DAILY_SHIPMENT_META);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const rowFiles = [...new Set(kept.map((r) => String(r.fileName || '').trim()).filter(Boolean))];
+  const prevFiles = Array.isArray(meta.files) && meta.files.length
+    ? meta.files.filter((f) => rowFiles.includes(String(f).trim()))
+    : rowFiles;
+  const metaToSave = Object.assign({}, meta, {
+    files: prevFiles.length ? prevFiles : undefined,
+    fileName: prevFiles.length ? prevFiles.join(' + ') : (rowFiles.join(' + ') || meta.fileName || ''),
+    count: kept.length,
+  });
+  return saveDailyShipments(kept, metaToSave);
 }
 
 // Header Excel durum yazıları için ortak formatter

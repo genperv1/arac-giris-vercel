@@ -124,7 +124,25 @@
     ];
   }
 
+  function isPiyasaFormContext(t) {
+    try {
+      const pending = window.__pendingPrintCommit;
+      if (pending && pending.piyasaOrderIdx != null && pending.piyasaOrderIdx !== '') return true;
+    } catch (e) {}
+    try {
+      if (window.piyasa && typeof window.piyasa.getActiveOrderIdx === 'function') {
+        const idx = window.piyasa.getActiveOrderIdx();
+        if (idx != null && idx !== '') return true;
+      }
+    } catch (e) {}
+    if (looksLikePiyasaNote(t)) return true;
+    return false;
+  }
+
   function resolveIrsaliyeForPrint() {
+    try {
+      if (isPiyasaFormContext()) return '';
+    } catch (e) {}
     try {
       const xr = document.getElementById('xr_irsaliye');
       if (xr && String(xr.value || '').trim()) {
@@ -308,6 +326,7 @@
   }
 
   function isIhracatFormContext(t) {
+    if (isPiyasaFormContext(t)) return false;
     try {
       const ch = window.__activeExcelShipment || window.__lastChosenShipment;
       if (ch && (ch.blockMeta || ch.headerText)) return true;
@@ -327,19 +346,8 @@
   /** Takip formu: ihracat ve piyasa ayrı — önce ihracat bağlamı, sonra piyasa siparişi */
   function resolveYuklemeNotuKind(raw) {
     const t = String(raw ?? document.getElementById('yuklemeNotu')?.value ?? '').trim();
+    if (isPiyasaFormContext(t)) return 'piyasa';
     if (isIhracatFormContext(t)) return 'ihracat';
-
-    try {
-      const pending = window.__pendingPrintCommit;
-      if (pending && pending.piyasaOrderIdx != null && pending.piyasaOrderIdx !== '') return 'piyasa';
-    } catch (e) {}
-    try {
-      if (window.piyasa && typeof window.piyasa.getActiveOrderIdx === 'function') {
-        const idx = window.piyasa.getActiveOrderIdx();
-        if (idx != null && idx !== '') return 'piyasa';
-      }
-    } catch (e) {}
-    if (looksLikePiyasaNote(t)) return 'piyasa';
     return 'piyasa';
   }
 
@@ -1637,9 +1645,9 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
       return t;
     };
 
-    const notKind = isIhracatFormContext(yuklemeNotu)
-      ? 'ihracat'
-      : resolveYuklemeNotuKind(yuklemeNotu);
+    const notKind = isPiyasaFormContext(yuklemeNotu)
+      ? 'piyasa'
+      : (isIhracatFormContext(yuklemeNotu) ? 'ihracat' : resolveYuklemeNotuKind(yuklemeNotu));
     const buildYuklemeNotuPrintHtml = (raw, kind) => {
       const t = normalizeToLines(raw);
       const noteKind = kind === 'ihracat' || kind === 'piyasa'
@@ -2596,6 +2604,7 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;
+  window.isPiyasaFormContext = isPiyasaFormContext;
   window.isIhracatFormContext = isIhracatFormContext;
   window.YuklemeNotuFitSettings = {
     storageKey: YUKLEME_NOTU_FIT_STORAGE_KEY,

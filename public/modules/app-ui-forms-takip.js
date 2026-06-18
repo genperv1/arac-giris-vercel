@@ -1220,6 +1220,7 @@ try {
             setTimeout(()=>{ try { document.getElementById('soforBilgi')?.focus(); } catch(_) {} }, 0);
 
             // 📄 Günlük Excel varsa otomatik doldur (plaka eşleşmesi)
+            const isReprintSession = _allowRememberedDefaults;
             let takipApplyOpts = null;
             try {
               if (vehicle && vehicle._ihracatTakipApplyOpts) {
@@ -1228,11 +1229,13 @@ try {
               }
             } catch (e) {}
             try {
-              applyShipmentToTakipForm(vehicle, takipApplyOpts);
+              if (!isReprintSession) {
+                applyShipmentToTakipForm(vehicle, takipApplyOpts);
+              }
             } catch (e) {}
 
             // ✅ Araç varsayılan bilgilerini (ve reprint bilgilerini) doldur
-            try { applyVehicleDefaultsToTakipForm(vehicle); } catch(e) {}
+            try { applyVehicleDefaultsToTakipForm(vehicle, { force: isReprintSession }); } catch(e) {}
 
 }
 

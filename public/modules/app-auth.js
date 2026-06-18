@@ -262,11 +262,22 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
                     else showToast('İHRACAT Excel verisi zaten boş.');
                     return;
                 }
+
+                let selectedBlocks = null;
+                if (typeof pickIhracatBlocksToDelete === 'function') {
+                    selectedBlocks = await pickIhracatBlocksToDelete();
+                }
+                if (!selectedBlocks || !selectedBlocks.length) return;
+
+                const blockCount = selectedBlocks.length;
+                const rowCount = selectedBlocks.reduce((s, b) => s + (b.rowCount || 0), 0);
+                const targetLabel = `${blockCount} sevkiyat bloğu (${rowCount} kayıt)`;
+
                 let okDel = false;
                 if (typeof ui.confirm === 'function') {
-                    okDel = await ui.confirm('İHRACAT Excel verisi silinecek.\n\nDevam edilsin mi?', { okLabel: 'Sil' });
+                    okDel = await ui.confirm(`${targetLabel} silinecek.\n\nDevam edilsin mi?`, { okLabel: 'Sil' });
                   } else {
-                    okDel = await confirm('İHRACAT Excel verisi silinecek.\n\nDevam edilsin mi?');
+                    okDel = await confirm(`${targetLabel} silinecek.\n\nDevam edilsin mi?`);
                   }
                 if (!okDel) return;
 
@@ -274,25 +285,36 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
                     rows: JSON.parse(JSON.stringify(loadDailyShipments() || [])),
                     meta: JSON.parse(JSON.stringify(loadDailyMeta() || {}))
                 };
-                const r = await clearDailyShipments();
+                let r = false;
+                if (typeof removeDailyShipmentsByBlocks === 'function') {
+                    r = removeDailyShipmentsByBlocks(selectedBlocks);
+                } else {
+                    r = await clearDailyShipments();
+                }
                 if (!r) {
                     if (typeof ui.alert === 'function') await ui.alert('Silinemedi.', 'danger');
                     else showToast('Silinemedi.');
                     return;
                 }
                 try { if (typeof purgeStrictExcelCaches === 'function') purgeStrictExcelCaches(); } catch(e) {}
-                try { if (typeof rebuildListsFromExcelRows === 'function') rebuildListsFromExcelRows([]); } catch(e) {}
+                try {
+                    if (typeof rebuildListsFromExcelRows === 'function') {
+                        rebuildListsFromExcelRows(loadDailyShipments() || []);
+                    }
+                } catch(e) {}
                 try { window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo(); } catch(e) {}
                 try { render(); } catch(e) {}
+
+                const successMsg = `${blockCount} blok silindi (${rowCount} kayıt kaldırıldı).`;
 
                 let choice = 'ok';
                 if (typeof ui.alertDeleteSuccess === 'function') {
                     choice = await ui.alertDeleteSuccess({
-                        message: 'İHRACAT Excel verisi silindi.',
+                        message: successMsg,
                         withUndo: true
                     });
                 } else {
-                    showToast('Günlük Excel verisi silindi.');
+                    showToast(successMsg);
                 }
                 if (choice === 'undo') {
                     try {

@@ -903,6 +903,47 @@ function _ihracatKayitEtBtnHtml(plate) {
   return `<button type="button" class="ihr-kayit-et-btn" data-plate="${p}" style="margin-top:5px;display:block;width:100%;max-width:110px;padding:4px 8px;font-size:10px;background:#4f46e5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Kayıt Et</button>`;
 }
 
+function _ihracatSetCollapsibleSection(section, open) {
+  if (!section) return;
+  const body = section.querySelector('.ihr-collapse-body');
+  const chevron = section.querySelector('.ihr-collapse-chevron');
+  if (open) {
+    section.classList.add('ihr-collapse-open');
+    section.classList.remove('ihr-collapse-closed');
+    if (body) body.style.display = '';
+    if (chevron) chevron.textContent = '▾';
+  } else {
+    section.classList.remove('ihr-collapse-open');
+    section.classList.add('ihr-collapse-closed');
+    if (body) body.style.display = 'none';
+    if (chevron) chevron.textContent = '▸';
+  }
+}
+
+function _ihracatToggleCollapsibleSection(section) {
+  if (!section) return;
+  _ihracatSetCollapsibleSection(section, !section.classList.contains('ihr-collapse-open'));
+}
+
+function _ihracatExpandCollapsibleAncestors(el) {
+  let node = el;
+  while (node) {
+    if (node.matches && node.matches('[data-ihr-collapse-section]')) {
+      _ihracatSetCollapsibleSection(node, true);
+    }
+    node = node.parentElement;
+  }
+}
+
+function _ihracatBindCollapsibleSections(modal) {
+  if (!modal) return;
+  modal.querySelectorAll('[data-ihr-collapse-trigger]').forEach((trigger) => {
+    trigger.addEventListener('click', () => {
+      _ihracatToggleCollapsibleSection(trigger.closest('[data-ihr-collapse-section]'));
+    });
+  });
+}
+
 function _ihracatClearPlateFilter(modal) {
   if (!modal) return;
   modal.querySelectorAll('[data-ihr-filter-hidden]').forEach((el) => {
@@ -957,6 +998,7 @@ function _ihracatFilterByPlate(modal, plateRaw) {
     const hasMatch = !!section.querySelector('tr[data-ihr-search-match]');
     section.style.display = hasMatch ? '' : 'none';
     if (!hasMatch) section.setAttribute('data-ihr-filter-hidden', '1');
+    else _ihracatExpandCollapsibleAncestors(section);
   });
 
   modal.querySelectorAll('[data-ihr-file-section]').forEach((section) => {
@@ -997,6 +1039,7 @@ function _ihracatScrollToPlate(plateRaw, rowKey) {
     }) || null;
   }
   if (!row) return false;
+  _ihracatExpandCollapsibleAncestors(row);
   try {
     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (e) {
