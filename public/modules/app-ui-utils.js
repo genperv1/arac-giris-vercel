@@ -15,6 +15,42 @@ function closeAppToolsMenu() {
 }
 window.closeAppToolsMenu = closeAppToolsMenu;
 
+/** Dropdown menüler: dışarı tıklanınca veya Escape ile kapanır */
+function bindAppToolsMenuOutsideClose() {
+  if (window.__appToolsMenuOutsideBound) return;
+  window.__appToolsMenuOutsideBound = true;
+
+  document.addEventListener('click', function (e) {
+    const openMenus = document.querySelectorAll('details.app-tools-menu[open]');
+    if (!openMenus.length) return;
+
+    const menu = e.target.closest('details.app-tools-menu');
+    if (menu) {
+      openMenus.forEach(function (el) {
+        if (el !== menu) {
+          el.open = false;
+          el.removeAttribute('open');
+        }
+      });
+      return;
+    }
+
+    closeAppToolsMenu();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeAppToolsMenu();
+  });
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindAppToolsMenuOutsideClose);
+  } else {
+    bindAppToolsMenuOutsideClose();
+  }
+}
+
 // ✅ Sayfa mesajı (alert) yerine hızlı bildirim — uygulama teması (Piyasa / İhracat ile ortak)
 function _inferToastType(message) {
   const m = String(message || '').trim();
@@ -192,6 +228,163 @@ function formatTRPhone(input) {
   const p3 = digits.slice(7,9);
   const p4 = digits.slice(9,11);
   return `${p1} ${p2} ${p3} ${p4}`;
+}
+
+/** Türk cep numaralarını formatlar; uluslararası numaraları olduğu gibi bırakır */
+function formatPhoneForInput(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+
+  const digits = raw.replace(/\D/g, '');
+  const isTRMobile =
+    (digits.length === 11 && digits.startsWith('05')) ||
+    (digits.length === 10 && digits.startsWith('5'));
+
+  if (isTRMobile) return formatTRPhone(raw);
+
+  return raw.replace(/[^\d+\s\-().]/g, '').trim();
+}
+
+function showFormFieldWarning(fieldId, warningId, message) {
+  const input = document.getElementById(fieldId);
+  const warn = document.getElementById(warningId);
+  if (warn) {
+    warn.textContent = message;
+    warn.classList.remove('hidden');
+    warn.classList.add('text-red-600');
+  }
+  if (input) {
+    input.classList.add('border-red-500');
+    input.classList.remove('border-gray-300');
+  }
+}
+
+function clearFormFieldWarning(fieldId, warningId) {
+  const input = document.getElementById(fieldId);
+  const warn = document.getElementById(warningId);
+  if (warn) {
+    warn.textContent = '';
+    warn.classList.add('hidden');
+    warn.classList.remove('text-red-600', 'text-amber-600');
+  }
+  if (input) {
+    input.classList.remove('border-red-500', 'border-amber-500');
+    input.classList.add('border-gray-300');
+  }
+}
+
+function isCompleteTC(tc) {
+  return /^\d{11}$/.test(String(tc || '').trim());
+}
+
+/** Taslak kayıt: eksik veya tamamlanmamış iletişim / TC uyarıları */
+function getVehicleContactWarnings(vehicle) {
+  const warnings = [];
+  const phone = String(vehicle?.iletisim || '').trim();
+  const tc = String(vehicle?.tcKimlik || '').trim();
+  if (!phone) warnings.push('İletişim');
+  if (!tc) warnings.push('TC Kimlik No');
+  else if (!isCompleteTC(tc)) warnings.push('TC Kimlik No (eksik)');
+  return warnings;
+}
+
+function countIncompleteVehicles(vehicles) {
+  return (vehicles || []).filter((v) => getVehicleContactWarnings(v).length > 0).length;
+}
+
+function getFirstMissingContactField(vehicle) {
+  const phone = String(vehicle?.iletisim || '').trim();
+  const tc = String(vehicle?.tcKimlik || '').trim();
+  if (!phone) return 'iletisim';
+  if (!tc || !isCompleteTC(tc)) return 'tcKimlik';
+  return null;
+}
+
+function getContactFieldStatus(vehicle, field) {
+  if (field === 'phone' || field === 'iletisim') {
+    return String(vehicle?.iletisim || '').trim() ? 'Tamam' : 'Eksik';
+  }
+  const tc = String(vehicle?.tcKimlik || '').trim();
+  if (!tc) return 'Eksik';
+  if (isCompleteTC(tc)) return 'Tamam';
+  return 'Eksik (taslak)';
+}
+
+async function maybeConfirmIncompleteContact(vehicle, actionLabel) {
+  if (!vehicle || !getVehicleContactWarnings(vehicle).length) return true;
+  const lines = getVehicleContactWarnings(vehicle).join(', ');
+  const msg = `Bu araçta eksik bilgi var: ${lines}.\n\n${actionLabel} işlemine yine de devam edilsin mi?`;
+  const ui = window.rpUi || {};
+  if (typeof ui.confirm === 'function') {
+    return ui.confirm(msg, { title: 'Eksik şoför bilgisi' });
+  }
+  return window.confirm(msg);
+}
+
+function focusVehicleFormField(fieldId) {
+  try {
+    const el = document.getElementById(fieldId);
+    if (!el) return;
+    el.focus({ preventScroll: false });
+    if (typeof el.select === 'function') el.select();
+  } catch (_) {}
+}
+
+function vehicleContactWarningsHTML(vehicle, dataVehicleAttr) {
+  const warnings = getVehicleContactWarnings(vehicle);
+  if (!warnings.length) return '';
+  const dv = dataVehicleAttr || '';
+  return `<button type="button" class="vehicle-card__draft-warn vehicle-card__draft-warn--clickable" data-vehicle="${dv}" title="Eksik bilgileri düzenlemek için tıklayın">
+    <span class="vehicle-card__draft-warn-icon" aria-hidden="true">⚠️</span>
+    <span class="vehicle-card__draft-warn-text">Eksik bilgi: ${warnings.join(', ')}</span>
+  </button>`;
+}
+
+async function exportVehiclesExcel() {
+  closeAppToolsMenu();
+  const vehicles = (state && state.vehicles) ? state.vehicles : [];
+  if (!vehicles.length) {
+    showToast('Dışa aktarılacak araç kaydı yok.', 'warn');
+    return;
+  }
+  try {
+    if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
+  } catch (_) {}
+  if (typeof XLSX === 'undefined') {
+    showToast('Excel kütüphanesi yüklenemedi.', 'error');
+    return;
+  }
+  const rows = vehicles.map((v) => ({
+    'Çekici Plaka': v.cekiciPlaka || '',
+    'Dorse Plaka': v.dorsePlaka || '',
+    'Şoför Adı': v.soforAdi || '',
+    'Şoför Soyadı': v.soforSoyadi || '',
+    'İletişim': v.iletisim || '',
+    'TC Kimlik': v.tcKimlik || '',
+    'Telefon Durumu': getContactFieldStatus(v, 'phone'),
+    'TC Durumu': getContactFieldStatus(v, 'tc'),
+    'Kayıt Tarihi': v.kayitTarihi || '',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Araçlar');
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `arac_listesi_${stamp}.xlsx`);
+  showToast(`✅ ${vehicles.length} araç Excel olarak indirildi.`, 'success');
+}
+
+function handlePendingEditVehicle() {
+  let id = '';
+  try { id = sessionStorage.getItem('pendingEditVehicleId') || ''; } catch (_) {}
+  if (!id) return;
+  try { sessionStorage.removeItem('pendingEditVehicleId'); } catch (_) {}
+  let focusField = '';
+  try { focusField = sessionStorage.getItem('pendingEditFocusField') || ''; } catch (_) {}
+  try { sessionStorage.removeItem('pendingEditFocusField'); } catch (_) {}
+  const vehicle = (state.vehicles || []).find((v) => String(v.id) === String(id));
+  const editFn = (typeof editVehicle === 'function') ? editVehicle : window.editVehicleRecord;
+  if (!vehicle || typeof editFn !== 'function') return;
+  editFn(vehicle, { focusField: focusField || getFirstMissingContactField(vehicle) });
 }
 
 

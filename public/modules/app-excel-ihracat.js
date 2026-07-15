@@ -180,12 +180,52 @@ function setFirmaOverride(firma, patch){
 }
 function applyFirmaOverridesToShipment(sh){
   if (!sh) return sh;
+  const out = { ...sh };
+  const headerText = String(sh.blockMeta?.mainHeader || sh.headerText || '').trim();
+  const manuallyEdited = !!(sh._ihracatBlockEdited || sh._ihracatEdited);
+
+  if (!String(out.sevkYeri || '').trim()) {
+    const meta = typeof loadDailyMeta === 'function' ? (loadDailyMeta() || {}) : {};
+    const gk = typeof _ihracatBlockGroupKey === 'function' ? _ihracatBlockGroupKey(sh) : '';
+    const blockOv = gk && meta.blockOverrides ? meta.blockOverrides[gk] : null;
+    if (blockOv && String(blockOv.sevkYeri || '').trim()) {
+      out.sevkYeri = String(blockOv.sevkYeri).trim();
+    }
+  }
+  if (!String(out.ambalaj || out.ambalajBilgisi || '').trim()) {
+    const meta = typeof loadDailyMeta === 'function' ? (loadDailyMeta() || {}) : {};
+    const gk = typeof _ihracatBlockGroupKey === 'function' ? _ihracatBlockGroupKey(sh) : '';
+    const blockOv = gk && meta.blockOverrides ? meta.blockOverrides[gk] : null;
+    if (blockOv && String(blockOv.ambalaj || '').trim()) {
+      out.ambalaj = String(blockOv.ambalaj).trim();
+      out.ambalajBilgisi = out.ambalaj;
+    }
+  }
+
+  if (!String(out.sevkYeri || '').trim()) {
+    const fromBlock = extractPrimaryPortFromShipment(sh);
+    if (fromBlock) out.sevkYeri = fromBlock;
+  }
+  if (!String(out.ambalaj || out.ambalajBilgisi || '').trim()) {
+    const fromHeader = extractPrimaryAmbalajFromHeader(headerText);
+    if (fromHeader) {
+      out.ambalaj = fromHeader;
+      out.ambalajBilgisi = fromHeader;
+    }
+  }
+
+  if (manuallyEdited) return out;
+
   const firma = sh.firma || sh.ydKey || '';
   const ov = getFirmaOverride(firma);
-  if (!ov) return sh;
-  const out = { ...sh };
-  if (ov.sevkYeri && String(ov.sevkYeri).trim()) out.sevkYeri = String(ov.sevkYeri).trim();
-  if (ov.ambalaj && String(ov.ambalaj).trim()) out.ambalaj = String(ov.ambalaj).trim();
+  if (!ov) return out;
+  if (!String(out.sevkYeri || '').trim() && ov.sevkYeri && String(ov.sevkYeri).trim()) {
+    out.sevkYeri = String(ov.sevkYeri).trim();
+  }
+  if (!String(out.ambalaj || out.ambalajBilgisi || '').trim() && ov.ambalaj && String(ov.ambalaj).trim()) {
+    out.ambalaj = String(ov.ambalaj).trim();
+    out.ambalajBilgisi = out.ambalaj;
+  }
   return out;
 }
 
@@ -194,6 +234,30 @@ const DAILY_SHIPMENT_META = 'daily_shipments_meta';
 // TR plaka normalize (eşleştirme için) -> "43ADD516" == "43 ADD 516"
 function normPlate(v) {
   return formatPlakaForInput(String(v || '')).replace(/\s+/g, ' ').trim();
+}
+
+/** Excel plaka hücresinde "PLAKA VERİLECEK" / "92BBT PLAKA VERİLECEK" gibi bekleyen notlar */
+function isIhracatPendingPlakaCell(raw) {
+  const norm = String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C');
+  return !!norm && /PLAKA\s*VER/i.test(norm);
+}
+
+function parseIhracatPendingPlakaBbt(raw) {
+  const norm = String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/İ/g, 'I');
+  const m = norm.match(/(\d+)\s*BBT\s+PLAKA\s*VER/i);
+  if (m) return parseInt(m[1], 10);
+  return null;
 }
 
 function _plateKeyForMatch(p) {
@@ -675,6 +739,25 @@ function hasDailyExcelLoaded(){
   catch(e){ return false; }
 }
 
+/** Plaka İHRACAT Excel listesinde var mı? (piyasa-only plakalar false döner) */
+function findDailyShipmentsByPlate(plate) {
+  const plateNeedle = normPlate(plate || '');
+  if (!plateNeedle) return [];
+  try {
+    if (window.DailyStore && typeof DailyStore.findByPlate === 'function') {
+      return DailyStore.findByPlate(plateNeedle) || [];
+    }
+    const list = loadDailyShipments() || [];
+    return list.filter((x) => normPlate(x.plaka) === plateNeedle);
+  } catch (e) {
+    return [];
+  }
+}
+
+function hasDailyShipmentForPlate(plate) {
+  return findDailyShipmentsByPlate(plate).length > 0;
+}
+
 function loadDailyMeta() {
   try {
     if (window.DailyStore && typeof DailyStore.getMeta === 'function') {
@@ -823,10 +906,14 @@ function _getExcelStatusInfo(){
   // İHRACAT
   try {
     const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
-    const cnt  = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
+    const allRows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+    const cnt = allRows.filter((r) => !r._ihracatEmptyBlock).length;
     out.ihrCount = cnt;
-    if (meta && meta.fileName) out.ihrLine = `${meta.fileName} • ${cnt} kayıt`;
-    else if (cnt) out.ihrLine = `${cnt} kayıt`;
+    if (meta && meta.fileName) {
+      out.ihrLine = meta.fileName;
+    } else if (meta && meta.dateKey) {
+      out.ihrLine = _formatDateKeyTR(meta.dateKey);
+    } else if (cnt) out.ihrLine = `${cnt} kayıt`;
   } catch(e) {}
 
   // PİYASA
@@ -895,6 +982,10 @@ function _buildIhracatWarnLabel(meta) {
 
 function _buildIhracatChipText(info){
   if ((info?.ihrCount || 0) > 0) {
+    try {
+      const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+      return _buildIhracatWarnLabel(meta);
+    } catch (e) {}
     const detail = (info.ihrLine && info.ihrLine !== '-') ? info.ihrLine : `${info.ihrCount} kayıt`;
     return `Yüklü ${detail}`;
   }
@@ -1114,48 +1205,126 @@ function rebuildListsFromExcelRows(rows){
     }
   }catch(e){}
 }
-// Ambalaj metnini header satırından yakala (NET'li/NET'siz, 1 veya 2 ambalaj):
-// Örn: "NET 25 KG ... NET 1200 KG ..." -> "NET 25 KG ... + NET 1200 KG ..."
-// Örn: "1250 KG'LIK ... BIGBAGLER"     -> "NET 1250 KG ... BIGBAGLER"
-function extractAmbalajFromHeader(headerText) {
-  const raw = String(headerText || '')
-    .replace(/\./g, '')       // 1.250 -> 1250
-    .replace(/'/g, '')         // KG'LIK -> KGLIK
-    .replace(/\s+/g, ' ')
-    .toUpperCase()
-    .trim();
+/** Bilinen liman/terminal adları — uzun eşleşmeler önce (GEMPORT/SAFIPORT karışmasın diye genel PORT yok) */
+const IHR_PORT_DEFS = [
+  { re: /\bDP\s+WORLD\b/i, label: 'DP WORLD' },
+  { re: /\bBORUSAN\s*\/\s*GEML[Iİ]K\b/i, label: 'BORUSAN/GEMLİK' },
+  { re: /\bKUMPORT\s+L[Iİ]MAN[Iİ]?\b/i, label: 'KUMPORT LİMANI' },
+  { re: /\bK[OÖ]RFEZ\s+MEDLOG\b/i, label: 'KÖRFEZ MEDLOG' },
+  { re: /\bYILPORT\s+GEML[Iİ]K\b/i, label: 'YILPORT GEMLİK' },
+  { re: /\bAKDEN[Iİ]Z\s+PORT\b/i, label: 'AKDENİZ PORT' },
+  { re: /\bASYA\s+PORTS?\b/i, label: 'ASYA PORT' },
+  { re: /\bHAYDARPA[SŞ]A\b/i, label: 'HAYDARPAŞA' },
+  { re: /\bGEMPORT\b/i, label: 'GEMPORT' },
+  { re: /\bSAF[Iİ]PORT\b/i, label: 'SAFİPORT' },
+  { re: /\bMARDA[SŞ]\b/i, label: 'MARDAŞ' },
+  { re: /\bMARPORT\b/i, label: 'MARPORT' },
+  { re: /\bKUMPORT\b/i, label: 'KUMPORT' },
+  { re: /\bL[Iİ]MA[SŞ]\b/i, label: 'LİMAŞ' },
+  { re: /\bALSANCAK\b/i, label: 'ALSANCAK' },
+  { re: /\bYILPORT\b/i, label: 'YILPORT' },
+  { re: /\bEVYAP\b/i, label: 'EVYAP' },
+  { re: /\bGEML[Iİ]K\b/i, label: 'GEMLİK' },
+  { re: /\bMEDLOG\b/i, label: 'MEDLOG' },
+  { re: /\bK[OÖ]RFEZ\b/i, label: 'KÖRFEZ' },
+];
 
-  const parts = raw.split('/').map(p => p.trim()).filter(Boolean);
+function _findKnownPortsInText(text) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!s) return [];
+  const hits = [];
+  for (const def of IHR_PORT_DEFS) {
+    const m = s.match(def.re);
+    if (m && m.index != null) hits.push({ label: def.label, index: m.index });
+  }
+  hits.sort((a, b) => a.index - b.index);
+  const seen = new Set();
+  const out = [];
+  for (const h of hits) {
+    if (seen.has(h.label)) continue;
+    seen.add(h.label);
+    out.push(h.label);
+  }
+  return out;
+}
+
+function extractPortFromHeaderText(headerText) {
+  const s = String(headerText || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  const parts = s.split('/').map((p) => p.trim()).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const segPorts = _findKnownPortsInText(parts[i]);
+    if (segPorts.length) return segPorts[segPorts.length - 1];
+  }
+  const all = _findKnownPortsInText(s);
+  return all.length ? all[all.length - 1] : '';
+}
+
+function extractPrimaryPortFromShipment(sh) {
+  const meta = sh?.blockMeta || {};
+  const stored = String(meta.portLine || meta.borusanLine || sh?.sevkYeri || '').trim();
+  if (stored) return stored;
+  const ht = String(meta.mainHeader || sh?.headerText || '').trim();
+  return extractPortFromHeaderText(ht);
+}
+
+function _normalizeAmbalajHeaderRaw(raw) {
+  let s = String(raw || '');
+  s = s.replace(/\b(\d{1,3})\.(\d{3})\b/g, '$1$2');
+  s = s.replace(/\b(\d{1,3}),(\d{3})\b/g, '$1$2');
+  s = s.replace(/'/g, ' ');
+  s = s.replace(/\bKG\s*LIK\b/gi, 'KG LIK');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+function _ambalajPartIsNoise(part) {
+  const p = String(part || '').trim();
+  if (!p) return true;
+  if (/\bHP\s*[\d.,]+\s*-\s*[\d.,]+/i.test(p)) return true;
+  if (/\bBOOKING\s*NO\b/i.test(p)) return true;
+  if (/\bLOT\s*NO\b/i.test(p)) return true;
+  if (/\bEXPORT\s*REF\b/i.test(p)) return true;
+  if (/\bGEM[İI]\s*DETAYI\b/i.test(p)) return true;
+  return false;
+}
+
+function _collectAmbalajMatches(headerText) {
+  const normalized = _normalizeAmbalajHeaderRaw(headerText).toUpperCase();
+  if (!normalized) return [];
+
+  const parts = normalized.split('/').map((p) => p.trim()).filter(Boolean);
   const results = [];
 
   for (const part of parts) {
-    // 1) NET 25 KG / NET 1200 KG (aynı segmentte birden fazla olabilir)
-    const netMatches = [...part.matchAll(/\bNET\s*([0-9]{1,5})\s*KG\b([^\/]*)/gi)];
-    for (const m of netMatches) {
+    if (_ambalajPartIsNoise(part)) continue;
+
+    for (const m of part.matchAll(/\bNET\s*([0-9]{1,5})\s*KG\b([^\/]*)/gi)) {
       const kg = parseInt(m[1], 10);
-      let text = `NET ${kg} KG ${m[2] || ''}`;
-      text = cleanAmbalajText(text);
+      if (!Number.isFinite(kg)) continue;
+      let text = cleanAmbalajText(`NET ${kg} KG ${m[2] || ''}`);
       if (text) results.push({ kg, text });
     }
 
-    // 2) NET yok ama "1250 KG'LIK ... BIGBAG/ÇUVAL" gibi
-    const nonNetMatches = [...part.matchAll(/\b([0-9]{1,5})\s*KG(LIK)?\b([^\/]*)/gi)];
-    for (const m of nonNetMatches) {
+    // NET 1250 BASKISIZ … (Excel'de KG yazılmadan)
+    for (const m of part.matchAll(/\bNET\s*([0-9]{1,5})\s+(?!KG\b)((?:BASK|LINER|LİNER|BIG|BİG|ÇUV|CUVAL|PALET|BBT|TORBA|BAG)[^\/]*)/gi)) {
       const kg = parseInt(m[1], 10);
+      if (!Number.isFinite(kg)) continue;
+      let text = cleanAmbalajText(`NET ${kg} KG ${m[2] || ''}`);
+      if (text) results.push({ kg, text });
+    }
+
+    for (const m of part.matchAll(/\b([0-9]{1,5})\s*KG\s*(LIK)?\b([^\/]*)/gi)) {
+      const before = part.slice(Math.max(0, m.index - 4), m.index);
+      if (/\bNET\s*$/i.test(before)) continue;
+      const kg = parseInt(m[1], 10);
+      if (!Number.isFinite(kg)) continue;
       const rest = String(m[3] || '').trim();
-
-      // Ambalaj anahtar kelimesi yoksa alma (HP 0,074-0,30 gibi alanları ele)
-      if (!/(BIGBAG|BIG BAG|BİGBAG|CUVAL|ÇUVAL|PALET|BBT)/i.test(rest)) continue;
-
-      let text = `NET ${kg} KG ${rest}`;
-      text = cleanAmbalajText(text);
+      if (!/(BIGBAG|BIG BAG|BİGBAG|CUVAL|ÇUVAL|TORBA|JUMBO|SACK|BAG|PALET|BBT)/i.test(rest)) continue;
+      let text = cleanAmbalajText(`NET ${kg} KG ${rest}`);
       if (text) results.push({ kg, text });
     }
   }
 
-  if (!results.length) return '';
-
-  // Tekrarları temizle
   const uniq = [];
   const seen = new Set();
   for (const r of results) {
@@ -1164,124 +1333,62 @@ function extractAmbalajFromHeader(headerText) {
     seen.add(key);
     uniq.push(r);
   }
-
-  // Küçükten büyüğe: 25 KG + 1200/1250 KG
   uniq.sort((a, b) => (a.kg || 0) - (b.kg || 0));
+  return uniq;
+}
 
-  return uniq.map(x => x.text).join(' + ');
+// Ambalaj metnini header satırından yakala (NET'li/NET'siz, 1 veya 2 ambalaj):
+function extractAmbalajFromHeader(headerText) {
+  const uniq = _collectAmbalajMatches(headerText);
+  if (!uniq.length) return '';
+  return uniq.map((x) => x.text).join(' + ');
+}
+
+function extractPrimaryAmbalajFromHeader(headerText) {
+  return extractAmbalajFromHeader(headerText);
 }
 
 function cleanAmbalajText(text) {
   return String(text || '')
-    // sevkiyat sonrası alanları buda
     .replace(/\bBOOKING\b.*$/i, '')
+    .replace(/\bGEM[İI]\s*DETAYI\b.*$/i, '')
     .replace(/\bGEM[İI]\b.*$/i, '')
     .replace(/\bGEMI\b.*$/i, '')
     .replace(/\bEXPORT\b.*$/i, '')
+    .replace(/\b(GEMPORT|SAF[Iİ]PORT|KUMPORT|MARPORT|MARDA[SŞ]|EVYAP|YILPORT)\b.*$/i, '')
     .replace(/\bTON\b.*$/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-
-// ✅ Aday üretimi: Ambalaj (NET'li + NET'siz KG'LIK) -> seçenek listesi
-function getAmbalajCandidates(headerText){
-  const raw = String(headerText || '')
-    .replace(/\./g,'')
-    .replace(/'/g,'')
-    .replace(/\s+/g,' ')
-    .toUpperCase()
-    .trim();
-
-  const parts = raw.split('/').map(p=>p.trim()).filter(Boolean);
-  const out = [];
-
-  for (const part of parts) {
-    // NET xxx KG ... (aynı segmentte birden fazla)
-    for (const m of part.matchAll(/\bNET\s*([0-9]{1,5})\s*KG\b([^\/]*)/gi)) {
-      const kg = parseInt(m[1],10);
-      let t = `NET ${kg} KG ${m[2]||''}`;
-      t = cleanAmbalajText(t);
-      if (t) out.push({kg, text:t});
-    }
-    // NET yok ama 1250 KG'LIK ...
-    for (const m of part.matchAll(/\b([0-9]{1,5})\s*KG(LIK)?\b([^\/]*)/gi)) {
-      const kg = parseInt(m[1],10);
-      const rest = String(m[3]||'').trim();
-      if (!/(BIGBAG|BIG BAG|BİGBAG|ÇUVAL|CUVAL|TORBA|JUMBO|SACK|BAG|PALET|BBT)/i.test(rest)) continue;
-      let t = `NET ${kg} KG ${rest}`;
-      t = cleanAmbalajText(t);
-      if (t) out.push({kg, text:t});
-    }
-  }
-
-  // uniq + küçükten büyüğe
-  const seen = new Set();
-  const uniq = [];
-  for (const x of out) {
-    const k = x.text;
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    uniq.push(x);
-  }
-  uniq.sort((a,b)=> (a.kg||0)-(b.kg||0));
-  return uniq.map(x=>x.text);
+function getAmbalajCandidates(headerText) {
+  return _collectAmbalajMatches(headerText).map((x) => x.text);
 }
 
-// ✅ Aday üretimi: Liman / Sevk Yeri (çoğunlukla son segment + bilinen isimler)
-function getLimanCandidates(headerText){
-  const s = String(headerText || '').replace(/\s+/g,' ').trim();
+function getLimanCandidates(headerText) {
+  const s = String(headerText || '').replace(/\s+/g, ' ').trim();
   if (!s) return [];
-  const parts = s.split('/').map(p=>p.trim()).filter(Boolean);
 
-  // Bilinen liman/terminal kelimeleri (gerekirse buraya ekleyebilirsin)
-  const known = [
-    'DP WORLD','EVYAP','GEMPORT','SAFIPORT','MARDAS','MARDAŞ','MARPORT','ASYA PORT','ASYA PORTS',
-    'KUMPORT','KUMPORT LİMANI','KUMPORT LIMANI','LIMAŞ','LIMAS','LİMAŞ','ALSANCAK','HAYDARPASA','HAYDARPAŞA',
-    'GEMLIK','GEMLİK','YILPORT','YILPORT GEMLIK','AKDENIZ PORT','AKDENİZ PORT',
-    'KORFEZ','KÖRFEZ','MEDLOG','KORFEZ MEDLOG','KÖRFEZ MEDLOG','DEPO','TERMINAL','TERMİNAL','LIMAN','LİMAN','PORT'
-  ];
-
-  const skipRe = /(GEM[İI]\s*DETAYI|BOOKING\s*NO|LOT\s*NO|HP\s*\d|TON\b|BBT\b|PALET\b|ÇUVAL\b|CUVAL\b|NET\s*\d+\s*KG)/i;
-
-  // Adayları topla: son segmentlere daha fazla ağırlık veriyoruz
-  const candidates = [];
-  for (let i = 0; i < parts.length; i++) {
-    const seg = parts[i];
-    if (!seg) continue;
-    if (skipRe.test(seg)) continue;
-
-    // Bilinen kelime içeriyorsa güçlü aday
-    const upper = seg.toUpperCase();
-
-    let score = 0;
-    for (const k of known) {
-      if (upper.includes(k)) { score += 3; break; }
-    }
-
-    // sonlara yakınsa bonus
-    const distFromEnd = (parts.length - 1) - i;
-    if (distFromEnd <= 1) score += 2;
-    if (distFromEnd <= 3) score += 1;
-
-    // Liman/terminal/depo gibi sinyaller
-    if (/(PORT|LIMAN|LİMAN|TERMINAL|TERMİNAL|DEPO|MEDLOG|KORFEZ|KÖRFEZ)/i.test(seg)) score += 2;
-
-    if (score > 0) candidates.push({ text: seg, score });
-  }
-
-  // Sadece text'e indir, tekrarları temizle
-  candidates.sort((a,b)=> b.score - a.score);
-  const uniq = [];
+  const ordered = [];
   const seen = new Set();
-  for (const x of candidates) {
-    const key = x.text.toUpperCase();
-    if (seen.has(key)) continue;
+  const add = (label) => {
+    const key = String(label || '').trim();
+    if (!key || seen.has(key)) return;
     seen.add(key);
-    uniq.push(x.text);
-  }
+    ordered.push(key);
+  };
 
-  return uniq.slice(0,6); // UI şişmesin
+  const parts = s.split('/').map((p) => p.trim()).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    _findKnownPortsInText(parts[i]).forEach(add);
+  }
+  _findKnownPortsInText(s).forEach(add);
+
+  const primary = extractPortFromHeaderText(s);
+  if (primary) {
+    return [primary, ...ordered.filter((x) => x !== primary)].slice(0, 6);
+  }
+  return ordered.slice(0, 6);
 }
 
 // ✅ YD anahtarını normalize et (YD28(G) -> YD28)
@@ -1291,6 +1398,8 @@ function normalizeYdKey(val){
   return m ? m[1].toUpperCase() : s.trim().toUpperCase();
 }
 function findSevkYeriNear(grid, headerRowIdx, headerText) {
+  const fromHeader = extractPortFromHeaderText(headerText);
+  if (fromHeader) return fromHeader;
   const ht = String(headerText || '').trim();
   if (ht && ht.includes('/')) {
     const parts = ht.split('/').map(p => p.trim()).filter(Boolean);
@@ -1418,8 +1527,9 @@ function _pickIhracatExportRefCell(row) {
 function _pickIhracatPortFromRow(row) {
   for (const v of row || []) {
     const s = String(v ?? '').trim();
-    if (/^BORUSAN\/GEML[Iİ]K$/i.test(s)) return s.toUpperCase();
-    if (/^DP\s+WORLD$/i.test(s)) return 'DP WORLD';
+    if (!s) continue;
+    const port = extractPortFromHeaderText(s);
+    if (port) return port;
   }
   return '';
 }
@@ -1437,18 +1547,26 @@ function _pickIhracatFooterCell(row) {
 }
 
 function _stripPortFromHeaderLine(s) {
-  return String(s || '')
-    .replace(/\s*\/\s*BORUSAN\/GEML[Iİ]K\s*/gi, ' / ')
-    .replace(/\s*\/\s*DP\s+WORLD\s*/gi, ' / ')
-    .replace(/\s*\/\s*$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let out = String(s || '');
+  for (const def of IHR_PORT_DEFS) {
+    out = out.replace(new RegExp(`\\s*\\/\\s*${def.re.source}\\s*`, 'gi'), ' / ');
+  }
+  return out.replace(/\s*\/\s*$/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function _stripTrailingPortFromHeader(s) {
+  const text = String(s || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const parts = text.split('/').map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return text;
+  const last = parts[parts.length - 1];
+  if (extractPortFromHeaderText(last)) return parts.slice(0, -1).join(' / ');
+  return text;
 }
 
 function _splitMainHeaderBlackLines(mainHeader) {
-  let s = String(mainHeader || '').replace(/\s+/g, ' ').trim();
+  let s = _stripTrailingPortFromHeader(mainHeader);
   if (!s) return { line1: '', line2: '' };
-  s = s.replace(/\s*\/\s*(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\s*$/i, '').trim();
 
   const istifli = s.match(/^(.*?)\s*(PALETE İSTİFLİ\s*\/.*)$/i);
   if (istifli) {
@@ -1505,8 +1623,8 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
 
   if (mainItem) {
     out.mainHeader = mainItem.main;
-    const portFromMain = mainItem.main.match(/\s*\/\s*(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\s*$/i);
-    if (portFromMain) out.portLine = portFromMain[1].toUpperCase().replace('BORUSAN/GEMLIK', 'BORUSAN/GEMLİK');
+    const portFromMain = extractPortFromHeaderText(mainItem.main);
+    if (portFromMain) out.portLine = portFromMain;
     const split = _splitMainHeaderBlackLines(mainItem.main);
     out.blackLine1 = split.line1;
     out.blackLine2 = split.line2;
@@ -1577,12 +1695,7 @@ function parseIhracatBlockToplamRow(row, blockCols) {
 }
 
 function extractBorusanLineFromHeader(headerText) {
-  const t = String(headerText || '').trim();
-  if (!t) return '';
-  const m = t.match(/\b(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\b/i);
-  if (!m) return '';
-  if (/DP/i.test(m[1])) return 'DP WORLD';
-  return m[1].toUpperCase().replace('BORUSAN/GEMLIK', 'BORUSAN/GEMLİK');
+  return extractPortFromHeaderText(headerText);
 }
 
 function _normalizeExportRefLine(raw) {
@@ -1636,8 +1749,8 @@ function _buildIhracatHeaderDisplay(sample) {
   blackLine1 = _stripPortFromHeaderLine(blackLine1);
   blackLine2 = _stripPortFromHeaderLine(blackLine2);
   if (!portLine && blackLine2) {
-    const pm = String(meta.mainHeader || headerText).match(/\s*\/\s*(BORUSAN\/GEML[Iİ]K|DP\s+WORLD)\s*$/i);
-    if (pm) portLine = pm[1].toUpperCase().replace('BORUSAN/GEMLIK', 'BORUSAN/GEMLİK');
+    const pm = extractPortFromHeaderText(String(meta.mainHeader || headerText));
+    if (pm) portLine = pm;
   }
 
   let exportLine = String(meta.exportLine || '').trim();
@@ -1763,11 +1876,15 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     const headerText = blockMeta.mainHeader || findShipmentHeaderText(grid, r) || '';
     if (!/\bYD\d{1,4}\b/i.test(headerText)) continue;
     if (!_rowInSelectedBlocks(r, onlyBlocks, headerText)) continue;
-    const ambalaj = ''; // otomatik ambalaj okuma kapali (manuel / aday secim)
-    const sevkYeri = ''; // otomatik sevk yeri okuma kapali (manuel / aday secim)
+    const sevkYeri = extractPrimaryPortFromShipment({ headerText, blockMeta }) || '';
+    const ambalaj = extractPrimaryAmbalajFromHeader(headerText) || '';
     const noteColumnIndex = (cols.aciklama !== undefined ? cols.aciklama : 1);
     let blockYuklemeNotu = '';
     let blockTotals = null;
+    const ydFromHeader = ((headerText || '').match(/\b(YD\d{1,4})\b/i) || [])[1]?.toUpperCase() || '';
+    const blockMalzeme = (typeof _extractMalzeme === 'function' ? _extractMalzeme(headerText) : '') || '';
+    const blockRows = [];
+    const blockPendingPlakaNotes = [];
 
     for (let rr = r+1; rr < grid.length; rr++) {
       const d = grid[rr] || [];
@@ -1790,9 +1907,16 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
       }
       if (!plakaRaw) continue;
 
+      if (isIhracatPendingPlakaCell(plakaRaw)) {
+        blockPendingPlakaNotes.push({
+          text: String(plakaRaw).trim(),
+          remainingBbt: parseIhracatPendingPlakaBbt(plakaRaw),
+        });
+        continue;
+      }
+
       // ✅ ydKey kısa anahtar olarak kalsın
 const firmaFromN = extractFirmaTextFromN(ws, rr + 1, 40);
-const ydFromHeader = ((headerText || '').match(/\b(YD\d{1,4})\b/i) || [])[1]?.toUpperCase() || '';
 const ydKey = (((firmaFromN || '').match(/\b(YD\d{1,4})\b/i) || [])[1] || ydFromHeader || '').trim().toUpperCase();
 
 // ✅ Firma = N sütunundaki TAM hücre
@@ -1800,7 +1924,7 @@ const firma = String(firmaFromN || ydKey || '').trim();
 
      const irsaliyeNo = resolveIrsaliyeFromRow(d, { ...cols, ...blockCols });
      const blockFooterNote = getIhracatBlockFooterNote({ blockMeta });
-     rowsOut.push({
+     blockRows.push({
   id: irsaliyeNo || String(d[0] || '').trim(),
   sira: blockCols.sirano !== undefined ? (d[blockCols.sirano] != null ? String(d[blockCols.sirano]).trim() : '') : '',
   plaka: normPlate(plakaRaw),
@@ -1822,13 +1946,50 @@ firma: (firma || '').slice(0, 40),
   palet: blockCols.palet !== undefined ? _nz(d[blockCols.palet]) : '',
   bosBbt: blockCols.bosBbt !== undefined ? _nz(d[blockCols.bosBbt]) : '',
   bosCuval: blockCols.bosCuval !== undefined ? _nz(d[blockCols.bosCuval]) : '',
+  gidenTonaj: blockCols.gidenTonaj !== undefined ? _nz(d[blockCols.gidenTonaj]) : '',
 
   yuklemeNotu: (String(d[noteColumnIndex] || '').trim() || blockYuklemeNotu),
 
   firma,
   sevkYeri,
-  ambalaj
+  ambalaj,
+  blockPendingPlakaNotes,
 });
+    }
+
+    blockRows.forEach((br) => {
+      br.blockPendingPlakaNotes = blockPendingPlakaNotes;
+    });
+
+    if (!blockRows.length) {
+      rowsOut.push({
+        id: `BLK_EMPTY_${r}`,
+        plaka: '',
+        sira: '',
+        _ihracatEmptyBlock: true,
+        blockPendingPlakaNotes,
+        ydKey: ydFromHeader,
+        firma: ydFromHeader,
+        headerText,
+        blockKey: `BLK_${r}`,
+        blockHeaderRow: r,
+        blockMeta,
+        blockFooterNote: getIhracatBlockFooterNote({ blockMeta }),
+        blockTotals,
+        fileName: String(fileLabel || '').trim(),
+        malzeme: blockMalzeme,
+        sevkYeri,
+        ambalaj,
+        tonajKg: '',
+        bbt: '',
+        cuval: '',
+        palet: '',
+        bosBbt: '',
+        bosCuval: '',
+        yuklemeNotu: blockYuklemeNotu,
+      });
+    } else {
+      rowsOut.push(...blockRows);
     }
   }
 
@@ -1836,7 +1997,9 @@ firma: (firma || '').slice(0, 40),
   const uniq = [];
   const seen = new Set();
   for (const x of rowsOut) {
-    const k = `${x.plaka}__${x.id}__${x.sira}`;
+    const k = x._ihracatEmptyBlock
+      ? `__empty__${x.blockKey || x.id}`
+      : `${x.plaka}__${x.id}__${x.sira}`;
     if (seen.has(k)) continue;
     seen.add(k);
     uniq.push(x);
@@ -1847,21 +2010,24 @@ firma: (firma || '').slice(0, 40),
     sheetName: sheetName,
     fileName: fileLabel,
     importedAt: new Date().toISOString(),
-    count: uniq.length,
+    count: uniq.filter((x) => !x._ihracatEmptyBlock).length,
+    blockCount: new Set(uniq.map((x) => x.blockKey).filter(Boolean)).size,
     fileFingerprint: opts.fileFingerprint || null,
   };
 
+  const plateRows = uniq.filter((x) => !x._ihracatEmptyBlock);
   const eu = window.ExcelUtils || {};
-  const dupPlateRows = eu.findDuplicatePlateRows ? eu.findDuplicatePlateRows(uniq) : [];
+  const dupPlateRows = eu.findDuplicatePlateRows ? eu.findDuplicatePlateRows(plateRows) : [];
   const dupPlates = dupPlateRows.length;
-  const collisions = eu.findIrsaliyeCollisions ? eu.findIrsaliyeCollisions(uniq) : [];
+  const collisions = eu.findIrsaliyeCollisions ? eu.findIrsaliyeCollisions(plateRows) : [];
 
   return {
     ok: true,
     rows: uniq,
     meta,
     stats: {
-      accepted: uniq.length,
+      accepted: plateRows.length,
+      blocks: meta.blockCount,
       raw: rowsOut.length,
       skipped: Math.max(0, rowsOut.length - uniq.length),
       dupPlates,

@@ -12,6 +12,7 @@ function registerAuthRoutes(api, ctx) {
     loginEndpointLimiter,
     normalizeClientIp,
     getClientIp,
+    resolveClientSite,
     ipRequestCount,
     RATE_LIMIT_WINDOW_MS,
     FAILED_LOGIN_THRESHOLD,
@@ -63,7 +64,8 @@ function registerAuthRoutes(api, ctx) {
       try {
         res.cookie(AUTH_COOKIE_NAME, r.token, AUTH_COOKIE_OPTIONS);
       } catch (e) { /* ignore */ }
-      return res.json({ ok: true, user: r.user });
+      const { clientIp, clientSite } = resolveClientSite(ip, r.user && r.user.role);
+      return res.json({ ok: true, user: r.user, clientIp, clientSite });
     } catch (e) {
       return res.status(500).json({ ok: false, error: e && e.message ? e.message : String(e) });
     }
@@ -72,6 +74,8 @@ function registerAuthRoutes(api, ctx) {
   api.get('/me', auth.verifyToken, async (req, res) => {
     try {
       const u = req.user;
+      const ip = normalizeClientIp(getClientIp(req));
+      const { clientIp, clientSite } = resolveClientSite(ip, u && u.role);
       if (u && u.username) {
         const payload = { id: u.id, username: u.username, role: u.role || null };
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: AUTH_SESSION_EXPIRES });
@@ -79,7 +83,7 @@ function registerAuthRoutes(api, ctx) {
           res.cookie(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
         } catch (e) { /* ignore */ }
       }
-      return res.json({ ok: true, user: req.user });
+      return res.json({ ok: true, user: req.user, clientIp, clientSite });
     } catch (e) {
       return res.status(500).json({ ok: false, error: e && e.message ? e.message : String(e) });
     }

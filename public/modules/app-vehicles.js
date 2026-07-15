@@ -156,6 +156,7 @@ async function deleteVehicle(id) {
             // ⚡ Event delegation: her render'da yüzlerce listener bağlamak yerine
             // konteynere bir kez bağla, tıklamayı hedefin classına göre dağıt.
             _bindVehicleListDelegation(vehicleListContainer);
+            try { if (typeof updateSearchMeta === 'function') updateSearchMeta(); } catch (_) {}
         }
 
         // Konteynere bir defa bağlanan delege handler
@@ -163,7 +164,7 @@ async function deleteVehicle(id) {
             if (!container || container.__cardClickBound) return;
             container.__cardClickBound = true;
             container.addEventListener('click', function (e) {
-                const t = e.target.closest('.edit-btn, .form-btn, .netsis-btn, .copy-card-btn, .delete-btn');
+                const t = e.target.closest('.edit-btn, .form-btn, .netsis-btn, .copy-card-btn, .delete-btn, .vehicle-card__draft-warn--clickable');
                 if (!t || !container.contains(t)) return;
                 try {
                     if (t.classList.contains('delete-btn')) {
@@ -174,7 +175,9 @@ async function deleteVehicle(id) {
                     const raw = t.getAttribute('data-vehicle');
                     if (!raw) return;
                     const vehicle = JSON.parse(raw);
-                    if (t.classList.contains('edit-btn')) editVehicle(vehicle);
+                    if (t.classList.contains('vehicle-card__draft-warn--clickable')) {
+                        editVehicle(vehicle, { focusField: getFirstMissingContactField(vehicle) });
+                    } else if (t.classList.contains('edit-btn')) editVehicle(vehicle);
                     else if (t.classList.contains('form-btn')) showTakipFormu(vehicle);
                     else if (t.classList.contains('netsis-btn')) copyNetsisData(vehicle);
                     else if (t.classList.contains('copy-card-btn')) copyCardInfo(vehicle);
@@ -410,6 +413,14 @@ function setupTakipFormButtons() {
                 }
             } catch(e) {}
 
+            try {
+                const activeVehicle = window.__activeTakipVehicle;
+                if (activeVehicle && activeVehicle.id !== 'manual') {
+                    const okContact = await maybeConfirmIncompleteContact(activeVehicle, 'Yazdırma');
+                    if (!okContact) return;
+                }
+            } catch (contactErr) { /* ignore */ }
+
             // ✅ KANTAR: seçimi zorunlu tekrar tekrar istemesin
             try {
                 const k = document.getElementById('imzaKantarAd');
@@ -537,18 +548,27 @@ function setupTakipFormButtons() {
             const runYazdir = () => {
             let w = null;
             let printErr = null;
-            try {
+            const openPrint = async () => {
                 if (!window.Print || typeof window.Print.yazdirForm !== 'function') {
                     throw new Error('print-not-loaded');
                 }
-                w = window.Print.yazdirForm({ preview: false });
-            } catch (err) {
+                return window.Print.yazdirForm({ preview: false });
+            };
+            Promise.resolve(openPrint()).then((win) => {
+                w = win;
+                handlePrintWindow(w, printErr);
+            }).catch((err) => {
                 printErr = err;
-            }
+                handlePrintWindow(null, printErr);
+            });
+            return;
+
+            function handlePrintWindow(win, err) {
+            w = win;
             try { window.__lastPrintWin = w || null; } catch(e) {}
 
             if (!w) {
-                const msg = printErr && printErr.message === 'print-not-loaded'
+                const msg = err && err.message === 'print-not-loaded'
                   ? 'Yazdırma bileşeni hazır değil. Sayfayı yenileyip tekrar deneyin.'
                   : 'Yazdırma penceresi açılamadı. Tarayıcıda açılır pencere (popup) iznini kontrol edin veya sayfayı yenileyin.';
                 alert('❌ ' + msg);
@@ -568,8 +588,13 @@ function setupTakipFormButtons() {
                     }, 400);
                 }
             } catch(e) {}
+            }
             };
-            Promise.resolve(typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null)
+            const sigLoad = (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function')
+              ? window.SignatureRegistry.loadSignatures(true)
+              : Promise.resolve();
+            Promise.resolve(sigLoad)
+              .then(() => (typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null))
               .then(runYazdir)
               .catch(function(){ alert('Yazdırma bileşeni yüklenemedi. Sayfayı yenileyip tekrar deneyin.'); });
             } finally {
@@ -582,7 +607,15 @@ function setupTakipFormButtons() {
     const onizlemeBtn = document.getElementById('onizlemeButton');
     if (onizlemeBtn && !onizlemeBtn.__previewHandlerBound) {
         onizlemeBtn.__previewHandlerBound = true;
-        onizlemeBtn.addEventListener('click', function(e) {
+        onizlemeBtn.addEventListener('click', async function(e) {
+            try {
+                const activeVehicle = window.__activeTakipVehicle;
+                if (activeVehicle && activeVehicle.id !== 'manual') {
+                    const okContact = await maybeConfirmIncompleteContact(activeVehicle, 'Önizleme');
+                    if (!okContact) return;
+                }
+            } catch (contactErr) { /* ignore */ }
+
             try {
                 const validateFunc = window.__takipFormValidate;
                 if (typeof validateFunc === 'function') validateFunc();
@@ -609,7 +642,12 @@ function setupTakipFormButtons() {
 
             try { saveSoforHistoryFromTakipForm(); } catch(e) {}
             try { upsertEslestirmeFromTakipForm(); } catch(e){}
-            Promise.resolve(typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null)
+            Promise.resolve(
+              (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function')
+                ? window.SignatureRegistry.loadSignatures(true)
+                : null
+            )
+              .then(() => (typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null))
               .then(function(){
                 try { window.Print?.yazdirForm({ preview: true }); } catch(e){}
               })

@@ -54,15 +54,24 @@
   function formatDupPlateHelp(dupPlateRows) {
     if (!dupPlateRows || !dupPlateRows.length) return '';
     const eu = window.ExcelUtils || {};
-    const fmt = eu.formatDupPlateRowDetail || ((d) => (d.irsaliyeNos || []).join(' · '));
+    const fmtEntry = eu.formatDupPlateEntryLabel || ((e) => String(e?.irsaliyeNo || e || ''));
     let html =
       `<div style="margin-top:10px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e;line-height:1.45;">` +
-      `<div style="font-weight:800;color:#b45309;margin-bottom:6px;">⚠️ Aynı plaka (${dupPlateRows.length} adet)</div>` +
-      `<p style="margin:0 0 8px;">Bu uyarı <b>kayıt eksikliği değil</b>. Excel’de aynı plaka <b>birden fazla farklı sevkiyat satırında</b> geçiyor. Hangi satırın doğru olduğunu Excel’den kontrol edin.</p>` +
-      `<ul style="margin:0;padding-left:18px;font-size:11px;">`;
+      `<div style="font-weight:800;color:#b45309;margin-bottom:6px;">⚠️ Aynı plaka (${dupPlateRows.length} adet) — hangi sevkiyat olduğu listelenir</div>` +
+      `<p style="margin:0 0 8px;">Bu uyarı <b>kayıt eksikliği değil</b>. Excel’de aynı plaka <b>birden fazla farklı sevkiyat bloğunda</b> geçiyor. Her satırda <b>tarih</b>, sevkiyat ve irsaliye bilgisi vardır.</p>` +
+      `<ul style="margin:0;padding-left:18px;font-size:11px;list-style:none;">`;
     dupPlateRows.slice(0, 8).forEach((d) => {
-      const detail = fmt(d) || '(irsaliye yok)';
-      html += `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid #fbbf24;">${esc(d.plaka)}</span> → ${esc(detail)}</li>`;
+      const entries = Array.isArray(d.entries) ? d.entries : [];
+      html += `<li style="margin-bottom:8px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid #fbbf24;">${esc(d.plaka)}</span>`;
+      if (entries.length) {
+        entries.forEach((e, i) => {
+          html += `<div style="margin:4px 0 0 12px;"><span style="color:#b45309;font-weight:700;">${i + 1}.</span> ${esc(fmtEntry(e))}</div>`;
+        });
+      } else {
+        const detail = eu.formatDupPlateRowDetail ? eu.formatDupPlateRowDetail(d) : '(irsaliye yok)';
+        html += ` → ${esc(detail)}`;
+      }
+      html += `</li>`;
     });
     if (dupPlateRows.length > 8) {
       html += `<li style="color:#b45309;">… ve ${dupPlateRows.length - 8} plaka daha</li>`;

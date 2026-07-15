@@ -143,6 +143,26 @@
       color: var(--rp-accent);
     }
 
+    .pl-stat-card--ok {
+      border-color: #bbf7d0;
+    }
+
+    .pl-stat-card--ok .pl-stat-val {
+      color: #15803d;
+    }
+
+    .pl-stat-card--bad {
+      border-color: #fecaca;
+    }
+
+    .pl-stat-card--bad .pl-stat-val {
+      color: #b91c1c;
+    }
+
+    .pl-stat-card--pending .pl-stat-val {
+      color: var(--rp-muted);
+    }
+
     .pl-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -267,8 +287,6 @@
     }
 
     .pl-table-wrap {
-      overflow: auto;
-      max-height: 320px;
       border: 1px solid var(--rp-border);
       border-radius: 8px;
       background: #fff;
@@ -281,10 +299,7 @@
     }
 
     .pl-table thead {
-      position: sticky;
-      top: 0;
       background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
-      z-index: 1;
     }
 
     .pl-table th {
@@ -430,6 +445,159 @@
       vertical-align: middle;
     }
 
+    .reg-badge,
+    .unreg-badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 2px 7px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      border-radius: 4px;
+      vertical-align: middle;
+    }
+
+    .reg-badge {
+      background: #16a34a;
+      color: #fff;
+    }
+
+    .unreg-badge {
+      background: #dc2626;
+      color: #fff;
+    }
+
+    tbody tr.reg-row {
+      background: #f0fdf4;
+    }
+
+    tbody tr.reg-row:hover {
+      background: #dcfce7;
+    }
+
+    tbody tr.reg-row.selected {
+      background: #bbf7d0;
+    }
+
+    tbody tr.unreg-row {
+      background: #fef2f2;
+    }
+
+    tbody tr.unreg-row:hover {
+      background: #fee2e2;
+    }
+
+    tbody tr.unreg-row.selected {
+      background: #fecaca;
+    }
+
+    .pl-driver-hint {
+      display: block;
+      font-size: 10px;
+      color: #15803d;
+      font-weight: 500;
+      margin-top: 2px;
+      font-family: system-ui, sans-serif;
+    }
+
+    .pl-filter-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .pl-filter-btn {
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      border: 1px solid var(--rp-border2);
+      background: #fff;
+      color: var(--rp-muted);
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+    }
+
+    .pl-filter-btn.active {
+      background: var(--rp-accent-soft);
+      border-color: #a5b4fc;
+      color: var(--rp-accent);
+    }
+
+    .pl-filter-btn--ok.active {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #15803d;
+    }
+
+    .pl-filter-btn--bad.active {
+      background: #fee2e2;
+      border-color: #fca5a5;
+      color: #b91c1c;
+    }
+
+    .unreg-banner {
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-left: 4px solid #ea580c;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #9a3412;
+      box-shadow: var(--rp-shadow-sm);
+    }
+
+    .unreg-banner.show {
+      display: flex;
+    }
+
+    .unreg-banner strong {
+      display: block;
+      margin-bottom: 4px;
+      color: #7c2d12;
+    }
+
+    .unreg-banner ul {
+      margin: 6px 0 0 18px;
+      font-family: var(--rp-mono);
+      font-size: 12px;
+      columns: 2;
+      column-gap: 24px;
+    }
+
+    .pl-btn.is-busy {
+      opacity: 0.75;
+      pointer-events: none;
+    }
+
+    .pl-btn.is-busy .fa-spinner {
+      animation: pl-spin 0.8s linear infinite;
+    }
+
+    @keyframes pl-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .td-durum {
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .td-durum .fa-check-circle {
+      color: #16a34a;
+    }
+
+    .td-durum .fa-times-circle {
+      color: #dc2626;
+    }
+
     @media (max-width: 768px) {
       .pl-grid {
         grid-template-columns: 1fr;
@@ -450,6 +618,18 @@
 
       .pl-table--responsive tbody tr.dup-row {
         background: #fef2f2;
+      }
+
+      .pl-table--responsive tbody tr.reg-row {
+        background: #f0fdf4;
+      }
+
+      .pl-table--responsive tbody tr.unreg-row {
+        background: #fef2f2;
+      }
+
+      .unreg-banner ul {
+        columns: 1;
       }
 
       .pl-table--responsive tbody tr.selected {
@@ -521,7 +701,7 @@
 <main class="max-w-7xl mx-auto px-4 py-6">
   <div class="mb-6">
     <h1 class="rp-page-title">Plaka Ayırma</h1>
-    <p class="rp-page-desc">Toplu plaka listesini yapıştırın, BBT değerlerini ayırın ve kopyalayın.</p>
+    <p class="rp-page-desc">Toplu plaka listesini yapıştırın, BBT değerlerini ayırın; sistem kayıtlı plakaları yeşil, kayıtsızları kırmızı gösterir.</p>
   </div>
 
   <div class="pl-stats">
@@ -533,6 +713,14 @@
       <div class="pl-stat-label">Plaka sayısı</div>
       <div class="pl-stat-val" id="count">0</div>
     </div>
+    <div class="pl-stat-card pl-stat-card--ok">
+      <div class="pl-stat-label">Kayıtlı</div>
+      <div class="pl-stat-val" id="countReg">—</div>
+    </div>
+    <div class="pl-stat-card pl-stat-card--bad">
+      <div class="pl-stat-label">Kayıtsız</div>
+      <div class="pl-stat-val" id="countUnreg">—</div>
+    </div>
   </div>
 
   <div id="dupBanner" class="dup-banner" role="alert">
@@ -543,11 +731,19 @@
     </div>
   </div>
 
+  <div id="unregBanner" class="unreg-banner" role="status">
+    <div>
+      <strong id="unregBannerTitle">Kayıtsız plakalar</strong>
+      <span>Sistemde bulunmayan plakalar kırmızı ile işaretlendi. Ayarlar sayfasından yeni araç ekleyebilirsiniz.</span>
+      <ul id="unregList"></ul>
+    </div>
+  </div>
+
   <div class="pl-grid">
     <div class="pl-panel">
       <div class="pl-btn-row">
-        <button type="button" class="pl-btn pl-btn-primary" onclick="parse()">
-          <i class="fas fa-cut" aria-hidden="true"></i> Ayır
+        <button type="button" class="pl-btn pl-btn-primary" id="parseBtn" onclick="parse()">
+          <i class="fas fa-cut" id="parseBtnIcon" aria-hidden="true"></i> Ayır
         </button>
         <button type="button" class="pl-btn pl-btn-danger" onclick="clearAll()">
           <i class="fas fa-eraser" aria-hidden="true"></i> Temizle
@@ -563,6 +759,11 @@
 
     <div class="pl-panel">
       <input type="search" id="search" placeholder="Plaka ara (ör: 34ABC123)" autocomplete="off">
+      <div class="pl-filter-row" id="filterRow" hidden>
+        <button type="button" class="pl-filter-btn active" data-filter="all">Tümü</button>
+        <button type="button" class="pl-filter-btn pl-filter-btn--ok" data-filter="registered">Kayıtlı</button>
+        <button type="button" class="pl-filter-btn pl-filter-btn--bad" data-filter="unregistered">Kayıtsız</button>
+      </div>
       <div class="pl-copy-row">
         <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(0)">Sıra no</button>
         <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(1)">Plaka</button>
@@ -574,6 +775,7 @@
             <tr>
               <th style="text-align:center">Sıra</th>
               <th style="text-align:left">Plaka</th>
+              <th style="text-align:center">Durum</th>
               <th style="text-align:right">BBT</th>
             </tr>
           </thead>
@@ -591,12 +793,20 @@
 let rows = [], fuse = null, currentTotal = 0, displayedList = [], selectedIndex = -1;
 let duplicatePlates = new Set();
 let toastTimer = null;
+let regFilter = 'all';
+let lookupDone = false;
+const LOOKUP_BATCH = 80;
 
 const PLATE_RE = /(\d{2})\s*([A-ZÇĞİÖŞÜ]{1,3})\s*(\d{2,5})/i;
 
 function normalizePlate(s) {
   const m = String(s || '').toUpperCase().match(PLATE_RE);
   return m ? (m[1] + m[2] + m[3]).replace(/\s+/g, '') : null;
+}
+
+/** Sunucu /api/vehicles/lookup-batch ile aynı plaka anahtarı */
+function normPlateKey(s) {
+  return String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9ığüşöç]/gi, '');
 }
 
 function turkishNormalize(str) {
@@ -617,6 +827,122 @@ function extractBBT(line) {
   if (!numMatch) return null;
   const val = parseInt(numMatch[1], 10);
   return val > 0 && val <= 9999 ? val : null;
+}
+
+function vehicleDriverLabel(v) {
+  if (!v) return '';
+  const ad = [v.soforAdi, v.soforSoyadi].filter(Boolean).join(' ').trim();
+  if (ad) return ad;
+  const ad2 = [v.sofor2Adi, v.sofor2Soyadi].filter(Boolean).join(' ').trim();
+  return ad2 || '';
+}
+
+function setParseBusy(busy) {
+  const btn = document.getElementById('parseBtn');
+  const icon = document.getElementById('parseBtnIcon');
+  if (!btn || !icon) return;
+  btn.classList.toggle('is-busy', !!busy);
+  btn.disabled = !!busy;
+  icon.className = busy ? 'fas fa-spinner' : 'fas fa-cut';
+}
+
+async function lookupPlatesBatch(plates) {
+  const unique = [...new Set((plates || []).map(p => normPlateKey(p)).filter(Boolean))];
+  const out = {};
+  for (let i = 0; i < unique.length; i += LOOKUP_BATCH) {
+    const chunk = unique.slice(i, i + LOOKUP_BATCH);
+    try {
+      const res = await fetch('/api/vehicles/lookup-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ plates: chunk })
+      });
+      if (!res.ok) throw new Error('batch failed');
+      const map = await res.json();
+      Object.entries(map || {}).forEach(([k, v]) => { if (v) out[k] = v; });
+      chunk.forEach(p => {
+        const k = normPlateKey(p);
+        if (!(k in out)) out[k] = null;
+      });
+    } catch (e) {
+      await Promise.all(chunk.map(async (plate) => {
+        const k = normPlateKey(plate);
+        if (k in out) return;
+        try {
+          const res = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate), {
+            credentials: 'include'
+          });
+          if (!res.ok) { out[k] = null; return; }
+          const v = await res.json();
+          out[k] = (v && typeof v === 'object' && !Array.isArray(v)) ? v : null;
+        } catch (err) {
+          out[k] = null;
+        }
+      }));
+    }
+  }
+  return out;
+}
+
+function applyRegistrationToRows(lookupMap) {
+  rows.forEach(r => {
+    const key = normPlateKey(r.plate);
+    const vehicle = lookupMap[key] || null;
+    r.registered = !!vehicle;
+    r.vehicle = vehicle;
+    r.driver = vehicleDriverLabel(vehicle);
+  });
+}
+
+function countRegistrationStats() {
+  let reg = 0, unreg = 0;
+  rows.forEach(r => {
+    if (r.registered === true) reg++;
+    else if (r.registered === false) unreg++;
+  });
+  return { reg, unreg };
+}
+
+function updateRegistrationStats() {
+  const regEl = document.getElementById('countReg');
+  const unregEl = document.getElementById('countUnreg');
+  if (!lookupDone) {
+    if (regEl) regEl.textContent = '—';
+    if (unregEl) unregEl.textContent = '—';
+    return;
+  }
+  const { reg, unreg } = countRegistrationStats();
+  if (regEl) regEl.textContent = String(reg);
+  if (unregEl) unregEl.textContent = String(unreg);
+}
+
+function updateUnregisteredBanner() {
+  const banner = document.getElementById('unregBanner');
+  const listEl = document.getElementById('unregList');
+  const titleEl = document.getElementById('unregBannerTitle');
+  if (!banner || !listEl) return;
+  if (!lookupDone) {
+    banner.classList.remove('show');
+    listEl.innerHTML = '';
+    return;
+  }
+  const unregPlates = [...new Set(rows.filter(r => r.registered === false).map(r => r.plate))].sort();
+  if (!unregPlates.length) {
+    banner.classList.remove('show');
+    listEl.innerHTML = '';
+    return;
+  }
+  if (titleEl) titleEl.textContent = unregPlates.length + ' kayıtsız plaka';
+  listEl.innerHTML = unregPlates.map(p => `<li>${escapeHtml(p)}</li>`).join('');
+  banner.classList.add('show');
+}
+
+function getFilteredRows(source) {
+  const base = source || rows;
+  if (regFilter === 'registered') return base.filter(r => r.registered === true);
+  if (regFilter === 'unregistered') return base.filter(r => r.registered === false);
+  return base;
 }
 
 function buildFuse() {
@@ -648,7 +974,9 @@ function updateDuplicateWarning(dups) {
   banner.classList.add('show');
 }
 
-function parse() {
+async function parse() {
+  if (document.getElementById('parseBtn')?.classList.contains('is-busy')) return;
+
   const lines = (document.getElementById('input').value || '').split(/\n+/);
   rows = [];
   let total = 0;
@@ -658,15 +986,52 @@ function parse() {
     const plate = normalizePlate(l);
     if (!plate) return;
     const bbt = extractBBT(l);
-    if (plate && bbt != null) { rows.push({ plate, bbt }); total += bbt; }
+    if (plate && bbt != null) {
+      rows.push({ plate, bbt, registered: null, vehicle: null, driver: '' });
+      total += bbt;
+    }
   });
+
   currentTotal = total;
+  lookupDone = false;
+  regFilter = 'all';
+  selectedIndex = -1;
+  document.querySelectorAll('.pl-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === 'all');
+  });
+
   const dups = findDuplicatePlates(rows);
   updateDuplicateWarning(dups);
   buildFuse();
-  renderRows(rows);
-  if (dups.length) {
-    toast('Uyarı: ' + dups.length + ' plaka tekrar ediyor — ' + dups.join(', '), true, 5000);
+  document.getElementById('filterRow').hidden = !rows.length;
+  renderRows(getFilteredRows(rows));
+  updateRegistrationStats();
+  updateUnregisteredBanner();
+
+  if (!rows.length) {
+    toast('Geçerli plaka bulunamadı');
+    return;
+  }
+
+  setParseBusy(true);
+  try {
+    const lookupMap = await lookupPlatesBatch(rows.map(r => r.plate));
+    applyRegistrationToRows(lookupMap);
+    lookupDone = true;
+    buildFuse();
+    renderRows(getFilteredRows(rows));
+    updateRegistrationStats();
+    updateUnregisteredBanner();
+
+    const { reg, unreg } = countRegistrationStats();
+    let msg = rows.length + ' plaka ayrıldı — ' + reg + ' kayıtlı, ' + unreg + ' kayıtsız';
+    const isWarn = unreg > 0 || dups.length > 0;
+    if (dups.length) msg += ' · ' + dups.length + ' tekrar';
+    toast(msg, isWarn, isWarn ? 4500 : 2800);
+  } catch (e) {
+    toast('Plaka kontrolü başarısız — liste ayrıldı ama kayıt durumu bilinmiyor', true, 5000);
+  } finally {
+    setParseBusy(false);
   }
 }
 
@@ -691,18 +1056,42 @@ function renderRows(list) {
   tb.innerHTML = '';
   displayedList = list || [];
   if (!displayedList.length) {
-    tb.innerHTML = '<tr class="empty-row"><td colspan="3">Sonuç bulunamadı</td></tr>';
+    const emptyMsg = rows.length && regFilter !== 'all'
+      ? 'Bu filtrede sonuç yok'
+      : 'Sonuç bulunamadı';
+    tb.innerHTML = `<tr class="empty-row"><td colspan="4">${emptyMsg}</td></tr>`;
   } else {
     displayedList.forEach((r, i) => {
       const isDup = duplicatePlates.has(r.plate);
       const isSel = i === selectedIndex ? 'selected' : '';
-      const dupCls = isDup ? 'dup-row' : '';
+      let rowCls = '';
+      if (lookupDone && r.registered === true) rowCls = 'reg-row';
+      else if (lookupDone && r.registered === false) rowCls = 'unreg-row';
+      else if (isDup) rowCls = 'dup-row';
+
       const ph = r._plateHtml || escapeHtml(r.plate);
       const dupBadge = isDup ? '<span class="dup-badge">Tekrar</span>' : '';
+
+      let statusHtml = '<span style="color:#94a3b8">—</span>';
+      if (lookupDone && r.registered === true) {
+        statusHtml = '<i class="fas fa-check-circle" title="Kayıtlı"></i>';
+      } else if (lookupDone && r.registered === false) {
+        statusHtml = '<i class="fas fa-times-circle" title="Kayıtsız"></i>';
+      }
+
+      const regBadge = lookupDone && r.registered === true
+        ? '<span class="reg-badge">Kayıtlı</span>'
+        : (lookupDone && r.registered === false ? '<span class="unreg-badge">Kayıtsız</span>' : '');
+
+      const driverHint = (lookupDone && r.registered && r.driver)
+        ? `<span class="pl-driver-hint">${escapeHtml(r.driver)}</span>`
+        : '';
+
       tb.insertAdjacentHTML('beforeend',
-        `<tr data-idx="${i}" class="${isSel} ${dupCls}">
+        `<tr data-idx="${i}" class="${isSel} ${rowCls}">
           <td class="td-sira" data-label="Sıra">${i + 1}</td>
-          <td data-label="Plaka">${ph}${dupBadge}</td>
+          <td data-label="Plaka">${ph}${regBadge}${dupBadge}${driverHint}</td>
+          <td class="td-durum" data-label="Durum">${statusHtml}</td>
           <td class="td-bbt" data-label="BBT">${r.bbt || ''}</td>
         </tr>`);
     });
@@ -716,6 +1105,7 @@ function renderRows(list) {
   }
   document.getElementById('totalBBT').textContent = currentTotal;
   document.getElementById('count').textContent = rows.length;
+  updateRegistrationStats();
 }
 
 function updateSelection() {
@@ -736,16 +1126,23 @@ function clearAll() {
   document.getElementById('tbody').innerHTML = '';
   document.getElementById('totalBBT').textContent = '0';
   document.getElementById('count').textContent = '0';
+  document.getElementById('countReg').textContent = '—';
+  document.getElementById('countUnreg').textContent = '—';
+  document.getElementById('filterRow').hidden = true;
   rows = []; fuse = null; currentTotal = 0; displayedList = []; selectedIndex = -1;
   duplicatePlates = new Set();
+  lookupDone = false;
+  regFilter = 'all';
   updateDuplicateWarning([]);
+  updateUnregisteredBanner();
 }
 
 function copyCol(idx) {
+  const source = getFilteredRows(rows);
   let txt = '';
-  if (idx === 0) txt = rows.map((_, i) => String(i + 1)).join('\r\n');
-  if (idx === 1) txt = rows.map(r => r.plate).join('\r\n');
-  if (idx === 2) txt = rows.map(r => r.bbt).join('\r\n');
+  if (idx === 0) txt = source.map((_, i) => String(i + 1)).join('\r\n');
+  if (idx === 1) txt = source.map(r => r.plate).join('\r\n');
+  if (idx === 2) txt = source.map(r => r.bbt).join('\r\n');
   navigator.clipboard.writeText(txt).then(() => toast('Kopyalandı')).catch(() => {});
 }
 
@@ -776,16 +1173,39 @@ function highlightByQuery(text, q) {
 const onSearch = debounce(() => {
   const q = document.getElementById('search').value || '';
   selectedIndex = -1;
-  if (!q) { renderRows(rows); return; }
-  if (!fuse) { renderRows(rows); return; }
+  const filtered = getFilteredRows(rows);
+  if (!q) { renderRows(filtered); return; }
+  if (!fuse) { renderRows(filtered); return; }
+  const filteredSet = new Set(filtered.map(r => r.plate + '|' + r.bbt));
   const results = fuse.search(turkishNormalize(q));
-  const mapped = results.map(res => {
-    const item = res.item || res;
-    const match = (res.matches && res.matches.find(m => m.key === 'plate')) || null;
-    return { plate: item.plate, bbt: item.bbt, _plateHtml: highlightPlate(item.plate, match ? match.indices : []) };
-  });
+  const mapped = results
+    .map(res => {
+      const item = res.item || res;
+      const match = (res.matches && res.matches.find(m => m.key === 'plate')) || null;
+      return {
+        plate: item.plate,
+        bbt: item.bbt,
+        registered: item.registered,
+        vehicle: item.vehicle,
+        driver: item.driver,
+        _plateHtml: highlightPlate(item.plate, match ? match.indices : [])
+      };
+    })
+    .filter(r => filteredSet.has(r.plate + '|' + r.bbt));
   renderRows(mapped);
 }, 220);
+
+document.querySelectorAll('.pl-filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    regFilter = btn.dataset.filter || 'all';
+    document.querySelectorAll('.pl-filter-btn').forEach(b => {
+      b.classList.toggle('active', b === btn);
+    });
+    selectedIndex = -1;
+    document.getElementById('search').value = '';
+    renderRows(getFilteredRows(rows));
+  });
+});
 
 document.getElementById('search').addEventListener('input', onSearch);
 document.getElementById('search').addEventListener('keydown', ev => {
@@ -804,6 +1224,21 @@ document.getElementById('backBtn')?.addEventListener('click', function () {
   } catch (e) {
     location.href = 'GIRIS.html';
   }
+});
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+      const ok = await window.SessionManager.requireValidSession();
+      if (!ok) {
+        if (typeof window.SessionManager.navigateToHome === 'function') {
+          window.SessionManager.navigateToHome();
+        } else {
+          location.href = 'GIRIS.html';
+        }
+      }
+    }
+  } catch (e) { /* ignore */ }
 });
 
 </script>

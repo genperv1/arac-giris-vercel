@@ -1,5 +1,31 @@
 'use strict';
 
+function registerSignatureImageRoute(api, ctx) {
+  const { q, sanitizeString, sendApiError, signatureRowToSrc } = ctx;
+
+  api.get('/signatures/:id/image', async (req, res) => {
+    try {
+      const id = sanitizeString(req.params.id, 80);
+      const r = await q(`SELECT image_kind, image_data FROM signatures WHERE id = $1 AND active = TRUE`, [id]);
+      const row = r.rows[0];
+      if (!row) return res.status(404).json({ error: 'not found' });
+      const src = signatureRowToSrc(row);
+      if (src.startsWith('data:')) {
+        const m = src.match(/^data:([^;]+);base64,(.+)$/);
+        if (!m) return res.status(400).json({ error: 'invalid image' });
+        const buf = Buffer.from(m[2], 'base64');
+        res.setHeader('Content-Type', m[1]);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        return res.send(buf);
+      }
+      return res.redirect(src);
+    } catch (err) {
+      console.error('GET /signatures/:id/image error', err);
+      sendApiError(res, err, 500, 'SIGNATURE_IMAGE_FAILED');
+    }
+  });
+}
+
 function registerSignaturesRoutes(api, ctx) {
   const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs, signatureRowToSrc } = ctx;
 // â€”â€”â€” Ä°mza yÃ¶netimi (Kantar + Sevkiyat saha) â€”â€”â€”
@@ -37,34 +63,12 @@ api.get("/signatures/map", async (req, res) => {
       if (role !== 'kantar' && role !== 'saha') return;
       const key = String(row.display_name || '').trim().toUpperCase();
       if (!key) return;
-      map[role][key] = signatureRowToSrc(row);
+      map[role][key] = `/api/signatures/${encodeURIComponent(row.id)}/image`;
     });
     res.json(map);
   } catch (err) {
     console.error('GET /signatures/map error', err);
     sendApiError(res, err, 500, 'SIGNATURES_MAP_FAILED');
-  }
-});
-
-api.get("/signatures/:id/image", async (req, res) => {
-  try {
-    const id = sanitizeString(req.params.id, 80);
-    const r = await q(`SELECT image_kind, image_data FROM signatures WHERE id = $1 AND active = TRUE`, [id]);
-    const row = r.rows[0];
-    if (!row) return res.status(404).json({ error: 'not found' });
-    const src = signatureRowToSrc(row);
-    if (src.startsWith('data:')) {
-      const m = src.match(/^data:([^;]+);base64,(.+)$/);
-      if (!m) return res.status(400).json({ error: 'invalid image' });
-      const buf = Buffer.from(m[2], 'base64');
-      res.setHeader('Content-Type', m[1]);
-      res.setHeader('Cache-Control', 'private, max-age=3600');
-      return res.send(buf);
-    }
-    return res.redirect(src);
-  } catch (err) {
-    console.error('GET /signatures/:id/image error', err);
-    sendApiError(res, err, 500, 'SIGNATURE_IMAGE_FAILED');
   }
 });
 
@@ -120,4 +124,4 @@ api.delete("/signatures/:id", requireValidSession, async (req, res) => {
 });
 }
 
-module.exports = { registerSignaturesRoutes };
+module.exports = { registerSignaturesRoutes, registerSignatureImageRoute };

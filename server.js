@@ -18,6 +18,7 @@ const { validatePlateFormat } = require('./lib/plate-format');
 const { envNumber } = require('./lib/env');
 const { applySupabaseSecurity } = require('./lib/supabase-security');
 const { createAuthSessionMiddleware } = require('./lib/auth-session');
+const { createClientSiteResolver } = require('./lib/client-site');
 const {
   sanitizeString,
   validateEmail,
@@ -41,7 +42,7 @@ const { registerDailyRoutes } = require('./routes/daily-routes');
 const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
-const { registerSignaturesRoutes } = require('./routes/signatures-routes');
+const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
 const { plateNormSql, PLATE_NORM_SQL, PLATE_NORM_SQL_PH } = require('./lib/plate-norm-sql');
 const { signatureRowToSrc } = require('./lib/signature-helpers');
 const { createPiyasaServerApi } = require('./lib/piyasa-server');
@@ -752,6 +753,10 @@ function isLoopbackIp(ip) {
   return n === '127.0.0.1' || n === 'localhost';
 }
 
+const CLIENT_SITES_FILE = path.join(__dirname, 'client_sites.json');
+const clientSiteResolver = createClientSiteResolver(CLIENT_SITES_FILE, normalizeClientIp, isLoopbackIp);
+const resolveClientSite = (ip, role) => clientSiteResolver.resolveClientSite(ip, role);
+
 function isBanExemptApiPath(req) {
   const p = String(req.originalUrl || req.url || '').split('?')[0];
   return p === '/api/settings/verify-access' || p.startsWith('/api/settings/bans');
@@ -1023,6 +1028,7 @@ const routeCtx = {
   loginEndpointLimiter,
   normalizeClientIp,
   getClientIp,
+  resolveClientSite,
   ipRequestCount,
   RATE_LIMIT_WINDOW_MS,
   FAILED_LOGIN_THRESHOLD,
@@ -1034,6 +1040,9 @@ const routeCtx = {
 };
 
 registerAuthRoutes(api, routeCtx);
+
+// İmza görselleri — <img> Authorization gönderemez; auth öncesi public
+registerSignatureImageRoute(api, routeCtx);
 
 // Public health check (Railway/monitoring â€” auth gerekmez)
 api.get("/health", async (req, res) => {
@@ -1750,7 +1759,10 @@ app.post('/api/settings/verify-access', (req, res) => {
 });
 
 app.get('/api/settings/bans/my-ip', (req, res) => {
-  res.json({ ok: true, ip: normalizeClientIp(getClientIp(req)) });
+  const ip = normalizeClientIp(getClientIp(req));
+  const role = req.user && req.user.role;
+  const { clientSite } = resolveClientSite(ip, role);
+  res.json({ ok: true, ip, clientSite });
 });
 
 app.post('/api/settings/bans/list', requireSettingsAccess, (req, res) => {

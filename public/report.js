@@ -302,6 +302,27 @@
   // pagination defaults (client-side)
   if (!window.__reportsPage) window.__reportsPage = 1;
   if (!window.__reportsPageSize) window.__reportsPageSize = 10; // default page size
+  if (window.__reportsOzmalFilter == null) window.__reportsOzmalFilter = false;
+
+  function reportRowIsOzmal(row) {
+    if (!row) return false;
+    const d = (row.rawEvent && row.rawEvent.data) || row.lastPrintSnapshot || {};
+    const vehicleLike = {
+      cekiciPlaka: row.cekiciPlaka || d.plaka || d.plate || '',
+      dorsePlaka: d.dorsePlaka || d.dorse || ''
+    };
+    try {
+      if (typeof vehicleIsOzmal === 'function') return vehicleIsOzmal(vehicleLike);
+      if (typeof isOzmalPlate === 'function') return isOzmalPlate(vehicleLike.cekiciPlaka) || isOzmalPlate(vehicleLike.dorsePlaka);
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function syncOzmalFilterBtn() {
+    const btn = document.getElementById('ozmalFilterBtn');
+    if (!btn) return;
+    btn.classList.toggle('is-active', !!window.__reportsOzmalFilter);
+  }
 
   function normPlate(s){
     return String(s||'').toLowerCase().replace(/[\s-]+/g,'');
@@ -414,6 +435,7 @@
         if (tbody) {
           tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">Henüz rapor bulunmuyor.</td></tr>';
         }
+        syncOzmalFilterBtn();
         return;
       }
     
@@ -445,6 +467,9 @@
     if (q){
       rows = rows.filter(v => normPlate(v.cekiciPlaka || '').includes(q));
     }
+    if (window.__reportsOzmalFilter) {
+      rows = rows.filter(reportRowIsOzmal);
+    }
     if (mode === 'printed'){
       rows = rows.filter(v => (parseInt(v.printCount||'0',10)||0) > 0);
     } else if (mode === 'notprinted'){
@@ -459,8 +484,21 @@
       return String(b.kayitTarihi||'').localeCompare(String(a.kayitTarihi||''));
     });
 
-    const tbody = document.getElementById('tbody');
-    tbody.innerHTML = '';
+    const tbodyEl = document.getElementById('tbody');
+    tbodyEl.innerHTML = '';
+    syncOzmalFilterBtn();
+
+    if (!rows.length) {
+      const emptyMsg = window.__reportsOzmalFilter
+        ? (q ? 'Özmal araçlarda aramanıza uygun kayıt bulunamadı.' : 'Özmal araç yazdırma kaydı bulunmuyor.')
+        : (q ? 'Aramanıza uygun kayıt bulunamadı.' : 'Henüz rapor bulunmuyor.');
+      tbodyEl.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">' + emptyMsg + '</td></tr>';
+      try {
+        const pc = document.getElementById('paginationControls');
+        if (pc) pc.innerHTML = '';
+      } catch (e) { /* ignore */ }
+      return;
+    }
 
     function collectPrintEventIdsForVehicle(vehicle){
       try{
@@ -600,7 +638,7 @@
           </div>
         </td>
       `;
-      tbody.appendChild(tr);
+      tbodyEl.appendChild(tr);
     }
 
     // render pagination controls
@@ -852,6 +890,19 @@
     if (plate) {
       plate.addEventListener('input', () => { window.__reportsPage = 1; window.clearTimeout(window.__rdeb); window.__rdeb = window.setTimeout(render, 120); });
     }
+
+    const ozmalBtn = document.getElementById('ozmalFilterBtn');
+    if (ozmalBtn) {
+      ozmalBtn.addEventListener('click', () => {
+        window.__reportsOzmalFilter = !window.__reportsOzmalFilter;
+        window.__reportsPage = 1;
+        render();
+      });
+    }
+
+    window.addEventListener('ozmal-plates-changed', () => {
+      if (window.__reportsOzmalFilter) render();
+    });
 
     bindRowActions();
   }

@@ -42,7 +42,7 @@
         <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #eee;">
           <div style="flex:0 1 auto;min-width:0;">
             <div style="font-weight:900;">Piyasa Sipariş Seç</div>
-            <div id="duplicateWarning" style="font-size:12px;color:#000;background:#FFD700;padding:4px 8px;border-radius:4px;display:none;margin-top:4px;">⚠️ AYNI FİRMA BULUNUYOR - SİPARİŞ SEÇERKEN AYNI RENKLİ BANTLARA DİKKAT EDİNİZ</div>
+            <div id="duplicateWarning" style="font-size:12px;color:#000;background:#FFD700;padding:4px 8px;border-radius:4px;display:none;margin-top:4px;">⚠️ BENZER SİPARİŞ VAR — HP için yükleme türü + şehir, diğerleri için firma/malzeme sütunlarına dikkat edin</div>
           </div>
           ${g1DateHtml}
           <div style="flex:0 1 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
@@ -228,6 +228,19 @@
       };
     }
 
+    function pickerDuplicateKey(o, firmaAdi) {
+      const code = String(o.firma || '').trim();
+      if (isHpStyleFirma(code)) {
+        return [
+          code.toUpperCase(),
+          normYuklemeTuruKey(o.yuklemeTuru),
+          orderSehirKey(o),
+          String(o.malzeme || '').trim().toUpperCase(),
+        ].join('\x1e');
+      }
+      return firmaAdi || code;
+    }
+
     function getPickerRows(filter, tipMode) {
       const f = String(filter || '').trim().toLowerCase();
       const mode = tipMode || 'all';
@@ -240,12 +253,13 @@
         if (mode !== 'all' && e.sevkiyat !== mode) continue;
         if (f && !e.hay.includes(f)) continue;
         rows.push(e.o);
-        if (e.firmaAdi) firmaCount[e.firmaAdi] = (firmaCount[e.firmaAdi] || 0) + 1;
+        const dupKey = pickerDuplicateKey(e.o, e.firmaAdi);
+        if (dupKey) firmaCount[dupKey] = (firmaCount[dupKey] || 0) + 1;
       }
 
       const duplicateFirmas = new Set();
-      for (const firma of Object.keys(firmaCount)) {
-        if (firmaCount[firma] > 1) duplicateFirmas.add(firma);
+      for (const key of Object.keys(firmaCount)) {
+        if (firmaCount[key] > 1) duplicateFirmas.add(key);
       }
 
       return { rows, duplicateFirmas, filterText: f, tipMode: mode };
@@ -256,7 +270,8 @@
       const showWeek = !!(options && options.showWeek);
       const firmaCode = String(o.firma || '').trim();
       const firmaAdi = _resolvePickerFirmaAdi(o);
-      const isDuplicate = duplicateFirmas.has(firmaAdi);
+      const dupKey = pickerDuplicateKey(o, firmaAdi);
+      const isDuplicate = duplicateFirmas.has(dupKey);
       const isUsed = !!o.usedAt;
       const printCount = getOrderPrintCount(o);
       const statusInner = buildOrderStatusCell(o, forPrint);
@@ -486,7 +501,7 @@
 
     if (!tbody._piyasaPickerClickBound) {
       tbody._piyasaPickerClickBound = true;
-      tbody.addEventListener('click', (e) => {
+      tbody.addEventListener('click', async (e) => {
         const historyBtn = e.target.closest('button[data-history-key]');
         if (historyBtn) {
           e.preventDefault();
@@ -505,6 +520,15 @@
         const pickKey = pickBtn.getAttribute('data-pick-key');
         const selected = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === pickKey);
         if (!selected) return;
+
+        const tipMode = sevkiyatFilterEl ? sevkiyatFilterEl.value : 'all';
+        const { duplicateFirmas } = getPickerRows(searchEl.value, tipMode);
+        const firmaAdi = _resolvePickerFirmaAdi(selected);
+        const isDuplicate = duplicateFirmas.has(pickerDuplicateKey(selected, firmaAdi));
+
+        const okPick = await confirmHpOrderPickIfNeeded(selected, isDuplicate);
+        if (!okPick) return;
+
         const originalText = pickBtn.textContent;
         pickBtn.disabled = true;
         pickBtn.textContent = 'Seçiliyor...';
@@ -522,6 +546,9 @@
           alert('Sipariş forma aktarılırken bir hata oluştu. Lütfen tekrar deneyin.');
           // Beklenmeyen bir hatada state kilitlenmesin:
           window.__piyasaPickerOpen = false;
+        } finally {
+          pickBtn.disabled = false;
+          pickBtn.textContent = originalText;
         }
       });
     }
@@ -966,13 +993,9 @@
   async function init(){
     if (window.__piyasaInitStarted) return;
     window.__piyasaInitStarted = true;
-    let restored = await loadStateFromServerFirst();
-    if (!restored) restored = loadState();
+    if (!(await loadStateFromServerFirst())) loadState();
     const onLoginScreen = !document.documentElement.classList.contains('logged-in');
-    if (restored && !onLoginScreen && state.orders.length > 0){
-      toast(`✅ Piyasa verisi geri yüklendi (${state.orders.length} satır)`, 'success');
-      refreshPiyasaHeaderUi();
-    } else if (!onLoginScreen) {
+    if (!onLoginScreen) {
       refreshPiyasaHeaderUi();
     }
     if (!onLoginScreen) {

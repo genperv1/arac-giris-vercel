@@ -664,15 +664,28 @@
 
     <section class="rp-toolbar p-4 mb-5">
       <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-        <div>
-          <label for="plateSearch" class="rp-label">Plaka Ara</label>
-          <input
-            id="plateSearch"
-            type="search"
-            class="rp-input"
-            placeholder="34 ABC 123"
-            autocomplete="off"
-          />
+        <div class="flex flex-col sm:flex-row sm:items-end gap-4 flex-wrap">
+          <div>
+            <label for="plateSearch" class="rp-label">Plaka Ara</label>
+            <input
+              id="plateSearch"
+              type="search"
+              class="rp-input"
+              placeholder="34 ABC 123"
+              autocomplete="off"
+            />
+          </div>
+          <div>
+            <span class="rp-label">Filtre</span>
+            <button
+              type="button"
+              id="ozmalFilterBtn"
+              class="status-chip app-filter-chip chip-ozmal"
+              title="Şirket özmal araçlarının ne sardığını göster"
+            >
+              <i class="fas fa-truck" aria-hidden="true"></i> Özmal araçlar
+            </button>
+          </div>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <button type="button" id="deleteSelectedBtn" class="rp-btn rp-btn-danger">
@@ -729,8 +742,9 @@
 
   <script src="storage.js"></script>
   <script src="sync-manager.js"></script>
+  <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
-  <script src="report.js?v=20260611-mobile"></script>
+  <script src="report.js?v=20260716-ozmal-filter"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

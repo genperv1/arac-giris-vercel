@@ -95,6 +95,50 @@ if (typeof document !== 'undefined') {
 window.openWhatsAppFromCard = openWhatsAppFromCard;
 window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
 
+function persistClientSiteInfo(payload) {
+  if (!payload) return;
+  try {
+    if (payload.clientSite) {
+      const site = String(payload.clientSite);
+      localStorage.setItem('currentClientSite', site);
+      window.__clientSite = site;
+    }
+    if (payload.clientIp) {
+      const ip = String(payload.clientIp);
+      localStorage.setItem('currentClientIp', ip);
+      window.__clientIp = ip;
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function clearClientSiteInfo() {
+  try {
+    localStorage.removeItem('currentClientSite');
+    localStorage.removeItem('currentClientIp');
+    delete window.__clientSite;
+    delete window.__clientIp;
+  } catch (e) { /* ignore */ }
+}
+
+async function syncClientSiteFromServer() {
+  try {
+    const r = await fetch('/api/settings/bans/my-ip', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+    if (!r.ok) return false;
+    const d = await r.json().catch(() => null);
+    if (!d || !d.clientSite) return false;
+    persistClientSiteInfo(d);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+window.syncClientSiteFromServer = syncClientSiteFromServer;
+
         function syncNavMoreMenu() {
           /* Katlanır menü kaldırıldı — no-op */
         }
@@ -138,6 +182,7 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
 
             // Vardiya Notlari sayfasi
             document.getElementById('vardiyaNotlariButton')?.addEventListener('click', async () => {
+                closeAppToolsMenu();
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
@@ -149,8 +194,22 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
                 }
             });
 
+            // Nakliye bekleyenleri (plaka verilecek BBT özeti)
+            document.getElementById('nakliyeBekleyenButton')?.addEventListener('click', async () => {
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('nakliye-bekleyen.html');
+                } else {
+                    location.href = 'nakliye-bekleyen.html';
+                }
+            });
+
             // ⚠️ Şoför Sorunları (ayrı sayfa — Günlük Raporlar gibi)
             document.getElementById('issuesDashboardButton')?.addEventListener('click', async () => {
+                closeAppToolsMenu();
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
@@ -357,6 +416,17 @@ window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
 
             document.getElementById('cancelButton')?.addEventListener('click', resetForm);
             document.getElementById('saveButton')?.addEventListener('click', saveFromForm);
+            addOnce(document.getElementById('vehicleFormBackdrop'), 'click', resetForm);
+            addOnce(document.getElementById('vehicleFormCloseBtn'), 'click', resetForm);
+            addOnce(document.getElementById('emptyStateNewBtn'), 'click', function () {
+                if (!state.showForm) toggleForm();
+            });
+
+            if (!window.__connectionChipBound) {
+                window.__connectionChipBound = true;
+                window.addEventListener('online', function () { try { syncConnectionChip(); } catch (_) {} });
+                window.addEventListener('offline', function () { try { syncConnectionChip(); } catch (_) {} });
+            }
 
             // Firma ekleme butonu
             document.getElementById('firmaEkleButton')?.addEventListener('click', function() {
@@ -544,7 +614,7 @@ const sevkYeri = document.getElementById('eslestirmeSevkYeriInput')?.value.trim(
             const searchInput = document.getElementById('searchInput');
             if (searchInput) {
                 searchInput.value = state.searchTerm;
-                searchInput.addEventListener('input', function(e) {
+                addOnce(searchInput, 'input', function(e) {
                     state.searchTerm = e.target.value;
                     state.showAll = !!(state.searchTerm && state.searchTerm.trim());
                     window.clearTimeout(window.__searchDebounce);
@@ -552,7 +622,7 @@ const sevkYeri = document.getElementById('eslestirmeSevkYeriInput')?.value.trim(
                         updateVehicleList();
                     }, 120);
                 });
-            
+            }
 
 document.getElementById('showMoreButton')?.addEventListener('click', function () {
   const step = parseInt(state.pageSize, 10) || 20;
@@ -567,8 +637,6 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
 
   render(); // buton/kalan sayı güncellensin
 });
-
-}
 
             // Chip click: yüklüyse doğrudan ilgili detay / sipariş penceresi
             addOnce(document.getElementById('chipIhracat'), 'click', () => {
@@ -631,13 +699,59 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
   const telInp = document.getElementById('iletisim');
   if (telInp) {
     const apply = () => {
-      const v = formatTRPhone(telInp.value);
+      const v = formatPhoneForInput(telInp.value);
       telInp.value = v;
       updateFormData('iletisim', v);
+      clearFormFieldWarning('iletisim', 'iletisimWarning');
     };
     telInp.addEventListener('input', apply);
     telInp.addEventListener('blur', apply);
   }
+
+  const tcInp = document.getElementById('tcKimlik');
+  if (tcInp) {
+    tcInp.addEventListener('input', () => {
+      tcInp.value = tcInp.value.replace(/\D/g, '').slice(0, 11);
+      updateFormData('tcKimlik', tcInp.value);
+      clearFormFieldWarning('tcKimlik', 'tcKimlikWarning');
+    });
+  }
+
+  const LIST_FILTER_KEYS = ['ozmalFilter', 'incompleteFilter', 'issuesFilter', 'recentFilter'];
+
+  function _toggleListFilter(key) {
+    const willEnable = !state[key];
+    LIST_FILTER_KEYS.forEach((k) => {
+      state[k] = k === key && willEnable;
+    });
+    window.__filterCache = { term: null, incomplete: null, issues: null, recent: null, ozmal: null, ver: 0, out: null };
+    try { render(); } catch (e) { try { updateVehicleList(); } catch (_) {} }
+  }
+
+  addOnce(document.getElementById('incompleteFilterBtn'), 'click', () => {
+    _toggleListFilter('incompleteFilter');
+  });
+
+  addOnce(document.getElementById('issuesFilterBtn'), 'click', () => {
+    _toggleListFilter('issuesFilter');
+  });
+
+  addOnce(document.getElementById('recentFilterBtn'), 'click', () => {
+    _toggleListFilter('recentFilter');
+  });
+
+  addOnce(document.getElementById('ozmalFilterBtn'), 'click', () => {
+    _toggleListFilter('ozmalFilter');
+  });
+
+  window.addEventListener('ozmal-plates-changed', () => {
+    window.__filterCache = { term: null, incomplete: null, issues: null, recent: null, ozmal: null, ver: 0, out: null };
+    try { render(); } catch (e) { try { updateVehicleList(); } catch (_) {} }
+  });
+
+  document.getElementById('exportVehiclesExcelBtn')?.addEventListener('click', () => {
+    try { exportVehiclesExcel(); } catch (e) { console.error(e); }
+  });
 
   if (window.SessionManager && typeof window.SessionManager.bindAppPageNavigation === 'function') {
     window.SessionManager.bindAppPageNavigation();
@@ -816,6 +930,13 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
                 const typingInField = tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable);
                 const activeId = (document.activeElement && document.activeElement.id) ? document.activeElement.id : '';
 
+                // Ctrl+K veya Cmd+K -> arama odak
+                if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'k') {
+                    e.preventDefault();
+                    focusSearchInput();
+                    return;
+                }
+
                 // F2 -> arama kutusu odak
                 if (e.key === 'F2') {
                     e.preventDefault();
@@ -941,43 +1062,49 @@ function enterAppWithDelay(ms = 0) {
   const loginScreen = document.getElementById('loginScreen');
   const mainApp = document.getElementById('mainApp');
 
-  // Instant transition - no loading overlay
-  try {
-    try { document.documentElement.classList.add('logged-in'); } catch (e) {}
-    if (loginScreen) {
-      loginScreen.style.setProperty('display', 'none', 'important');
-    }
-    if (mainApp) {
-      mainApp.style.setProperty('display', 'block', 'important');
-    }
+  const openApp = async () => {
+    try {
+      await syncClientSiteFromServer();
+    } catch (e) { /* ignore */ }
 
-    state.vehiclesLoading = true;
-    try { if (typeof render === 'function') render(); } catch (e) {}
-
-    const runLoad = () => {
-      try {
-        if (typeof window.ensureXlsxLoaded === 'function') {
-          window.ensureXlsxLoaded().catch(() => {});
-        }
-        if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
-          window.SignatureRegistry.loadSignatures(true).catch(() => {});
-        }
-        loadVehicles().finally(() => { isEnteringApp = false; });
-      } catch (e) {
-        console.error('loadVehicles hata:', e);
-        state.vehiclesLoading = false;
-        isEnteringApp = false;
+    try {
+      try { document.documentElement.classList.add('logged-in'); } catch (e) {}
+      if (loginScreen) {
+        loginScreen.style.setProperty('display', 'none', 'important');
       }
-    };
-    if (ms > 0) setTimeout(runLoad, ms);
-    else runLoad();
-  } catch (e) {
-    console.error('enterAppWithDelay hata:', e);
-    isEnteringApp = false;
-    // Güvenli fallback
-    if (mainApp) mainApp.style.display = 'none';
-    if (loginScreen) loginScreen.style.display = 'flex';
-  }
+      if (mainApp) {
+        mainApp.style.setProperty('display', 'block', 'important');
+      }
+
+      state.vehiclesLoading = true;
+      try { if (typeof render === 'function') render(); } catch (e) {}
+
+      const runLoad = () => {
+        try {
+          if (typeof window.ensureXlsxLoaded === 'function') {
+            window.ensureXlsxLoaded().catch(() => {});
+          }
+          if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
+            window.SignatureRegistry.loadSignatures(true).catch(() => {});
+          }
+          loadVehicles().finally(() => { isEnteringApp = false; });
+        } catch (e) {
+          console.error('loadVehicles hata:', e);
+          state.vehiclesLoading = false;
+          isEnteringApp = false;
+        }
+      };
+      if (ms > 0) setTimeout(runLoad, ms);
+      else runLoad();
+    } catch (e) {
+      console.error('enterAppWithDelay hata:', e);
+      isEnteringApp = false;
+      if (mainApp) mainApp.style.display = 'none';
+      if (loginScreen) loginScreen.style.display = 'flex';
+    }
+  };
+
+  openApp();
 }
 
 async function login() {
@@ -1036,6 +1163,7 @@ async function login() {
 
     // Server set httpOnly cookie; avoid storing token in localStorage
     try { localStorage.setItem('currentUserId', id); } catch(e){}
+    persistClientSiteInfo(data);
     try { localStorage.setItem('isLoggedIn', 'true'); } catch(e){}
     syncLoginFlag(true);
     if (window.SessionManager && typeof window.SessionManager.markSessionValid === 'function') {
@@ -1087,6 +1215,7 @@ async function validateToken() {
       if (j && j.user && j.user.username) {
         try { localStorage.setItem('currentUserId', j.user.username); } catch(e){}
       }
+      persistClientSiteInfo(j);
       try { if (typeof startPostLoginTasks === 'function') startPostLoginTasks(); } catch(e){}
       if (window.SessionManager && typeof window.SessionManager.markSessionValid === 'function') {
         window.SessionManager.markSessionValid();
@@ -1120,6 +1249,7 @@ async function validateToken() {
   syncLoginFlag(false);
   try { localStorage.removeItem('isLoggedIn'); } catch(e){}
   try { localStorage.removeItem('currentUserId'); } catch(e){}
+  clearClientSiteInfo();
   try { document.documentElement.classList.remove('logged-in'); } catch(e){}
   try {
     const mainApp = document.getElementById('mainApp');
@@ -1202,6 +1332,7 @@ function startSessionMonitoring() {
           syncLoginFlag(false);
           try { localStorage.removeItem('isLoggedIn'); } catch (e) {}
           try { localStorage.removeItem('currentUserId'); } catch (e) {}
+          clearClientSiteInfo();
           try { document.documentElement.classList.remove('logged-in'); } catch (e) {}
           const mainApp = document.getElementById('mainApp');
           const loginScreen = document.getElementById('loginScreen');
@@ -1259,6 +1390,7 @@ function startSessionMonitoring() {
       // Clear localStorage
       localStorage.removeItem('isLoggedIn');
       localStorage.removeItem('currentUserId');
+      clearClientSiteInfo();
       
       // Remove logged-in class
       try { document.documentElement.classList.remove('logged-in'); } catch (e) {}
@@ -1360,6 +1492,7 @@ function stopSessionMonitoring() {
           // 5. Clear localStorage
           localStorage.removeItem('isLoggedIn');
           localStorage.removeItem('currentUserId');
+          clearClientSiteInfo();
           console.log('localStorage temizlendi');
           
           // 6. Update CSS and DOM in single batch to prevent reflow
@@ -1397,17 +1530,16 @@ function stopSessionMonitoring() {
             state.showForm = !state.showForm;
             if (!state.showForm) {
                 resetForm();
-            } else {
+                return;
+            }
             render();
-            // Form açıldığında ilk alan (çekici plaka) otomatik odaklansın
             window.setTimeout(() => {
               try { document.getElementById('cekiciPlaka')?.focus(); } catch(_) {}
             }, 0);
-            }
         }
 
         // Kayıt ekle/güncelle
-        function saveFromForm() {
+        async function saveFromForm() {
             // Tüm alanları büyük harfe çevir ve plakaları formatla
             state.formData.cekiciPlaka = formatPlakaForInput(document.getElementById('cekiciPlaka').value);
             state.formData.dorsePlaka = formatPlakaForInput(document.getElementById('dorsePlaka').value);
@@ -1415,25 +1547,19 @@ function stopSessionMonitoring() {
             state.formData.soforSoyadi = document.getElementById('soforSoyadi').value.toUpperCase();
             state.formData.sofor2Adi = document.getElementById('sofor2Adi')?.value?.toUpperCase() || '';
             state.formData.sofor2Soyadi = document.getElementById('sofor2Soyadi')?.value?.toUpperCase() || '';
-            state.formData.iletisim = document.getElementById('iletisim').value.toUpperCase();
-            state.formData.tcKimlik = document.getElementById('tcKimlik').value;
+            state.formData.iletisim = formatPhoneForInput(document.getElementById('iletisim').value);
+            state.formData.tcKimlik = document.getElementById('tcKimlik').value.trim();
             state.formData.defaultFirma = document.getElementById('defaultFirma')?.value || '';
             state.formData.defaultMalzeme = document.getElementById('defaultMalzeme')?.value || '';
             state.formData.defaultSevkYeri = document.getElementById('defaultSevkYeri')?.value || '';
             state.formData.defaultYuklemeNotu = document.getElementById('defaultYuklemeNotu')?.value || '';
-            saveVehicle();
-
-            // Seri giriş için: formu temizle ve plakaya odaklan
-            try {
-              resetForm();
-              window.setTimeout(() => {
-                try { document.getElementById('cekiciPlaka')?.focus(); } catch(_) {}
-              }, 0);
-            } catch(_) {}
+            const ok = await saveVehicle();
+            if (!ok) return;
         }
 
         // Düzenle
-        function editVehicle(vehicle) {
+        function editVehicle(vehicle, opts) {
+            opts = opts || {};
                         state.formData = {
                 cekiciPlaka: vehicle.cekiciPlaka,
                 dorsePlaka: vehicle.dorsePlaka,
@@ -1451,6 +1577,9 @@ function stopSessionMonitoring() {
             state.editingId = vehicle.id;
             state.showForm = true;
             render();
+            if (opts.focusField) {
+                window.setTimeout(() => focusVehicleFormField(opts.focusField), 0);
+            }
         }
 
 const DELETE_VEHICLE_PASSWORD = '2026genper';

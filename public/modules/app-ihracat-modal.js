@@ -31,6 +31,349 @@ function _ihracatBlockGroupKey(s) {
   return `FIRMA_${_ihracatFirmaGroupKey(s)}`;
 }
 
+function isIhracatEmptyBlockRow(s) {
+  return !!(s && s._ihracatEmptyBlock);
+}
+
+function ihracatFilterPlateRows(rows) {
+  return (rows || []).filter((r) => !isIhracatEmptyBlockRow(r));
+}
+
+function ihracatCountPlateRows(rows) {
+  return ihracatFilterPlateRows(rows).length;
+}
+
+function ihracatCountBlocks(rows) {
+  const keys = new Set();
+  (rows || []).forEach((r) => {
+    if (!r) return;
+    if (r.blockKey) keys.add(String(r.blockKey));
+    else if (r.blockHeaderRow != null) keys.add(`BLK_${r.blockHeaderRow}`);
+  });
+  return keys.size;
+}
+
+function _ihracatPurgeEmptyBlockPlaceholders(rows) {
+  const blocksWithPlates = new Set();
+  (rows || []).forEach((r) => {
+    if (isIhracatEmptyBlockRow(r)) return;
+    if (String(r.plaka || '').trim()) blocksWithPlates.add(_ihracatBlockGroupKey(r));
+  });
+  return (rows || []).filter((r) => {
+    if (!isIhracatEmptyBlockRow(r)) return true;
+    return !blocksWithPlates.has(_ihracatBlockGroupKey(r));
+  });
+}
+
+function _ihracatEmptyBlockHintRowHtml(sample) {
+  return `
+    <tr data-ihr-empty-block-hint="1">
+      <td colspan="8" style="border:1px dashed #cbd5e1;padding:14px 12px;background:#f8fafc;color:#475569;font-size:12px;line-height:1.5;text-align:center;">
+        <strong style="display:block;color:#64748b;margin-bottom:4px;">Henüz plaka girilmemiş</strong>
+        Excel'de bu sevkiyat bloğu için araç satırı boş. Plakalar girildiğinde burada listelenecek.
+        Manuel eklemek için alttaki boş satıra plaka yazın.
+      </td>
+    </tr>`;
+}
+
+function _ihracatExtractBlockPlannedSummary(sample) {
+  const ht = String(sample?.headerText || sample?.blockMeta?.mainHeader || '').replace(/\s+/g, ' ');
+  const parts = [];
+  const book = (ht.match(/BOOKING\s*NO\s*:\s*([A-Z0-9]+)/i) || [])[1];
+  if (book) parts.push(`Booking ${book}`);
+  const ton = (ht.match(/(\d+)\s*TON\b/i) || [])[1];
+  if (ton) parts.push(`${ton} ton`);
+  const bbt = (ht.match(/(\d+)\s*BBT\b/i) || [])[1];
+  if (bbt) parts.push(`${bbt} BBT`);
+  const cuval = (ht.match(/(\d+)\s*(?:ÇUVAL|CUVAL)\b/i) || [])[1];
+  if (cuval) parts.push(`${cuval} çuval`);
+  const palet = (ht.match(/(\d+)\s*PALET\b/i) || [])[1];
+  if (palet) parts.push(`${palet} palet`);
+
+  const totals = sample?.blockTotals || null;
+  if (totals && !bbt && String(totals.bbt || '').trim()) parts.push(`${totals.bbt} BBT`);
+  if (totals && !cuval && String(totals.cuval || '').trim()) parts.push(`${totals.cuval} çuval`);
+  return parts.join(' · ');
+}
+
+function _ihracatBlockAutoSevk(sample) {
+  if (typeof extractPrimaryPortFromShipment === 'function') {
+    return String(extractPrimaryPortFromShipment(sample || {}) || '').trim();
+  }
+  return '';
+}
+
+function _ihracatBlockAutoAmb(sample) {
+  const ht = String(sample?.blockMeta?.mainHeader || sample?.headerText || '').trim();
+  if (typeof extractPrimaryAmbalajFromHeader === 'function') {
+    return String(extractPrimaryAmbalajFromHeader(ht) || '').trim();
+  }
+  return '';
+}
+
+function _ihracatNormBlockField(v) {
+  return String(v || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C');
+}
+
+function _ihracatNormAmbField(v) {
+  const s = _ihracatNormBlockField(v);
+  const numMatch = s.match(/(\d[\d.,]*)/);
+  if (numMatch) {
+    const raw = numMatch[1].replace(/\./g, '').replace(',', '.');
+    const n = parseFloat(raw);
+    if (Number.isFinite(n)) return `N${n}`;
+  }
+  return s.replace(/\b(KG|KGLIK|KGLİK|LIK|LİK|NET|BASKISIZ)\b/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function _ihracatBlockSevkAmbDiffersFromExcel(sample, curSevk, curAmb) {
+  if (!sample) return false;
+  const autoSevk = _ihracatBlockAutoSevk(sample);
+  const autoAmb = _ihracatBlockAutoAmb(sample);
+  const sevk = curSevk !== undefined
+    ? String(curSevk || '').trim()
+    : String(sample.sevkYeri || '').trim();
+  const amb = curAmb !== undefined
+    ? String(curAmb || '').trim()
+    : String(sample.ambalaj || sample.ambalajBilgisi || '').trim();
+
+  if (autoSevk && sevk && _ihracatNormBlockField(sevk) !== _ihracatNormBlockField(autoSevk)) return true;
+  if (autoAmb && amb && _ihracatNormAmbField(amb) !== _ihracatNormAmbField(autoAmb)) return true;
+  if (!autoSevk && sevk && sample._ihracatBlockEdited) return true;
+  if (!autoAmb && amb && sample._ihracatBlockEdited) return true;
+  return false;
+}
+
+function _ihracatSampleForBlockKey(shipments, gk) {
+  return (shipments || []).find((s) => _ihracatBlockGroupKey(s) === gk) || null;
+}
+
+function _ihracatIsBlockManuallyEdited(sample, meta, curSevk, curAmb) {
+  if (!sample) return false;
+  const gk = _ihracatBlockGroupKey(sample);
+  const ov = meta?.blockOverrides?.[gk];
+  let sevk = curSevk;
+  let amb = curAmb;
+  if (sevk === undefined && ov && Object.prototype.hasOwnProperty.call(ov, 'sevkYeri')) {
+    sevk = ov.sevkYeri;
+  }
+  if (amb === undefined && ov && Object.prototype.hasOwnProperty.call(ov, 'ambalaj')) {
+    amb = ov.ambalaj;
+  }
+  return _ihracatBlockSevkAmbDiffersFromExcel(sample, sevk, amb);
+}
+
+function _ihracatManualEditBadgeHtml() {
+  return '<span data-ihr-manual-edit-badge="1" style="font-size:10px;font-weight:700;color:#92400e;background:#ffedd5;border:1px solid #fdba74;padding:3px 8px;border-radius:999px;flex-shrink:0;">✎ Elle düzenlendi</span>';
+}
+
+function _ihracatCollectDistinctPorts(shipments, meta) {
+  const ports = new Set();
+  (shipments || []).forEach((s) => {
+    const sevk = String(_defaultSevkForShipment(s) || '').trim();
+    if (sevk) ports.add(sevk);
+  });
+  Object.values(meta?.blockOverrides || {}).forEach((ov) => {
+    const sevk = String(ov?.sevkYeri || '').trim();
+    if (sevk) ports.add(sevk);
+  });
+  return Array.from(ports).sort((a, b) => a.localeCompare(b, 'tr'));
+}
+
+function _ihracatCaptureModalEditSnapshot(modal) {
+  const snap = { blockSevk: {}, blockAmb: {}, rows: {} };
+  if (!modal) return snap;
+  modal.querySelectorAll('[data-ihr-firma-sevk]').forEach((inp) => {
+    const k = inp.getAttribute('data-ihr-firma-sevk');
+    if (k) snap.blockSevk[k] = String(inp.value || '').trim();
+  });
+  modal.querySelectorAll('[data-ihr-firma-amb]').forEach((inp) => {
+    const k = inp.getAttribute('data-ihr-firma-amb');
+    if (k) snap.blockAmb[k] = String(inp.value || '').trim();
+  });
+  modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
+    const key = row.getAttribute('data-ihr-row-key');
+    if (!key) return;
+    const read = (sel) => String(row.querySelector(sel)?.value || '').trim();
+    snap.rows[key] = {
+      tonaj: read('[data-field="tonaj"]'),
+      irsaliye: read('[data-field="irsaliye"]'),
+      bbt: read('[data-field="bbt"]'),
+      bosBbt: read('[data-field="bosBbt"]'),
+      cuval: read('[data-field="cuval"]'),
+      bosCuval: read('[data-field="bosCuval"]'),
+      palet: read('[data-field="palet"]'),
+    };
+  });
+  return snap;
+}
+
+function _ihracatModalHasUnsavedChanges(modal, initialSnap) {
+  if (!modal || !initialSnap) return false;
+  const cur = _ihracatCaptureModalEditSnapshot(modal);
+  const eqObj = (a, b) => JSON.stringify(a || {}) === JSON.stringify(b || {});
+  if (!eqObj(cur.blockSevk, initialSnap.blockSevk)) return true;
+  if (!eqObj(cur.blockAmb, initialSnap.blockAmb)) return true;
+  if (!eqObj(cur.rows, initialSnap.rows)) return true;
+  return false;
+}
+
+function _ihracatBlockSectionIsManuallyEdited(section) {
+  if (!section) return false;
+  const autoSevk = String(section.getAttribute('data-ihr-sevk-auto') || '').trim();
+  const autoAmb = String(section.getAttribute('data-ihr-amb-auto') || '').trim();
+  const curSevk = String(section.querySelector('[data-ihr-firma-sevk]')?.value || '').trim();
+  const curAmb = String(section.querySelector('[data-ihr-firma-amb]')?.value || '').trim();
+  if (autoSevk && curSevk && _ihracatNormBlockField(curSevk) !== _ihracatNormBlockField(autoSevk)) return true;
+  if (autoAmb && curAmb && _ihracatNormAmbField(curAmb) !== _ihracatNormAmbField(autoAmb)) return true;
+  return false;
+}
+
+function _ihracatRefreshBlockManualBadges(modal) {
+  if (!modal) return;
+  modal.querySelectorAll('[data-ihr-block-section]').forEach((section) => {
+    const headerBtn = section.querySelector('[data-ihr-collapse-trigger]');
+    if (!headerBtn) return;
+    const show = _ihracatBlockSectionIsManuallyEdited(section);
+    let badge = headerBtn.querySelector('[data-ihr-manual-edit-badge]');
+    if (show && !badge) {
+      headerBtn.insertAdjacentHTML('beforeend', _ihracatManualEditBadgeHtml());
+    } else if (!show && badge) {
+      badge.remove();
+    }
+  });
+}
+
+function _ihracatBuildYdPortConflictLines(modal) {
+  if (!modal) return [];
+  const byYd = new Map();
+  modal.querySelectorAll('[data-ihr-block-section]').forEach((section) => {
+    const yd = String(section.getAttribute('data-ihr-yd') || '').trim().toUpperCase();
+    const sevk = String(section.querySelector('[data-ihr-firma-sevk]')?.value || '').trim();
+    const title = String(section.querySelector('strong')?.textContent || '').trim();
+    if (!yd || !sevk) return;
+    if (!byYd.has(yd)) byYd.set(yd, []);
+    byYd.get(yd).push({ sevk, title });
+  });
+  const lines = [];
+  byYd.forEach((entries, yd) => {
+    const ports = [...new Set(entries.map((e) => e.sevk.toUpperCase()))];
+    if (ports.length <= 1) return;
+    const detail = entries.map((e) => `${e.title || 'Blok'} → ${e.sevk}`).join(' · ');
+    lines.push(`<li style="margin-bottom:6px;"><strong>${escapeHtml(yd)}</strong> farklı limanlarda: ${escapeHtml(ports.join(', '))} <span style="color:#78716c;">(${escapeHtml(detail)})</span></li>`);
+  });
+  return lines;
+}
+
+function _ihracatRefreshYdPortWarnings(modal) {
+  if (!modal) return;
+  const box = modal.querySelector('#ihracatYdPortWarnings');
+  if (!box) return;
+  const lines = _ihracatBuildYdPortConflictLines(modal);
+  if (!lines.length) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="margin-bottom:14px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412;line-height:1.45;padding:10px 12px;">
+      <div style="font-weight:800;margin-bottom:6px;">⚠️ Aynı YD kodu farklı limanlarda</div>
+      <ul style="margin:0;padding-left:18px;font-size:11px;">${lines.join('')}</ul>
+    </div>`;
+}
+
+function _ihracatApplyPortFilter(modal) {
+  const sel = modal?.querySelector('#ihracatPortFilter');
+  if (!sel || !modal) return;
+  const needle = String(sel.value || '').trim().toUpperCase();
+  let visible = 0;
+  modal.querySelectorAll('[data-ihr-block-section]').forEach((section) => {
+    const sevk = String(section.querySelector('[data-ihr-firma-sevk]')?.value || '').trim().toUpperCase();
+    const show = !needle || sevk === needle || sevk.includes(needle);
+    section.style.display = show ? '' : 'none';
+    if (show) visible += 1;
+  });
+  const hint = modal.querySelector('#ihracatPortFilterHint');
+  if (hint) {
+    hint.textContent = needle ? `${visible} blok gösteriliyor` : '';
+  }
+}
+
+async function _ihracatPromptSaveOrCancelUnsaved() {
+  const msg = 'Kaydedilmemiş değişiklikler var.';
+  const rpUi = window.rpUi;
+  if (rpUi && typeof rpUi.alertActions === 'function') {
+    return rpUi.alertActions(msg, 'warning', [
+      { label: 'İptal', value: 'cancel', className: 'rp-dialog-btn-ghost' },
+      { label: 'Kaydet', value: 'save', className: 'rp-dialog-btn-primary' },
+    ]);
+  }
+  return 'cancel';
+}
+
+function _ihracatBindModalEnhancements(modal, meta, shipments, handlers) {
+  if (!modal) return;
+  handlers = handlers || {};
+  modal.__ihrInitialSnapshot = _ihracatCaptureModalEditSnapshot(modal);
+
+  const refreshUx = () => {
+    _ihracatRefreshBlockManualBadges(modal);
+    _ihracatRefreshYdPortWarnings(modal);
+  };
+  refreshUx();
+
+  modal.querySelectorAll('[data-ihr-firma-sevk], [data-ihr-firma-amb]').forEach((inp) => {
+    inp.addEventListener('input', refreshUx);
+    inp.addEventListener('change', () => {
+      refreshUx();
+      _ihracatApplyPortFilter(modal);
+    });
+  });
+
+  const portSel = modal.querySelector('#ihracatPortFilter');
+  if (portSel) {
+    portSel.addEventListener('change', () => _ihracatApplyPortFilter(modal));
+  }
+  modal.querySelector('#ihracatPortFilterClear')?.addEventListener('click', () => {
+    if (portSel) portSel.value = '';
+    _ihracatApplyPortFilter(modal);
+  });
+
+  const tryClose = async () => {
+    if (_ihracatModalHasUnsavedChanges(modal, modal.__ihrInitialSnapshot)) {
+      const choice = await _ihracatPromptSaveOrCancelUnsaved();
+      if (choice !== 'save') return;
+      if (typeof handlers.onSave === 'function') {
+        const saved = await Promise.resolve(handlers.onSave());
+        if (!saved) return;
+        return;
+      }
+    }
+    if (typeof handlers.onClose === 'function') handlers.onClose();
+    else modal.remove();
+  };
+
+  modal.__ihracatTryClose = tryClose;
+
+  modal.querySelector('#closeIhracatModal')?.addEventListener('click', tryClose);
+
+  modal.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!t || !t.closest('tr[data-ihr-row-key]')) return;
+    modal.__ihrInitialSnapshot = modal.__ihrInitialSnapshot || {};
+  });
+}
+
 function _ihracatShortBlockTitle(headerText, malzemeHint) {
   const ht = String(headerText || '').trim();
   if (!ht) return '';
@@ -233,6 +576,12 @@ function _ihracatRenderExcelToplamRow(excelTotals, items) {
 function _defaultSevkForShipment(s) {
   const direct = String(s.sevkYeri || '').trim();
   if (direct) return direct;
+  const metaOv = _ihracatBlockOverrideForShipment(s);
+  if (metaOv && String(metaOv.sevkYeri || '').trim()) return String(metaOv.sevkYeri).trim();
+  const fromBlock = typeof extractPrimaryPortFromShipment === 'function'
+    ? extractPrimaryPortFromShipment(s)
+    : '';
+  if (fromBlock) return fromBlock;
   const cands = getLimanCandidates(s.headerText || '');
   return cands[0] || '';
 }
@@ -240,8 +589,15 @@ function _defaultSevkForShipment(s) {
 function _defaultAmbalajTextForShipment(s) {
   const direct = String(s.ambalaj || s.ambalajBilgisi || '').trim();
   if (direct) return direct;
-  const cands = getAmbalajCandidates(s.headerText || '');
-  return cands[0] || '';
+  const metaOv = _ihracatBlockOverrideForShipment(s);
+  if (metaOv && String(metaOv.ambalaj || '').trim()) return String(metaOv.ambalaj).trim();
+  const ht = String(s.blockMeta?.mainHeader || s.headerText || '').trim();
+  const fromHeader = typeof extractPrimaryAmbalajFromHeader === 'function'
+    ? extractPrimaryAmbalajFromHeader(ht)
+    : '';
+  if (fromHeader) return fromHeader;
+  const cands = getAmbalajCandidates(ht);
+  return cands[cands.length - 1] || cands[0] || '';
 }
 
 function _applyExcelShipmentFieldsToTakipForm(chosen) {
@@ -341,17 +697,132 @@ function _ihracatReadRowFields(row, cur, blockSevk, blockAmb) {
   if (bosCuval) cur.bosCuval = String(bosCuval.value || '').trim();
   if (palet) cur.palet = String(palet.value || '').trim();
 
-  const sevk = blockSevk[gk] || cur.sevkYeri || '';
-  if (sevk) cur.sevkYeri = sevk;
-  const amb = blockAmb[gk] || '';
-  if (amb) {
+  const sevk = Object.prototype.hasOwnProperty.call(blockSevk, gk)
+    ? String(blockSevk[gk] || '').trim()
+    : String(cur.sevkYeri || '').trim();
+  cur.sevkYeri = sevk;
+  if (Object.prototype.hasOwnProperty.call(blockAmb, gk)) {
+    const amb = String(blockAmb[gk] || '').trim();
     cur.ambalaj = amb;
     cur.ambalajBilgisi = amb;
   }
 
   cur._ihracatEdited = true;
   cur._ihracatEditedAt = Date.now();
+  const blockSevkVal = Object.prototype.hasOwnProperty.call(blockSevk, gk) ? blockSevk[gk] : undefined;
+  const blockAmbVal = Object.prototype.hasOwnProperty.call(blockAmb, gk) ? blockAmb[gk] : undefined;
+  if (blockSevkVal !== undefined || blockAmbVal !== undefined) {
+    if (_ihracatBlockSevkAmbDiffersFromExcel(cur, blockSevkVal, blockAmbVal)) {
+      cur._ihracatBlockEdited = true;
+    } else {
+      delete cur._ihracatBlockEdited;
+    }
+  }
   return cur;
+}
+
+function _ihracatBlockOverrideForShipment(s) {
+  try {
+    const meta = typeof loadDailyMeta === 'function' ? (loadDailyMeta() || {}) : {};
+    const gk = _ihracatBlockGroupKey(s);
+    return (meta.blockOverrides && meta.blockOverrides[gk]) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function _ihracatMergeBlockOverridesIntoMeta(meta, blockSevk, blockAmb, shipments) {
+  const out = { ...(meta || {}) };
+  const overrides = { ...(out.blockOverrides || {}) };
+  const gks = new Set([
+    ...Object.keys(blockSevk || {}),
+    ...Object.keys(blockAmb || {}),
+    ...Object.keys(overrides || {}),
+  ]);
+  const now = new Date().toISOString();
+  gks.forEach((gk) => {
+    const sample = _ihracatSampleForBlockKey(shipments, gk);
+    const hasSevk = Object.prototype.hasOwnProperty.call(blockSevk || {}, gk);
+    const hasAmb = Object.prototype.hasOwnProperty.call(blockAmb || {}, gk);
+    const sevk = hasSevk ? blockSevk[gk] : (overrides[gk]?.sevkYeri);
+    const amb = hasAmb ? blockAmb[gk] : (overrides[gk]?.ambalaj);
+    const differs = _ihracatBlockSevkAmbDiffersFromExcel(sample, sevk, amb);
+    if (!differs) {
+      delete overrides[gk];
+      return;
+    }
+    const prev = { ...(overrides[gk] || {}) };
+    if (hasSevk) prev.sevkYeri = blockSevk[gk];
+    if (hasAmb) prev.ambalaj = blockAmb[gk];
+    prev.updatedAt = now;
+    prev.manual = true;
+    overrides[gk] = prev;
+  });
+  out.blockOverrides = Object.keys(overrides).length ? overrides : undefined;
+  return out;
+}
+
+function _ihracatApplyBlockFieldsToMap(byKey, blockSevk, blockAmb) {
+  if (!byKey || typeof byKey.forEach !== 'function') return;
+  byKey.forEach((cur, key) => {
+    if (!cur) return;
+    const gk = _ihracatBlockGroupKey(cur);
+    const hasSevk = Object.prototype.hasOwnProperty.call(blockSevk, gk);
+    const hasAmb = Object.prototype.hasOwnProperty.call(blockAmb, gk);
+    if (!hasSevk && !hasAmb) return;
+    const patch = { ...cur };
+    if (hasSevk) patch.sevkYeri = String(blockSevk[gk] || '').trim();
+    if (hasAmb) {
+      patch.ambalaj = String(blockAmb[gk] || '').trim();
+      patch.ambalajBilgisi = patch.ambalaj;
+    }
+    if (_ihracatBlockSevkAmbDiffersFromExcel(cur, hasSevk ? patch.sevkYeri : undefined, hasAmb ? patch.ambalaj : undefined)) {
+      patch._ihracatBlockEdited = true;
+      patch._ihracatEdited = true;
+      patch._ihracatEditedAt = Date.now();
+    } else {
+      delete patch._ihracatBlockEdited;
+    }
+    byKey.set(key, patch);
+  });
+}
+
+function _ihracatSyncActiveShipmentCache(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const syncOne = (ref) => {
+    if (!ref) return;
+    const key = _ihracatShipmentKey(ref);
+    const updated = list.find((s) => _ihracatShipmentKey(s) === key);
+    if (updated) {
+      try { window.__activeExcelShipment = { ...updated }; } catch (e) {}
+      try { window.__lastChosenShipment = { ...updated }; } catch (e) {}
+    }
+  };
+  try { syncOne(window.__activeExcelShipment); } catch (e) {}
+  try { syncOne(window.__lastChosenShipment); } catch (e) {}
+}
+
+function _ihracatApplyBlockOverridesToRows(rows, meta) {
+  const overrides = meta?.blockOverrides;
+  if (!overrides || typeof overrides !== 'object') return rows;
+  return (rows || []).map((row) => {
+    if (!row) return row;
+    const gk = _ihracatBlockGroupKey(row);
+    const ov = overrides[gk];
+    if (!ov) return row;
+    const out = { ...row };
+    if (String(ov.sevkYeri || '').trim()) {
+      out.sevkYeri = String(ov.sevkYeri).trim();
+    }
+    if (String(ov.ambalaj || '').trim()) {
+      out.ambalaj = String(ov.ambalaj).trim();
+      out.ambalajBilgisi = out.ambalaj;
+    }
+    if (String(ov.sevkYeri || ov.ambalaj || '').trim()) {
+      out._ihracatBlockEdited = true;
+    }
+    return out;
+  });
 }
 
 function _saveIhracatDetailsFromModal(originalShipments, meta) {
@@ -403,12 +874,16 @@ function _saveIhracatDetailsFromModal(originalShipments, meta) {
   try { deletedKeys = JSON.parse(modal.dataset.ihrDeletedKeys || '[]'); } catch (e) {}
   deletedKeys.forEach((k) => byKey.delete(k));
 
-  const rows = Array.from(byKey.values());
-  const ok = saveDailyShipments(rows, meta);
+  _ihracatApplyBlockFieldsToMap(byKey, blockSevk, blockAmb);
+
+  let rows = _ihracatPurgeEmptyBlockPlaceholders(Array.from(byKey.values()));
+  const metaToSave = _ihracatMergeBlockOverridesIntoMeta(meta, blockSevk, blockAmb, Array.from(byKey.values()));
+  const ok = saveDailyShipments(rows, metaToSave);
   if (ok) {
     try {
       purgeStrictExcelCaches();
       rebuildListsFromExcelRows(rows);
+      _ihracatSyncActiveShipmentCache(rows);
       window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
     } catch (e) {}
   }
@@ -572,19 +1047,23 @@ function _ihracatPersistSingleRowFromModal(row, modal) {
   const updated = _ihracatReadRowFields(row, cur, blockSevk, blockAmb);
   if (!updated) return false;
 
-  const next = [...list];
-  if (idx >= 0) next[idx] = updated;
-  else next.push(updated);
+  const byKey = new Map(list.map((s) => [_ihracatShipmentKey(s), { ...s }]));
+  byKey.set(_ihracatShipmentKey(updated), updated);
+  _ihracatApplyBlockFieldsToMap(byKey, blockSevk, blockAmb);
+  let next = _ihracatPurgeEmptyBlockPlaceholders(Array.from(byKey.values()));
+  const metaToSave = _ihracatMergeBlockOverridesIntoMeta(meta, blockSevk, blockAmb, Array.from(byKey.values()));
 
-  const ok = typeof saveDailyShipments === 'function' ? saveDailyShipments(next, meta) : false;
+  const ok = typeof saveDailyShipments === 'function' ? saveDailyShipments(next, metaToSave) : false;
   if (ok) {
     try {
       const shipKey = _ihracatShipmentKey(updated);
+      const savedRow = next.find((s) => _ihracatShipmentKey(s) === shipKey) || updated;
       if (window.__activeExcelShipment && _ihracatShipmentKey(window.__activeExcelShipment) === shipKey) {
-        window.__activeExcelShipment = { ...window.__activeExcelShipment, ...updated };
+        window.__activeExcelShipment = { ...savedRow };
       }
       purgeStrictExcelCaches();
       rebuildListsFromExcelRows(next);
+      _ihracatSyncActiveShipmentCache(next);
       window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
     } catch (e) {}
   }
@@ -1116,11 +1595,12 @@ function _ihracatPersistPendingShipment(ctx) {
     savedRow = newShipment;
   }
 
-  const ok = (typeof saveDailyShipments === 'function') ? saveDailyShipments(rows, meta) : false;
+  const cleaned = _ihracatPurgeEmptyBlockPlaceholders(rows);
+  const ok = (typeof saveDailyShipments === 'function') ? saveDailyShipments(cleaned, meta) : false;
   if (ok) {
     try {
       purgeStrictExcelCaches();
-      rebuildListsFromExcelRows(rows);
+      rebuildListsFromExcelRows(cleaned);
       window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
     } catch (e) {}
   }

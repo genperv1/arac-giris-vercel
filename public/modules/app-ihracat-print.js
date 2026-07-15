@@ -1083,7 +1083,10 @@ function _ihracatSyncVehiclePlatesFromTakipForm() {
 function _ihracatOnReportsChanged() {
   try { _ihracatInvalidatePrintReportsCache(); } catch (e) {}
   _ihracatFetchRemotePrintReports(true)
-    .then(() => { try { _ihracatRefreshOpenModalStatuses(); } catch (e) {} })
+    .then(() => {
+      try { _ihracatRefreshOpenModalStatuses(); } catch (e) {}
+      try { window.dispatchEvent(new CustomEvent('nakliye-excel-changed')); } catch (e) {}
+    })
     .catch(() => {});
 }
 window._ihracatOnReportsChanged = _ihracatOnReportsChanged;
@@ -1112,9 +1115,19 @@ async function showIhracatDetailsModal() {
 
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-  const shipments = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+  const shipmentsRaw = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
   const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+  const shipments = typeof _ihracatApplyBlockOverridesToRows === 'function'
+    ? _ihracatApplyBlockOverridesToRows(shipmentsRaw, meta)
+    : shipmentsRaw;
   const tarih = meta.dateKey ? meta.dateKey.replace(/(\d{4})-(\d{2})-(\d{2})/, '$3.$2.$1') : 'Bilinmiyor';
+  const plateShipments = typeof ihracatFilterPlateRows === 'function'
+    ? ihracatFilterPlateRows(shipments)
+    : shipments.filter((s) => !s._ihracatEmptyBlock);
+  const plateCount = plateShipments.length;
+  const blockCount = typeof ihracatCountBlocks === 'function'
+    ? ihracatCountBlocks(shipments)
+    : new Set(shipments.map((s) => s.blockKey).filter(Boolean)).size;
   if (!shipments.length) {
     _ihracatHideDetailsLoading();
     showToast('❌ İhracat verisi bulunamadı.');
@@ -1148,14 +1161,24 @@ async function showIhracatDetailsModal() {
   };
 
   // Aynı plakaya ait birden fazla sevkiyat varsa, yazdırma durumunu sadece yazdırılan miktar kadar atıyoruz.
-  shipments.forEach((shipment) => {
+  plateShipments.forEach((shipment) => {
     shipment._status = getShipmentStatus(shipment, assignmentCountByPlate);
   });
 
-  const { collisions: irsCollisions, set: irsCollisionSet } = getIrsaliyeCollisionInfo(shipments);
+  const { collisions: irsCollisions, set: irsCollisionSet } = getIrsaliyeCollisionInfo(plateShipments);
   const euModal = window.ExcelUtils || {};
   const fmtDupPlate = euModal.formatDupPlateRowDetail || ((d) => (d.entries || d.irsaliyeNos || []).join(' · '));
-  const { dupPlateRows, set: dupPlateSet, byKey: dupPlateByKey } = getDuplicatePlateInfo(shipments);
+  const fmtDupEntry = euModal.formatDupPlateEntryLabel || ((e) => String(e?.irsaliyeNo || e || ''));
+  const fmtDupPlateListHtml = (d) => {
+    const entries = Array.isArray(d?.entries) ? d.entries : [];
+    if (!entries.length) return escapeHtml(fmtDupPlate(d));
+    return entries.map((e, i) => (
+      `<div style="margin:4px 0 0 ${i === 0 ? '12px' : '12px'};font-size:11px;line-height:1.4;">`
+      + `<span style="color:#b45309;font-weight:700;">${i + 1}.</span> ${escapeHtml(fmtDupEntry(e))}`
+      + `</div>`
+    )).join('');
+  };
+  const { dupPlateRows, set: dupPlateSet, byKey: dupPlateByKey } = getDuplicatePlateInfo(plateShipments);
   const collisionByKey = new Map();
   irsCollisions.forEach((c) => {
     collisionByKey.set(irsaliyeCollisionKey(c.irsaliyeNo), c);
@@ -1177,7 +1200,7 @@ async function showIhracatDetailsModal() {
       ? `Aynı irsaliye birden fazla plakada: ${(coll.plates || []).join(' · ')}`
       : '';
     const plakaTitle = isDupPlate && dupDetail
-      ? `Aynı plaka birden fazla sevkiyatta: ${fmtDupPlate(dupDetail)}`
+      ? `Aynı plaka birden fazla sevkiyatta:\n${(dupDetail.entries || []).map((e, i) => `${i + 1}. ${fmtDupEntry(e)}`).join('\n')}`
       : '';
     const irsCellStyle = isIrsCollision
       ? `border:1px solid #eee;padding:6px;${IHR_IRS_COLLISION_CELL_STYLE}`
@@ -1226,13 +1249,20 @@ async function showIhracatDetailsModal() {
 
   const renderTable = (items, title, badgeColor, tableCtx) => {
     if (!items || !items.length) return '';
+    const realItems = typeof ihracatFilterPlateRows === 'function'
+      ? ihracatFilterPlateRows(items)
+      : items.filter((i) => !i._ihracatEmptyBlock);
+    const isEmptyBlock = realItems.length === 0;
     const { gk, templateJson } = tableCtx || {};
-    const toplamRowHtml = _ihracatToplamRowHtml(items);
+    const toplamRowHtml = isEmptyBlock ? '' : _ihracatToplamRowHtml(realItems);
+    const emptyHintHtml = isEmptyBlock && typeof _ihracatEmptyBlockHintRowHtml === 'function'
+      ? _ihracatEmptyBlockHintRowHtml(items[0] || {})
+      : '';
     return `
       <div style="margin-bottom:16px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
           <strong style="font-size:13px;">${escapeHtml(title)}</strong>
-          <span style="padding:4px 10px;border-radius:999px; background:${badgeColor}; color:#fff; font-size:12px;">${items.length}</span>
+          <span style="padding:4px 10px;border-radius:999px; background:${isEmptyBlock ? '#94a3b8' : badgeColor}; color:#fff; font-size:12px;">${realItems.length}${isEmptyBlock ? ' plaka' : ''}</span>
         </div>
         <table class="ihr-sevkiyat-table" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;">
           <thead>
@@ -1248,7 +1278,8 @@ async function showIhracatDetailsModal() {
             </tr>
           </thead>
           <tbody data-ihr-tbody="1" data-ihr-firma-group="${escapeHtml(gk || '')}" data-ihr-template="${templateJson || '{}'}">
-            ${items.map((item) => rowHtml(item, getStatus(item))).join('')}
+            ${realItems.map((item) => rowHtml(item, getStatus(item))).join('')}
+            ${emptyHintHtml}
             ${addRowHtml()}
             ${toplamRowHtml}
           </tbody>
@@ -1258,12 +1289,30 @@ async function showIhracatDetailsModal() {
   };
 
   const renderFirmaSection = (sectionTitle, items) => {
+    const realItems = typeof ihracatFilterPlateRows === 'function'
+      ? ihracatFilterPlateRows(items)
+      : items.filter((i) => !i._ihracatEmptyBlock);
+    const isEmptyBlock = realItems.length === 0;
     const counts = { printed: 0, pending: 0, missing: 0 };
-    items.forEach((item) => { counts[getStatus(item)] = (counts[getStatus(item)] || 0) + 1; });
+    realItems.forEach((item) => { counts[getStatus(item)] = (counts[getStatus(item)] || 0) + 1; });
     const sample = items[0] || {};
     const gk = _ihracatBlockGroupKey(sample);
     const sevkVal = _defaultSevkForShipment(sample);
     const ambVal = _defaultAmbalajTextForShipment(sample);
+    const autoSevk = typeof _ihracatBlockAutoSevk === 'function' ? _ihracatBlockAutoSevk(sample) : '';
+    const autoAmb = typeof _ihracatBlockAutoAmb === 'function' ? _ihracatBlockAutoAmb(sample) : '';
+    const ydRaw = typeof _extractFirmaKod === 'function'
+      ? _extractFirmaKod(sample.headerText || sample.ydKey || sample.firma || '')
+      : '';
+    const yd = ydRaw || (String(sample.ydKey || sample.firma || '').match(/\bYD\d+\b/i) || [])[0] || '';
+    const manualEdited = typeof _ihracatBlockSevkAmbDiffersFromExcel === 'function'
+      && _ihracatBlockSevkAmbDiffersFromExcel(sample, sevkVal, ambVal);
+    const manualBadge = manualEdited && typeof _ihracatManualEditBadgeHtml === 'function'
+      ? _ihracatManualEditBadgeHtml()
+      : '';
+    const planSummary = isEmptyBlock && typeof _ihracatExtractBlockPlannedSummary === 'function'
+      ? _ihracatExtractBlockPlannedSummary(sample)
+      : '';
     const sevkCands = getLimanCandidates(sample.headerText || '').slice(0, 4);
     const ambCands = getAmbalajCandidates(sample.headerText || '').slice(0, 4);
     const boxStyle = 'flex:1;min-width:200px;padding:10px;border:2px solid #c7d2fe;border-radius:10px;background:#fff;';
@@ -1271,13 +1320,19 @@ async function showIhracatDetailsModal() {
     const templateJson = String(JSON.stringify(sample))
       .replace(/&/g, '&amp;')
       .replace(/"/g, '&quot;');
-    const excelDescHtml = _ihracatRenderExcelBlockHeader(sample, items);
+    const excelDescHtml = _ihracatRenderExcelBlockHeader(sample, realItems.length ? realItems : items);
+    const emptyBlockBadge = isEmptyBlock
+      ? '<span style="font-size:11px;font-weight:700;color:#64748b;background:#e2e8f0;padding:3px 8px;border-radius:999px;flex-shrink:0;">Henüz plaka yok</span>'
+      : '';
+    const sectionBorder = isEmptyBlock ? 'border:1px dashed #cbd5e1;' : 'border:1px solid #e2e8f0;';
     return `
-      <div data-ihr-block-section="1" data-ihr-collapse-section="1" class="ihr-collapse-closed" style="margin-bottom:20px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc;overflow:hidden;">
+      <div data-ihr-block-section="1" data-ihr-block-gk="${escapeHtml(gk)}" data-ihr-yd="${escapeHtml(String(yd).toUpperCase())}" data-ihr-sevk-auto="${escapeHtml(autoSevk)}" data-ihr-amb-auto="${escapeHtml(autoAmb)}" data-ihr-collapse-section="1" class="ihr-collapse-closed" data-ihr-empty-block="${isEmptyBlock ? '1' : '0'}" style="margin-bottom:20px;${sectionBorder}border-radius:12px;background:#f8fafc;overflow:hidden;">
         <button type="button" data-ihr-collapse-trigger="1" style="display:flex;width:100%;align-items:center;gap:10px;padding:14px;border:none;background:transparent;cursor:pointer;text-align:left;flex-wrap:wrap;">
           <span class="ihr-collapse-chevron" style="font-size:14px;color:#64748b;flex-shrink:0;line-height:1;">▸</span>
-          <strong style="font-size:14px;color:#0f172a;flex:1;min-width:160px;">${escapeHtml(sectionTitle)}</strong>
-          <span style="font-size:12px;color:#475569;flex-shrink:0;">Toplam: ${items.length} • Yazdırıldı: ${counts.printed} • Bekleniyor: ${counts.pending} • Kayıt yok: ${counts.missing}</span>
+          <strong style="font-size:14px;color:#0f172a;flex:1;min-width:160px;">${escapeHtml(sectionTitle)}${planSummary ? ` <span style="font-weight:800;color:#334155;">(${escapeHtml(planSummary)})</span>` : ''}</strong>
+          ${emptyBlockBadge}
+          ${manualBadge}
+          <span style="font-size:12px;color:#475569;flex-shrink:0;">Plaka: ${realItems.length}${isEmptyBlock ? '' : ` • Yazdırıldı: ${counts.printed} • Bekleniyor: ${counts.pending} • Kayıt yok: ${counts.missing}`}</span>
         </button>
         <div class="ihr-collapse-body" style="display:none;padding:0 14px 14px;">
         ${excelDescHtml}
@@ -1325,7 +1380,7 @@ async function showIhracatDetailsModal() {
     return `
       <div data-ihr-file-section="1" style="margin-bottom:26px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-          <h4 style="margin:0; font-size:15px;">📄 ${escapeHtml(fileName)} - ${items.length} kayıt</h4>
+          <h4 style="margin:0; font-size:15px;">📄 ${escapeHtml(fileName)} — ${typeof ihracatCountPlateRows === 'function' ? ihracatCountPlateRows(items) : items.filter((i) => !i._ihracatEmptyBlock).length} plaka / ${Object.keys(blockGroups).length} blok</h4>
           <span style="font-size:12px; color:#475569;">Sevkiyat bloğu bazında (Excel başlığı + toplam)</span>
         </div>
         ${blockOrder.map((bk) => renderFirmaSection(blockGroups[bk].title, blockGroups[bk].items)).join('')}
@@ -1374,14 +1429,14 @@ async function showIhracatDetailsModal() {
         <button type="button" data-ihr-collapse-trigger="1" style="display:flex;width:100%;align-items:flex-start;gap:10px;padding:10px 12px;border:none;background:transparent;cursor:pointer;text-align:left;">
           <span class="ihr-collapse-chevron" style="font-size:14px;color:#b45309;flex-shrink:0;margin-top:2px;">▸</span>
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:800;color:#b45309;margin-bottom:4px;">⚠️ AYNI PLAKA BİRDEN FAZLA SEVKİYAT SATIRINDA — Plaka sütunundaki vurgulu hücrelere dikkat edin</div>
-            <div style="font-size:11px;color:#92400e;">Bu uyarı <b>kayıt eksikliği değil</b>. ${dupPlateRows.length} plaka birden fazla sevkiyat satırında — listeyi görmek için tıklayın</div>
+            <div style="font-weight:800;color:#b45309;margin-bottom:4px;">⚠️ AYNI PLAKA BİRDEN FAZLA SEVKİYATTA — Hangi sevkiyat olduğu aşağıda listelenir</div>
+            <div style="font-size:11px;color:#92400e;">Bu uyarı <b>kayıt eksikliği değil</b>. ${dupPlateRows.length} plaka farklı tarih/sevkiyat listelerinde tekrarlıyor — detay için tıklayın</div>
           </div>
         </button>
         <div class="ihr-collapse-body" style="display:none;padding:0 12px 10px 36px;">
-        <p style="margin:0 0 8px;">Excel’de aynı plaka <b>birden fazla farklı sevkiyat satırında</b> geçiyor. Hangi satırın doğru olduğunu Excel’den kontrol edin.</p>
-        <ul style="margin:0;padding-left:18px;font-size:11px;">
-          ${dupPlateRows.map((d) => `<li style="margin-bottom:6px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid #fbbf24;">${escapeHtml(d.plaka)}</span> → ${escapeHtml(fmtDupPlate(d))}</li>`).join('')}
+        <p style="margin:0 0 8px;">Excel’de aynı plaka <b>birden fazla farklı sevkiyat bloğunda</b> geçiyor. Her satırda <b>tarih</b> (hangi günlük listede), <b>sevkiyat</b> (firma/malzeme/sıra) ve <b>irsaliye</b> bilgisi gösterilir.</p>
+        <ul style="margin:0;padding-left:18px;font-size:11px;list-style:none;">
+          ${dupPlateRows.map((d) => `<li style="margin-bottom:10px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid #fbbf24;">${escapeHtml(d.plaka)}</span>${fmtDupPlateListHtml(d)}</li>`).join('')}
         </ul>
         </div>
       </div>`
@@ -1389,6 +1444,19 @@ async function showIhracatDetailsModal() {
 
   const btnSaveStyle = 'background:#16a34a;color:#fff;border:none;padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:700;';
   const btnCloseStyle = 'background:#64748b;color:#fff;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;';
+
+  const portList = typeof _ihracatCollectDistinctPorts === 'function'
+    ? _ihracatCollectDistinctPorts(shipments, meta)
+    : [];
+  const portFilterHtml = portList.length > 1
+    ? `<label for="ihracatPortFilter" style="font-size:12px;font-weight:600;color:#475569;white-space:nowrap;">⚓ Liman</label>
+          <select id="ihracatPortFilter" style="min-width:140px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;">
+            <option value="">Tüm limanlar</option>
+            ${portList.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
+          </select>
+          <button type="button" id="ihracatPortFilterClear" style="padding:8px 14px;font-size:12px;background:#e2e8f0;color:#475569;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Tümü</button>
+          <span id="ihracatPortFilterHint" style="font-size:12px;font-weight:600;color:#64748b;min-width:100px;"></span>`
+    : '';
 
   const modalHtml = `
     <div id="ihracatDetailsModal" style="
@@ -1400,7 +1468,7 @@ async function showIhracatDetailsModal() {
         max-width: 95%; max-height: 85%; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
           <div style="flex:1;min-width:220px;">
-            <h3 style="margin: 0 0 6px 0; color: #333;">📄 İhracat Excel Detayları (${shipments.length} kayıt) - Tarih: ${tarih}</h3>
+            <h3 style="margin: 0 0 6px 0; color: #333;">📄 İhracat Excel Detayları (${plateCount} plaka / ${blockCount} blok) — Tarih: ${tarih}</h3>
             <p style="margin:0;font-size:12px;color:#64748b;">Sevk/ambalaj bloktan; satırda miktar, ambalaj, irsaliye. <b>←</b> ok: boş çuval → çuval (boş çuval silinir, kayıt ve takip formu güncellenir). Şoför yoksa <b>Kayıt Et</b> ile ➕ Yeni Araç Kaydı açılır.</p>
           </div>
           <button type="button" class="ihr-save-btn" style="${btnSaveStyle}flex-shrink:0;">Kaydet</button>
@@ -1411,9 +1479,10 @@ async function showIhracatDetailsModal() {
           <button type="button" id="ihracatPlateSearchBtn" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Ara</button>
           <button type="button" id="ihracatPlateSearchClearBtn" style="padding:8px 14px;font-size:12px;background:#e2e8f0;color:#475569;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Temizle</button>
           <span id="ihracatSearchResultHint" style="font-size:12px;font-weight:600;color:#64748b;min-width:120px;"></span>
-          <button type="button" id="ihracatPrintBtn" title="Ekrandaki liste (güncel miktar/ambalaj) A4 yatay yazdır" style="padding:8px 14px;font-size:12px;background:#4f46e5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🖨️ Yazdır</button>
           <span style="font-size:11px;color:#64748b;">Boşluklu/boşluksuz yazım fark etmez</span>
+          ${portFilterHtml ? `<span style="width:1px;height:24px;background:#cbd5e1;margin:0 4px;"></span>${portFilterHtml}` : ''}
         </div>
+        <div id="ihracatYdPortWarnings" style="display:none;"></div>
         ${dupPlateBannerHtml}
         ${collisionBannerHtml}
         ${modalSections}
@@ -1440,13 +1509,16 @@ async function showIhracatDetailsModal() {
   const closeModal = () => modal.remove();
 
   const doSave = () => {
-    const ok = _saveIhracatDetailsFromModal(shipments, meta);
+    const freshMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : meta;
+    const freshRows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : shipments;
+    const ok = _saveIhracatDetailsFromModal(freshRows, freshMeta);
     if (ok) {
       showToast('✅ İhracat verileri kaydedildi. Takip formunda plaka seçince güncel değerler gelir.');
       closeModal();
     } else {
       showToast('❌ Kaydetme başarısız.');
     }
+    return ok;
   };
 
   modal?.querySelectorAll('.ihr-save-btn').forEach((btn) => btn.addEventListener('click', doSave));
@@ -1465,26 +1537,23 @@ async function showIhracatDetailsModal() {
 
   _ihracatBindCollapsibleSections(modal);
 
-  document.getElementById('ihracatPrintBtn')?.addEventListener('click', () => {
-    _printIhracatDetailsFromModal(modal, {
-      shipments,
-      meta,
-      ihracatStatusApi,
-    });
-  });
+  if (typeof _ihracatBindModalEnhancements === 'function') {
+    _ihracatBindModalEnhancements(modal, meta, shipments, { onClose: closeModal, onSave: doSave });
+  } else {
+    document.getElementById('closeIhracatModal')?.addEventListener('click', closeModal);
+  }
 
   if (window.__ihracatReopenTarget?.plate) {
     setTimeout(() => _ihracatScrollToReopenTarget(), 120);
   }
-
-  document.getElementById('closeIhracatModal')?.addEventListener('click', closeModal);
 
   document.addEventListener('keydown', function escHandler(e) {
     if (e.key !== 'Escape') return;
     if (document.getElementById('excelReviewOverlay')) return;
     const takipModal = document.getElementById('takipFormuModal');
     if (takipModal && !takipModal.classList.contains('hidden')) return;
-    closeModal();
+    if (typeof modal.__ihracatTryClose === 'function') modal.__ihracatTryClose();
+    else closeModal();
     document.removeEventListener('keydown', escHandler);
   });
 }

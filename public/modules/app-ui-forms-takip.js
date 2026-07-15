@@ -102,10 +102,35 @@ function bindKantarSignaturePicker() {
 }
 
 function showTakipFormu(vehicle) {
+            return showTakipFormuImpl(vehicle);
+        }
+
+        async function showTakipFormuImpl(vehicle) {
             const formContainer = document.getElementById('takipFormu');
             const _rawVehicle = vehicle || {};
-            const _allowRememberedDefaults = !!_rawVehicle._reprintData;
-            // Normal kart tıklamasında son yazdırılan takip alanlarını taşıma.
+            if (_rawVehicle.id && _rawVehicle.id !== 'manual') {
+                const ok = await maybeConfirmIncompleteContact(_rawVehicle, 'Takip Formu');
+                if (!ok) return;
+            }
+
+            const isManual = !_rawVehicle.id || _rawVehicle.id === 'manual';
+            const isReprint = !!_rawVehicle._reprintData;
+            const isIhracatFlow = !!_rawVehicle._ihracatTakipApplyOpts;
+            const prefillExplicit = typeof _rawVehicle._prefillTakipForm === 'boolean';
+            const plateInExcel = typeof hasDailyShipmentForPlate === 'function'
+              && hasDailyShipmentForPlate(_rawVehicle.cekiciPlaka);
+
+            let shouldPrefill = false;
+            if (prefillExplicit) {
+                shouldPrefill = _rawVehicle._prefillTakipForm;
+            } else if (isReprint || isIhracatFlow) {
+                shouldPrefill = true;
+            } else if (!isManual && plateInExcel) {
+                shouldPrefill = true;
+            }
+
+            const _allowRememberedDefaults = isReprint && shouldPrefill;
+            // Şoför bilgileri karttan her zaman gelir; Excel/sevkiyat yalnızca plaka Excel'de ise doldurulur.
             vehicle = _allowRememberedDefaults
               ? _rawVehicle
               : {
@@ -1022,6 +1047,12 @@ const resetMatchFields = () => {
 // Firmaya göre eşleşme uygula (PROMPT YOK)
 const handleFirma = (firma) => {
   if (window.__piyasaApplyingOrder) return;
+  try {
+    if (window.piyasa && typeof window.piyasa.isOrderLockedForFirma === 'function'
+      && window.piyasa.isOrderLockedForFirma(firma)) {
+      return;
+    }
+  } catch (_) {}
   const f = (firma || '').trim();
   currentFirmaMatches = (f && eslestirmeStorage.getByFirma) ? (eslestirmeStorage.getByFirma(f) || []) : [];
 
@@ -1229,13 +1260,17 @@ try {
               }
             } catch (e) {}
             try {
-              if (!isReprintSession) {
+              if (shouldPrefill && !isReprintSession) {
                 applyShipmentToTakipForm(vehicle, takipApplyOpts);
               }
             } catch (e) {}
 
             // ✅ Araç varsayılan bilgilerini (ve reprint bilgilerini) doldur
-            try { applyVehicleDefaultsToTakipForm(vehicle, { force: isReprintSession }); } catch(e) {}
+            try {
+              if (shouldPrefill) {
+                applyVehicleDefaultsToTakipForm(vehicle, { force: isReprintSession });
+              }
+            } catch(e) {}
 
 }
 
@@ -1270,6 +1305,11 @@ try {
 
         function resetTakipFormUI(){
           _clearTakipFormErrors();
+          try {
+            if (window.piyasa && typeof window.piyasa.clearLockedPick === 'function') {
+              window.piyasa.clearLockedPick();
+            }
+          } catch (_) {}
           // ✅ KANTAR ismi/ imzası kullanıcı değiştirene kadar kalsın
           // (form temizlenirken silme; yazdırırken tekrar seçim istemesin)
           let keepKantar = '';
@@ -1554,6 +1594,7 @@ try {
                                   });
                                   if (phRes && phRes.ok) {
                                     try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
+                                    try { if (typeof window._ihracatOnReportsChanged === 'function') window._ihracatOnReportsChanged(); } catch (e) {}
                                   }
                                 } catch(e) { console.warn('Print history save failed:', e); }
                               } catch(e) { }
@@ -1580,6 +1621,7 @@ try {
                                 });
                                 if (phRes && phRes.ok) {
                                   try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
+                                  try { if (typeof window._ihracatOnReportsChanged === 'function') window._ihracatOnReportsChanged(); } catch (e) {}
                                 }
                               } catch(e) { console.warn('Print history save failed:', e); }
                             } catch(e) { }
@@ -1839,7 +1881,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         }
 
         function vehicleListSkeletonHTML(count) {
-            const n = count || state.listLimit || 6;
+            const n = count || state.listLimit || 18;
             const card = '<div class="vehicle-card vehicle-card--skeleton animate-pulse">' +
                 '<div class="vehicle-card__skel vehicle-card__skel--head"></div>' +
                 '<div class="vehicle-card__skel vehicle-card__skel--line"></div>' +
@@ -1851,17 +1893,154 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
 
         function vehicleListEmptyHTML() {
             if (state.vehiclesLoading) return vehicleListSkeletonHTML();
-            const msg = state.vehicles.length === 0
-                ? 'Henüz kayıt yok. Yeni kayıt ekleyin!'
-                : 'Aramanıza uygun kayıt bulunamadı.';
+            const hasFilters = state.incompleteFilter || state.issuesFilter || state.recentFilter || state.ozmalFilter;
+            const msg = state.incompleteFilter && !state.searchTerm
+                ? 'Eksik TC veya telefonlu kayıt bulunamadı.'
+                : state.issuesFilter && !state.searchTerm
+                ? 'Sorunlu araç kaydı bulunamadı.'
+                : state.recentFilter && !state.searchTerm
+                ? 'Bugün kayıt yapılan araç bulunamadı.'
+                : state.ozmalFilter && !state.searchTerm
+                ? 'Özmal araç kaydı bulunamadı.'
+                : (state.vehicles.length === 0
+                ? 'Henüz kayıt yok.'
+                : (hasFilters ? 'Seçili filtrelere uygun kayıt bulunamadı.' : 'Aramanıza uygun kayıt bulunamadı.'));
+            const showCta = state.vehicles.length === 0 && !state.searchTerm && !hasFilters;
             return `
-                <div class="col-span-full text-center py-12 bg-white rounded-lg shadow-lg">
-                    <svg class="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="col-span-full vehicle-list-empty">
+                    <svg class="vehicle-list-empty__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/>
                     </svg>
-                    <p class="text-gray-500 text-lg">${msg}</p>
+                    <p class="vehicle-list-empty__msg">${msg}</p>
+                    ${showCta ? `<button type="button" id="emptyStateNewBtn" class="empty-state-cta"><i class="fas fa-plus" aria-hidden="true"></i> Yeni Kayıt Ekle</button>` : ''}
                 </div>`;
         }
+
+        function _appStatusMeta() {
+            let userId = '-';
+            let clientSite = '';
+            let clientIp = '';
+            try { userId = localStorage.getItem('currentUserId') || '-'; } catch (e) { /* ignore */ }
+            try { clientSite = localStorage.getItem('currentClientSite') || window.__clientSite || ''; } catch (e) { /* ignore */ }
+            try { clientIp = localStorage.getItem('currentClientIp') || window.__clientIp || ''; } catch (e) { /* ignore */ }
+            const userLabel = clientSite ? `${userId} · ${clientSite}` : userId;
+            const userTitle = clientSite && clientIp
+                ? `Oturum: ${userId} — ${clientSite} (${clientIp})`
+                : (clientIp ? `Oturum: ${userId} (${clientIp})` : `Oturum kullanıcısı: ${userId}`);
+            let todayStr = '';
+            try {
+                todayStr = new Date().toLocaleDateString('tr-TR', {
+                    timeZone: 'Europe/Istanbul',
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'short',
+                });
+            } catch (e) {
+                todayStr = new Date().toLocaleDateString('tr-TR');
+            }
+            return { userId, userLabel, userTitle, clientSite, clientIp, todayStr, online: navigator.onLine };
+        }
+
+        function _searchMetaText(filteredCount, totalCount) {
+            const term = (state.searchTerm || '').trim();
+            const hasFilters = state.incompleteFilter || state.issuesFilter || state.recentFilter || state.ozmalFilter;
+            if (term) return `${filteredCount} sonuç`;
+            if (hasFilters) return `${filteredCount} / ${totalCount}`;
+            return '';
+        }
+
+        function updateSearchMeta() {
+            const el = document.getElementById('searchResultCount');
+            if (!el) return;
+            const filtered = filterVehicles();
+            const text = _searchMetaText(filtered.length, (state.vehicles || []).length);
+            el.textContent = text;
+            el.classList.toggle('hidden', !text);
+        }
+
+        function syncConnectionChip() {
+            const el = document.getElementById('chipConnection');
+            if (!el) return;
+            const on = navigator.onLine;
+            el.className = 'status-chip ' + (on ? 'chip-ok' : 'chip-alert');
+            const b = el.querySelector('b');
+            if (b) b.textContent = on ? 'Çevrimiçi' : 'Çevrimdışı';
+        }
+
+        function buildVehicleFormPanelHTML() {
+            const title = state.editingId ? 'Kayıt Düzenle' : 'Yeni Araç Kaydı';
+            return `
+                <div id="vehicleFormPanel" class="vehicle-form-panel${state.showForm ? ' vehicle-form-panel--open' : ''}" aria-hidden="${state.showForm ? 'false' : 'true'}">
+                    <div id="vehicleFormBackdrop" class="vehicle-form-panel__backdrop" tabindex="-1"></div>
+                    <aside class="vehicle-form-panel__sheet" role="dialog" aria-modal="true" aria-labelledby="vehicleFormTitle">
+                        <header class="vehicle-form-panel__head">
+                            <div>
+                                <h2 id="vehicleFormTitle" class="vehicle-form-panel__title">${title}</h2>
+                                <p class="vehicle-form-panel__sub">Plaka ve şoför bilgilerini girin</p>
+                            </div>
+                            <button type="button" id="vehicleFormCloseBtn" class="vehicle-form-panel__close" aria-label="Kapat"><i class="fas fa-times"></i></button>
+                        </header>
+                        <div class="vehicle-form-panel__body">
+                            <div class="vehicle-form-grid">
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="cekiciPlaka"><i class="fas fa-truck" aria-hidden="true"></i> Çekici Plaka *</label>
+                                    <input type="text" id="cekiciPlaka" value="${state.formData.cekiciPlaka}"
+                                        class="vehicle-form-input uppercase" placeholder="34 ABC 123"
+                                        style="text-transform: uppercase;" oninput="formatPlakaInput(this);">
+                                    <div id="plateWarning" class="vehicle-form-hint hidden"></div>
+                                </div>
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="dorsePlaka"><i class="fas fa-trailer" aria-hidden="true"></i> Dorse Plaka</label>
+                                    <input type="text" id="dorsePlaka" value="${state.formData.dorsePlaka}"
+                                        class="vehicle-form-input uppercase" placeholder="34 XYZ 456"
+                                        style="text-transform: uppercase;" oninput="formatPlakaInput(this);">
+                                </div>
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="soforAdi"><i class="fas fa-user" aria-hidden="true"></i> Şoför Adı</label>
+                                    <input type="text" id="soforAdi" value="${state.formData.soforAdi}" maxlength="100"
+                                        class="vehicle-form-input uppercase" placeholder="AHMET" style="text-transform: uppercase;">
+                                </div>
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="soforSoyadi"><i class="fas fa-user" aria-hidden="true"></i> Şoför Soyadı</label>
+                                    <input type="text" id="soforSoyadi" value="${state.formData.soforSoyadi}" maxlength="100"
+                                        class="vehicle-form-input uppercase" placeholder="YILMAZ" style="text-transform: uppercase;">
+                                </div>
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="sofor2Adi"><i class="fas fa-user-friends" aria-hidden="true"></i> Şoför 2 Adı</label>
+                                    <input type="text" id="sofor2Adi" value="${state.formData.sofor2Adi}" maxlength="100"
+                                        class="vehicle-form-input uppercase" placeholder="İkinci şoför" style="text-transform: uppercase;">
+                                </div>
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="sofor2Soyadi"><i class="fas fa-user-friends" aria-hidden="true"></i> Şoför 2 Soyadı</label>
+                                    <input type="text" id="sofor2Soyadi" value="${state.formData.sofor2Soyadi}" maxlength="100"
+                                        class="vehicle-form-input uppercase" placeholder="İkinci şoför soyadı" style="text-transform: uppercase;">
+                                </div>
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="iletisim"><i class="fas fa-phone" aria-hidden="true"></i> İletişim</label>
+                                    <input type="text" id="iletisim" value="${state.formData.iletisim}"
+                                        class="vehicle-form-input" placeholder="0555 123 45 67">
+                                    <div id="iletisimWarning" class="vehicle-form-hint hidden"></div>
+                                </div>
+                                <div class="vehicle-form-field">
+                                    <label class="vehicle-form-label" for="tcKimlik"><i class="fas fa-id-card" aria-hidden="true"></i> TC Kimlik No</label>
+                                    <input type="text" id="tcKimlik" value="${state.formData.tcKimlik}" maxlength="11"
+                                        inputmode="numeric" pattern="[0-9]*" class="vehicle-form-input" placeholder="12345678901">
+                                    <div id="tcKimlikWarning" class="vehicle-form-hint hidden"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <footer class="vehicle-form-panel__foot">
+                            <button type="button" id="cancelButton" class="vehicle-form-btn vehicle-form-btn--ghost">İptal</button>
+                            <button type="button" id="saveButton" class="vehicle-form-btn vehicle-form-btn--primary">
+                                <i class="fas fa-save" aria-hidden="true"></i> ${state.editingId ? 'Güncelle' : 'Kaydet'}
+                            </button>
+                        </footer>
+                    </aside>
+                </div>`;
+        }
+
+        window.updateSearchMeta = updateSearchMeta;
+        window.syncConnectionChip = syncConnectionChip;
 
         // UI render
         function render() {
@@ -1874,6 +2053,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const visibleVehicles = shouldLimit ? filteredVehicles.slice(0, state.listLimit) : filteredVehicles;
 
             const app = document.getElementById('mainApp');
+            try { document.getElementById('piyasaSuggestionBar')?.remove(); } catch (e) {}
             // ⚠️ Excel tarihi bugünün değilse uyarı göster (İHRACAT + PİYASA, ASLA otomatik silme)
             const _excelMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
             const _excelCnt  = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
@@ -1885,7 +2065,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             // ✅ Excel yükleme bilgileri (raporlar sayfasındaki formatla aynı)
             const _ihrInfoLine = (()=>{
               try {
-                if (_excelMeta && _excelMeta.fileName) return `${_excelMeta.fileName} • ${_excelCnt} kayıt`;
+                if (_excelMeta && _excelMeta.fileName) return _excelMeta.fileName;
                 if (_excelCnt) return `${_excelCnt} kayıt`;
               } catch(e) {}
               return '-';
@@ -1900,10 +2080,14 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const _ihrChipText = _buildIhracatChipText(_excelStatusInfo);
             const _piyChipText = _buildPiyasaChipText(_excelStatusInfo);
             const _totalVehicleCount = (state.vehicles || []).length;
+            const _statusMeta = _appStatusMeta();
+            const _searchMeta = _searchMetaText(filteredVehicles.length, _totalVehicleCount);
+            const _connChipClass = _statusMeta.online ? 'chip-ok' : 'chip-alert';
+            const _connLabel = _statusMeta.online ? 'Çevrimiçi' : 'Çevrimdışı';
             app.innerHTML = `
                 <div class="max-w-7xl mx-auto">
-                    <!-- Header -->
-                    <header class="app-header mb-6" role="banner">
+                    <div class="app-sticky-top">
+                    <header class="app-header mb-3" role="banner">
   <div class="app-header-toolbar">
     <div class="app-header-brand">
       <img class="app-header-logo" src="/logo.png" alt="Logo" />
@@ -1914,9 +2098,17 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           ${state.showForm ? 'İptal' : 'Yeni Kayıt'}
         </button>
         <button id="raporlarLinkGunluk" class="app-nav-btn" title="Günlük Raporlar">Günlük Raporlar</button>
-        <button id="vardiyaNotlariButton" class="app-nav-btn app-nav-btn--danger" title="Vardiya notları — yazdır uyarıları">Vardiya Notları</button>
-        <button id="issuesDashboardButton" class="app-nav-btn" title="Şoför sorun kayıtları">Sorunlar</button>
+        <button id="nakliyeBekleyenButton" class="app-nav-btn app-nav-btn--warn" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
         <a href="plaka.html" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
+        <details class="app-tools-menu app-tools-menu--nested relative">
+          <summary class="app-nav-btn list-none select-none">
+            Vardiya &amp; Sorunlar <span class="app-nav-chevron" aria-hidden="true">▾</span>
+          </summary>
+          <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
+            <button id="vardiyaNotlariButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Vardiya notları — yazdır uyarıları">📋 Vardiya Notları</button>
+            <button id="issuesDashboardButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Şoför sorun kayıtları">⚠️ Sorunlar</button>
+          </div>
+        </details>
         <details class="app-tools-menu app-tools-menu--nested relative">
           <summary class="app-nav-btn list-none select-none">
             Araçlar <span class="app-nav-chevron" aria-hidden="true">▾</span>
@@ -1930,12 +2122,17 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             <button type="button" id="piyasaExcelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel verisini temizle">🗑️ PİYASA Excel Sil</button>
             <div class="my-1 border-t"></div>
             <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
+            <div class="my-1 border-t"></div>
+            <button type="button" id="exportVehiclesExcelBtn" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Tüm araç kayıtlarını Excel olarak indir">📊 Araç Listesi Excel</button>
           </div>
         </details>
         <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>
         <button id="logoutButton" class="app-nav-btn app-nav-btn--danger app-nav-btn--always">Çıkış</button>
       </nav>
       <div class="app-header-status" id="quickStatusRow">
+        <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
+        <span class="status-chip" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b>${_statusMeta.userLabel}</b></span>
+        <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
         <span class="status-chip">Tanımlı şoför: <b>${_totalVehicleCount}</b></span>
         <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
         <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">🧾 PİYASA: <b id="chipPiyasaText">${_piyChipText}</b></button>
@@ -1943,89 +2140,40 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
     </div>
   </div>
 </header>
+
                     <div id="excelDateWarnContainer">${excelWarnHTML}</div>
 
-                    <!-- Form -->
-                    ${state.showForm ? `
-                    <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
-                        <h2 class="text-xl font-bold text-gray-800 mb-4">
-                            ${state.editingId ? '📝 Kayıt Düzenle' : '➕ Yeni Araç Kaydı'}
-                        </h2>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">🚛 Çekici Plaka *</label>
-                                <input type="text" id="cekiciPlaka" value="${state.formData.cekiciPlaka}" 
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 uppercase" 
-                                    placeholder="34 ABC 123"
-                                    style="text-transform: uppercase;"
-                                    oninput="formatPlakaInput(this);">
-                                <div id="plateWarning" class="text-xs mt-1 hidden"></div>
+                    <section class="app-search-bar" aria-label="Araç arama">
+                        <div class="app-search-bar__row">
+                            <div class="app-search-wrap">
+                                <i class="fas fa-search app-search-wrap__icon" aria-hidden="true"></i>
+                                <input type="search" id="searchInput"
+                                    class="app-search-input"
+                                    placeholder="Plaka ara (örn. 34 ABC 123) veya şoför adı…"
+                                    value="${state.searchTerm || ''}"
+                                    autocomplete="off"
+                                    enterkeyhint="search">
+                                <kbd class="app-search-kbd" title="Arama odakla (/)">/</kbd>
                             </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">🚚 Dorse Plaka</label>
-                                <input type="text" id="dorsePlaka" value="${state.formData.dorsePlaka}" 
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 uppercase" 
-                                    placeholder="34 XYZ 456"
-                                    style="text-transform: uppercase;"
-                                    oninput="formatPlakaInput(this);">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">👤 Şoför Adı</label>
-                                <input type="text" id="soforAdi" value="${state.formData.soforAdi}" 
-                                    maxlength="100"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 uppercase" 
-                                    placeholder="Ahmet"
-                                    style="text-transform: uppercase;">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">👤 Şoför Soyadı</label>
-                                <input type="text" id="soforSoyadi" value="${state.formData.soforSoyadi}" 
-                                    maxlength="100"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 uppercase" 
-                                    placeholder="Yılmaz"
-                                    style="text-transform: uppercase;">
-                            </div>
-<div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">📞 İletişim</label>
-                                <input type="text" id="iletisim" value="${state.formData.iletisim}" 
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 uppercase" 
-                                    placeholder="0555 123 45 67"
-                                    style="text-transform: uppercase;">
-                                <div id="iletisimWarning" class="text-xs mt-1 hidden"></div>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">🆔 TC Kimlik No</label>
-                                <input type="text" id="tcKimlik" value="${state.formData.tcKimlik}" 
-                                    maxlength="11"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" 
-                                    placeholder="12345678901">
-
-                            </div>
-<div class="md:col-span-2 flex gap-2 justify-end">
-                                <button id="cancelButton" class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-                                    ❌ İptal
-                                </button>
-                                <button id="saveButton" class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition">
-                                    💾 ${state.editingId ? 'Güncelle' : 'Kaydet'}
-                                </button>
-                            </div>
+                            <span id="searchResultCount" class="app-search-meta${_searchMeta ? '' : ' hidden'}">${_searchMeta}</span>
                         </div>
-                    </div>
-                    ` : ''}
-
-                    <!-- Search -->
-                    <div class="bg-white rounded-lg shadow-lg p-4 mb-6 border-l-4 border-indigo-600">
-                        <div class="relative">
-                            <input type="text" id="searchInput" 
-                                class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" 
-                                placeholder="Plaka, şoför adı, soyadı veya kantar personeli ile ara...">
-                            <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                            </svg>
+                        <div class="app-filter-chips" role="group" aria-label="Liste filtreleri">
+                            <button type="button" id="ozmalFilterBtn" class="status-chip app-filter-chip ${state.ozmalFilter ? 'chip-ozmal is-active' : ''}" title="Şirket özmal araçları">
+                                <i class="fas fa-truck" aria-hidden="true"></i> Özmal araçlar
+                            </button>
+                            <button type="button" id="incompleteFilterBtn" class="status-chip app-filter-chip ${state.incompleteFilter ? 'chip-alert is-active' : ''}" title="Eksik TC veya telefonlu kayıtlar">
+                                <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Eksik kayıtlar
+                            </button>
+                            <button type="button" id="issuesFilterBtn" class="status-chip app-filter-chip ${state.issuesFilter ? 'chip-alert is-active' : ''}" title="Açık sorun kaydı olan araçlar">
+                                <i class="fas fa-flag" aria-hidden="true"></i> Sorunlu
+                            </button>
+                            <button type="button" id="recentFilterBtn" class="status-chip app-filter-chip ${state.recentFilter ? 'chip-ok is-active' : ''}" title="Bugün kayıt yapılan araçlar">
+                                <i class="fas fa-clock" aria-hidden="true"></i> Bugün
+                            </button>
                         </div>
+                    </section>
                     </div>
 
-                    <!-- Vehicle List -->
                     <div id="vehicleList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 vehicle-list-grid">
                         ${state.vehiclesLoading ? vehicleListSkeletonHTML() : (
                             filteredVehicles.length === 0
@@ -2034,7 +2182,6 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                         )}
                     </div>
 
-                    <!-- Devamını Göster -->
                     ${(!state.searchTerm && filteredVehicles.length > state.listLimit) ? `
                       <div class="mt-4 flex justify-center">
                         <button id="showMoreButton" class="show-more-btn">
@@ -2042,24 +2189,32 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                         </button>
                       </div>
                     ` : ''}
-</div>
 
-                    <!-- Stats -->
-                    
-                    <div id="stats" class="mt-6 bg-white rounded-lg shadow-lg p-4">
+                    <div id="stats" class="mt-6 app-stats-bar">
                         ${state.vehicles.length > 0 ? `
-                        <p class="text-center text-gray-600">
+                        <p class="app-stats-bar__text">
                             Toplam <span class="font-bold text-indigo-600">${state.vehicles.length}</span> araç kaydı
-                            ${state.searchTerm && filteredVehicles.length !== state.vehicles.length ? 
+                            ${state.searchTerm && filteredVehicles.length !== state.vehicles.length ?
                                 `| Gösterilen: <span class="font-bold text-indigo-600">${filteredVehicles.length}</span>` : ''}
+                            ${state.incompleteFilter ?
+                                `| <span class="font-bold text-amber-600">Eksik kayıt filtresi</span>` : ''}
+                            ${state.issuesFilter ?
+                                `| <span class="font-bold text-red-600">Sorunlu filtresi</span>` : ''}
+                            ${state.recentFilter ?
+                                `| <span class="font-bold text-emerald-600">Bugün filtresi</span>` : ''}
+                            ${state.ozmalFilter ?
+                                `| <span class="font-bold text-sky-700">Özmal araç filtresi</span>` : ''}
                         </p>
                         ` : ''}
                     </div>
+
+                    ${buildVehicleFormPanelHTML()}
                 </div>
             `;
 
             // Event listener'ları ekle
             attachEventListeners();
+            try { syncConnectionChip(); } catch (_) {}
             try {
               if (typeof window.__piyasaRebind === 'function') window.__piyasaRebind();
               if (typeof window.initPiyasaModule === 'function') window.initPiyasaModule();

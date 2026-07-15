@@ -26,6 +26,8 @@
   window.piyasa.reconcileOrderPrintCountsFromReports = reconcileOrderPrintCountsFromReports;
   window.piyasa.getActiveOrderIdx = getActiveOrderIdx;
   window.piyasa.getOrderByIdx = getOrderByIdx;
+  window.piyasa.clearLockedPick = clearLockedPiyasaPick;
+  window.piyasa.isOrderLockedForFirma = isPiyasaOrderLockedForFirma;
   window.piyasa.showSkippedRows = showPiyasaSkippedRowsModal;
   window.piyasa.syncFromServer = syncPiyasaFromServer;
   window.piyasa.loadCustomers = loadPiyasaCustomers;

@@ -3,12 +3,22 @@
   'use strict';
 
   const LEGACY_KANTAR = {
-    'BURAK KARATAŞ': 'signatures/burak_karatas.png',
-    'BEKİR DOĞRU': 'signatures/bekir_dogru.png',
-    'BATUHAN KOCABAY': 'signatures/batuhan_kocabay.png',
-    'BATUHAN CINAR': 'signatures/batuhan_cinar.png',
-    'BURAK TALAY': 'signatures/burak_talay.png'
+    'BURAK KARATAŞ': '/signatures/burak_karatas.png',
+    'BEKİR DOĞRU': '/signatures/bekir_dogru.png',
+    'BATUHAN KOCABAY': '/signatures/batuhan_kocabay.png',
+    'BATUHAN CINAR': '/signatures/batuhan_cinar.png',
+    'BURAK TALAY': '/signatures/burak_talay.png'
   };
+
+  /** Yazdırma penceresi (about:blank) için tam URL — göreli yollar çalışmaz. */
+  function toAbsoluteSignatureSrc(src) {
+    const s = String(src || '').trim();
+    if (!s) return '';
+    if (/^data:/i.test(s) || /^https?:\/\//i.test(s)) return s;
+    const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
+    if (s.startsWith('/')) return origin ? origin + s : s;
+    return origin ? origin + '/' + s : '/' + s;
+  }
 
   let cache = { kantar: {}, saha: {}, loadedAt: 0 };
   const TTL_MS = 5 * 60 * 1000;
@@ -85,6 +95,7 @@
   global.SignatureRegistry = {
     loadSignatures,
     resolveSignatureSrc,
+    toAbsoluteSignatureSrc,
     getNamesForRole,
     invalidate,
     normName

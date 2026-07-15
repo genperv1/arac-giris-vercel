@@ -554,12 +554,26 @@
   }
 
   const LEGACY_KANTAR_SIG = {
-    "BURAK KARATAŞ": "signatures/burak_karatas.png",
-    "BEKİR DOĞRU": "signatures/bekir_dogru.png",
-    "BATUHAN KOCABAY": "signatures/batuhan_kocabay.png",
-    "BATUHAN CINAR": "signatures/batuhan_cinar.png",
-    "BURAK TALAY": "signatures/burak_talay.png"
+    "BURAK KARATAŞ": "/signatures/burak_karatas.png",
+    "BEKİR DOĞRU": "/signatures/bekir_dogru.png",
+    "BATUHAN KOCABAY": "/signatures/batuhan_kocabay.png",
+    "BATUHAN CINAR": "/signatures/batuhan_cinar.png",
+    "BURAK TALAY": "/signatures/burak_talay.png"
   };
+
+  function toPrintSignatureSrc(src) {
+    try {
+      if (window.SignatureRegistry && typeof window.SignatureRegistry.toAbsoluteSignatureSrc === 'function') {
+        return window.SignatureRegistry.toAbsoluteSignatureSrc(src);
+      }
+    } catch (e) { /* ignore */ }
+    const s = String(src || '').trim();
+    if (!s) return '';
+    if (/^data:/i.test(s) || /^https?:\/\//i.test(s)) return s;
+    const origin = window.location.origin || '';
+    if (s.startsWith('/')) return origin + s;
+    return origin + '/' + s;
+  }
 
   function resolveKantarSignatureSrc(name) {
     try {
@@ -849,12 +863,12 @@ async function getNextYuklemeSirasi() {
             }
 
             if (!isValidTC(state.formData.tcKimlik)) {
-                alert('❌ TC Kimlik numarası 11 haneli olmalıdır!');
+                alert('❌ TC Kimlik numarası yalnızca rakam içermeli ve en fazla 11 hane olmalıdır!');
                 return;
             }
 
             if (!isValidIletisim(state.formData.iletisim)) {
-                alert('❌ İletişim numarası 10 veya 11 haneli olmalıdır!');
+                alert('❌ İletişim numarası geçersiz!');
                 return;
             }
 
@@ -1591,7 +1605,10 @@ window.fitMalzemeInput = fitMalzemeInput;
 window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
 
         // Takip Formunu Yazdır
-    function yazdirForm(opts = {}) {
+    async function yazdirForm(opts = {}) {
+    if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
+      try { await window.SignatureRegistry.loadSignatures(); } catch (e) { /* ignore */ }
+    }
 
     // ✅ localStorage'dan seçili sayfa boyutunu oku
     const pageSize = localStorage.getItem('selectedPageSize') || 'A5';
@@ -1758,11 +1775,11 @@ const ambalajBilgisi = normalizeAmbalajBilgisi(document.getElementById('ambalajB
 const ambalajBilgisiPrint = formatAmbalajBilgisiPrint(ambalajBilgisi);
 const seperatorBilgisi = document.getElementById('seperatorBilgisi')?.value || '';
 const imzaKantarAd   = document.getElementById('imzaKantarAd')?.value || '';
-const imzaKantarSrc  = resolveKantarSignatureSrc(imzaKantarAd);
+const imzaKantarSrc  = toPrintSignatureSrc(resolveKantarSignatureSrc(imzaKantarAd));
 const imzaKantarImgHtml = imzaKantarSrc ? `<img src="${imzaKantarSrc}" class="imza-img" alt="İmza">` : ``;
 
 const imzaSahaAd     = document.getElementById('imzaSahaAd')?.value || '';
-const imzaSahaSrc    = resolveSahaSignatureSrc(imzaSahaAd);
+const imzaSahaSrc    = toPrintSignatureSrc(resolveSahaSignatureSrc(imzaSahaAd));
 const imzaSahaImgHtml = imzaSahaSrc ? `<img src="${imzaSahaSrc}" class="imza-img" alt="İmza">` : ``;
 const imzaYukleyenAd = document.getElementById('imzaYukleyenAd')?.value || '';
 const imzaKaliteAd   = document.getElementById('imzaKaliteAd')?.value || '';    // Ambalajlar (Yeni sistem: BBT, BOŞ BBT, ÇUVAL, BOŞ ÇUVAL, PALET, TORBA)
@@ -2026,34 +2043,45 @@ const bosBbtText = amb.bosBbt;
   font-weight: 600;
 }
 
-/* KANTAR imza bloğu: üstte imza, altta isim (kırmızıyla gösterdiğin alana otursun) */
+/* KANTAR imza bloğu: üstte imza, altta isim (kutu içinde) */
 .imza-block{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:flex-start;
+  display:block;
+  height: 27mm;
+  overflow: visible;
+  white-space: normal;
+  box-sizing: border-box;
 }
 .imza-imgwrap{
   height: 18mm;
   display:flex;
   align-items:flex-start;
-  padding-top:0.5mm;
   justify-content:center;
-  overflow:hidden;
+  padding: 8.5mm 3mm 0 3mm;
+  overflow: visible;
+  box-sizing: border-box;
 }
 .imza-img{
-  max-width: 42mm;
-  max-height: 13mm;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  max-height: 14mm;
   object-fit: contain;
+  object-position: center center;
   display:block;
-  transform: translateY(8mm);
 }
 .imza-name{
-  margin-top: 1mm;
-  font-size: 9pt;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 19.5mm;
+  bottom: auto;
+  margin-top: 0;
+  font-size: 8.5pt;
   font-weight: 600;
   text-align:center;
   white-space: normal;
+  line-height: 1.1;
+  z-index: 2;
 }
 
 			
@@ -2579,13 +2607,24 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
         });
       };
 
-      const img = w.document.querySelector('.bg');
-      if (img && !img.complete) {
-        img.onload = () => setTimeout(finishLayoutThenPrint, 0);
-        img.onerror = () => setTimeout(finishLayoutThenPrint, 0);
-      } else {
-        setTimeout(finishLayoutThenPrint, 0);
-      }
+      const waitForImages = (done) => {
+        const pending = [];
+        const bg = w.document.querySelector('.bg');
+        if (bg && !bg.complete) pending.push(bg);
+        w.document.querySelectorAll('.imza-img').forEach((img) => {
+          if (!img.complete) pending.push(img);
+        });
+        if (!pending.length) { done(); return; }
+        let left = pending.length;
+        const tick = () => { if (--left <= 0) done(); };
+        pending.forEach((img) => {
+          img.addEventListener('load', tick, { once: true });
+          img.addEventListener('error', tick, { once: true });
+        });
+        setTimeout(done, 2500);
+      };
+
+      waitForImages(() => setTimeout(finishLayoutThenPrint, 0));
     };
 
     // ✅ Çağıran tarafta pencere referansı kullanılabilsin (closed polling)

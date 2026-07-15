@@ -897,6 +897,11 @@ async function applyShipmentToTakipForm(vehicle, opts) {
     // ✅ Firma bazlı override (örn: Liman/Sevk Yeri düzeltmesi)
     chosen = applyFirmaOverridesToShipment(chosen);
 
+    if (typeof _ihracatApplyBlockOverridesToRows === 'function') {
+      const m = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+      chosen = _ihracatApplyBlockOverridesToRows([chosen], m)[0] || chosen;
+    }
+
     // ✅ Seçilen kaydın tonajı (çoklu sevkiyatta 2. kayıt için doğru değer)
     applyShipmentTonajAndIrsaliye(chosen);
     try {
@@ -904,19 +909,8 @@ async function applyShipmentToTakipForm(vehicle, opts) {
       window.__lastChosenShipment = chosen;
     } catch (e) {}
 
-    try {
-      if (window.piyasa && typeof window.piyasa.suggestForContext === 'function') {
-        const sug = window.piyasa.suggestForContext({
-          plate: plateNeedle,
-          firma: chosen.firma || chosen.ydKey,
-          malzeme: chosen.malzeme,
-          sevkYeri: chosen.sevkYeri,
-        });
-        if (sug.length && typeof window.piyasa.showSuggestionBar === 'function') {
-          window.piyasa.showSuggestionBar(sug, { plate: plateNeedle });
-        }
-      }
-    } catch (e) {}
+    // ⛔ Piyasa sipariş önerisi bandı kaldırıldı (ana sayfa üstünde kafa karışıklığı yaratıyordu)
+    try { document.getElementById('piyasaSuggestionBar')?.remove(); } catch (e) {}
 
     _applyExcelShipmentFieldsToTakipForm(chosen);
 
@@ -1341,7 +1335,7 @@ let sonuc = {
                     let changed = false;
                     const all = state.vehicles.map(v => {
                         const old = v.iletisim || '';
-                        const neu = formatTRPhone(old);
+                        const neu = formatPhoneForInput(old);
                         if (neu && neu !== old) { changed = true; return { ...v, iletisim: neu }; }
                         return v;
                     });
@@ -1369,12 +1363,13 @@ let sonuc = {
 
             try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
             try { _ihracatFetchRemotePrintReports(true); } catch (e) {}
+            try { handlePendingEditVehicle(); } catch (e) {}
         }
 
         // Form verilerini güncelle
         function updateFormData(field, value) {
   if (field === 'iletisim') {
-    state.formData[field] = formatTRPhone(value);
+    state.formData[field] = formatPhoneForInput(value);
     return;
   }
   state.formData[field] = value;
@@ -1384,23 +1379,35 @@ let sonuc = {
         async function saveVehicle() {
             const ui = window.rpUi || {};
             const cekiciPlaka = state.formData.cekiciPlaka.trim();
+
+            clearFormFieldWarning('tcKimlik', 'tcKimlikWarning');
+            clearFormFieldWarning('iletisim', 'iletisimWarning');
             
             if (!cekiciPlaka) {
                 if (typeof ui.alert === 'function') await ui.alert('Çekici plaka zorunludur!', 'danger');
                 else alert('Çekici plaka zorunludur!');
-                return;
+                return false;
             }
 
-            if (!isValidTC(state.formData.tcKimlik)) {
-                if (typeof ui.alert === 'function') await ui.alert('TC Kimlik numarası 11 haneli olmalıdır!', 'danger');
-                else alert('TC Kimlik numarası 11 haneli olmalıdır!');
-                return;
+            const tc = String(state.formData.tcKimlik || '').trim();
+            if (tc && !isValidTC(tc)) {
+                showFormFieldWarning(
+                    'tcKimlik',
+                    'tcKimlikWarning',
+                    'TC Kimlik No yalnızca rakam içermeli ve en fazla 11 hane olmalıdır.'
+                );
+                try { document.getElementById('tcKimlik')?.focus(); } catch (_) {}
+                return false;
             }
 
             if (!isValidIletisim(state.formData.iletisim)) {
-                if (typeof ui.alert === 'function') await ui.alert('İletişim numarası 10 veya 11 haneli olmalıdır!', 'danger');
-                else alert('İletişim numarası 10 veya 11 haneli olmalıdır!');
-                return;
+                showFormFieldWarning(
+                    'iletisim',
+                    'iletisimWarning',
+                    'İletişim numarası en fazla 30 karakter olabilir.'
+                );
+                try { document.getElementById('iletisim')?.focus(); } catch (_) {}
+                return false;
             }
             
             const prevVehicle = state.editingId
@@ -1446,13 +1453,18 @@ let sonuc = {
             }
 
             const wasEdit = !!state.editingId;
+            const draftWarnings = getVehicleContactWarnings(vehicleData);
             if (typeof ui.alert === 'function') {
                 await ui.alert(wasEdit ? 'Kayıt güncellendi!' : 'Kayıt eklendi!', 'success');
             } else {
-                alert(wasEdit ? 'Kayıt güncellendi!' : 'Kayıt eklendi!');
+                alert(wasEdit ? '✅ Kayıt güncellendi!' : '✅ Kayıt eklendi!');
+            }
+            if (draftWarnings.length) {
+                showToast('Taslak kaydedildi — eksik TC/telefon sonra tamamlanmalı.', 'warn', 4000);
             }
             resetForm();
             _ihracatMaybeReopenAfterVehicleSave();
+            return true;
         }
 
         // Veritabanına araç kaydetme fonksiyonu - Session olmadan çalışacak
@@ -1563,14 +1575,73 @@ let sonuc = {
         }
 
         // Arama
+        function sortOzmalBassoforFirst(list) {
+          if (!Array.isArray(list) || list.length < 2) return list;
+          const isBassofor = (v) => {
+            try { return typeof vehicleIsBassofor === 'function' && vehicleIsBassofor(v); }
+            catch (e) { return false; }
+          };
+          return list.slice().sort((a, b) => {
+            const ba = isBassofor(a) ? 1 : 0;
+            const bb = isBassofor(b) ? 1 : 0;
+            if (ba !== bb) return bb - ba;
+            return String(a.cekiciPlaka || '').localeCompare(String(b.cekiciPlaka || ''), 'tr');
+          });
+        }
+
         function filterVehicles() {
   // ✅ Görünmez performans: basit cache
-  window.__filterCache = window.__filterCache || { term: null, ver: 0, out: null };
+  window.__filterCache = window.__filterCache || { term: null, incomplete: null, issues: null, recent: null, ozmal: null, ver: 0, out: null };
   const currentVer = (state.vehicles && state.vehicles.length) ? state.vehicles.length : 0;
-  if (window.__filterCache.term === state.searchTerm && window.__filterCache.ver === currentVer && window.__filterCache.out) {
+  if (window.__filterCache.term === state.searchTerm
+      && window.__filterCache.incomplete === !!state.incompleteFilter
+      && window.__filterCache.issues === !!state.issuesFilter
+      && window.__filterCache.recent === !!state.recentFilter
+      && window.__filterCache.ozmal === !!state.ozmalFilter
+      && window.__filterCache.ver === currentVer
+      && window.__filterCache.out) {
     return window.__filterCache.out;
   }
-  if (!state.searchTerm) return state.vehicles;
+
+  let base = state.vehicles || [];
+  if (state.ozmalFilter) {
+    base = base.filter((v) => {
+      try { return typeof vehicleIsOzmal === 'function' && vehicleIsOzmal(v); }
+      catch (e) { return false; }
+    });
+  }
+  if (state.incompleteFilter) {
+    base = base.filter((v) => getVehicleContactWarnings(v).length > 0);
+  }
+  if (state.issuesFilter) {
+    base = base.filter((v) => {
+      try {
+        const pl = v.cekiciPlaka || '';
+        if (typeof vehicleCardHasOpenProblems === 'function' && vehicleCardHasOpenProblems(v)) return true;
+        if (typeof getIssueCount === 'function' && getIssueCount(pl) > 0) return true;
+      } catch (e) { /* ignore */ }
+      return false;
+    });
+  }
+  if (state.recentFilter) {
+    base = base.filter((v) => {
+      try { return typeof isTodayKayitDate === 'function' && isTodayKayitDate(v.kayitTarihi); }
+      catch (e) { return false; }
+    });
+  }
+  if (!state.searchTerm) {
+    const out = state.ozmalFilter ? sortOzmalBassoforFirst(base) : base;
+    window.__filterCache = {
+      term: state.searchTerm,
+      incomplete: !!state.incompleteFilter,
+      issues: !!state.issuesFilter,
+      recent: !!state.recentFilter,
+      ozmal: !!state.ozmalFilter,
+      ver: currentVer,
+      out,
+    };
+    return out;
+  }
 
   const term = state.searchTerm.toLowerCase();
   // ✅ Plaka aramasında boşluk / tire farkını yok say
@@ -1582,7 +1653,7 @@ let sonuc = {
   const searchInPlates = hasNumbers; // sayı varsa plaka ara
   const searchInNames = !hasNumbers || term.length < 3; // sayı yoksa veya çok kısa ise isim ara
 
-  const out = state.vehicles.filter(vehicle => {
+  const out = base.filter(vehicle => {
     let matches = false;
 
     // Plaka araması (sayı içeriyorsa)
@@ -1630,9 +1701,18 @@ let sonuc = {
     });
   } catch(e){}
 
+  const sorted = state.ozmalFilter ? sortOzmalBassoforFirst(out) : out;
 
-  window.__filterCache = { term: state.searchTerm, ver: currentVer, out };
-  return out;
+  window.__filterCache = {
+    term: state.searchTerm,
+    incomplete: !!state.incompleteFilter,
+    issues: !!state.issuesFilter,
+    recent: !!state.recentFilter,
+    ozmal: !!state.ozmalFilter,
+    ver: currentVer,
+    out: sorted,
+  };
+  return sorted;
 }
 
         // Veri dışa aktar - YENİ

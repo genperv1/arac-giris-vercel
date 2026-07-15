@@ -187,16 +187,42 @@ const USERS = [
         try { localStorage.removeItem('firmaOverrides_v1'); } catch(e) {}
         try { eslestirmeListesi = []; } catch(e) {}
 
+        /** kayitTarihi (tr-TR locale string) bugün mü */
+        function isTodayKayitDate(kayitTarihi) {
+            const kt = String(kayitTarihi || '').trim();
+            if (!kt) return false;
+            const datePart = kt.split(' ')[0];
+            try {
+                const d = new Date();
+                const dd = String(d.getDate()).padStart(2, '0');
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const yyyy = d.getFullYear();
+                const vars = new Set([
+                    `${d.getDate()}.${mm}.${yyyy}`,
+                    `${dd}.${mm}.${yyyy}`,
+                    d.toLocaleDateString('tr-TR'),
+                ]);
+                if (vars.has(datePart)) return true;
+                return Array.from(vars).some((v) => kt.includes(v));
+            } catch (e) {
+                return false;
+            }
+        }
+
         // Ana uygulama state
         let state = {
             vehicles: [],
             vehiclesLoading: false,
             searchTerm: '',
+            incompleteFilter: false,
             quickPlateTerm: '',
             showForm: false,
             editingId: null,
-            listLimit: 6,
-            showAll: false,  
+            listLimit: 18,
+            showAll: false,
+            issuesFilter: false,
+            recentFilter: false,
+            ozmalFilter: false,
 			pageSize: 20,
 			visibleCount: 20,
 			lastTotal: 0,
@@ -217,17 +243,20 @@ const USERS = [
             }
         };
 
-        // TC Kimlik kontrolü
+        // TC Kimlik kontrolü (boş veya eksik TC taslak kayıt olarak kabul edilir)
         function isValidTC(tc) {
             if (!tc) return true;
-            return /^\d{11}$/.test(tc);
+            return /^\d{1,11}$/.test(String(tc).trim());
         }
 
-        // İletişim numarası kontrolü
+        function isCompleteTC(tc) {
+            return /^\d{11}$/.test(String(tc || '').trim());
+        }
+
+        // İletişim numarası kontrolü (uluslararası numaralar dahil esnek metin)
         function isValidIletisim(iletisim) {
             if (!iletisim) return true;
-            const cleaned = iletisim.replace(/\D/g, '');
-            return cleaned.length === 10 || cleaned.length === 11;
+            return String(iletisim).trim().length <= 30;
         }
 
         // Plaka kontrol fonksiyonu

@@ -389,14 +389,24 @@ function vehicleCardHTML(vehicle) {
   const showBlockOverlay = isRejected;
   const plate = formatPlaka(vehicle.cekiciPlaka);
   const dv = escapeDataVehicleAttr(vehicle);
+  const isBassofor = typeof vehicleIsBassofor === 'function' && vehicleIsBassofor(vehicle);
+  const isOzmal = !isBassofor && typeof vehicleIsOzmal === 'function' && vehicleIsOzmal(vehicle);
+  const plateBadge = isBassofor
+    ? '<span class="vehicle-card__bassofor-badge" title="Başşoför — ' + (typeof OzmalPlates !== 'undefined' && OzmalPlates.BASSOFOR_DRIVER_HINT ? OzmalPlates.BASSOFOR_DRIVER_HINT : 'HASAN HÜSEYİN DİNÇ') + '"><i class="fas fa-crown" aria-hidden="true"></i> BAŞŞOFÖR</span>'
+    : (isOzmal ? '<span class="vehicle-card__ozmal-star" title="Özmal araç" aria-label="Özmal araç">★</span>' : '');
   const cardClass = showBlockOverlay
     ? 'vehicle-card vehicle-card--blocked'
-    : `vehicle-card ${issueCardClass(vehicle.cekiciPlaka)}`;
+    : `vehicle-card ${issueCardClass(vehicle.cekiciPlaka)}${isBassofor ? ' vehicle-card--bassofor' : ''}`;
   const overlay = showBlockOverlay ? vehicleCardBlockOverlayHTML(vehicle, isRejected, hasProblems) : '';
   const rejectionInline = rejectionBadgeHTML(vehicle, { hideWhenOverlay: showBlockOverlay });
   const waTextPlain = 'Merhaba ' + formatPlaka(vehicle.cekiciPlaka)
     + (vehicle.soforAdi ? ' - ' + (vehicle.soforAdi + (vehicle.soforSoyadi ? ' ' + vehicle.soforSoyadi : '')) : '');
   const waPhone = toWhatsAppPhone(vehicle.iletisim);
+  const phone = String(vehicle.iletisim || '').trim();
+  const tc = String(vehicle.tcKimlik || '').trim();
+  const tcIncomplete = tc && !isCompleteTC(tc);
+  const contactWarnings = getVehicleContactWarnings(vehicle);
+  const showContactBlock = phone || tc || contactWarnings.length > 0;
   const formBtn = showBlockOverlay ? '' : `
     <button type="button" class="vehicle-card__form-btn form-btn" data-vehicle="${dv}" title="Takip Formu">
       <svg class="vehicle-card__form-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -418,7 +428,7 @@ ${overlay}
     <div class="vehicle-card__header">
       <div class="vehicle-card__header-main">
         <div class="vehicle-card__plate-row">
-          <span class="vehicle-card__plate">${plate}</span>
+          <span class="vehicle-card__plate">${plate}</span>${plateBadge}
           ${issuesBadgeHTML(vehicle.cekiciPlaka)}
         </div>
         ${rejectionInline}
@@ -430,10 +440,12 @@ ${overlay}
       </div>
     </div>
     <div class="vehicle-card__body">
+      ${vehicleContactWarningsHTML(vehicle, dv)}
       ${vehicle.dorsePlaka ? `<div class="vehicle-card__field"><span class="vehicle-card__label">Dorse</span><span class="vehicle-card__value">${formatPlaka(vehicle.dorsePlaka)}</span></div>` : ''}
-      ${vehicle.soforAdi ? `<div class="vehicle-card__field"><span class="vehicle-card__label">Şoför</span><span class="vehicle-card__value">${vehicle.soforAdi} ${vehicle.soforSoyadi || ''}</span></div>` : ''}
-      ${(vehicle.iletisim || vehicle.tcKimlik) ? `<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__contact-tc">
-        ${vehicle.iletisim ? `<div class="vehicle-card__contact-tc-item">
+      ${vehicle.soforAdi ? `<div class="vehicle-card__field${isBassofor ? ' vehicle-card__field--bassofor' : ''}"><span class="vehicle-card__label">Şoför</span><span class="vehicle-card__value">${vehicle.soforAdi} ${vehicle.soforSoyadi || ''}</span></div>` : ''}
+      ${vehicle.sofor2Adi || vehicle.sofor2Soyadi ? `<div class="vehicle-card__field"><span class="vehicle-card__label">Şoför 2</span><span class="vehicle-card__value">${vehicle.sofor2Adi || ''} ${vehicle.sofor2Soyadi || ''}</span></div>` : ''}
+      ${showContactBlock ? `<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__contact-tc">
+        ${phone ? `<div class="vehicle-card__contact-tc-item">
           <span class="vehicle-card__label">İletişim</span>
           <span class="vehicle-card__value vehicle-card__value--contact">
             <span>${vehicle.iletisim}</span>
@@ -441,11 +453,17 @@ ${overlay}
               <img src="${WHATSAPP_ICON_SRC}" alt="" width="18" height="18"/>
             </button>` : ''}
           </span>
-        </div>` : ''}
-        ${vehicle.tcKimlik ? `<div class="vehicle-card__contact-tc-item">
+        </div>` : `<div class="vehicle-card__contact-tc-item vehicle-card__contact-tc-item--missing">
+          <span class="vehicle-card__label">İletişim</span>
+          <span class="vehicle-card__value vehicle-card__value--missing">Eksik</span>
+        </div>`}
+        ${tc ? `<div class="vehicle-card__contact-tc-item${tcIncomplete ? ' vehicle-card__contact-tc-item--warn' : ''}">
           <span class="vehicle-card__label">TC</span>
-          <span class="vehicle-card__value">${maskTc(vehicle.tcKimlik)}</span>
-        </div>` : ''}
+          <span class="vehicle-card__value">${maskTc(vehicle.tcKimlik)}${tcIncomplete ? ' <span class="vehicle-card__value-hint">(eksik)</span>' : ''}</span>
+        </div>` : `<div class="vehicle-card__contact-tc-item vehicle-card__contact-tc-item--missing">
+          <span class="vehicle-card__label">TC</span>
+          <span class="vehicle-card__value vehicle-card__value--missing">Eksik</span>
+        </div>`}
       </div>` : ''}
     </div>
     <div class="vehicle-card__footer">

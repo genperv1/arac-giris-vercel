@@ -152,6 +152,59 @@
     }
   }
 
+  /** Tıklanan satırın birebir kopyası — arşiv lookup ile başka satıra dönüşmesin. */
+  function freezeOrderSnapshot(o) {
+    if (!o) return null;
+    const pickKey = getOrderPickKey(o) || o.__archiveKey || null;
+    const week = o._sourceWeek ?? state.week ?? null;
+    const sheet = o._sourceSheet ?? state.sheet ?? '';
+    const archiveKey = o.__archiveKey || (pickKey && String(pickKey).includes(':') ? pickKey : null)
+      || (week != null && sheet && o.__idx != null ? `${week}:${sheet}:${o.__idx}` : null);
+    return {
+      __idx: o.__idx,
+      __archiveKey: archiveKey,
+      _pickKey: pickKey || archiveKey,
+      _sourceWeek: week,
+      _sourceSheet: sheet,
+      firma: String(o.firma || '').trim(),
+      firmaAdi: String(o.firmaAdi || o._hSutunValue || '').trim(),
+      malzeme: String(o.malzeme || '').trim(),
+      yuklemeTuru: String(o.yuklemeTuru || '').trim(),
+      odemeTuru: String(o.odemeTuru || '').trim(),
+      org: String(o.org || '').trim(),
+      sevkiyatTipi: String(o.sevkiyatTipi || '').trim(),
+      aciklama: String(o.aciklama || '').trim(),
+      sevkYeri: String(o.sevkYeri || '').trim(),
+      il: String(o.il || '').trim(),
+      miktar: o.miktar,
+      usedAt: o.usedAt || null,
+      usedPlate: o.usedPlate || null,
+      printCount: Math.max(0, parseInt(o.printCount, 10) || 0),
+      lastPrintAt: o.lastPrintAt || null,
+      lastPrintPlate: o.lastPrintPlate || null,
+      printPlates: _normalizePrintPlates(o.printPlates),
+      _frozenFromPicker: true,
+    };
+  }
+
+  function _collectOrdersByNumericIdx(n) {
+    const hits = [];
+    const seen = new Set();
+    const add = (x) => {
+      if (!x || x.__idx !== n) return;
+      const ak = x.__archiveKey || getOrderPickKey(x) || String(x.__idx);
+      if (seen.has(ak)) return;
+      seen.add(ak);
+      hits.push(x);
+    };
+    if (state._lastAppliedOrder) add(state._lastAppliedOrder);
+    for (const block of state.weekArchive || []) {
+      for (const x of block.orders || []) add(x);
+    }
+    for (const x of state.orders || []) add(x);
+    return hits;
+  }
+
   function getOrderByIdx(idx) {
     if (idx == null || idx === '') return null;
     const key = String(idx);
@@ -166,16 +219,16 @@
       if (hit) return hit;
     }
 
-    const n = Number(idx);
+    const n = Number(key);
     if (!Number.isFinite(n)) return null;
 
-    if (last && last.__idx === n) return last;
-
-    for (const block of state.weekArchive || []) {
-      hit = (block.orders || []).find((x) => x.__idx === n);
-      if (hit) return hit;
+    const hits = _collectOrdersByNumericIdx(n);
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1) {
+      console.warn(`Piyasa: "${n}" satır no birden fazla sheet'te var — tam anahtar kullanın (${hits.map((h) => h.__archiveKey || h._pickKey).join(', ')})`);
+      return null;
     }
-    return (state.orders || []).find((x) => x.__idx === n) || null;
+    return null;
   }
 
   /** Rapor (print_history) silindikten sonra sipariş yazdırma rozetlerini yeniden hesapla */
@@ -274,7 +327,12 @@
   }
 
   function getActiveOrderIdx() {
-    return getOrderPickKey(state._lastAppliedOrder) ?? state._lastAppliedOrder?.__idx ?? null;
+    const lock = state._lockedPiyasaPick;
+    if (lock && lock.pickKey) return lock.pickKey;
+    const last = state._lastAppliedOrder;
+    const pickKey = getOrderPickKey(last);
+    if (pickKey && String(pickKey).includes(':')) return pickKey;
+    return pickKey ?? last?.__idx ?? null;
   }
 
   /** Liste hücresi için hafif sayaç — geçmiş taraması modalda yapılır */

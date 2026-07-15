@@ -481,12 +481,13 @@
         }
         container.innerHTML = list.map((sig) => `
           <div class="ay-sig-card" data-id="${escapeHtml(sig.id)}">
-            <img src="/api/signatures/${encodeURIComponent(sig.id)}/image" alt="" loading="lazy" onerror="this.style.display='none'">
+            <img data-sig-id="${escapeHtml(sig.id)}" alt="" loading="lazy" style="display:none">
             <div class="ay-sig-meta">
               <strong>${escapeHtml(sig.displayName)}</strong>
               <button type="button" class="ay-sig-del" data-del="${escapeHtml(sig.id)}">Sil</button>
             </div>
           </div>`).join('');
+        attachSignatureCardImages(container);
         container.querySelectorAll('[data-del]').forEach((btn) => {
           btn.addEventListener('click', async (ev) => {
             ev.stopPropagation();
@@ -517,6 +518,49 @@
     });
   }
 
+  /** Büyük PNG'leri küçültür; şeffaf arka plan korunur (beyaz zemin eklenmez). */
+  async function normalizeSignaturePng(file) {
+    const bitmap = await createImageBitmap(file);
+    const maxW = 300;
+    const maxH = 120;
+    const scale = Math.min(maxW / bitmap.width, maxH / bitmap.height, 1);
+    if (scale >= 1) {
+      if (bitmap.close) bitmap.close();
+      return readFileAsDataUrl(file);
+    }
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      if (bitmap.close) bitmap.close();
+      return readFileAsDataUrl(file);
+    }
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    if (bitmap.close) bitmap.close();
+    return canvas.toDataURL('image/png');
+  }
+
+  async function attachSignatureCardImages(container) {
+    const imgs = container.querySelectorAll('img[data-sig-id]');
+    await Promise.all([...imgs].map(async (img) => {
+      const id = img.getAttribute('data-sig-id');
+      if (!id) return;
+      try {
+        const r = await apiFetch('/api/signatures/' + encodeURIComponent(id) + '/image');
+        if (!r.ok) throw new Error('load');
+        const blob = await r.blob();
+        img.src = URL.createObjectURL(blob);
+        img.style.display = '';
+      } catch (e) {
+        img.style.display = 'none';
+      }
+    }));
+  }
+
   async function submitSignature(ev) {
     ev.preventDefault();
     const name = (document.getElementById('sigName')?.value || '').trim();
@@ -527,7 +571,7 @@
     if (!/^image\/png$/i.test(file.type)) { toast('Yalnızca PNG kabul edilir.', true); return; }
     if (file.size > 1_500_000) { toast('Dosya çok büyük (max ~1.5 MB).', true); return; }
     try {
-      const imageData = await readFileAsDataUrl(file);
+      const imageData = await normalizeSignaturePng(file);
       const r = await apiFetch('/api/signatures', {
         method: 'POST',
         body: JSON.stringify({ displayName: name.toUpperCase(), role, imageData })
@@ -552,6 +596,12 @@
       const d = await r.json();
       const el = document.getElementById('banMyIp');
       if (el && d.ip) el.textContent = d.ip;
+      const siteEl = document.getElementById('banMySite');
+      const siteWrap = document.getElementById('banMySiteWrap');
+      if (siteEl && d.clientSite) {
+        siteEl.textContent = d.clientSite;
+        if (siteWrap) siteWrap.hidden = false;
+      }
     } catch (e) { /* ignore */ }
   }
 
@@ -620,6 +670,213 @@
     if (!r.ok) { toast(d.error || 'Temizlenemedi.', true); return; }
     toast(d.message || 'Tüm engeller kaldırıldı.');
     loadBanList();
+  }
+
+  function isCompleteTcAy(tc) {
+    return /^\d{11}$/.test(String(tc || '').trim());
+  }
+
+  function getContactWarningsAy(vehicle) {
+    const warnings = [];
+    const phone = String(vehicle?.iletisim || '').trim();
+    const tc = String(vehicle?.tcKimlik || '').trim();
+    if (!phone) warnings.push('İletişim');
+    if (!tc) warnings.push('TC Kimlik No');
+    else if (!isCompleteTcAy(tc)) warnings.push('TC Kimlik No (eksik)');
+    return warnings;
+  }
+
+  function contactStatusAy(vehicle, field) {
+    if (field === 'phone') return String(vehicle?.iletisim || '').trim() ? 'Tamam' : 'Eksik';
+    const tc = String(vehicle?.tcKimlik || '').trim();
+    if (!tc) return 'Eksik';
+    if (isCompleteTcAy(tc)) return 'Tamam';
+    return 'Eksik (taslak)';
+  }
+
+  function firstMissingFieldAy(vehicle) {
+    const phone = String(vehicle?.iletisim || '').trim();
+    const tc = String(vehicle?.tcKimlik || '').trim();
+    if (!phone) return 'iletisim';
+    if (!tc || !isCompleteTcAy(tc)) return 'tcKimlik';
+    return '';
+  }
+
+  function openVehicleEditOnMain(vehicleId, focusField) {
+    try {
+      sessionStorage.setItem('pendingEditVehicleId', String(vehicleId));
+      if (focusField) sessionStorage.setItem('pendingEditFocusField', focusField);
+      else sessionStorage.removeItem('pendingEditFocusField');
+    } catch (e) {}
+    location.href = 'GIRIS.html';
+  }
+
+  let eksikRowsCache = [];
+
+  async function loadIncompleteVehicles() {
+    const tbody = document.getElementById('eksikTbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>';
+    try {
+      const r = await apiFetch('/api/vehicles?limit=20000');
+      if (!r.ok) throw new Error('list');
+      const rows = await r.json();
+      eksikRowsCache = (Array.isArray(rows) ? rows : []).filter((v) => getContactWarningsAy(v).length > 0);
+      if (!eksikRowsCache.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Eksik TC veya telefonlu kayıt yok.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = eksikRowsCache.map((v) => {
+        const sofor = [v.soforAdi, v.soforSoyadi].filter(Boolean).join(' ') || '—';
+        const warnings = getContactWarningsAy(v).join(', ');
+        const focus = firstMissingFieldAy(v);
+        return `<tr>
+          <td><strong>${escapeHtml(v.cekiciPlaka || '—')}</strong></td>
+          <td>${escapeHtml(sofor)}</td>
+          <td>${escapeHtml(contactStatusAy(v, 'phone'))}</td>
+          <td>${escapeHtml(contactStatusAy(v, 'tc'))}</td>
+          <td>${escapeHtml(warnings)}</td>
+          <td><button type="button" class="ay-btn ay-btn--primary ay-eksik-edit" data-id="${escapeHtml(v.id)}" data-focus="${escapeHtml(focus)}">Düzenle</button></td>
+        </tr>`;
+      }).join('');
+      tbody.querySelectorAll('.ay-eksik-edit').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
+          const focus = btn.getAttribute('data-focus') || '';
+          if (id) openVehicleEditOnMain(id, focus);
+        });
+      });
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="6" class="ay-empty" style="color:#dc2626">Liste yüklenemedi.</td></tr>';
+    }
+  }
+
+  function exportIncompleteCsv() {
+    if (!eksikRowsCache.length) {
+      toast('Dışa aktarılacak eksik kayıt yok.', true);
+      return;
+    }
+    const header = ['Plaka', 'Şoför', 'İletişim', 'TC Kimlik', 'Telefon Durumu', 'TC Durumu', 'Eksikler'];
+    const lines = eksikRowsCache.map((v) => {
+      const sofor = [v.soforAdi, v.soforSoyadi].filter(Boolean).join(' ');
+      return [
+        v.cekiciPlaka || '',
+        sofor,
+        v.iletisim || '',
+        v.tcKimlik || '',
+        contactStatusAy(v, 'phone'),
+        contactStatusAy(v, 'tc'),
+        getContactWarningsAy(v).join(', '),
+      ].map((cell) => '"' + String(cell).replace(/"/g, '""') + '"').join(';');
+    });
+    const csv = '\ufeff' + header.join(';') + '\n' + lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'eksik_kayitlar_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast('Eksik kayıt listesi indirildi.');
+  }
+
+  function bindIncompleteUi() {
+    document.getElementById('eksikRefreshBtn')?.addEventListener('click', loadIncompleteVehicles);
+    document.getElementById('eksikExportBtn')?.addEventListener('click', exportIncompleteCsv);
+  }
+
+  function renderOzmalPlatesTable() {
+    const tbody = document.getElementById('ozmalTbody');
+    if (!tbody || !window.OzmalPlates) return;
+    const entries = window.OzmalPlates.getOzmalEntries();
+    if (!entries.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="ay-empty">Henüz özmal plaka yok.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = entries
+      .map((entry, i) => {
+        const p = entry.plaka;
+        const bassofor = window.OzmalPlates.isBassoforPlate(p);
+        const mark = bassofor
+          ? '<span class="vehicle-card__bassofor-badge" style="font-size:.58rem;padding:.12rem .4rem;"><i class="fas fa-crown" aria-hidden="true"></i> BAŞŞOFÖR</span>'
+          : '<span style="color:#f59e0b;" title="Özmal">★</span>';
+        const drivers = (entry.drivers || []).length
+          ? (entry.drivers || [])
+              .map(
+                (d) =>
+                  `<span class="ay-ozmal-driver">${escapeHtml(d)} <button type="button" class="ay-ozmal-driver-del" data-plate="${escapeHtml(p)}" data-driver="${escapeHtml(d)}" title="Şoförü kaldır">×</button></span>`
+              )
+              .join(' ')
+          : '<span class="ay-muted">—</span>';
+        return `<tr>
+          <td>${i + 1}</td>
+          <td><strong>${escapeHtml(p)}</strong> ${mark}</td>
+          <td>${drivers}</td>
+          <td><button type="button" class="ay-btn ay-btn--danger ay-ozmal-del" data-plate="${escapeHtml(p)}">Kaldır</button></td>
+        </tr>`;
+      })
+      .join('');
+    tbody.querySelectorAll('.ay-ozmal-del').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const plate = btn.getAttribute('data-plate') || '';
+        if (!plate) return;
+        if (!confirm(plate + ' özmal listeden kaldırılsın mı?')) return;
+        window.OzmalPlates.removeOzmalPlate(plate);
+        renderOzmalPlatesTable();
+        toast('Plaka listeden kaldırıldı.');
+      });
+    });
+    tbody.querySelectorAll('.ay-ozmal-driver-del').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const plate = btn.getAttribute('data-plate') || '';
+        const driver = btn.getAttribute('data-driver') || '';
+        if (!plate || !driver) return;
+        window.OzmalPlates.removeOzmalDriver(plate, driver);
+        renderOzmalPlatesTable();
+        toast('Şoför listeden kaldırıldı.');
+      });
+    });
+  }
+
+  function bindOzmalUi() {
+    renderOzmalPlatesTable();
+    const plateInput = document.getElementById('ozmalPlateInput');
+    const driverInput = document.getElementById('ozmalDriverInput');
+    const addBtn = document.getElementById('ozmalPlateAddBtn');
+    const submit = () => {
+      if (!window.OzmalPlates) return;
+      const plate = plateInput?.value || '';
+      const driver = driverInput?.value || '';
+      const res = window.OzmalPlates.addOzmalPlate(plate, driver);
+      if (!res.ok) {
+        toast(res.error || 'Kayıt eklenemedi.', true);
+        return;
+      }
+      if (res.addedDriver) {
+        if (driverInput) driverInput.value = '';
+        toast((res.driver || driver) + ' şoförü ' + (res.plate || plate) + ' plakasına eklendi.');
+      } else {
+        if (plateInput) plateInput.value = '';
+        if (driverInput) driverInput.value = '';
+        toast((res.plate || plate) + ' özmal listeye eklendi.');
+      }
+      renderOzmalPlatesTable();
+    };
+    addBtn?.addEventListener('click', submit);
+    plateInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      }
+    });
+    driverInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      }
+    });
   }
 
   function bindBanUi() {
@@ -827,6 +1084,7 @@
         if (id) {
           scrollToSection(id);
           if (id === 'section-ban') loadBanList();
+          if (id === 'section-ozmal') renderOzmalPlatesTable();
         }
       });
     });
@@ -879,7 +1137,7 @@
       if (!prev) return;
       if (!file) { prev.innerHTML = ''; return; }
       try {
-        const url = await readFileAsDataUrl(file);
+        const url = await normalizeSignaturePng(file);
         prev.innerHTML = '<img src="' + url + '" alt="Önizleme">';
       } catch (err) {
         prev.innerHTML = '';
@@ -899,7 +1157,7 @@
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
         const id = entry.target.id;
-        if (id === 'section-plaka' || id === 'section-imza' || id === 'section-ban' || id === 'section-yedek' || id === 'section-yazdir') {
+        if (id === 'section-plaka' || id === 'section-eksik' || id === 'section-ozmal' || id === 'section-imza' || id === 'section-ban' || id === 'section-yedek' || id === 'section-yazdir') {
           activeSection = id;
           document.querySelectorAll('.ay-subnav-btn').forEach((btn) => {
             btn.classList.toggle('is-active', btn.getAttribute('data-goto') === id);
@@ -907,7 +1165,7 @@
         }
       });
     }, { rootMargin: '-40% 0px -45% 0px', threshold: 0 });
-    ['section-plaka', 'section-imza', 'section-ban', 'section-yedek', 'section-yazdir'].forEach((id) => {
+    ['section-plaka', 'section-eksik', 'section-ozmal', 'section-imza', 'section-ban', 'section-yedek', 'section-yazdir'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) obs.observe(el);
     });
@@ -915,6 +1173,8 @@
     bindBanUi();
     bindBackupUi();
     bindYuklemeNotuFitUi();
+    bindIncompleteUi();
+    bindOzmalUi();
   }
 
   function applyHashSection() {
@@ -923,6 +1183,10 @@
       setTimeout(() => scrollToSection('section-imza'), 100);
     } else if (hash === 'plaka' || hash === 'section-plaka') {
       setTimeout(() => scrollToSection('section-plaka'), 100);
+    } else if (hash === 'eksik' || hash === 'section-eksik') {
+      setTimeout(() => scrollToSection('section-eksik'), 100);
+    } else if (hash === 'ozmal' || hash === 'section-ozmal') {
+      setTimeout(() => scrollToSection('section-ozmal'), 100);
     } else if (hash === 'ban' || hash === 'section-ban') {
       setTimeout(() => scrollToSection('section-ban'), 100);
     } else if (hash === 'yedek' || hash === 'section-yedek') {
@@ -981,6 +1245,7 @@
     await loadSummary();
     setActiveTab('products', { scroll: false });
     loadSignaturesList();
+    loadIncompleteVehicles();
     applyHashSection();
     try {
       if (window.SignatureRegistry) await window.SignatureRegistry.loadSignatures(true);

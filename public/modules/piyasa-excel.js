@@ -536,46 +536,49 @@
   async function maybePromptAracBosuBeforePrint() {}
   function isHpFirma() { return false; }
 
-  function applyOrderFromPicker(o) {
-    const canon = resolveCanonicalOrder(o) || o;
-    const plate = (document.getElementById('cekiciPlaka') || {}).value || '';
-    applyOrderToForm(canon, { forceReuse: true });
-    markOrderUsed(canon, plate);
+  function clearLockedPiyasaPick() {
+    state._lockedPiyasaPick = null;
   }
 
-  function showPiyasaSuggestionBar(suggestions, ctx) {
-    const old = document.getElementById('piyasaSuggestionBar');
-    if (old) old.remove();
-    if (!suggestions || !suggestions.length) return;
+  function isPiyasaOrderLockedForFirma(firma) {
+    const lock = state._lockedPiyasaPick;
+    if (!lock || !lock.pickKey) return false;
+    const f = String(firma || '').trim();
+    if (!f) return false;
+    return normFirmaKey(f) === normFirmaKey(lock.firma);
+  }
 
-    const bar = document.createElement('div');
-    bar.id = 'piyasaSuggestionBar';
-    bar.style.cssText = 'margin:8px 0;padding:10px 12px;background:#f5f3ff;border:1px solid #c7d2fe;border-radius:10px;font-size:12px;';
-    let html = '<div style="font-weight:700;color:#4338ca;margin-bottom:6px;">🧾 Piyasa sipariş önerisi</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';
-    suggestions.forEach(({ order, score }, i) => {
-      const label = [order.firma, order.malzeme, order.il || order.sevkYeri].filter(Boolean).join(' · ');
-      html += `<button type="button" data-piy-sug="${i}" style="padding:6px 10px;border:1px solid #a5b4fc;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;">${escapeHtml(label)} <span style="color:#6366f1;">(${score})</span></button>`;
-    });
-    html += '</div>';
-    bar.innerHTML = html;
-    const anchor = document.getElementById('firmaKodu')?.closest('.bg-white') || document.getElementById('mainApp');
-    if (anchor && anchor.firstChild) anchor.insertBefore(bar, anchor.firstChild);
-    else document.body.appendChild(bar);
+  async function confirmHpOrderPickIfNeeded(o, isDuplicate) {
+    if (!o || !isHpStyleFirma(o.firma)) return true;
+    const yuk = String(o.yuklemeTuru || '').trim();
+    const sehir = orderSehirKey(o);
+    if (!isDuplicate && yuk && sehir) return true;
+    const lines = [
+      `Firma: ${String(o.firma || '').trim()}`,
+      o.malzeme ? `Malzeme: ${o.malzeme}` : '',
+      yuk ? `Yükleme türü: ${yuk}` : '',
+      sehir ? `Şehir: ${sehir}` : '',
+      o.miktar != null && o.miktar !== '' ? `Miktar: ${o.miktar}` : '',
+    ].filter(Boolean);
+    const ui = window.rpUi || {};
+    const msg = `Listede seçtiğiniz sipariş forma yazılacak:\n\n${lines.join('\n')}\n\nOnaylıyor musunuz?`;
+    if (typeof ui.confirm === 'function') {
+      return ui.confirm(msg, { okLabel: 'Evet, seç' });
+    }
+    return confirm(msg);
+  }
 
-    bar.querySelectorAll('[data-piy-sug]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const idx = parseInt(btn.getAttribute('data-piy-sug'), 10);
-        const item = suggestions[idx];
-        if (!item || !item.order) return;
-        if (item.order.usedAt || getOrderPrintCount(item.order) > 0) {
-          const ok = await confirmReuseOrder(item.order);
-          if (!ok) return;
-        }
-        applyOrderToForm(item.order, { forceReuse: true });
-        markOrderUsed(item.order, ctx.plate || '');
-        bar.remove();
-      });
-    });
+  function applyOrderFromPicker(o) {
+    const snapshot = freezeOrderSnapshot(o);
+    if (!snapshot) return;
+    const plate = (document.getElementById('cekiciPlaka') || {}).value || '';
+    applyOrderToForm(snapshot, { forceReuse: true });
+    markOrderUsed(snapshot, plate);
+  }
+
+  /** Devre dışı — varsa eski öneri bandını temizler */
+  function showPiyasaSuggestionBar() {
+    try { document.getElementById('piyasaSuggestionBar')?.remove(); } catch (e) {}
   }
 
   function suggestPiyasaForContext(ctx) {
@@ -610,9 +613,9 @@
   }
 
   function markOrderUsed(o, plate) {
-    const canon = resolveCanonicalOrder(o);
-    if (!canon) return;
-    const pickKey = getOrderPickKey(canon);
+    const snapshot = (o && o._frozenFromPicker) ? o : (freezeOrderSnapshot(o) || o);
+    if (!snapshot) return;
+    const pickKey = getOrderPickKey(snapshot);
     const patch = {
       usedAt: Date.now(),
       usedPlate: String(plate || '').trim(),
@@ -621,13 +624,21 @@
       hit.usedAt = patch.usedAt;
       hit.usedPlate = patch.usedPlate;
     });
-    state._lastAppliedOrder = resolveCanonicalOrder(canon) || canon;
+    state._lastAppliedOrder = snapshot;
     refreshArchiveForCurrentSheet();
     try { saveState(); } catch (e) {}
   }
 
   function applyOrderToForm(o, opts){
     window.__piyasaApplyingOrder = true;
+    const snapshot = freezeOrderSnapshot(o) || o;
+    state._lockedPiyasaPick = {
+      pickKey: getOrderPickKey(snapshot),
+      firma: snapshot.firma,
+      malzeme: snapshot.malzeme,
+      yuklemeTuru: snapshot.yuklemeTuru,
+      sehir: orderSehirKey(snapshot),
+    };
     applyAracBosuToForm(null);
 
     const firmaKodu = document.getElementById('firmaKodu');
@@ -643,7 +654,7 @@
     const writeOrderValues = () => {
       if (firmaKodu) firmaKodu.value = firmaVal;
       if (malzeme) {
-        const rawMal = o.malzeme || '';
+        const rawMal = snapshot.malzeme || '';
         malzeme.value = typeof window.formatMalzemeForPrint === 'function'
           ? window.formatMalzemeForPrint(rawMal) || rawMal
           : rawMal;
@@ -652,19 +663,19 @@
         }
       }
       if (malzemeSelect) {
-        const target = (o.malzeme || '').trim();
+        const target = (snapshot.malzeme || '').trim();
         const opt = Array.from(malzemeSelect.options || []).find(x => (x.value||'').trim() === target);
         malzemeSelect.value = opt ? opt.value : '';
       }
-      if (ambalaj) ambalaj.value = o.yuklemeTuru || '';
-      if (notu) notu.value = o.aciklama || '';
-      if (sevk) sevk.value = o.sevkYeri || o.il || '';
-      if (tonaj) tonaj.value = o.miktar != null && o.miktar !== '' ? String(o.miktar) : '';
+      if (ambalaj) ambalaj.value = snapshot.yuklemeTuru || '';
+      if (notu) notu.value = snapshot.aciklama || '';
+      if (sevk) sevk.value = snapshot.sevkYeri || snapshot.il || '';
+      if (tonaj) tonaj.value = snapshot.miktar != null && snapshot.miktar !== '' ? String(snapshot.miktar) : '';
     };
 
     // Değerleri bas
     // Firma/Müşteri Kodu: hem input'u doldur hem de select içinde eşleşen varsa seç.
-    const firmaVal = (o.firma || '').trim();
+    const firmaVal = (snapshot.firma || '').trim();
     if (firmaKodu) firmaKodu.value = firmaVal;
     let firmaOptMatched = false;
     if (firmaSelect) {
@@ -678,8 +689,8 @@
     
     // SEPERATÖR BİLGİSİ: ÖDEME TÜRÜ ve ORG bilgilerini ayrı ayrı belirterek yaz
     if (seperator) {
-      const odemeTuru = (o.odemeTuru || '').trim();
-      const org = (o.org || '').trim();
+      const odemeTuru = (snapshot.odemeTuru || '').trim();
+      const org = (snapshot.org || '').trim();
       if (odemeTuru && org) {
         seperator.value = `ÖDEME TÜRÜ: ${odemeTuru} ORG: ${org}`;
       } else if (odemeTuru) {
@@ -715,8 +726,8 @@
     
     // SEPERATÖR BİLGİSİ: ÖDEME TÜRÜ ve ORG bilgilerini ayrı ayrı belirterek yaz (ikinci kez)
     if (seperator) {
-      const odemeTuru = (o.odemeTuru || '').trim();
-      const org = (o.org || '').trim();
+      const odemeTuru = (snapshot.odemeTuru || '').trim();
+      const org = (snapshot.org || '').trim();
       if (odemeTuru && org) {
         seperator.value = `ÖDEME TÜRÜ: ${odemeTuru} ORG: ${org}`;
       } else if (odemeTuru) {
@@ -741,6 +752,7 @@
     // Takip formundaki eşleştirme listener'ları alanı geri boşaltırsa tekrar bas.
     setTimeout(writeOrderValues, 0);
     setTimeout(writeOrderValues, 40);
-    setTimeout(() => { window.__piyasaApplyingOrder = false; }, 80);
+    setTimeout(writeOrderValues, 120);
+    setTimeout(() => { window.__piyasaApplyingOrder = false; }, 200);
   }
 

@@ -100,25 +100,32 @@ function _openQuickPick({ title, query, options, onPick }) {
     };
 
     addOpts(selSev, sevC);
-// Sevk yeri: ilk aday varsa otomatik doldur
-try {
-  const sevInp = card.querySelector('#xr_sevkYeri');
-  if (sevInp && !String(sevInp.value || '').trim() && sevC.length > 0) {
-    sevInp.value = sevC[0];
-    if (selSev) selSev.value = sevC[0];
-  }
-} catch(e) {}
-
-// Ambalaj: ilk aday varsa otomatik doldur
-try {
-  const ambInp = card.querySelector('#xr_ambalaj');
-  if (ambInp && !String(ambInp.value || '').trim() && ambC.length > 0) {
-    ambInp.value = ambC[0];
-    if (selAmb) selAmb.value = ambC[0];
-  }
-} catch(e) {}
-	  
     addOpts(selAmb, ambC);
+
+    // Sevk yeri: blok başlığından veya en iyi adaydan otomatik doldur
+    try {
+      const sevInp = card.querySelector('#xr_sevkYeri');
+      const primarySevk = (typeof extractPrimaryPortFromShipment === 'function')
+        ? extractPrimaryPortFromShipment({ headerText: chosen?.headerText, blockMeta: chosen?.blockMeta })
+        : (sevC[0] || '');
+      if (sevInp && !String(sevInp.value || '').trim() && primarySevk) {
+        sevInp.value = primarySevk;
+        if (selSev) selSev.value = primarySevk;
+      }
+    } catch (e) {}
+
+    // Ambalaj: blok başlığından birebir oku
+    try {
+      const ambInp = card.querySelector('#xr_ambalaj');
+      const ht = String(chosen?.blockMeta?.mainHeader || chosen?.headerText || '').trim();
+      const primaryAmb = (typeof extractPrimaryAmbalajFromHeader === 'function')
+        ? extractPrimaryAmbalajFromHeader(ht)
+        : (ambC.length ? ambC[ambC.length - 1] : '');
+      if (ambInp && !String(ambInp.value || '').trim() && primaryAmb) {
+        ambInp.value = primaryAmb;
+        if (selAmb) selAmb.value = primaryAmb;
+      }
+    } catch (e) {}
 
     // seçilince inputu doldur
     if (selSev) selSev.addEventListener('change', () => {
@@ -137,17 +144,22 @@ try {
     });
   } catch(e){}
 
-  // ✅ Aynı Excel oturumunda hızlı doldurma: YD/Firma anahtarına göre
+  // ✅ Aynı Excel oturumunda hızlı doldurma: YD/Firma anahtarına göre (blok başlığında liman/ambalaj varsa atla)
   try {
     const key = normalizeYdKey(ydKey || chosen?.ydKey || chosen?.firma || '');
     if (key) {
       if (!window.__quickDefaultsByKey) window.__quickDefaultsByKey = {};
       const d = window.__quickDefaultsByKey[key];
       if (d) {
+        const ht = String(chosen?.blockMeta?.mainHeader || chosen?.headerText || '').trim();
+        const headerHasSevk = !!(typeof extractPrimaryPortFromShipment === 'function'
+          && extractPrimaryPortFromShipment({ headerText: chosen?.headerText, blockMeta: chosen?.blockMeta }));
+        const headerHasAmb = !!(typeof extractPrimaryAmbalajFromHeader === 'function'
+          && extractPrimaryAmbalajFromHeader(ht));
         const sevInp = card.querySelector('#xr_sevkYeri');
         const ambInp = card.querySelector('#xr_ambalaj');
-        if (sevInp && !String(sevInp.value||'').trim() && String(d.sevkYeri||'').trim()) sevInp.value = d.sevkYeri;
-        if (ambInp && !String(ambInp.value||'').trim() && String(d.ambalaj||'').trim()) ambInp.value = d.ambalaj;
+        if (!headerHasSevk && sevInp && !String(sevInp.value||'').trim() && String(d.sevkYeri||'').trim()) sevInp.value = d.sevkYeri;
+        if (!headerHasAmb && ambInp && !String(ambInp.value||'').trim() && String(d.ambalaj||'').trim()) ambInp.value = d.ambalaj;
       }
     }
   } catch(e){}
@@ -294,6 +306,29 @@ function _openPlatePick({ title='Çekici Plaka Seç', query='', options=[], onPi
     addOpts(selSev, sevC);
     addOpts(selAmb, ambC);
 
+    try {
+      const sevInp = card.querySelector('#xr_sevkYeri');
+      const primarySevk = (typeof extractPrimaryPortFromShipment === 'function')
+        ? extractPrimaryPortFromShipment({ headerText: chosen?.headerText, blockMeta: chosen?.blockMeta })
+        : (sevC[0] || '');
+      if (sevInp && !String(sevInp.value || '').trim() && primarySevk) {
+        sevInp.value = primarySevk;
+        if (selSev) selSev.value = primarySevk;
+      }
+    } catch (e) {}
+
+    try {
+      const ambInp = card.querySelector('#xr_ambalaj');
+      const ht = String(chosen?.blockMeta?.mainHeader || chosen?.headerText || '').trim();
+      const primaryAmb = (typeof extractPrimaryAmbalajFromHeader === 'function')
+        ? extractPrimaryAmbalajFromHeader(ht)
+        : (ambC.length ? ambC[ambC.length - 1] : '');
+      if (ambInp && !String(ambInp.value || '').trim() && primaryAmb) {
+        ambInp.value = primaryAmb;
+        if (selAmb) selAmb.value = primaryAmb;
+      }
+    } catch (e) {}
+
     // seçilince inputu doldur
     if (selSev) selSev.addEventListener('change', () => {
       const v = selSev.value || '';
@@ -311,17 +346,22 @@ function _openPlatePick({ title='Çekici Plaka Seç', query='', options=[], onPi
     });
   } catch(e){}
 
-  // ✅ Aynı Excel oturumunda hızlı doldurma: YD/Firma anahtarına göre
+  // ✅ Aynı Excel oturumunda hızlı doldurma: YD/Firma anahtarına göre (blok başlığında liman/ambalaj varsa atla)
   try {
     const key = normalizeYdKey(ydKey || chosen?.ydKey || chosen?.firma || '');
     if (key) {
       if (!window.__quickDefaultsByKey) window.__quickDefaultsByKey = {};
       const d = window.__quickDefaultsByKey[key];
       if (d) {
+        const ht = String(chosen?.blockMeta?.mainHeader || chosen?.headerText || '').trim();
+        const headerHasSevk = !!(typeof extractPrimaryPortFromShipment === 'function'
+          && extractPrimaryPortFromShipment({ headerText: chosen?.headerText, blockMeta: chosen?.blockMeta }));
+        const headerHasAmb = !!(typeof extractPrimaryAmbalajFromHeader === 'function'
+          && extractPrimaryAmbalajFromHeader(ht));
         const sevInp = card.querySelector('#xr_sevkYeri');
         const ambInp = card.querySelector('#xr_ambalaj');
-        if (sevInp && !String(sevInp.value||'').trim() && String(d.sevkYeri||'').trim()) sevInp.value = d.sevkYeri;
-        if (ambInp && !String(ambInp.value||'').trim() && String(d.ambalaj||'').trim()) ambInp.value = d.ambalaj;
+        if (!headerHasSevk && sevInp && !String(sevInp.value||'').trim() && String(d.sevkYeri||'').trim()) sevInp.value = d.sevkYeri;
+        if (!headerHasAmb && ambInp && !String(ambInp.value||'').trim() && String(d.ambalaj||'').trim()) ambInp.value = d.ambalaj;
       }
     }
   } catch(e){}

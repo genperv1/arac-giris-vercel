@@ -5,11 +5,11 @@
 // Kantar / Sevkiyat saha imza eşleştirme (Ayarlar + signatures-registry)
 // =============================
 const LEGACY_KANTAR_SIG = {
-  "BURAK KARATAŞ": "signatures/burak_karatas.png",
-  "BEKİR DOĞRU": "signatures/bekir_dogru.png",
-  "BATUHAN KOCABAY": "signatures/batuhan_kocabay.png",
-  "BATUHAN CINAR": "signatures/batuhan_cinar.png",
-  "BURAK TALAY": "signatures/burak_talay.png"
+  "BURAK KARATAŞ": "/signatures/burak_karatas.png",
+  "BEKİR DOĞRU": "/signatures/bekir_dogru.png",
+  "BATUHAN KOCABAY": "/signatures/batuhan_kocabay.png",
+  "BATUHAN CINAR": "/signatures/batuhan_cinar.png",
+  "BURAK TALAY": "/signatures/burak_talay.png"
 };
 
 function resolveKantarSignatureSrc(name) {

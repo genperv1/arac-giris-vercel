@@ -194,6 +194,28 @@
     .ay-pager-btn:not(:disabled):hover { border-color: var(--rp-accent); color: var(--rp-accent); }
 
     .ay-empty { text-align: center; padding: 2rem 1rem; color: var(--rp-muted); font-size: .875rem; }
+    .ay-muted { color: var(--rp-muted); font-size: .8125rem; }
+    .ay-ozmal-driver {
+      display: inline-flex;
+      align-items: center;
+      gap: .2rem;
+      margin: .1rem .35rem .1rem 0;
+      padding: .15rem .45rem;
+      border-radius: 6px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      font-size: .78rem;
+      font-weight: 600;
+    }
+    .ay-ozmal-driver-del {
+      border: none;
+      background: transparent;
+      color: #dc2626;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 .1rem;
+    }
 
     .ay-sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 768px) { .ay-sig-grid { grid-template-columns: 1fr; } }
@@ -329,6 +351,12 @@
       <button type="button" class="ay-subnav-btn is-active" data-goto="section-plaka">
         <i class="fas fa-car" aria-hidden="true"></i> Plaka istatistikleri
       </button>
+      <button type="button" class="ay-subnav-btn" data-goto="section-eksik">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Eksik kayıtlar
+      </button>
+      <button type="button" class="ay-subnav-btn" data-goto="section-ozmal">
+        <i class="fas fa-star" aria-hidden="true"></i> Özmal araçlar
+      </button>
       <button type="button" class="ay-subnav-btn" data-goto="section-imza">
         <i class="fas fa-pen-nib" aria-hidden="true"></i> İmza ayarları
       </button>
@@ -405,6 +433,72 @@
       </div>
     </section>
 
+    <section id="section-eksik" class="ay-panel" tabindex="-1" aria-labelledby="eksikTitle">
+      <div class="ay-panel__head">
+        <div>
+          <h2 id="eksikTitle">Eksik şoför bilgileri</h2>
+          <p>TC kimlik veya iletişim numarası eksik olan araç kayıtları. Düzenle ile ana sayfada kayıt formu açılır.</p>
+        </div>
+      </div>
+
+      <div class="ay-ban-actions">
+        <button type="button" class="ay-btn ay-btn--primary" id="eksikRefreshBtn"><i class="fas fa-sync" aria-hidden="true"></i> Listeyi yenile</button>
+        <button type="button" class="ay-btn" id="eksikExportBtn"><i class="fas fa-file-excel" aria-hidden="true"></i> Excel indir</button>
+      </div>
+
+      <div class="ay-table-card">
+        <div class="ay-table-scroll">
+          <table class="ay-table">
+            <thead>
+              <tr>
+                <th>Plaka</th>
+                <th>Şoför</th>
+                <th>Telefon</th>
+                <th>TC</th>
+                <th>Eksikler</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="eksikTbody">
+              <tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="section-ozmal" class="ay-panel" tabindex="-1" aria-labelledby="ozmalTitle">
+      <div class="ay-panel__head">
+        <div>
+          <h2 id="ozmalTitle">Özmal araçlar</h2>
+          <p>Şirket araçları bu listede tutulur. Aynı plakaya birden fazla şoför ekleyebilirsiniz — plaka bir kez, her şoför ayrı satır olarak.</p>
+        </div>
+      </div>
+      <div class="ay-toolbar" style="flex-wrap:wrap;gap:.5rem;">
+        <input type="text" id="ozmalPlateInput" class="ay-search" style="max-width:200px;flex:1 1 160px;" placeholder="Plaka (örn. 43 NL 175)" autocomplete="off" />
+        <input type="text" id="ozmalDriverInput" class="ay-search" style="max-width:220px;flex:1 1 180px;" placeholder="Şoför adı soyadı (isteğe bağlı)" autocomplete="off" />
+        <button type="button" class="ay-btn ay-btn--primary" id="ozmalPlateAddBtn"><i class="fas fa-plus" aria-hidden="true"></i> Ekle</button>
+      </div>
+      <p class="ay-hint" style="margin:0 0 .75rem;">Plaka zaten listedeyse şoför adı yazarak ikinci şoförü ekleyin.</p>
+      <div class="ay-table-card">
+        <div class="ay-table-scroll">
+          <table class="ay-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Plaka</th>
+                <th>Şoförler</th>
+                <th style="width:120px;">İşlem</th>
+              </tr>
+            </thead>
+            <tbody id="ozmalTbody">
+              <tr><td colspan="4" class="ay-empty">Yükleniyor…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section id="section-ban" class="ay-panel" tabindex="-1" aria-labelledby="banTitle">
       <div class="ay-panel__head">
         <div>
@@ -414,7 +508,8 @@
       </div>
 
       <div class="ay-ban-alert" id="banHelpText">
-        Bu bilgisayarın IP adresi: <span class="ay-ip-mono" id="banMyIp">—</span>.
+        Bu bilgisayarın IP adresi: <span class="ay-ip-mono" id="banMyIp">—</span>
+        <span id="banMySiteWrap" hidden> — Konum: <strong id="banMySite">—</strong></span>.
         Kendinizi yanlışlıkla engellediyseniz listeden kaldırın veya tüm engelleri temizleyin.
         IP banlıyken acil kurtarma: <a href="ayarlar.html#ban">ayarlar.html#ban</a> (giriş yapmadan, yalnızca ayarlar parolası).
       </div>
@@ -567,6 +662,7 @@
   </div>
 
   <div class="toast" id="ayToast"></div>
+  <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
   <script src="ayarlar-gate.js"></script>
   <script src="signatures-registry.js"></script>

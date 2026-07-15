@@ -206,6 +206,7 @@
     const PAGE_WINDOW_NAMES = {
         'rapor.html': 'gpm_page_rapor',
         'vardiya-notlari.html': 'gpm_page_vardiya',
+        'nakliye-bekleyen.html': 'gpm_page_nakliye',
         'sorunlar.html': 'gpm_page_sorunlar',
         'ayarlar.html': 'gpm_page_ayarlar',
         'plaka.html': 'gpm_page_plaka',
