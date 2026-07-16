@@ -51,12 +51,41 @@
     ozmalAdminEntries = data.entries || [];
   }
 
-  async function syncOzmalToServer(forceToast) {
-    if (!window.OzmalPlates || typeof window.OzmalPlates.pushEntriesToServer !== 'function') return;
-    const res = await window.OzmalPlates.pushEntriesToServer(window.OzmalPlates.getOzmalEntries());
-    if (forceToast && res && res.ok === false && !res.skipped) {
-      toast(res.error || 'Sunucuya kaydedilemedi.', true);
+  async function persistAdminEntries(payload) {
+    const data = await officeApi('/driver-panel/ozmal-entries', {
+      method: 'POST',
+      body: JSON.stringify({ entries: payload }),
+    });
+    await loadOzmalAdminEntries();
+    if (window.OzmalPlates && typeof window.OzmalPlates.syncFromServer === 'function') {
+      await window.OzmalPlates.syncFromServer();
+    } else if (window.OzmalPlates && typeof window.OzmalPlates.applyRemoteEntries === 'function' && data.entries) {
+      window.OzmalPlates.applyRemoteEntries(data.entries);
     }
+    return data;
+  }
+
+  async function syncOzmalToServer(forceToast) {
+    if (!window.OzmalPlates || typeof window.OzmalPlates.pushEntriesToServer !== 'function') {
+      if (forceToast) toast('Sunucuya kaydedilemedi.', true);
+      return { ok: false, skipped: true };
+    }
+    const res = await window.OzmalPlates.pushEntriesToServer(window.OzmalPlates.getOzmalEntries());
+    if (forceToast && (!res || (res.ok === false && !res.skipped))) {
+      toast(res?.error || 'Sunucuya kaydedilemedi.', true);
+    }
+    return res || { ok: false };
+  }
+
+  function entriesPayloadFromAdmin() {
+    return ozmalAdminEntries.map((entry) => ({
+      plaka: entry.plaka,
+      bassofor: !!entry.bassofor,
+      drivers: (entry.drivers || []).map((d) => ({
+        name: typeof d === 'string' ? d : d.name,
+        starred: !!(typeof d === 'object' && d && d.starred),
+      })),
+    }));
   }
 
   function renderOzmalTable() {
@@ -101,11 +130,17 @@
       btn.addEventListener('click', async () => {
         const plate = btn.getAttribute('data-plate') || '';
         if (!plate || !confirm(`${plate} listeden kaldırılsın mı?`)) return;
-        window.OzmalPlates.removeOzmalPlate(plate);
-        await syncOzmalToServer(true);
-        await loadOzmalAdminEntries();
-        renderOzmalTable();
-        toast('Plaka kaldırıldı.');
+        try {
+          await loadOzmalAdminEntries();
+          const payload = entriesPayloadFromAdmin().filter(
+            (entry) => window.OzmalPlates.normKey(entry.plaka) !== window.OzmalPlates.normKey(plate)
+          );
+          await persistAdminEntries(payload);
+          renderOzmalTable();
+          toast('Plaka kaldırıldı.');
+        } catch (e) {
+          toast(e.message || 'Kaldırılamadı.', true);
+        }
       });
     });
 
@@ -113,11 +148,23 @@
       btn.addEventListener('click', async () => {
         const plate = btn.getAttribute('data-plate') || '';
         const driver = btn.getAttribute('data-driver') || '';
-        window.OzmalPlates.removeOzmalDriver(plate, driver);
-        await syncOzmalToServer(true);
-        await loadOzmalAdminEntries();
-        renderOzmalTable();
-        toast('Şoför kaldırıldı.');
+        try {
+          await loadOzmalAdminEntries();
+          const payload = entriesPayloadFromAdmin().map((entry) => {
+            if (window.OzmalPlates.normKey(entry.plaka) !== window.OzmalPlates.normKey(plate)) return entry;
+            return {
+              ...entry,
+              drivers: (entry.drivers || []).filter(
+                (d) => window.OzmalPlates.normDriverName(d.name) !== window.OzmalPlates.normDriverName(driver)
+              ),
+            };
+          });
+          await persistAdminEntries(payload);
+          renderOzmalTable();
+          toast('Şoför kaldırıldı.');
+        } catch (e) {
+          toast(e.message || 'Kaldırılamadı.', true);
+        }
       });
     });
 
@@ -125,14 +172,25 @@
       btn.addEventListener('click', async () => {
         const plate = btn.getAttribute('data-plate') || '';
         const driver = btn.getAttribute('data-driver') || '';
-        const res = window.OzmalPlates.toggleOzmalDriverStar(plate, driver);
-        if (!res.ok) {
-          toast(res.error || 'Güncellenemedi.', true);
-          return;
+        try {
+          await loadOzmalAdminEntries();
+          const payload = entriesPayloadFromAdmin().map((entry) => {
+            if (window.OzmalPlates.normKey(entry.plaka) !== window.OzmalPlates.normKey(plate)) return entry;
+            return {
+              ...entry,
+              drivers: (entry.drivers || []).map((d) => ({
+                ...d,
+                starred: window.OzmalPlates.normDriverName(d.name) === window.OzmalPlates.normDriverName(driver)
+                  ? !d.starred
+                  : !!d.starred,
+              })),
+            };
+          });
+          await persistAdminEntries(payload);
+          renderOzmalTable();
+        } catch (e) {
+          toast(e.message || 'Güncellenemedi.', true);
         }
-        await syncOzmalToServer(true);
-        await loadOzmalAdminEntries();
-        renderOzmalTable();
       });
     });
 
@@ -198,28 +256,39 @@
 
   function bindAdminUi() {
     document.getElementById('spOzmalAddBtn')?.addEventListener('click', async () => {
-      if (!window.OzmalPlates) return;
       const plate = document.getElementById('spOzmalPlateInput')?.value || '';
       const driver = document.getElementById('spOzmalDriverInput')?.value || '';
-      const res = window.OzmalPlates.addOzmalPlate(plate, driver);
-      if (!res.ok) {
-        toast(res.error || 'Eklenemedi.', true);
+      if (!plate.trim()) {
+        toast('Plaka giriniz.', true);
         return;
       }
-      await syncOzmalToServer(true);
-      await loadOzmalAdminEntries();
-      if (res.addedDriver) {
-        document.getElementById('spOzmalDriverInput').value = '';
-        const pwdEntry = ozmalAdminEntries
-          .find((e) => window.OzmalPlates.normKey(e.plaka) === window.OzmalPlates.normKey(res.plate || plate))
-          ?.drivers?.find((d) => window.OzmalPlates.normDriverName(d.name) === window.OzmalPlates.normDriverName(res.driver || driver));
-        toast(`${res.driver || driver} eklendi${pwdEntry && pwdEntry.passwordPlain ? ' · Şifre: ' + pwdEntry.passwordPlain : ''}.`);
-      } else {
-        document.getElementById('spOzmalPlateInput').value = '';
-        document.getElementById('spOzmalDriverInput').value = '';
-        toast(`${res.plate || plate} eklendi.`);
+      try {
+        const data = await officeApi('/driver-panel/ozmal-add', {
+          method: 'POST',
+          body: JSON.stringify({ plaka: plate.trim(), driver: driver.trim() }),
+        });
+        if (!data.ok) {
+          toast(data.error || 'Eklenemedi.', true);
+          return;
+        }
+        await loadOzmalAdminEntries();
+        if (window.OzmalPlates && typeof window.OzmalPlates.applyRemoteEntries === 'function' && data.entries) {
+          window.OzmalPlates.applyRemoteEntries(data.entries);
+        } else if (window.OzmalPlates && typeof window.OzmalPlates.syncFromServer === 'function') {
+          await window.OzmalPlates.syncFromServer();
+        }
+        if (data.addedDriver) {
+          document.getElementById('spOzmalDriverInput').value = '';
+          toast(`${data.driver || driver} eklendi${data.passwordPlain ? ' · Şifre: ' + data.passwordPlain : ''}.`);
+        } else {
+          document.getElementById('spOzmalPlateInput').value = '';
+          document.getElementById('spOzmalDriverInput').value = '';
+          toast(`${data.plaka || plate} eklendi${data.passwordPlain ? ' · Şifre: ' + data.passwordPlain : ''}.`);
+        }
+        renderOzmalTable();
+      } catch (e) {
+        toast(e.message || 'Sunucuya kaydedilemedi.', true);
       }
-      renderOzmalTable();
     });
 
     document.getElementById('spRoutePointAddBtn')?.addEventListener('click', () => {
@@ -242,7 +311,6 @@
   async function initOfficeAdmin() {
     if (!window.OzmalPlates) return;
     bindAdminUi();
-    await window.OzmalPlates.ensureSynced();
     await loadOzmalAdminEntries();
     renderOzmalTable();
     await loadRoutePointsAdmin();

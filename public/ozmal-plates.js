@@ -9,6 +9,7 @@
   const ENTRIES_STORAGE_KEY = 'ozmal_entries_v1';
   const DEFAULT_PLATES = [
     '43 ADS 408',
+    '43 ADS 403',
     '43 ADT 546',
     '43 ADT 550',
     '43 ADT 553',
@@ -18,7 +19,6 @@
   const DEFAULT_BASSOFOR_PLATE = '43 ADS 408';
   const BASSOFOR_LABEL = 'BAŞŞOFÖR';
   const BASSOFOR_DRIVER_HINT = 'HASAN HÜSEYİN DİNÇ';
-  const REMOVED_PLATE = '43 ADS 403';
 
   const DEFAULT_SEED_ENTRIES = [
     {
@@ -26,6 +26,7 @@
       bassofor: true,
       drivers: [{ name: 'HASAN HÜSEYİN DİNÇ', starred: true }],
     },
+    { plaka: '43 ADS 403', drivers: [{ name: 'MEHMET ALİ SARI' }] },
     { plaka: '43 ADT 546', drivers: [{ name: 'AKİF BURÇ' }] },
     { plaka: '43 ADT 550', drivers: [{ name: 'HÜSEYİN MICIR' }] },
     { plaka: '43 ADT 553', drivers: [{ name: 'EMRE ÜSTÜNDAĞ' }] },
@@ -100,7 +101,6 @@
   }
 
   function migrateOzmalEntries(rawEntries) {
-    const removedKey = normKey(REMOVED_PLATE);
     const bassoforKey = normKey(DEFAULT_BASSOFOR_PLATE);
     const out = [];
     const seen = new Set();
@@ -109,7 +109,7 @@
       const entry = normalizeEntry(item);
       if (!entry) return;
       const key = normKey(entry.plaka);
-      if (seen.has(key) || key === removedKey) return;
+      if (seen.has(key)) return;
       seen.add(key);
       out.push(entry);
     });
@@ -342,6 +342,12 @@
     return getOzmalEntries();
   }
 
+  function applyRemoteEntries(entries) {
+    if (!Array.isArray(entries) || !entries.length) return getOzmalEntries();
+    saveEntries(entries, { skipServer: true });
+    return getOzmalEntries();
+  }
+
   function ensureSynced() {
     if (!_syncPromise) {
       _syncPromise = syncFromServer().finally(() => {
@@ -565,6 +571,7 @@
     removeOzmalPlate,
     refreshCache,
     syncFromServer,
+    applyRemoteEntries,
     ensureSynced,
     pushEntriesToServer,
   };

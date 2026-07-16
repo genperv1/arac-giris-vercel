@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="tailwind-built.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="sofor-panel.css?v=20260717b">
-  <link rel="stylesheet" href="sofor-admin.css?v=20260717c">
+  <link rel="stylesheet" href="sofor-admin.css?v=20260717-invoice2">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
 <body class="sa-page" data-sp-mode="office">
@@ -27,7 +27,10 @@
         <i class="fas fa-chart-pie" aria-hidden="true"></i> Genel Bakış
       </button>
       <button type="button" class="sa-nav__item" data-sa-view="trips">
-        <i class="fas fa-route" aria-hidden="true"></i> Tüm Seferler
+        <i class="fas fa-route" aria-hidden="true"></i> Dış Seferler
+      </button>
+      <button type="button" class="sa-nav__item" data-sa-view="ic-trips">
+        <i class="fas fa-shuttle-van" aria-hidden="true"></i> İç Seferler
       </button>
 
       <p class="sa-nav__label">Plakalar</p>
@@ -75,16 +78,22 @@
       <!-- Dashboard -->
       <section id="saViewDashboard" class="sa-view" data-sa-view="dashboard">
         <div class="sa-stats" id="saStatsRow"></div>
+        <div class="sa-section-divider" aria-hidden="true">
+          <span class="sa-section-divider__label">
+            <i class="fas fa-truck" aria-hidden="true"></i> Özmal plakalar &amp; şoförler
+          </span>
+        </div>
         <div class="sa-grid" id="saPlateCards"></div>
       </section>
 
-      <!-- All trips -->
+      <!-- All trips (dış) -->
       <section id="saViewTrips" class="sa-view hidden" data-sa-view="trips">
         <div class="sa-card">
           <div class="sa-card__head sa-card__head--row">
             <div>
-              <h2>Tüm sefer kayıtları</h2>
+              <h2>Dış sefer kayıtları</h2>
               <p id="saTripsMeta">—</p>
+              <p class="sa-table-note">İrsaliye için gerekli rota, KM ve mazot bilgileri ayrı sütunlarda listelenir.</p>
             </div>
             <div class="sa-filters">
               <input type="search" id="saTripSearch" class="sa-input" placeholder="Plaka, şoför, rota ara…">
@@ -93,8 +102,78 @@
               </select>
             </div>
           </div>
+          <div class="sa-table-wrap sa-table-wrap--wide">
+            <table class="sa-table sa-table--invoice" id="saTripsTable">
+              <thead>
+                <tr>
+                  <th>Tarih</th>
+                  <th>Plaka</th>
+                  <th>Şoför</th>
+                  <th>Nereden sardı</th>
+                  <th>Nereye götürdü</th>
+                  <th>Dönüşte nereden sardı</th>
+                  <th>Dönüşte nereye getirdi</th>
+                  <th>Çıkış KM</th>
+                  <th>Dönüş KM</th>
+                  <th>Toplam KM</th>
+                  <th>Mazot</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="saTripsTbody">
+                <tr><td colspan="12" class="sa-empty">Yükleniyor…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- İç seferler -->
+      <section id="saViewIcTrips" class="sa-view hidden" data-sa-view="ic-trips">
+        <div class="sa-stats sa-stats--compact" id="saIcStatsRow"></div>
+
+        <div class="sa-card sa-card--ic">
+          <div class="sa-card__head sa-card__head--row">
+            <div>
+              <h2>Haftalık iç sefer özeti</h2>
+              <p id="saIcWeeklyMeta">—</p>
+            </div>
+            <div class="sa-ic-route-badge" id="saIcRouteBadge">AVDAN → 1.OSB</div>
+          </div>
           <div class="sa-table-wrap">
-            <table class="sa-table" id="saTripsTable">
+            <table class="sa-table" id="saIcWeeklyTable">
+              <thead>
+                <tr>
+                  <th>Plaka</th>
+                  <th>Şoförler</th>
+                  <th>Bu hafta sefer</th>
+                  <th>Bu hafta KM</th>
+                  <th>Toplam sefer</th>
+                  <th>Toplam KM</th>
+                </tr>
+              </thead>
+              <tbody id="saIcWeeklyTbody">
+                <tr><td colspan="6" class="sa-empty">Yükleniyor…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="sa-card sa-card--ic">
+          <div class="sa-card__head sa-card__head--row">
+            <div>
+              <h2>İç sefer kayıtları</h2>
+              <p id="saIcTripsMeta">—</p>
+            </div>
+            <div class="sa-filters">
+              <input type="search" id="saIcTripSearch" class="sa-input" placeholder="Plaka, şoför ara…">
+              <select id="saIcTripPlateFilter" class="sa-input sa-input--select">
+                <option value="">Tüm plakalar</option>
+              </select>
+            </div>
+          </div>
+          <div class="sa-table-wrap">
+            <table class="sa-table" id="saIcTripsTable">
               <thead>
                 <tr>
                   <th>Tarih</th>
@@ -102,12 +181,11 @@
                   <th>Şoför</th>
                   <th>Rota</th>
                   <th>KM</th>
-                  <th>Mazot</th>
                   <th></th>
                 </tr>
               </thead>
-              <tbody id="saTripsTbody">
-                <tr><td colspan="7" class="sa-empty">Yükleniyor…</td></tr>
+              <tbody id="saIcTripsTbody">
+                <tr><td colspan="6" class="sa-empty">Yükleniyor…</td></tr>
               </tbody>
             </table>
           </div>
@@ -185,6 +263,19 @@
           </div>
           <div id="spRoutePointList" class="sp-chip-list"></div>
         </div>
+
+        <div class="sa-card sa-card--ic">
+          <div class="sa-card__head">
+            <h2>İç sefer rotası</h2>
+            <p>Şoförler iç sefer girerken bu rota otomatik uygulanır. Sadece KM girilir.</p>
+          </div>
+          <div class="sp-admin-toolbar">
+            <input type="text" id="saIcRouteFrom" class="sp-input" placeholder="Nereden (AVDAN)" autocomplete="off">
+            <span class="sa-ic-arrow" aria-hidden="true">→</span>
+            <input type="text" id="saIcRouteTo" class="sp-input" placeholder="Nereye (1.OSB)" autocomplete="off">
+            <button type="button" class="sp-btn sp-btn--ic" id="saIcRouteSaveBtn"><i class="fas fa-save" aria-hidden="true"></i> Kaydet</button>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -205,8 +296,8 @@
     </div>
   </div>
 
-  <script src="ozmal-plates.js?v=20260717-admin"></script>
-  <script src="modules/sofor-panel-admin.js?v=20260717b"></script>
-  <script src="modules/sofor-admin.js?v=20260717c"></script>
+  <script src="ozmal-plates.js?v=20260717-ozmal403"></script>
+  <script src="modules/sofor-panel-admin.js?v=20260717-ozmal403"></script>
+  <script src="modules/sofor-admin.js?v=20260717-invoice2"></script>
 </body>
 </html>

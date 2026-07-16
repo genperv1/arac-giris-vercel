@@ -7,12 +7,17 @@
   const state = {
     session: null,
     trips: [],
+    icTrips: [],
+    icRoute: { from: 'AVDAN', to: '1.OSB' },
+    icWeekly: null,
     warnings: [],
     ozmalEntries: [],
     activeView: 'dashboard',
     activePlate: '',
     tripSearch: '',
     tripPlateFilter: '',
+    icSearch: '',
+    icPlateFilter: '',
     plateAnalyticsPeriod: 'all',
   };
 
@@ -83,9 +88,40 @@
   }
 
   function formatRoute(trip) {
+    if ((trip.tripType || 'normal') === 'ic') {
+      return `İÇ · ${trip.yuklemeYeri || 'AVDAN'} → ${trip.bosaltmaLiman || '1.OSB'}`;
+    }
     const gidis = `${trip.yuklemeYeri || '?'} → ${trip.bosaltmaLiman || '?'}`;
     if (trip.bosDondu) return `${gidis} · BOŞ DÖNDÜ`;
     return `${gidis} · ${trip.donusYukleme || '?'} → ${trip.donusBosaltma || '?'}`;
+  }
+
+  function formatIcRouteLabel(route) {
+    const r = route || state.icRoute || { from: 'AVDAN', to: '1.OSB' };
+    return `${r.from} → ${r.to}`;
+  }
+
+  function formatDonusFrom(trip) {
+    if (trip.bosDondu) return 'Boş döndü';
+    return (trip.donusYukleme || '').trim() || '—';
+  }
+
+  function formatDonusTo(trip) {
+    if (trip.bosDondu) return '—';
+    return (trip.donusBosaltma || '').trim() || '—';
+  }
+
+  function formatKmValue(value) {
+    if (value == null || value === '') return '—';
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toLocaleString('tr-TR') : '—';
+  }
+
+  function formatTripDates(trip) {
+    const gidis = formatDate(trip.gidisTarihi);
+    const donus = trip.donusTarihi ? formatDate(trip.donusTarihi) : null;
+    if (!donus || donus === gidis) return gidis;
+    return `${gidis}<br><small class="sa-cell-sub">Dönüş: ${donus}</small>`;
   }
 
   function photoUrl(pathValue, tripId) {
@@ -429,8 +465,35 @@
     return map;
   }
 
+  function mergeEntriesWithLocalSeeds(entries) {
+    if (!window.OzmalPlates || typeof window.OzmalPlates.getOzmalEntries !== 'function') {
+      return entries || [];
+    }
+    const byKey = new Map();
+    window.OzmalPlates.getOzmalEntries().forEach((entry) => {
+      byKey.set(window.OzmalPlates.normKey(entry.plaka), entry);
+    });
+    (entries || []).forEach((entry) => {
+      const key = window.OzmalPlates.normKey(entry.plaka);
+      const local = byKey.get(key);
+      byKey.set(key, {
+        plaka: entry.plaka,
+        bassofor: !!(entry.bassofor || (local && local.bassofor)),
+        drivers: (entry.drivers && entry.drivers.length)
+          ? entry.drivers
+          : (local && local.drivers) || [],
+      });
+    });
+    return Array.from(byKey.values()).sort((a, b) => {
+      const ba = a.bassofor ? 1 : 0;
+      const bb = b.bassofor ? 1 : 0;
+      if (ba !== bb) return bb - ba;
+      return String(a.plaka || '').localeCompare(String(b.plaka || ''), 'tr');
+    });
+  }
+
   function getPlateEntries() {
-    if (state.ozmalEntries.length) return state.ozmalEntries;
+    if (state.ozmalEntries.length) return mergeEntriesWithLocalSeeds(state.ozmalEntries);
     if (window.OzmalPlates && typeof window.OzmalPlates.getOzmalEntries === 'function') {
       return window.OzmalPlates.getOzmalEntries();
     }
@@ -483,6 +546,11 @@
         <div class="sa-stat__label">Bu ay mazot</div>
         <div class="sa-stat__value">${sumMazot(monthTrips).toLocaleString('tr-TR')} lt</div>
         <div class="sa-stat__hint">Toplam yakıt</div>
+      </div>
+      <div class="sa-stat sa-stat--ic">
+        <div class="sa-stat__label">İç sefer (bu hafta)</div>
+        <div class="sa-stat__value">${state.icWeekly?.totals?.weekTrips || 0}</div>
+        <div class="sa-stat__hint">${(state.icWeekly?.totals?.weekKm || 0).toLocaleString('tr-TR')} km · ${formatIcRouteLabel()}</div>
       </div>
     `;
   }
@@ -560,6 +628,158 @@
     });
   }
 
+  function filteredIcTrips() {
+    let trips = state.icTrips.slice();
+    if (state.icPlateFilter) {
+      trips = trips.filter((t) => t.plaka === state.icPlateFilter);
+    }
+    if (state.icSearch.trim()) {
+      const q = state.icSearch.trim().toUpperCase();
+      trips = trips.filter((t) =>
+        String(t.plaka || '').toUpperCase().includes(q)
+        || String(t.driverName || '').toUpperCase().includes(q)
+      );
+    }
+    return trips;
+  }
+
+  function renderIcStats() {
+    const row = $('saIcStatsRow');
+    if (!row) return;
+    const weekly = state.icWeekly;
+    const totalKm = sumKm(state.icTrips);
+    row.innerHTML = `
+      <div class="sa-stat sa-stat--ic">
+        <div class="sa-stat__label">Bu hafta sefer</div>
+        <div class="sa-stat__value">${weekly?.totals?.weekTrips || 0}</div>
+        <div class="sa-stat__hint">${weekly?.weekLabel || 'Bu hafta'}</div>
+      </div>
+      <div class="sa-stat sa-stat--ic">
+        <div class="sa-stat__label">Bu hafta KM</div>
+        <div class="sa-stat__value">${(weekly?.totals?.weekKm || 0).toLocaleString('tr-TR')}</div>
+        <div class="sa-stat__hint">${formatIcRouteLabel()}</div>
+      </div>
+      <div class="sa-stat sa-stat--ic">
+        <div class="sa-stat__label">Toplam iç sefer</div>
+        <div class="sa-stat__value">${state.icTrips.length}</div>
+        <div class="sa-stat__hint">Tüm kayıtlar</div>
+      </div>
+      <div class="sa-stat sa-stat--ic">
+        <div class="sa-stat__label">Toplam iç KM</div>
+        <div class="sa-stat__value">${totalKm.toLocaleString('tr-TR')}</div>
+        <div class="sa-stat__hint">Ayrı hesaplanır</div>
+      </div>
+    `;
+  }
+
+  function renderIcWeeklyTable() {
+    const tbody = $('saIcWeeklyTbody');
+    const meta = $('saIcWeeklyMeta');
+    const badge = $('saIcRouteBadge');
+    if (!tbody) return;
+
+    const weekly = state.icWeekly;
+    if (badge) badge.textContent = formatIcRouteLabel();
+    if (meta) {
+      meta.textContent = weekly?.weekLabel
+        ? `${weekly.weekLabel} haftası · plaka bazında özet`
+        : 'Haftalık plaka özeti';
+    }
+
+    const rows = weekly?.plates || [];
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="sa-empty">Bu hafta iç sefer kaydı yok.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map((row) => `
+      <tr>
+        <td><strong>${escapeHtml(row.plaka)}</strong></td>
+        <td>${escapeHtml((row.drivers || []).join(', ') || '—')}</td>
+        <td><span class="sa-badge-ic">${row.weekTrips}</span></td>
+        <td><strong>${(row.weekKm || 0).toLocaleString('tr-TR')}</strong></td>
+        <td>${row.totalTrips}</td>
+        <td>${(row.totalKm || 0).toLocaleString('tr-TR')}</td>
+      </tr>
+    `).join('');
+  }
+
+  function populateIcTripFilters() {
+    const select = $('saIcTripPlateFilter');
+    if (!select) return;
+    const plates = [...new Set(state.icTrips.map((t) => t.plaka))].sort((a, b) => a.localeCompare(b, 'tr'));
+    const current = state.icPlateFilter;
+    select.innerHTML = '<option value="">Tüm plakalar</option>'
+      + plates.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+    select.value = current;
+  }
+
+  function renderIcTripsTable() {
+    const tbody = $('saIcTripsTbody');
+    const meta = $('saIcTripsMeta');
+    if (!tbody) return;
+
+    const trips = filteredIcTrips();
+    if (meta) meta.textContent = trips.length ? `${trips.length} iç sefer kaydı` : 'Kayıt yok';
+
+    if (!trips.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="sa-empty">İç sefer kaydı bulunamadı.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = trips.map((trip) => `
+      <tr class="sa-row-ic">
+        <td>${formatDate(trip.gidisTarihi)}</td>
+        <td><strong>${escapeHtml(trip.plaka)}</strong></td>
+        <td>${escapeHtml(trip.driverName)}</td>
+        <td>${escapeHtml(formatRoute(trip))}</td>
+        <td><strong>${trip.km ?? '—'}</strong></td>
+        <td>
+          <button type="button" class="sa-btn sa-btn--ghost" data-sa-view-ic-trip="${escapeHtml(trip.id)}">Detay</button>
+        </td>
+      </tr>
+    `).join('');
+
+    tbody.querySelectorAll('[data-sa-view-ic-trip]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const trip = state.icTrips.find((t) => t.id === btn.getAttribute('data-sa-view-ic-trip'));
+        if (trip) openDetail(trip);
+      });
+    });
+  }
+
+  function renderIcView() {
+    renderIcStats();
+    renderIcWeeklyTable();
+    populateIcTripFilters();
+    renderIcTripsTable();
+  }
+
+  function loadIcRouteFields() {
+    const from = $('saIcRouteFrom');
+    const to = $('saIcRouteTo');
+    if (!from || !to) return;
+    from.value = state.icRoute?.from || 'AVDAN';
+    to.value = state.icRoute?.to || '1.OSB';
+  }
+
+  async function saveIcRoute() {
+    const from = ($('saIcRouteFrom')?.value || '').trim();
+    const to = ($('saIcRouteTo')?.value || '').trim();
+    if (!from || !to) {
+      showAlert('İç sefer rotası için nereden/nereye gerekli.', 'error');
+      return;
+    }
+    const data = await api('/driver-panel/ic-route', {
+      method: 'POST',
+      body: JSON.stringify({ from, to }),
+    });
+    state.icRoute = data.route || { from, to };
+    showAlert('İç sefer rotası kaydedildi.', 'ok');
+    if (state.activeView === 'ic-trips') renderIcView();
+    if (state.activeView === 'dashboard') renderStats();
+  }
+
   function filteredTrips() {
     let trips = state.trips.slice();
     if (state.tripPlateFilter) {
@@ -570,6 +790,10 @@
       trips = trips.filter((t) =>
         String(t.plaka || '').toUpperCase().includes(q)
         || String(t.driverName || '').toUpperCase().includes(q)
+        || String(t.yuklemeYeri || '').toUpperCase().includes(q)
+        || String(t.bosaltmaLiman || '').toUpperCase().includes(q)
+        || String(t.donusYukleme || '').toUpperCase().includes(q)
+        || String(t.donusBosaltma || '').toUpperCase().includes(q)
         || formatRoute(t).toUpperCase().includes(q)
       );
     }
@@ -585,18 +809,23 @@
     if (meta) meta.textContent = trips.length ? `${trips.length} kayıt` : 'Kayıt yok';
 
     if (!trips.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="sa-empty">Kayıt bulunamadı.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" class="sa-empty">Kayıt bulunamadı.</td></tr>';
       return;
     }
 
     tbody.innerHTML = trips.map((trip) => `
       <tr>
-        <td>${formatDate(trip.gidisTarihi)}</td>
+        <td class="sa-cell-date">${formatTripDates(trip)}</td>
         <td><strong>${escapeHtml(trip.plaka)}</strong></td>
         <td>${escapeHtml(trip.driverName)}</td>
-        <td>${escapeHtml(formatRoute(trip))}</td>
-        <td>${trip.km ?? '—'}</td>
-        <td>${trip.mazotLt ?? '—'} lt</td>
+        <td>${escapeHtml(trip.yuklemeYeri || '—')}</td>
+        <td>${escapeHtml(trip.bosaltmaLiman || '—')}</td>
+        <td>${escapeHtml(formatDonusFrom(trip))}</td>
+        <td>${escapeHtml(formatDonusTo(trip))}</td>
+        <td class="sa-cell-num">${formatKmValue(trip.aracGidisKm)}</td>
+        <td class="sa-cell-num">${formatKmValue(trip.aracDonusKm)}</td>
+        <td class="sa-cell-num"><strong>${formatKmValue(trip.km)}</strong></td>
+        <td class="sa-cell-num">${trip.mazotLt != null && trip.mazotLt !== '' ? `${formatKmValue(trip.mazotLt)} lt` : '—'}</td>
         <td>
           <button type="button" class="sa-btn sa-btn--ghost" data-sa-view-trip="${escapeHtml(trip.id)}">Detay</button>
         </td>
@@ -697,6 +926,21 @@
     const modal = $('saDetailModal');
     const body = $('saDetailBody');
     $('saDetailTitle').textContent = formatRoute(trip);
+    if ((trip.tripType || 'normal') === 'ic') {
+      body.innerHTML = `
+        <div class="sa-detail-grid">
+          <div><strong>Tür</strong>İç sefer</div>
+          <div><strong>Plaka / Şoför</strong>${escapeHtml(trip.plaka)} · ${escapeHtml(trip.driverName)}</div>
+          <div><strong>Rota</strong>${escapeHtml(trip.yuklemeYeri)} → ${escapeHtml(trip.bosaltmaLiman)}</div>
+          <div><strong>Tarih / KM</strong>${formatDate(trip.gidisTarihi)} · ${trip.km ?? '—'} km</div>
+          ${trip.aciklama ? `<div><strong>Not</strong>${escapeHtml(trip.aciklama)}</div>` : ''}
+        </div>
+      `;
+      $('saDetailEditBtn').hidden = true;
+      modal.classList.remove('hidden');
+      return;
+    }
+    $('saDetailEditBtn').hidden = false;
     body.innerHTML = `
       <div class="sa-detail-grid">
         <div><strong>Plaka / Şoför</strong>${escapeHtml(trip.plaka)} · ${escapeHtml(trip.driverName)}</div>
@@ -743,9 +987,12 @@
       renderStats();
       renderPlateCards();
     } else if (viewId === 'trips') {
-      setPageTitle('Tüm Seferler', 'Filtreleyin, arayın ve detay görüntüleyin.');
+      setPageTitle('Dış Seferler', 'Limana giden seferler — yakıt ve KM analizi burada.');
       populateTripFilters();
       renderTripsTable();
+    } else if (viewId === 'ic-trips') {
+      setPageTitle('İç Seferler', `${formatIcRouteLabel()} · Sadece KM girilir, haftalık ayrı hesaplanır.`);
+      renderIcView();
     } else if (viewId === 'plate') {
       setPageTitle(state.activePlate, 'Yakıt analizi, şoför karşılaştırması ve sefer geçmişi.');
       renderPlateView();
@@ -758,6 +1005,7 @@
       }
     } else if (viewId === 'routes') {
       setPageTitle('Rota Noktaları', 'Şoför formlarında önerilen yükleme/boşaltma noktaları.');
+      loadIcRouteFields();
       if (window.SoforPanelAdmin) {
         window.SoforPanelAdmin.loadRoutePointsAdmin().catch((e) => showAlert(e.message, 'error'));
       }
@@ -771,11 +1019,15 @@
 
   async function loadTrips() {
     const data = await api('/driver-trips');
-    state.trips = (data.trips || []).slice().sort((a, b) => {
+    const all = (data.trips || []).slice().sort((a, b) => {
       const ta = new Date(a.gidisTarihi || 0).getTime();
       const tb = new Date(b.gidisTarihi || 0).getTime();
       return tb - ta;
     });
+    state.trips = all.filter((t) => (t.tripType || 'normal') !== 'ic');
+    state.icTrips = all.filter((t) => (t.tripType || 'normal') === 'ic');
+    state.icRoute = data.icRoute || state.icRoute;
+    state.icWeekly = data.icWeekly || null;
     state.warnings = data.warnings || [];
     renderWarnings();
     renderPlateNav();
@@ -784,6 +1036,8 @@
       renderPlateCards();
     } else if (state.activeView === 'trips') {
       renderTripsTable();
+    } else if (state.activeView === 'ic-trips') {
+      renderIcView();
     } else if (state.activeView === 'plate') {
       renderPlateView();
     }
@@ -792,7 +1046,7 @@
   async function loadOzmalEntries() {
     try {
       const data = await api('/driver-panel/ozmal-entries');
-      state.ozmalEntries = data.entries || [];
+      state.ozmalEntries = mergeEntriesWithLocalSeeds(data.entries || []);
     } catch (e) {
       state.ozmalEntries = getPlateEntries();
     }
@@ -817,6 +1071,20 @@
     $('saTripPlateFilter')?.addEventListener('change', (e) => {
       state.tripPlateFilter = e.target.value;
       renderTripsTable();
+    });
+
+    $('saIcTripSearch')?.addEventListener('input', (e) => {
+      state.icSearch = e.target.value;
+      renderIcTripsTable();
+    });
+
+    $('saIcTripPlateFilter')?.addEventListener('change', (e) => {
+      state.icPlateFilter = e.target.value;
+      renderIcTripsTable();
+    });
+
+    $('saIcRouteSaveBtn')?.addEventListener('click', () => {
+      saveIcRoute().catch((e) => showAlert(e.message, 'error'));
     });
 
     $('saLogoutBtn')?.addEventListener('click', () => {
@@ -860,23 +1128,23 @@
       reloadRoutePoints: async () => {},
     };
 
-    state.ozmalEntries = getPlateEntries();
-    switchView('dashboard');
-
     try {
+      if (window.OzmalPlates && typeof window.OzmalPlates.refreshCache === 'function') {
+        window.OzmalPlates.refreshCache();
+      }
       await Promise.all([
-        window.OzmalPlates && typeof window.OzmalPlates.ensureSynced === 'function'
-          ? window.OzmalPlates.ensureSynced()
-          : Promise.resolve(),
-        loadTrips(),
         loadOzmalEntries(),
+        loadTrips(),
         window.SoforPanelAdmin ? window.SoforPanelAdmin.initOfficeAdmin() : Promise.resolve(),
       ]);
+      if (window.OzmalPlates && typeof window.OzmalPlates.syncFromServer === 'function') {
+        await window.OzmalPlates.syncFromServer();
+        state.ozmalEntries = mergeEntriesWithLocalSeeds(state.ozmalEntries);
+      }
+      switchView('dashboard');
       renderStats();
       renderPlateCards();
       renderPlateNav();
-      if (state.activeView === 'trips') renderTripsTable();
-      if (state.activeView === 'plate') renderPlateView();
     } catch (err) {
       if (err.status === 401 || err.status === 403) {
         clearSession();

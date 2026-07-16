@@ -4,17 +4,22 @@ const path = require('path');
 const {
   loadRoutePoints,
   saveRoutePoints,
+  loadIcRoute,
+  saveIcRoute,
   listTrips,
   getTripById,
   createTrip,
+  createIcTrip,
   updateTrip,
   getKmMismatchWarning,
+  buildIcWeeklySummary,
 } = require('../lib/driver-trip-store');
 const {
   findDriverAccount,
   loadOzmalEntries,
   saveOzmalEntries,
   regenerateDriverPassword,
+  addOzmalPlateDriver,
   verifyDriverPassword,
   formatPlateDisplay,
   normDriverName,
@@ -92,6 +97,24 @@ function registerDriverTripRoutes(api, ctx) {
     }
   });
 
+  api.get('/driver-ic-route', async (req, res) => {
+    try {
+      const route = await loadIcRoute(q);
+      return res.json({ route });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'IC_ROUTE_READ_FAILED');
+    }
+  });
+
+  api.post('/driver-panel/ic-route', requireOfficePanelAccess, async (req, res) => {
+    try {
+      const route = await saveIcRoute(q, req.body || {});
+      return res.json({ ok: true, route });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'IC_ROUTE_SAVE_FAILED');
+    }
+  });
+
   api.post('/settings/driver-route-points', requireSettingsAccess, async (req, res) => {
     try {
       const points = await saveRoutePoints(q, req.body?.points);
@@ -126,6 +149,23 @@ function registerDriverTripRoutes(api, ctx) {
       return res.json({ ok: true, entries });
     } catch (err) {
       return sendApiError(res, err, 500, 'DRIVER_PANEL_OZMAL_SAVE_FAILED');
+    }
+  });
+
+  api.post('/driver-panel/ozmal-add', requireOfficePanelAccess, async (req, res) => {
+    try {
+      const plaka = formatPlateDisplay(req.body?.plaka || '');
+      const driver = String(req.body?.driver || '').trim();
+      if (!plaka) {
+        return res.status(400).json({ ok: false, error: 'Plaka gerekli' });
+      }
+      const result = await addOzmalPlateDriver(q, plaka, driver);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err) {
+      return sendApiError(res, err, 500, 'DRIVER_PANEL_OZMAL_ADD_FAILED');
     }
   });
 
@@ -203,10 +243,15 @@ function registerDriverTripRoutes(api, ctx) {
         return res.status(403).json({ ok: false, error: 'Bu plakaya erişim yok' });
       }
       const trips = await listTrips(q, { plaka: filterPlaka || null });
+      const normalTrips = trips.filter((t) => (t.tripType || 'normal') !== 'ic');
       const warnings = session.role === 'office'
-        ? getKmMismatchWarning(trips)
-        : getKmMismatchWarning(trips.filter((t) => t.plaka === session.plaka));
-      return res.json({ trips, warnings });
+        ? getKmMismatchWarning(normalTrips)
+        : getKmMismatchWarning(normalTrips.filter((t) => t.plaka === session.plaka));
+      const icRoute = await loadIcRoute(q);
+      const icWeekly = buildIcWeeklySummary(trips, {
+        plakaFilter: session.role === 'driver' ? session.plaka : (req.query.plaka || null),
+      });
+      return res.json({ trips, warnings, icRoute, icWeekly });
     } catch (err) {
       return sendApiError(res, err, 500, 'DRIVER_TRIPS_READ_FAILED');
     }
@@ -223,6 +268,30 @@ function registerDriverTripRoutes(api, ctx) {
       return res.json({ trip });
     } catch (err) {
       return sendApiError(res, err, 500, 'DRIVER_TRIP_READ_FAILED');
+    }
+  });
+
+  api.post('/driver-trips/ic', requireDriverPanelAccess, async (req, res) => {
+    try {
+      const session = req.driverPanel || {};
+      const body = req.body || {};
+      const plaka = session.role === 'driver'
+        ? session.plaka
+        : formatPlateDisplay(body.plaka || '');
+      const driverName = session.role === 'driver'
+        ? session.driver
+        : normDriverName(body.driverName || body.driver || '');
+
+      if (!plaka || !driverName) {
+        return res.status(400).json({ ok: false, error: 'Plaka ve şoför gerekli' });
+      }
+
+      const icRoute = await loadIcRoute(q);
+      const trip = await createIcTrip(q, { plaka, driverName, body, icRoute });
+      return res.json({ ok: true, trip });
+    } catch (err) {
+      const status = err.status || 500;
+      return res.status(status).json({ ok: false, error: err.message || 'İç sefer kaydedilemedi' });
     }
   });
 
@@ -267,6 +336,11 @@ function registerDriverTripRoutes(api, ctx) {
         photoDonusKantar: body.photoDonusKantar,
       };
       const plakaFilter = session.role === 'driver' ? session.plaka : null;
+      const existing = await getTripById(q, req.params.id);
+      if (!existing) return res.status(404).json({ ok: false, error: 'Kayıt bulunamadı' });
+      if ((existing.tripType || 'normal') === 'ic') {
+        return res.status(400).json({ ok: false, error: 'İç sefer kaydı buradan düzenlenemez' });
+      }
       const trip = await updateTrip(q, req.params.id, { body, photos, plakaFilter });
       return res.json({ ok: true, trip });
     } catch (err) {

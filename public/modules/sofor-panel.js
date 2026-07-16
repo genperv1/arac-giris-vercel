@@ -8,6 +8,9 @@
     session: null,
     routePoints: [],
     trips: [],
+    icTrips: [],
+    icRoute: { from: 'AVDAN', to: '1.OSB' },
+    icWeekly: null,
     warnings: [],
     photos: {},
     editingId: null,
@@ -77,6 +80,9 @@
   }
 
   function formatRoute(trip) {
+    if ((trip.tripType || 'normal') === 'ic') {
+      return `İÇ · ${trip.yuklemeYeri || 'AVDAN'} → ${trip.bosaltmaLiman || '1.OSB'}`;
+    }
     const gidis = `${trip.yuklemeYeri || '?'} → ${trip.bosaltmaLiman || '?'}`;
     if (trip.bosDondu) return `${gidis} · BOŞ DÖNDÜ`;
     return `${gidis} · ${trip.donusYukleme || '?'} → ${trip.donusBosaltma || '?'}`;
@@ -272,13 +278,75 @@
     box.classList.remove('hidden');
   }
 
+  async function saveIcTrip(e) {
+    if (e) e.preventDefault();
+    try {
+      const payload = {
+        tarih: $('spIcTarihi').value ? new Date($('spIcTarihi').value).toISOString() : null,
+        km: $('spIcKm').value,
+        aciklama: ($('spIcAciklama').value || '').trim(),
+      };
+      await api('/driver-trips/ic', { method: 'POST', body: JSON.stringify(payload) });
+      showAlert('İç sefer kaydedildi.', 'ok');
+      $('spIcFormSection').classList.add('hidden');
+      $('spIcKm').value = '';
+      $('spIcAciklama').value = '';
+      await loadTrips();
+    } catch (err) {
+      showAlert(err.message || 'Kayıt başarısız', 'error');
+    }
+  }
+
+  function openIcForm() {
+    $('spFormSection').classList.add('hidden');
+    $('spIcFormSection').classList.remove('hidden');
+    $('spIcTarihi').value = toLocalInputValue(new Date().toISOString());
+    const r = state.icRoute || { from: 'AVDAN', to: '1.OSB' };
+    $('spIcRouteLabel').textContent = `${r.from} → ${r.to} · Sadece KM girin`;
+    $('spIcFormSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function closeIcForm() {
+    $('spIcFormSection').classList.add('hidden');
+  }
+
+  function renderIcTrips() {
+    const list = $('spIcTripList');
+    const meta = $('spIcListMeta');
+    const badge = $('spIcWeekBadge');
+    if (!list) return;
+
+    const trips = state.icTrips;
+    const weekly = state.icWeekly;
+    if (badge && weekly) {
+      badge.textContent = `Bu hafta ${weekly.totals?.weekTrips || 0} sefer · ${weekly.totals?.weekKm || 0} km`;
+    }
+    if (meta) meta.textContent = trips.length ? `${trips.length} iç sefer kaydı` : 'Kayıt yok';
+
+    if (!trips.length) {
+      list.innerHTML = '<p class="sp-empty">Henüz iç sefer kaydı yok.</p>';
+      return;
+    }
+
+    list.innerHTML = trips.slice(0, 20).map((trip) => `
+      <article class="sp-trip sp-trip--ic">
+        <div class="sp-trip__route">${escapeHtml(formatRoute(trip))}</div>
+        <div class="sp-trip__meta">
+          ${formatDate(trip.gidisTarihi)}<br>
+          KM: <strong>${trip.km ?? '—'}</strong>
+          ${trip.aciklama ? `<br>${escapeHtml(trip.aciklama)}` : ''}
+        </div>
+      </article>
+    `).join('');
+  }
+
   function renderTrips() {
     const list = $('spTripList');
     const meta = $('spListMeta');
     if (!list) return;
 
     const trips = state.trips;
-    meta.textContent = trips.length ? `${trips.length} kayıt` : 'Kayıt yok';
+    meta.textContent = trips.length ? `${trips.length} dış sefer` : 'Kayıt yok';
 
     if (!trips.length) {
       list.innerHTML = '<p class="sp-empty">Henüz sefer kaydı yok.</p>';
@@ -319,6 +387,21 @@
     const modal = $('spDetailModal');
     const body = $('spDetailBody');
     $('spDetailTitle').textContent = formatRoute(trip);
+    if ((trip.tripType || 'normal') === 'ic') {
+      body.innerHTML = `
+        <div class="sp-detail-grid">
+          <div><strong>Tür</strong>İç sefer</div>
+          <div><strong>Plaka / Şoför</strong>${escapeHtml(trip.plaka)} · ${escapeHtml(trip.driverName)}</div>
+          <div><strong>Rota</strong>${escapeHtml(trip.yuklemeYeri)} → ${escapeHtml(trip.bosaltmaLiman)}</div>
+          <div><strong>Tarih / KM</strong>${formatDate(trip.gidisTarihi)} · ${trip.km ?? '—'} km</div>
+          ${trip.aciklama ? `<div><strong>Not</strong>${escapeHtml(trip.aciklama)}</div>` : ''}
+        </div>
+      `;
+      $('spDetailEditBtn').hidden = true;
+      modal.classList.remove('hidden');
+      return;
+    }
+    $('spDetailEditBtn').hidden = false;
     body.innerHTML = `
       <div class="sp-detail-grid">
         <div><strong>Plaka / Şoför</strong>${escapeHtml(trip.plaka)} · ${escapeHtml(trip.driverName)}</div>
@@ -366,9 +449,14 @@
 
   async function loadTrips() {
     const data = await api('/driver-trips');
-    state.trips = data.trips || [];
-    state.warnings = [];
+    const all = data.trips || [];
+    state.trips = all.filter((t) => (t.tripType || 'normal') !== 'ic');
+    state.icTrips = all.filter((t) => (t.tripType || 'normal') === 'ic');
+    state.warnings = data.warnings || [];
+    state.icRoute = data.icRoute || state.icRoute;
+    state.icWeekly = data.icWeekly || null;
     renderTrips();
+    renderIcTrips();
     renderWarnings();
   }
 
@@ -379,7 +467,10 @@
   }
 
   function bindEvents() {
-    $('spNewTripBtn').addEventListener('click', () => openForm(null));
+    $('spNewTripBtn').addEventListener('click', () => { closeIcForm(); openForm(null); });
+    $('spNewIcTripBtn')?.addEventListener('click', () => { closeForm(); openIcForm(); });
+    $('spIcCancelBtn')?.addEventListener('click', closeIcForm);
+    $('spIcTripForm')?.addEventListener('submit', saveIcTrip);
     $('spCancelBtn').addEventListener('click', closeForm);
     $('spTripForm').addEventListener('submit', saveTrip);
     $('spLogoutBtn').addEventListener('click', () => {

@@ -358,6 +358,8 @@ async function prepareSchema() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_driver_trips_plaka ON driver_trips(plaka);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_driver_trips_created ON driver_trips(created_at DESC);`);
+  await pool.query(`ALTER TABLE driver_trips ADD COLUMN IF NOT EXISTS trip_type TEXT DEFAULT 'normal';`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_driver_trips_type ON driver_trips(trip_type);`);
 
   try {
     fs.mkdirSync(path.join(__dirname, 'uploads', 'driver-trips'), { recursive: true });

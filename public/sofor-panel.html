@@ -9,7 +9,7 @@
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="sofor-panel.css?v=20260717b">
+  <link rel="stylesheet" href="sofor-panel.css?v=20260717-ic">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 </head>
 <body class="sp-page" data-sp-mode="driver">
@@ -33,6 +33,38 @@
       <button type="button" class="sp-btn sp-btn--primary sp-btn--block" id="spNewTripBtn">
         <i class="fas fa-plus" aria-hidden="true"></i> Yeni sefer kaydı
       </button>
+      <button type="button" class="sp-btn sp-btn--ic sp-btn--block" id="spNewIcTripBtn">
+        <i class="fas fa-shuttle-van" aria-hidden="true"></i> İç sefer kaydı
+      </button>
+    </section>
+
+    <section id="spIcFormSection" class="sp-card sp-card--ic hidden" aria-labelledby="spIcFormTitle">
+      <div class="sp-card__head">
+        <h2 id="spIcFormTitle">İç sefer</h2>
+        <p id="spIcRouteLabel">AVDAN → 1.OSB · Sadece KM girin</p>
+      </div>
+      <form id="spIcTripForm" class="sp-form" autocomplete="off">
+        <div class="sp-grid">
+          <div class="sp-field">
+            <label for="spIcTarihi">Tarih</label>
+            <input type="datetime-local" id="spIcTarihi" class="sp-input" required>
+          </div>
+          <div class="sp-field">
+            <label for="spIcKm">KM</label>
+            <input type="number" inputmode="decimal" id="spIcKm" class="sp-input" required min="0.1" step="0.1" placeholder="Örn. 12">
+          </div>
+        </div>
+        <div class="sp-field">
+          <label for="spIcAciklama">Not (opsiyonel)</label>
+          <input type="text" id="spIcAciklama" class="sp-input" placeholder="İsteğe bağlı">
+        </div>
+        <div class="sp-form-actions">
+          <button type="button" class="sp-btn sp-btn--ghost" id="spIcCancelBtn">İptal</button>
+          <button type="submit" class="sp-btn sp-btn--ic sp-btn--block">
+            <i class="fas fa-save" aria-hidden="true"></i> Kaydet
+          </button>
+        </div>
+      </form>
     </section>
 
     <section id="spFormSection" class="sp-card hidden" aria-labelledby="spFormTitle">
@@ -153,7 +185,17 @@
 
     <section class="sp-card">
       <div class="sp-card__head">
-        <h2>Geçmiş kayıtlarım</h2>
+        <h2>İç seferler <span class="sp-badge-ic" id="spIcWeekBadge">Bu hafta —</span></h2>
+        <p id="spIcListMeta">Yükleniyor…</p>
+      </div>
+      <div id="spIcTripList" class="sp-trip-list">
+        <p class="sp-empty">Kayıt yok.</p>
+      </div>
+    </section>
+
+    <section class="sp-card">
+      <div class="sp-card__head">
+        <h2>Dış seferler</h2>
         <p id="spListMeta">Yükleniyor…</p>
       </div>
       <div id="spTripList" class="sp-trip-list">
@@ -180,6 +222,6 @@
     </div>
   </div>
 
-  <script src="modules/sofor-panel.js?v=20260717b"></script>
+  <script src="modules/sofor-panel.js?v=20260717-ic"></script>
 </body>
 </html>

@@ -65,6 +65,32 @@
   padding: 1rem 1rem 5rem;
 }
 
+.sp-actions {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.sp-card--ic {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 72px);
+}
+
+.sp-badge-ic {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.sp-trip--ic {
+  border-left: 4px solid #f59e0b;
+}
+
 .sp-toolbar,
 .sp-actions,
 .sp-card {
@@ -107,6 +133,11 @@
 
 .sp-btn--primary {
   background: linear-gradient(135deg, var(--sp-accent), #10b981);
+  color: #fff;
+}
+
+.sp-btn--ic {
+  background: linear-gradient(135deg, #d97706, #f59e0b);
   color: #fff;
 }
 
