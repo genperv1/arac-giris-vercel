@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#059669">
+  <title>Şoför Sefer Girişi</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="sofor-panel.css?v=20260717b">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body class="sp-page" data-sp-mode="driver">
+  <header class="sp-header">
+    <div class="sp-header__inner">
+      <div>
+        <p class="sp-header__eyebrow">Özmal sefer takibi</p>
+        <h1 class="sp-header__title" id="spHeaderTitle">Şoför Paneli</h1>
+        <p class="sp-header__sub" id="spHeaderSub">—</p>
+      </div>
+      <button type="button" class="sp-btn sp-btn--ghost" id="spLogoutBtn" title="Çıkış">
+        <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
+      </button>
+    </div>
+  </header>
+
+  <main class="sp-main">
+    <div id="spAlert" class="sp-alert hidden" role="alert"></div>
+
+    <section class="sp-actions">
+      <button type="button" class="sp-btn sp-btn--primary sp-btn--block" id="spNewTripBtn">
+        <i class="fas fa-plus" aria-hidden="true"></i> Yeni sefer kaydı
+      </button>
+    </section>
+
+    <section id="spFormSection" class="sp-card hidden" aria-labelledby="spFormTitle">
+      <div class="sp-card__head">
+        <h2 id="spFormTitle">Sefer formu</h2>
+        <p id="spFormHint">Kaydet demeden çıkarsanız veriler kaybolur.</p>
+      </div>
+
+      <form id="spTripForm" class="sp-form" autocomplete="off">
+        <input type="hidden" id="spTripId" value="">
+
+        <fieldset class="sp-fieldset">
+          <legend>Gidiş</legend>
+          <div class="sp-grid">
+            <div class="sp-field">
+              <label for="spGidisTarihi">Gidiş tarihi</label>
+              <input type="datetime-local" id="spGidisTarihi" class="sp-input" required>
+            </div>
+            <div class="sp-field">
+              <label for="spYuklemeYeri">Nereden sardı</label>
+              <input type="text" id="spYuklemeYeri" class="sp-input" list="spRouteList" required placeholder="M.SAHASI">
+            </div>
+            <div class="sp-field">
+              <label for="spBosaltmaLiman">Hangi limana boşalttı</label>
+              <input type="text" id="spBosaltmaLiman" class="sp-input" list="spRouteList" required placeholder="KÖRFEZ">
+            </div>
+            <div class="sp-field">
+              <label for="spAracGidisKm">Araç gidiş KM</label>
+              <input type="number" inputmode="decimal" id="spAracGidisKm" class="sp-input" required min="0" step="1">
+            </div>
+          </div>
+          <div class="sp-photo-grid">
+            <label class="sp-photo">
+              <span>Gidiş irsaliye</span>
+              <input type="file" accept="image/*" capture="environment" data-photo="photoGidisIrsaliye">
+              <img class="sp-photo__preview" data-preview="photoGidisIrsaliye" alt="" hidden>
+            </label>
+            <label class="sp-photo">
+              <span>Gidiş kantar fişi</span>
+              <input type="file" accept="image/*" capture="environment" data-photo="photoGidisKantar">
+              <img class="sp-photo__preview" data-preview="photoGidisKantar" alt="" hidden>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="sp-fieldset">
+          <legend>Dönüş</legend>
+          <label class="sp-check">
+            <input type="checkbox" id="spBosDondu">
+            <span>Boş döndü</span>
+          </label>
+          <div class="sp-grid" id="spDonusFields">
+            <div class="sp-field">
+              <label for="spDonusTarihi">Dönüş tarihi</label>
+              <input type="datetime-local" id="spDonusTarihi" class="sp-input" required>
+            </div>
+            <div class="sp-field">
+              <label for="spDonusYukleme">Geri nerden yük aldı</label>
+              <input type="text" id="spDonusYukleme" class="sp-input" list="spRouteList" placeholder="ŞİLE">
+            </div>
+            <div class="sp-field">
+              <label for="spDonusBosaltma">Nereye boşalttı</label>
+              <input type="text" id="spDonusBosaltma" class="sp-input" list="spRouteList" placeholder="1.OSB">
+            </div>
+            <div class="sp-field">
+              <label for="spAracDonusKm">Araç dönüş KM</label>
+              <input type="number" inputmode="decimal" id="spAracDonusKm" class="sp-input" required min="0" step="1">
+            </div>
+          </div>
+          <div class="sp-photo-grid" id="spDonusPhotos">
+            <label class="sp-photo">
+              <span>Dönüş irsaliye</span>
+              <input type="file" accept="image/*" capture="environment" data-photo="photoDonusIrsaliye">
+              <img class="sp-photo__preview" data-preview="photoDonusIrsaliye" alt="" hidden>
+            </label>
+            <label class="sp-photo">
+              <span>Dönüş kantar fişi</span>
+              <input type="file" accept="image/*" capture="environment" data-photo="photoDonusKantar">
+              <img class="sp-photo__preview" data-preview="photoDonusKantar" alt="" hidden>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="sp-fieldset">
+          <legend>Yakıt &amp; not</legend>
+          <div class="sp-grid">
+            <div class="sp-field">
+              <label for="spMazotLt">Mazot (lt)</label>
+              <input type="number" inputmode="decimal" id="spMazotLt" class="sp-input" required min="0" step="0.1">
+            </div>
+            <div class="sp-field">
+              <label for="spAdblueLt">AdBlue (lt)</label>
+              <input type="number" inputmode="decimal" id="spAdblueLt" class="sp-input" min="0" step="0.1">
+            </div>
+            <div class="sp-field">
+              <label>Toplam KM</label>
+              <output id="spKmOut" class="sp-output">—</output>
+            </div>
+            <div class="sp-field">
+              <label>Yakıt tüketimi</label>
+              <output id="spYakitOut" class="sp-output">—</output>
+            </div>
+          </div>
+          <div class="sp-field">
+            <label for="spAciklama">Açıklama (opsiyonel)</label>
+            <textarea id="spAciklama" class="sp-input sp-input--area" rows="2"></textarea>
+          </div>
+        </fieldset>
+
+        <div class="sp-form-actions">
+          <button type="button" class="sp-btn sp-btn--ghost" id="spCancelBtn">İptal</button>
+          <button type="submit" class="sp-btn sp-btn--primary sp-btn--block" id="spSaveBtn">
+            <i class="fas fa-save" aria-hidden="true"></i> Kaydet
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="sp-card">
+      <div class="sp-card__head">
+        <h2>Geçmiş kayıtlarım</h2>
+        <p id="spListMeta">Yükleniyor…</p>
+      </div>
+      <div id="spTripList" class="sp-trip-list">
+        <p class="sp-empty">Kayıt yok.</p>
+      </div>
+    </section>
+  </main>
+
+  <datalist id="spRouteList"></datalist>
+
+  <div id="spDetailModal" class="sp-modal hidden" role="dialog" aria-modal="true" aria-labelledby="spDetailTitle">
+    <div class="sp-modal__backdrop" data-close-modal></div>
+    <div class="sp-modal__sheet">
+      <header class="sp-modal__head">
+        <h3 id="spDetailTitle">Sefer detayı</h3>
+        <button type="button" class="sp-btn sp-btn--ghost" data-close-modal aria-label="Kapat">
+          <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div id="spDetailBody" class="sp-modal__body"></div>
+      <footer class="sp-modal__foot">
+        <button type="button" class="sp-btn sp-btn--primary" id="spDetailEditBtn">Düzenle</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="modules/sofor-panel.js?v=20260717b"></script>
+</body>
+</html>

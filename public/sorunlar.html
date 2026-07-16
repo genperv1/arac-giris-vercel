@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <meta name="theme-color" content="#4f46e5" />
+  <title>Şoför Sorun Kayıtları — Yönetim Paneli</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <script src="session-manager.js?v=20260605-fixes-v1"></script>
+  <style>
+    :root {
+      --rp-bg: #f1f5f9;
+      --rp-surface: #ffffff;
+      --rp-border: #e2e8f0;
+      --rp-text: #334155;
+      --rp-muted: #64748b;
+      --rp-accent: #4f46e5;
+      --rp-accent-hover: #4338ca;
+      --rp-accent-soft: #eef2ff;
+      --rp-header-from: #1e293b;
+      --rp-header-to: #4338ca;
+      --rp-danger: #dc2626;
+      --rp-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    }
+
+    body.rp-page {
+      background: var(--rp-bg);
+      color: var(--rp-text);
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+    }
+
+    .rp-header {
+      background: linear-gradient(to right, var(--rp-header-from), var(--rp-header-to));
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: var(--rp-shadow);
+    }
+
+    .rp-logo-box {
+      width: 44px;
+      height: 44px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .rp-header-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.3;
+    }
+
+    .rp-header-sub {
+      font-size: 0.8125rem;
+      color: rgba(255, 255, 255, 0.78);
+      margin-top: 2px;
+    }
+
+    .rp-btn-header {
+      font-size: 0.8125rem;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .rp-btn-header:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .rp-page-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+    }
+
+    .rp-page-desc {
+      font-size: 0.875rem;
+      color: var(--rp-muted);
+      margin-top: 0.25rem;
+    }
+
+    .rp-panel {
+      background: var(--rp-surface);
+      border: 1px solid var(--rp-border);
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+      overflow: hidden;
+    }
+
+    .rp-section {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--rp-border);
+    }
+
+    .rp-section:last-child {
+      border-bottom: none;
+    }
+
+    .rp-section-muted {
+      background: #f8fafc;
+    }
+
+    .rp-label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--rp-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.375rem;
+    }
+
+    .rp-input,
+    .rp-select,
+    .rp-textarea {
+      width: 100%;
+      padding: 0.625rem 0.875rem;
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      font-size: 0.875rem;
+      color: var(--rp-text);
+      background: #fff;
+    }
+
+    .rp-input:focus,
+    .rp-select:focus,
+    .rp-textarea:focus {
+      outline: none;
+      border-color: var(--rp-accent);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    }
+
+    .rp-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.375rem;
+      padding: 0.5rem 0.875rem;
+      border-radius: 8px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .rp-btn-primary {
+      background: var(--rp-accent);
+      color: #fff;
+      border-color: var(--rp-accent);
+    }
+
+    .rp-btn-primary:hover {
+      background: var(--rp-accent-hover);
+      border-color: var(--rp-accent-hover);
+    }
+
+    .rp-btn-secondary {
+      background: #fff;
+      color: var(--rp-text);
+      border-color: var(--rp-border);
+    }
+
+    .rp-btn-secondary:hover {
+      background: #f8fafc;
+    }
+
+    .rp-btn-danger {
+      background: var(--rp-danger);
+      color: #fff;
+      border-color: #b91c1c;
+    }
+
+    .rp-btn-danger:hover {
+      background: #b91c1c;
+    }
+
+    .rp-section-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .rp-section-icon {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 8px;
+      background: var(--rp-accent-soft);
+      color: var(--rp-accent);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.875rem;
+    }
+
+    .issues-filter-section {
+      padding: 1.25rem 1.5rem;
+      background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+      border-bottom: 1px solid var(--rp-border);
+    }
+
+    .issues-filter-bar {
+      display: grid;
+      grid-template-columns: minmax(140px, 200px) 1fr auto;
+      gap: 1rem;
+      align-items: stretch;
+    }
+
+    @media (max-width: 768px) {
+      .issues-filter-bar {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .issues-filter-field .rp-input {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .issues-driver-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 2.75rem;
+      padding: 0.65rem 0.9rem;
+      background: #fff;
+      border: 1px solid var(--rp-border);
+      border-left: 3px solid var(--rp-accent);
+      border-radius: 8px;
+    }
+
+    .issues-driver-card.is-loaded {
+      background: linear-gradient(135deg, #f5f3ff 0%, #fff 100%);
+      border-color: #c7d2fe;
+    }
+
+    .issues-driver-card__empty {
+      font-size: 0.8125rem;
+      color: var(--rp-muted);
+      margin: 0;
+    }
+
+    .issues-driver-card__name {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.3;
+    }
+
+    .issues-driver-card__phone {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #64748b;
+      margin-top: 0.15rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .issues-filter-actions {
+      display: flex;
+      align-items: flex-end;
+    }
+
+    .rp-form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem 1.25rem;
+    }
+
+    @media (max-width: 640px) {
+      .rp-form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .rp-form-grid .rp-field-span-2 {
+      grid-column: 1 / -1;
+    }
+
+    .rp-form-media-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(160px, 0.85fr) minmax(0, 1.35fr);
+      gap: 1rem 1.25rem;
+      align-items: stretch;
+    }
+
+    @media (max-width: 640px) {
+      .rp-form-media-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .rp-form-media-row .rp-textarea {
+      min-height: 5.25rem;
+      height: 100%;
+      resize: vertical;
+    }
+
+    .rp-form-media-row .rp-file-input {
+      height: 100%;
+      min-height: 2.75rem;
+      display: flex;
+      align-items: center;
+    }
+
+    .rp-file-input {
+      padding: 0.5rem 0.75rem;
+    }
+
+    .rp-file-input::file-selector-button {
+      margin-right: 0.75rem;
+      padding: 0.35rem 0.75rem;
+      border: 0;
+      border-radius: 6px;
+      background: var(--rp-accent-soft);
+      color: var(--rp-accent);
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .rp-reject-box {
+      margin-top: 1.25rem;
+      padding: 1rem 1.125rem;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 10px;
+      border-left: 3px solid #f59e0b;
+    }
+
+    .rp-reject-title {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: #92400e;
+      margin: 0 0 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .issues-history-section {
+      background: #f8fafc;
+    }
+
+    .issues-history-section .rp-section-title {
+      margin-bottom: 1rem;
+    }
+
+    #issuesList {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .issues-list-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 0.85rem;
+      align-items: stretch;
+    }
+
+    .issue-record-card {
+      min-height: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .issue-record-card .vehicle-card__footer {
+      margin-top: auto;
+    }
+
+    .issue-record-card .issue-record-card__body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding: 0.65rem 0.75rem 0.5rem;
+    }
+
+    .issue-record-card__header .vehicle-card__header-main,
+    .issue-record-card__header .vehicle-card__plate-row {
+      display: contents;
+    }
+
+    .issue-record-card__top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.65rem;
+      width: 100%;
+    }
+
+    .issue-record-card__identity {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .issue-record-card__badges {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.3rem;
+      flex-shrink: 0;
+      max-width: 48%;
+    }
+
+    .issue-record-card__meta {
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      color: #64748b;
+      padding-bottom: 0.15rem;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .issue-record-card__meta-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+
+    .issue-record-card__meta time {
+      font-weight: 600;
+      color: #475569;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .issue-record-card__content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      min-height: 0;
+    }
+
+    .issue-record-card__content--with-photo {
+      flex-direction: row;
+      align-items: flex-start;
+    }
+
+    .issue-record-card__note-block {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .issue-record-card__closed-meta {
+      font-size: 0.75rem;
+      color: #64748b;
+      padding-top: 0.35rem;
+      border-top: 1px dashed #e2e8f0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem 0.4rem;
+    }
+
+    .issue-record-card--closed {
+      opacity: 0.9;
+      border-color: #e2e8f0 !important;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+    }
+
+    .issue-record-card--closed .vehicle-card__header {
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      border-left-color: #94a3b8;
+    }
+
+    .issue-record-card__datetime {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #1e293b;
+      letter-spacing: 0.02em;
+      line-height: 1.25;
+    }
+
+    .issue-record-card__driver {
+      display: flex;
+      flex-direction: column;
+      gap: 0.05rem;
+      font-size: 0.75rem;
+      line-height: 1.3;
+      max-width: 100%;
+    }
+
+    .issue-record-card__driver-name {
+      font-weight: 600;
+      color: #334155;
+    }
+
+    .issue-record-card__driver-phone {
+      font-weight: 500;
+      color: #64748b;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .issue-record-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .issue-record-badge--open {
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+
+    .issue-record-badge--closed {
+      background: #ecfdf5;
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+
+    .issue-record-badge--type {
+      background: #eef2ff;
+      color: #4338ca;
+      border: 1px solid #c7d2fe;
+      text-transform: none;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    .issue-record-card__note {
+      margin: 0;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #334155;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 5.5rem;
+      overflow: auto;
+    }
+
+    .issue-record-card__note--empty {
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    .issue-record-card__link {
+      color: #4f46e5;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .issue-record-rejection {
+      padding: 0.45rem 0.55rem;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      margin-bottom: 0.15rem;
+    }
+
+    .issue-record-rejection__title {
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #991b1b;
+      margin-bottom: 0.35rem;
+    }
+
+    .issue-record-rejection__line {
+      font-size: 0.75rem;
+      color: #7f1d1d;
+      line-height: 1.4;
+    }
+
+    .issue-record-rejection__line span {
+      font-weight: 700;
+      color: #991b1b;
+    }
+
+    .issue-record-card__photo-thumb {
+      flex-shrink: 0;
+      display: block;
+      width: 5.5rem;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--rp-border);
+      background: #f8fafc;
+    }
+
+    .issue-record-card__photo-thumb img {
+      display: block;
+      width: 100%;
+      height: 5.5rem;
+      object-fit: cover;
+    }
+
+    @media (max-width: 420px) {
+      .issue-record-card__content--with-photo {
+        flex-direction: column;
+      }
+
+      .issue-record-card__photo-thumb {
+        width: 100%;
+      }
+
+      .issue-record-card__photo-thumb img {
+        height: auto;
+        max-height: 160px;
+      }
+    }
+
+    .issue-plate-group__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 0.65rem 0.85rem;
+      background: linear-gradient(135deg, #f5f3ff 0%, #f8fafc 100%);
+      border: 1px solid var(--rp-border);
+      border-left: 3px solid var(--rp-accent);
+      border-radius: 10px;
+      margin-bottom: 0.65rem;
+    }
+
+    .issue-plate-group__meta {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--rp-muted);
+    }
+
+    .issues-empty {
+      text-align: center;
+      padding: 2.5rem 1rem;
+    }
+
+    .issues-empty__icon {
+      width: 4rem;
+      height: 4rem;
+      margin: 0 auto 1rem;
+      background: #dcfce7;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+    }
+
+    .issues-empty p {
+      color: var(--rp-muted);
+      font-weight: 500;
+      margin: 0;
+      font-size: 0.875rem;
+    }
+
+    .issues-history-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.65rem;
+      padding: 2rem 1rem;
+      color: var(--rp-muted);
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .issues-history-loading__spinner {
+      width: 1.25rem;
+      height: 1.25rem;
+      border: 2px solid #e2e8f0;
+      border-top-color: var(--rp-accent);
+      border-radius: 50%;
+      animation: issues-spin 0.7s linear infinite;
+    }
+
+    @keyframes issues-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .issues-load-more {
+      display: flex;
+      justify-content: center;
+      padding: 0.5rem 0 0.25rem;
+    }
+
+    .issues-load-more-btn {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--rp-accent);
+      background: #fff;
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      padding: 0.5rem 1.25rem;
+      cursor: pointer;
+    }
+
+    .issues-load-more-btn:hover:not(:disabled) {
+      background: #f5f3ff;
+    }
+
+    .issues-load-more-btn:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+
+    @media (max-width: 640px) {
+      .issues-list-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body class="rp-page">
+  <header class="rp-header">
+    <div class="max-w-7xl mx-auto px-4 py-5 flex items-center justify-between gap-4 flex-wrap">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="rp-logo-box" aria-hidden="true">AT</div>
+        <div class="min-w-0">
+          <div class="rp-header-title">Araç Takip</div>
+          <div class="rp-header-sub">Yönetim Paneli</div>
+        </div>
+      </div>
+      <button type="button" id="backBtn" class="rp-btn-header">Ana Sayfa</button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <div class="mb-6">
+      <h1 class="rp-page-title">Şoför / Plaka Sorun Kayıtları</h1>
+      <p class="rp-page-desc">Plaka yazıldıkça kayıtlar otomatik listelenir. Yeni sorun ekleyebilir veya geçmiş kayıtları inceleyebilirsiniz.</p>
+    </div>
+
+    <input type="hidden" id="imzaKantarAd" value="" />
+
+    <div id="issuesPageRoot" class="rp-panel flex flex-col">
+      <section class="issues-filter-section">
+        <div class="issues-filter-bar">
+          <div class="issues-filter-field">
+            <label for="issuesPlateInput" class="rp-label">Plaka</label>
+            <input id="issuesPlateInput" type="text" placeholder="34 ABC 123" class="rp-input max-w-none" autocomplete="off" spellcheck="false">
+          </div>
+          <div>
+            <label class="rp-label">Şoför bilgisi</label>
+            <div id="issuesDriverInfo" class="issues-driver-card">
+              <p id="issuesDriverEmpty" class="issues-driver-card__empty">Plaka girildiğinde şoför bilgisi burada görünür</p>
+              <div id="issuesDriverContent" class="hidden">
+                <div id="issuesDriverName" class="issues-driver-card__name"></div>
+                <div id="issuesDriverPhone" class="issues-driver-card__phone"></div>
+              </div>
+            </div>
+          </div>
+          <div class="issues-filter-actions">
+            <button id="issuesClearPlateBtn" type="button" class="rp-btn rp-btn-secondary" title="Plaka alanını temizle">
+              <i class="fas fa-times" aria-hidden="true"></i> Temizle
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="rp-section">
+        <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
+          <h2 class="rp-section-title">
+            <span class="rp-section-icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
+            Yeni sorun ekle
+          </h2>
+          <div class="flex items-center gap-3 flex-wrap">
+            <div id="issuesAddMsg" class="text-sm font-medium text-slate-600"></div>
+            <button id="issuesAddBtn" type="button" class="rp-btn rp-btn-primary">
+              <i class="fas fa-save" aria-hidden="true"></i> Kaydet
+            </button>
+          </div>
+        </div>
+
+        <div class="rp-form-grid">
+          <div>
+            <label for="issuesDateInput" class="rp-label">Tarih / Saat</label>
+            <input id="issuesDateInput" type="datetime-local" class="rp-input max-w-none">
+          </div>
+          <div>
+            <label for="issuesTypeSelect" class="rp-label">Sorun tipi</label>
+            <select id="issuesTypeSelect" class="rp-select">
+              <option value="">(Seçiniz)</option>
+              <option value="Baret Takmama">Baret takmama</option>
+              <option value="Kantar Tartışması">Kantar tartışması</option>
+              <option value="Sevkiyat Personeliyle Tartışma">Sevkiyat personeliyle tartışma</option>
+              <option value="Saha Kuralına Uymama">Saha kuralına uymama</option>
+              <option value="Sıra / Yoğunluk İhlali">Sıra / yoğunluk ihlali</option>
+              <option value="Diğer">Diğer</option>
+            </select>
+          </div>
+          <div class="rp-form-media-row">
+            <div>
+              <label for="issuesPhotoInput" class="rp-label">Fotoğraf</label>
+              <input id="issuesPhotoInput" type="file" accept="image/*" capture="environment" class="rp-input rp-file-input max-w-none">
+            </div>
+            <div>
+              <label for="issuesNoteInput" class="rp-label">Olay notu</label>
+              <textarea id="issuesNoteInput" rows="4" placeholder="Örn: Kantarda sıra kuralına uymadı..." class="rp-textarea"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="rp-reject-box">
+          <h3 class="rp-reject-title">Araç reddetme (isteğe bağlı)</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label for="rejectionDurationSelect" class="rp-label">Red süresi</label>
+              <select id="rejectionDurationSelect" class="rp-select">
+                <option value="">Reddetme yok</option>
+                <option value="1_month">1 ay</option>
+                <option value="3_months">3 ay</option>
+                <option value="6_months">6 ay</option>
+                <option value="1_year">1 yıl</option>
+                <option value="unlimited">Süresiz</option>
+                <option value="custom">Özel gün</option>
+              </select>
+            </div>
+            <div id="customDaysContainer" class="hidden">
+              <label for="customDaysInput" class="rp-label">Gün sayısı</label>
+              <input id="customDaysInput" type="number" min="1" max="365" placeholder="1–365 gün" class="rp-input max-w-none">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rp-section issues-history-section">
+        <h2 class="rp-section-title mb-4">
+          <span class="rp-section-icon"><i class="fas fa-clipboard-list" aria-hidden="true"></i></span>
+          Geçmiş kayıtlar
+        </h2>
+        <div id="issuesList"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="core-dom.js"></script>
+  <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
+  <script src="issues-sync-bus.js"></script>
+  <script src="issues-page.js"></script>
+</body>
+</html>
