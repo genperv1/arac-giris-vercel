@@ -233,7 +233,17 @@ const DAILY_SHIPMENT_META = 'daily_shipments_meta';
 
 // TR plaka normalize (eşleştirme için) -> "43ADD516" == "43 ADD 516"
 function normPlate(v) {
-  return formatPlakaForInput(String(v || '')).replace(/\s+/g, ' ').trim();
+  const raw = String(v ?? '').trim();
+  if (!raw) return '';
+  try {
+    if (typeof formatPlakaForInput === 'function') {
+      return formatPlakaForInput(raw).replace(/\s+/g, ' ').trim();
+    }
+  } catch (e) { /* ignore */ }
+  const compact = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const m = compact.match(/^(\d{2})([A-Z]{1,3})(\d{2,5})$/);
+  if (m) return `${m[1]} ${m[2]} ${m[3]}`;
+  return raw.toUpperCase();
 }
 
 /** Excel plaka hücresinde "PLAKA VERİLECEK" / "92BBT PLAKA VERİLECEK" gibi bekleyen notlar */
@@ -817,24 +827,224 @@ function loadDailyShipments() {
   } catch(e){ return []; }
 }
 
+function _readAllShipmentRowsRaw() {
+  const out = [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(DAILY_SHIPMENT_KEY) || '[]');
+    if (Array.isArray(raw)) out.push(...raw);
+  } catch (e) { /* ignore */ }
+  try {
+    if (window.DailyStore && typeof DailyStore.getRows === 'function') {
+      out.push(...(DailyStore.getRows() || []));
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    if (typeof loadDailyShipments === 'function') {
+      out.push(...(loadDailyShipments() || []));
+    }
+  } catch (e) { /* ignore */ }
+  return out;
+}
+
+function _ensureDailyStoreSyncedFromLS() {
+  try {
+    if (!window.DailyStore || typeof DailyStore.getRows !== 'function' || typeof DailyStore.set !== 'function') return;
+    const lsRows = JSON.parse(localStorage.getItem(DAILY_SHIPMENT_KEY) || '[]');
+    if (!Array.isArray(lsRows) || !lsRows.length) return;
+    const cached = DailyStore.getRows() || [];
+    if (cached.length >= lsRows.length) return;
+    const meta = JSON.parse(localStorage.getItem(DAILY_SHIPMENT_META) || '{}');
+    DailyStore.set(lsRows, meta);
+  } catch (e) { /* ignore */ }
+}
+
 function hasDailyExcelLoaded(){
-  try { return (loadDailyShipments() || []).length > 0; }
+  try {
+    const rows = (_allDailyShipmentRows() || []).filter((x) => x && !x._ihracatEmptyBlock && _plateMatchKey(x.plaka));
+    if (rows.length) return true;
+    if (document.getElementById('ihracatDetailsModal') || window.__ihracatParkedDetailsModal) return true;
+    return false;
+  }
   catch(e){ return false; }
 }
 
+function _allDailyShipmentRows() {
+  _ensureDailyStoreSyncedFromLS();
+  const out = [];
+  const seen = new Set();
+  const addRow = (row) => {
+    if (!row || row._ihracatEmptyBlock) return;
+    const pk = _plateMatchKey(row.plaka);
+    const fingerprint = [
+      row.blockKey || '',
+      row.blockHeaderRow ?? '',
+      pk,
+      String(row.id || ''),
+      String(row.irsaliyeNo || ''),
+      String(row.sira || ''),
+      String(row.firma || ''),
+      String(row.malzeme || ''),
+      String(row.bbt || ''),
+    ].join('\0');
+    if (seen.has(fingerprint)) return;
+    seen.add(fingerprint);
+    out.push(row);
+  };
+
+  _readAllShipmentRowsRaw().forEach(addRow);
+
+  try {
+    if (typeof window._collectLiveIhracatShipmentRows === 'function') {
+      (window._collectLiveIhracatShipmentRows() || []).forEach(addRow);
+    }
+  } catch (e) { /* ignore */ }
+
+  return out;
+}
+
 /** Plaka İHRACAT Excel listesinde var mı? (piyasa-only plakalar false döner) */
+function _plateMatchKey(plate) {
+  const formatted = normPlate(plate || '');
+  return _plateKeyForMatch(formatted || plate || '');
+}
+
+function _plateLookupCandidates(vehicle) {
+  const seen = new Set();
+  const out = [];
+  const add = (raw) => {
+    const key = _plateMatchKey(raw);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(String(raw || '').trim());
+  };
+  add(vehicle?.cekiciPlaka);
+  add(vehicle?.dorsePlaka);
+  add(vehicle?.plaka);
+  try { add(document.getElementById('cekiciPlakaBilgi')?.value); } catch (e) {}
+  try { add(document.getElementById('dorsePlakaBilgi')?.value); } catch (e) {}
+  return out;
+}
+
 function findDailyShipmentsByPlate(plate) {
-  const plateNeedle = normPlate(plate || '');
-  if (!plateNeedle) return [];
+  const needle = _plateMatchKey(plate);
+  if (!needle) return [];
+  const hits = [];
+  const seen = new Set();
+  const addHit = (row) => {
+    if (!row || row._ihracatEmptyBlock) return;
+    if (_plateMatchKey(row.plaka) !== needle) return;
+    const sig = [
+      row.blockKey || '',
+      row.id || '',
+      row.sira || '',
+      row.firma || '',
+      row.malzeme || '',
+      row.bbt || '',
+    ].join('|');
+    if (seen.has(sig)) return;
+    seen.add(sig);
+    hits.push(row);
+  };
+  try {
+    _readAllShipmentRowsRaw().forEach(addHit);
+    (_allDailyShipmentRows() || []).forEach(addHit);
+  } catch (e) { /* ignore */ }
   try {
     if (window.DailyStore && typeof DailyStore.findByPlate === 'function') {
-      return DailyStore.findByPlate(plateNeedle) || [];
+      (DailyStore.findByPlate(plate) || []).forEach(addHit);
     }
-    const list = loadDailyShipments() || [];
-    return list.filter((x) => normPlate(x.plaka) === plateNeedle);
-  } catch (e) {
-    return [];
+  } catch (e) { /* ignore */ }
+  return hits;
+}
+
+/** Kart açılışı: depo + canlı İhracat modal satırlarında plaka ara */
+function findShipmentForPlate(plateOrVehicle) {
+  const candidates = (plateOrVehicle && typeof plateOrVehicle === 'object')
+    ? _plateLookupCandidates(plateOrVehicle)
+    : [String(plateOrVehicle || '').trim()].filter(Boolean);
+
+  for (const plate of candidates) {
+    const hits = findDailyShipmentsByPlate(plate);
+    if (hits.length) return hits.length === 1 ? hits[0] : hits[0];
   }
+
+  try {
+    if (typeof window.findIhracatShipmentByPlate === 'function') {
+      for (const plate of candidates) {
+        const live = window.findIhracatShipmentByPlate(plate);
+        if (live) return live;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  return null;
+}
+
+/** Excel satırını takip formu alanlarına yazar — ihracat-modal.js'e bağlı değil */
+function fillTakipFormFromExcelRow(chosen) {
+  if (!chosen) return false;
+  const set = (id, val) => {
+    const v = val != null ? String(val).trim() : '';
+    if (!v) return;
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  };
+
+  const firmaFromRow = String(chosen.firma || '').trim();
+  const ydOnly = String(chosen.ydKey || '').trim();
+  const firmaVal = firmaFromRow
+    || (/\bYD\d{1,4}\b/i.test(ydOnly) ? ydOnly : '')
+    || ((String(chosen.headerText || '').match(/\b(YD\d{1,4})\b/i) || [])[1] || '');
+
+  set('firmaKodu', firmaVal);
+  set('firmaSelect', firmaVal);
+  set('malzeme', chosen.malzeme);
+  set('malzemeSelect', chosen.malzeme);
+
+  let sevk = String(chosen.sevkYeri || '').trim();
+  if (!sevk && typeof extractPrimaryPortFromShipment === 'function') {
+    sevk = extractPrimaryPortFromShipment(chosen) || '';
+  }
+  if (!sevk && typeof getLimanCandidates === 'function') {
+    sevk = (getLimanCandidates(chosen.headerText || '') || [])[0] || '';
+  }
+  set('sevkYeri', sevk);
+
+  let amb = String(chosen.ambalaj || chosen.ambalajBilgisi || '').trim();
+  if (!amb && typeof extractPrimaryAmbalajFromHeader === 'function') {
+    amb = extractPrimaryAmbalajFromHeader(String(chosen.blockMeta?.mainHeader || chosen.headerText || '')) || '';
+  }
+  set('ambalajBilgisi', amb);
+
+  const tonaj = (chosen.tonajKg != null && String(chosen.tonajKg).trim() !== '')
+    ? String(chosen.tonajKg).trim()
+    : (chosen.gidenTonaj != null && String(chosen.gidenTonaj).trim() !== ''
+      ? String(chosen.gidenTonaj).trim()
+      : '');
+  set('tonaj', tonaj);
+  set('bbt', chosen.bbt);
+  set('palet', chosen.palet);
+  set('bosBbt', chosen.bosBbt);
+  set('yuklemeNotu', chosen.yuklemeNotu);
+
+  const cuval = document.getElementById('cuval');
+  const bosCuval = document.getElementById('bosCuval');
+  if (cuval) {
+    const cv = Number(chosen.cuval || 0);
+    const bcv = Number(chosen.bosCuval || 0);
+    if (cv > 0) {
+      cuval.value = String(chosen.cuval);
+      if (bosCuval) bosCuval.value = bcv > 0 ? String(chosen.bosCuval) : '';
+    } else if (bcv > 0) {
+      cuval.value = String(chosen.bosCuval);
+      if (bosCuval) bosCuval.value = '';
+    }
+  }
+
+  try {
+    if (typeof applyShipmentTonajAndIrsaliye === 'function') applyShipmentTonajAndIrsaliye(chosen);
+  } catch (e) { /* ignore */ }
+  return true;
 }
 
 function hasDailyShipmentForPlate(plate) {
@@ -2180,6 +2390,11 @@ async function commitIhracatImport(uniq2, meta, file) {
 }
 
 window.parseIhracatRowsFromWorkbook = parseIhracatRowsFromWorkbook;
+window.normPlate = normPlate;
+window.fillTakipFormFromExcelRow = fillTakipFormFromExcelRow;
+window.findDailyShipmentsByPlate = findDailyShipmentsByPlate;
+window.findShipmentForPlate = findShipmentForPlate;
+window.hasDailyExcelLoaded = hasDailyExcelLoaded;
 window.commitIhracatImport = commitIhracatImport;
 window.applyReprintSnapshotToTakipForm = applyReprintSnapshotToTakipForm;
 window.getTakipPackagingPayload = getTakipPackagingPayload;

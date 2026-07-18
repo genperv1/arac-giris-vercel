@@ -196,22 +196,24 @@
     const ts = Number(reportTs);
     if (!Number.isFinite(ts) || ts <= 0) return false;
 
-    const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
-    if (ts < twoDaysAgo) return false;
-
     const importTimestamp = Number(new Date(meta?.importedAt || meta?.loadedAt || 0));
-    if (!importTimestamp || ts >= importTimestamp) return true;
+    if (importTimestamp && ts >= importTimestamp) return true;
 
     try {
       const tz = { timeZone: 'Europe/Istanbul' };
       const printDay = new Date(ts).toLocaleDateString('sv-SE', tz);
       const dateKey = String(meta?.dateKey || '').trim();
       if (dateKey && printDay === dateKey) return true;
-      const importDay = new Date(importTimestamp).toLocaleDateString('sv-SE', tz);
-      if (printDay === importDay) return true;
+      if (importTimestamp) {
+        const importDay = new Date(importTimestamp).toLocaleDateString('sv-SE', tz);
+        if (printDay === importDay) return true;
+      }
       const today = new Date().toLocaleDateString('sv-SE', tz);
       if (printDay === today) return true;
     } catch (e) {}
+
+    const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    if (ts < twoDaysAgo) return false;
 
     return false;
   }

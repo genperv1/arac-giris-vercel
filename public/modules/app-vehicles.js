@@ -197,7 +197,6 @@ async function deleteVehicle(id) {
               // Saklanan parametreleri kullan
               reprintId = savedReprintId;
               platePrm = savedPlatePrm;
-              console.log('🔍 Saklanan parametreler kullanılıyor - reprintId:', reprintId, 'platePrm:', platePrm);
             } else {
               // Rapor sayfasından yeniden yazdır (sayfa yenilemeden localStorage)
               try {
@@ -211,7 +210,6 @@ async function deleteVehicle(id) {
                     window.__tempReprintId = reprintId;
                     window.__tempPlatePrm = platePrm;
                     localStorage.removeItem('pendingReprint');
-                    console.log('🔍 pendingReprint kullanıldı - reprintId:', reprintId, 'platePrm:', platePrm);
                   } else {
                     localStorage.removeItem('pendingReprint');
                   }
@@ -225,7 +223,6 @@ async function deleteVehicle(id) {
                 platePrm = params.get('plate');
                 window.__tempReprintId = reprintId;
                 window.__tempPlatePrm = platePrm;
-                console.log('🔍 Yeni parametreler alındı ve saklandı - reprintId:', reprintId, 'platePrm:', platePrm);
               }
             }
             
@@ -233,22 +230,18 @@ async function deleteVehicle(id) {
               // URL'i temizle (sadece ilk çağrıda)
               if (!savedReprintId && !savedPlatePrm) {
                 window.history.replaceState({}, document.title, window.location.pathname);
-                console.log('🔍 URL temizlendi');
               }
               
               // ✅ Araç verilerinin yüklendiğinden emin ol
               if (state.vehiclesLoading || !state.vehicles || !state.vehicles.length) {
-                console.log('🔄 Araç verileri yükleniyor, reprint kontrolü erteleniyor...');
                 loadVehicles();
                 
                 // Storage yüklenmesini bekle ve sonra kontrol et
                 const waitForVehicles = () => {
                   if (!state.vehiclesLoading && state.vehicles && state.vehicles.length > 0) {
-                    console.log('✅ Araç verileri yüklendi, reprint kontrolü devam ediyor...');
                     // Tekrar kontrol et
                     checkReprintParam();
                   } else {
-                    console.log('⏳ Araç verileri henuz yüklenmedi, bekleniyor...');
                     setTimeout(waitForVehicles, 500);
                   }
                 };
@@ -257,19 +250,14 @@ async function deleteVehicle(id) {
               }
               
               // Vehicle'ı bul
-              console.log('🔍 Araç aranıyor - reprintId:', reprintId, 'platePrm:', platePrm);
-              console.log('🔍 Mevcut araç sayısı:', state.vehicles.length);
-              console.log('🔍 Araç listesi:', state.vehicles.map(v => ({id: v.id, plaka: v.cekiciPlaka})));
               
               let vehicle = null;
               if (reprintId) {
                 vehicle = state.vehicles.find(v => String(v.id) === String(reprintId));
-                console.log('🔍 ID ile arama sonucu:', vehicle);
               }
               if (!vehicle && platePrm) {
                 const normPlate = (s) => String(s||'').toLowerCase().replace(/[\s-]+/g, '');
                 vehicle = state.vehicles.find(v => normPlate(v.cekiciPlaka) === normPlate(platePrm));
-                console.log('🔍 Plaka ile arama sonucu:', vehicle, 'aranan plaka:', normPlate(platePrm));
               }
               
               if (vehicle) {
@@ -282,7 +270,6 @@ async function deleteVehicle(id) {
                   if (savedReprintData) {
                     reprintData = JSON.parse(savedReprintData);
                     localStorage.removeItem('tempReprintData'); // temizle
-                    console.log('🔍 Kaydedilen reprint data kullanıldı:', reprintData);
                   }
                 } catch(e) {
                   console.error('🔍 Reprint data okuma hatası:', e);
@@ -299,7 +286,6 @@ async function deleteVehicle(id) {
                     ambalaj: '',
                     baskiNotu: ''
                   };
-                  console.log('🔍 Boş reprint data oluşturuldu');
                 }
                 
                 // Reprint bilgilerini vehicle'a geçici olarak ekle
@@ -316,7 +302,6 @@ async function deleteVehicle(id) {
               // İşlem bittiğinde geçici parametreleri temizle
               delete window.__tempReprintId;
               delete window.__tempPlatePrm;
-              console.log('🔍 Geçici parametreler temizlendi');
             }
         } catch(e) {
             console.error('checkReprintParam error:', e);

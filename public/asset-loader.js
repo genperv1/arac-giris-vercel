@@ -4,7 +4,7 @@
   var VER =
     typeof window !== 'undefined' && window.__ASSET_VER != null && String(window.__ASSET_VER).trim() !== ''
       ? String(window.__ASSET_VER).trim()
-      : '20260605-fixes-v1';
+      : '1.0.1-20260718';
 
   function qs() {
     return 'v=' + encodeURIComponent(VER);
@@ -72,9 +72,10 @@
   } catch (e) {}
 
   var printPromise = null;
+  var PRINT_REV = 'print-v1';
   window.ensurePrintLoaded = function () {
     var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
-    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260718-field-tune-v24';
+    var stalePrint = window.Print && window.Print.__aracBosRev !== PRINT_REV;
     if (!needPrint && !stalePrint) return Promise.resolve();
     if (stalePrint) {
       try {
@@ -85,11 +86,12 @@
     }
     if (printPromise) return printPromise;
     printPromise = loadScript('/signatures-registry.js')
-      .then(function () { return loadScript('/print-form-bg-upload.js?v=20260718-form-bg-v3'); })
-      .then(function () { return loadScript('/modules/print-main.js?rev=20260718-field-tune-v24'); })
-      .then(function () { return loadScript('/modules/print-ux-fit.js?rev=20260611-modular'); })
+      .then(function () { return loadScript('/print-form-bg-upload.js'); })
+      .then(function () { return loadScript('/print-layout-settings.js'); })
+      .then(function () { return loadScript('/modules/print-main.js?rev=' + encodeURIComponent(PRINT_REV)); })
+      .then(function () { return loadScript('/modules/print-ux-fit.js'); })
       .then(function () {
-        if (window.Print) window.Print.__aracBosRev = '20260718-field-tune-v24';
+        if (window.Print) window.Print.__aracBosRev = PRINT_REV;
       })
       .then(function () {
         if (window.PrintFormBg && typeof window.PrintFormBg.resolvePrintBgUrl === 'function') {

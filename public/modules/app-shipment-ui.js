@@ -53,8 +53,6 @@ function extractFirmaKodWithPO(raw) {
     poKod = poMatch[1].replace(/\s+/g, ' ').toUpperCase().trim();
   }
 
-  console.log('extractFirmaKodWithPO called with:', raw, '-> ydKod:', ydKod, 'poKod:', poKod, 'result:', poKod ? (ydKod + ' / ' + poKod) : ydKod);
-
   return poKod ? (ydKod + ' / ' + poKod) : ydKod;
 }
 
@@ -798,9 +796,6 @@ function applyVehicleDefaultsToTakipForm(vehicle, opts) {
     const dn = String(vehicle.defaultYuklemeNotu || '').trim();
     const dbbt = String(vehicle.defaultBbtSayisi || '').trim();
 
-    console.log('🔍 applyVehicleDefaults - vehicle:', vehicle);
-    console.log('🔍 Değerler:', { df, dm, ds, dn, dbbt });
-
     const shouldFill = (el, val) => {
       if (!el || !val) return false;
       if (force) return true;
@@ -810,14 +805,12 @@ function applyVehicleDefaultsToTakipForm(vehicle, opts) {
     // Firma - INPUT (önce input'u doldur)
     if (shouldFill(firmaKodu, df)) {
       firmaKodu.value = df;
-      console.log('✅ Firma input dolduruldu:', df);
     }
     
     // Firma - SELECT
     if (shouldFill(firmaSelect, df)) {
       try {
         firmaSelect.value = df;
-        console.log('✅ Firma select set edildi:', df, '-> sonuç:', firmaSelect.value);
       } catch (e) {
         console.error('❌ Firma select hatası:', e);
       }
@@ -826,7 +819,6 @@ function applyVehicleDefaultsToTakipForm(vehicle, opts) {
     // Malzeme - INPUT (önce input'u doldur)
     if (shouldFill(malzeme, dm)) {
       malzeme.value = dm;
-      console.log('✅ Malzeme input dolduruldu:', dm);
     }
     
     // Malzeme - SELECT
@@ -835,7 +827,6 @@ function applyVehicleDefaultsToTakipForm(vehicle, opts) {
         const opt = Array.from(malzemeSelect.options || []).find(o => String(o.value||'').trim() === dm);
         if (opt) {
           malzemeSelect.value = dm;
-          console.log('✅ Malzeme select dolduruldu:', dm);
         } else {
           console.warn('⚠️ Malzeme dropdown\'da bulunamadı:', dm);
         }
@@ -847,13 +838,11 @@ function applyVehicleDefaultsToTakipForm(vehicle, opts) {
     // Sevk yeri
     if (shouldFill(sevkYeri, ds)) {
       sevkYeri.value = ds;
-      console.log('✅ Sevk yeri dolduruldu:', ds);
     }
 
     // Yükleme notu
     if (shouldFill(yuklemeNotu, dn)) {
       yuklemeNotu.value = dn;
-      console.log('✅ Yükleme notu dolduruldu:', dn);
     }
   } catch(e) {
     console.error('applyVehicleDefaultsToTakipForm hata:', e);
@@ -870,20 +859,40 @@ async function applyShipmentToTakipForm(vehicle, opts) {
     if (opts.prefilledShipment) {
       chosen = { ...opts.prefilledShipment, plaka: plateNeedle };
     } else {
-      // ✅ Hız: plaka->kayıt index (DailyStore) varsa onu kullan
       let hits = [];
       try {
-        if (window.DailyStore && typeof DailyStore.findByPlate === 'function') {
-          hits = DailyStore.findByPlate(plateNeedle) || [];
+        if (typeof findDailyShipmentsByPlate === 'function') {
+          const seen = new Set();
+          const addHits = (rows) => {
+            (rows || []).forEach((row) => {
+              const sig = [
+                row?.blockKey || '',
+                row?.id || '',
+                row?.sira || '',
+                row?.firma || '',
+                row?.plaka || '',
+              ].join('|');
+              if (seen.has(sig)) return;
+              seen.add(sig);
+              hits.push(row);
+            });
+          };
+          addHits(findDailyShipmentsByPlate(plateNeedle));
+          if (!hits.length && vehicle?.cekiciPlaka) {
+            addHits(findDailyShipmentsByPlate(vehicle.cekiciPlaka));
+          }
+          if (!hits.length && vehicle?.dorsePlaka) {
+            addHits(findDailyShipmentsByPlate(vehicle.dorsePlaka));
+          }
         } else {
           const list = loadDailyShipments();
           if (!list.length) return;
-          hits = list.filter((x) => x.plaka === plateNeedle);
+          hits = list.filter((x) => String(x.plaka || '').trim() === plateNeedle);
         }
       } catch (e) {
         const list = loadDailyShipments();
         if (!list.length) return;
-        hits = list.filter((x) => x.plaka === plateNeedle);
+        hits = list.filter((x) => String(x.plaka || '').trim() === plateNeedle);
       }
       if (!hits.length) return;
 
@@ -912,9 +921,17 @@ async function applyShipmentToTakipForm(vehicle, opts) {
     // ⛔ Piyasa sipariş önerisi bandı kaldırıldı (ana sayfa üstünde kafa karışıklığı yaratıyordu)
     try { document.getElementById('piyasaSuggestionBar')?.remove(); } catch (e) {}
 
-    _applyExcelShipmentFieldsToTakipForm(chosen);
+    if (typeof _applyExcelShipmentFieldsToTakipForm === 'function') {
+      _applyExcelShipmentFieldsToTakipForm(chosen);
+    } else if (typeof fillTakipFormFromExcelRow === 'function') {
+      fillTakipFormFromExcelRow(chosen);
+    }
 
-    const sevkFilled = String(chosen.sevkYeri || _defaultSevkForShipment(chosen)).trim();
+    const sevkFilled = String(
+      chosen.sevkYeri
+      || (typeof extractPrimaryPortFromShipment === 'function' ? extractPrimaryPortFromShipment(chosen) : '')
+      || (typeof _defaultSevkForShipment === 'function' ? _defaultSevkForShipment(chosen) : '')
+    ).trim();
     const ambFilled =
       String(chosen.ambalaj || chosen.ambalajBilgisi || '').trim() ||
       String(chosen.bbt || '').trim() ||
@@ -1204,7 +1221,7 @@ function exportAllData(){ return exportAllDataLegacy(); }
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(allData)
                         }).then(resp => resp.json()).then(result => {
-                          try { console.log('restore-full result', result); } catch(e){}
+                          try { void result; } catch(e){}
                           // reload app state from server by forcing storage to re-fetch
                           try {
                             if (window.storage && typeof window.storage._readAll === 'function') {
@@ -1317,7 +1334,10 @@ let sonuc = {
             state.searchTerm = '';
             state.showAll = false;
             state.vehiclesLoading = true;
-            try { render(); } catch (e) {}
+            try {
+                if (typeof updateVehicleList === 'function') updateVehicleList();
+                else if (typeof render === 'function') render({ full: true });
+            } catch (e) {}
 
             try {
                 if (window.storage && typeof window.storage._readAll === 'function') {
@@ -1354,13 +1374,10 @@ let sonuc = {
             }
 
             state.vehiclesLoading = false;
-            try { render(); } catch (e) {}
             try {
-                if (window.initPiyasaModule && typeof window.initPiyasaModule === 'function') {
-                    window.initPiyasaModule();
-                }
-            } catch (e) { console.warn('Piyasa init hatası:', e); }
-
+                if (typeof refreshAppPartial === 'function') refreshAppPartial();
+                else if (typeof render === 'function') render({ full: !document.getElementById('vehicleList') });
+            } catch (e) {}
             try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
             try { _ihracatFetchRemotePrintReports(true); } catch (e) {}
             try { handlePendingEditVehicle(); } catch (e) {}
@@ -1485,7 +1502,6 @@ let sonuc = {
                     const errorText = await response.text();
                     console.error('❌ Araç DB kaydetme hatası:', response.status, errorText);
                 } else {
-                    console.log('✅ Araç veritabanına kaydedildi:', vehicleData.cekiciPlaka);
                 }
             } catch (error) {
                 console.error('❌ Araç DB kaydetme hatası:', error);
@@ -1568,8 +1584,6 @@ let sonuc = {
                 storage.save(`vehicle_${vehicleData.id}`, vehicleData);
                 try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
                 try { typeof updateVehicleList === 'function' && updateVehicleList(); } catch (_) {}
-
-                console.log('✅ Yazdırma öncesi araç DB\'ye kaydedildi:', plate);
             } catch (error) {
                 console.error('❌ Yazdırma öncesi araç kaydetme hatası:', error);
             }

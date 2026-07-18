@@ -628,14 +628,14 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
   const step = parseInt(state.pageSize, 10) || 20;
   const total = filterVehicles().length;
 
-  // 20, 40, 60... şeklinde gitsin (ilk tıkta 20'ye tamamlar)
   if (state.listLimit < step) {
     state.listLimit = Math.min(step, total);
   } else {
     state.listLimit = Math.min(state.listLimit + step, total);
   }
 
-  render(); // buton/kalan sayı güncellensin
+  try { updateVehicleList(); } catch (e) {}
+  try { if (typeof updateShowMorePartial === 'function') updateShowMorePartial(); } catch (e) {}
 });
 
             // Chip click: yüklüyse doğrudan ilgili detay / sipariş penceresi
@@ -667,33 +667,9 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
               }
             });
 
-            document.querySelectorAll('.edit-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const vehicle = JSON.parse(this.getAttribute('data-vehicle'));
-                    editVehicle(vehicle);
-                });
-            });
+            // Kart tıklamaları app-vehicles.js içindeki event delegation ile yönetiliyor.
+            // Burada tekrar bağlanırsa her render'da çift/üçlü açılış olur ve Excel doldurma silinir.
 
-            document.querySelectorAll('.form-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const vehicle = JSON.parse(this.getAttribute('data-vehicle'));
-                    showTakipFormu(vehicle);
-                });
-            });
-
-            document.querySelectorAll('.netsis-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const vehicle = JSON.parse(this.getAttribute('data-vehicle'));
-                    copyNetsisData(vehicle);
-                });
-            });
-
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const id = this.getAttribute('data-id');
-                    deleteVehicle(id);
-                });
-            });
 // 🖨️ Yazdır / Önizleme button handlers - NOT ADDED HERE (global setup prevents duplicates)        
   // Telefon formatı: 0555 022 75 53
   const telInp = document.getElementById('iletisim');
@@ -1077,7 +1053,7 @@ function enterAppWithDelay(ms = 0) {
       }
 
       state.vehiclesLoading = true;
-      try { if (typeof render === 'function') render(); } catch (e) {}
+      try { if (typeof render === 'function') render({ full: true }); } catch (e) {}
 
       const runLoad = () => {
         try {

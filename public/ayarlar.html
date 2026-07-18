@@ -211,6 +211,206 @@
     .ay-form button[type="submit"] { padding: .5rem 1rem; background: var(--rp-accent); color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; height: 2.35rem; }
     #sigPreview img { max-height: 44px; margin-top: .35rem; }
 
+    .ple-root { margin-top: .75rem; }
+    .ple-premium-badge {
+      display: inline-block;
+      font-size: .62rem;
+      font-weight: 800;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: #fff;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      padding: .15rem .45rem;
+      border-radius: 999px;
+      vertical-align: middle;
+      margin-left: .35rem;
+    }
+    .ple-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem 1.25rem;
+      align-items: end;
+      margin-bottom: .75rem;
+      max-width: 1100px;
+    }
+    .ple-selected { font-size: .8125rem; color: var(--rp-muted); }
+    .ple-workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 840px) minmax(240px, 320px);
+      gap: 1rem;
+      align-items: start;
+      max-width: 1180px;
+    }
+    @media (max-width: 1100px) {
+      .ple-workspace { grid-template-columns: 1fr; }
+    }
+    .ple-sidepanel {
+      background: #fff;
+      border: 1px solid var(--rp-border);
+      border-radius: 12px;
+      padding: .85rem;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+      max-height: 620px;
+      overflow: auto;
+    }
+    .ple-sidepanel__title {
+      margin: 0 0 .65rem;
+      font-size: .8125rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .ple-side-block { margin-bottom: .7rem; }
+    .ple-side-block--wide { grid-column: 1 / -1; }
+    .ple-side-block label {
+      display: block;
+      font-size: .68rem;
+      font-weight: 700;
+      color: var(--rp-muted);
+      margin-bottom: .25rem;
+    }
+    .ple-side-block label span { float: right; color: #4338ca; font-weight: 800; }
+    .ple-hint { display: block; font-weight: 500; color: #94a3b8; margin-top: .15rem; }
+    .ple-side-block input[type="range"],
+    .ple-side-block select,
+    .ple-side-block textarea {
+      width: 100%;
+      font-size: .8125rem;
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      padding: .4rem .55rem;
+      box-sizing: border-box;
+    }
+    .ple-side-block textarea { resize: vertical; min-height: 72px; font-family: inherit; }
+    .ple-format-bar {
+      display: flex;
+      gap: .35rem;
+      flex-wrap: wrap;
+    }
+    .ple-fmt-btn {
+      min-width: 2rem;
+      height: 2rem;
+      padding: 0 .55rem;
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      background: #fff;
+      color: #0f172a;
+      font-size: .85rem;
+      font-weight: 800;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .ple-fmt-btn--i { font-style: italic; font-weight: 700; }
+    .ple-fmt-btn--u { text-decoration: underline; font-weight: 700; }
+    .ple-fmt-btn:hover { border-color: #93c5fd; background: #f8fafc; }
+    .ple-fmt-btn--active {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #fff;
+    }
+    .ple-fmt-btn--active.ple-fmt-btn--i { font-style: italic; }
+    .ple-fmt-btn--active.ple-fmt-btn--u { text-decoration: underline; }
+    .ple-stage {
+      position: relative;
+      width: 840px;
+      max-width: 100%;
+      height: auto;
+      aspect-ratio: 210 / 148;
+      border: 1px solid var(--rp-border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #f8fafc;
+      user-select: none;
+    }
+    .ple-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; z-index: 0; }
+    #pleFields { position: absolute; inset: 0; z-index: 1; }
+    .ple-box {
+      position: absolute;
+      border: 1px dashed rgba(100, 116, 139, 0.75);
+      background: rgba(148, 163, 184, 0.12);
+      box-sizing: border-box;
+      cursor: move;
+      overflow: hidden;
+    }
+    .ple-box--active {
+      border: 2px dashed #2563eb;
+      background: rgba(37, 99, 235, 0.12);
+      z-index: 3;
+    }
+    .ple-tag {
+      position: absolute;
+      top: 0;
+      left: 0;
+      font-size: 7px;
+      line-height: 1;
+      font-weight: 700;
+      color: #1e3a8a;
+      background: rgba(255,255,255,0.92);
+      padding: 1px 3px;
+      border-radius: 0 0 4px 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .ple-body {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 2px 3px;
+      font-size: 8px;
+      font-weight: 700;
+      line-height: 1.08;
+      overflow: hidden;
+      pointer-events: none;
+      color: #0f172a;
+    }
+    .ple-box--active .ple-body { pointer-events: auto; cursor: text; }
+    .ple-body--edit {
+      pointer-events: auto !important;
+      cursor: text;
+      outline: 1px dashed rgba(37, 99, 235, 0.85);
+      outline-offset: -1px;
+      background: rgba(255, 255, 255, 0.55);
+      user-select: text;
+    }
+    .ple-box--edit { z-index: 5; }
+    .ple-body--sig {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.2mm;
+    }
+    .ple-body--note { font-size: 7px; line-height: 1.1; }
+    .ple-note-head { font-weight: 800; }
+    .ple-note-body { white-space: pre-line; }
+    .ple-hint { font-weight: 500; color: var(--rp-muted); font-size: .65rem; }
+    .ple-sig-img { max-width: 88%; width: auto; height: auto; object-fit: contain; }
+    .ple-sig-name { font-weight: 700; text-align: center; line-height: 1.05; }
+    .ple-resize {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 12px;
+      height: 12px;
+      background: #64748b;
+      border-radius: 3px 0 0 0;
+      cursor: nwse-resize;
+      pointer-events: auto;
+      z-index: 4;
+    }
+    .ple-box--active .ple-resize { background: #2563eb; }
+    .ple-controls { margin-top: 1rem; max-width: 1180px; }
+    .ple-field-pick { margin-bottom: .75rem; max-width: 320px; }
+    .ple-field-pick label { display: block; font-size: .7rem; font-weight: 600; color: var(--rp-muted); margin-bottom: .25rem; }
+    .ple-field-pick select { width: 100%; padding: .45rem .65rem; border: 1px solid var(--rp-border); border-radius: 8px; }
+    .ple-control-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: .75rem;
+    }
+    .ple-control-grid label { display: block; font-size: .7rem; font-weight: 600; color: var(--rp-muted); margin-bottom: .25rem; }
+    .ple-control-grid input[type="range"],
+    .ple-control-grid select { width: 100%; }
+
     .ay-modal-overlay {
       position: fixed;
       inset: 0;
@@ -304,6 +504,60 @@
     .ay-btn--danger:hover { background: #fee2e2; }
     .ay-ip-mono { font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
     .ay-ban-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
+
+    .ay-ozmal-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: .75rem;
+      align-items: end;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 720px) { .ay-ozmal-form { grid-template-columns: 1fr; } }
+    .ay-ozmal-form label { display: block; font-size: .7rem; font-weight: 600; color: var(--rp-muted); margin-bottom: .2rem; }
+    .ay-ozmal-form input {
+      width: 100%;
+      padding: .45rem .65rem;
+      border: 1px solid var(--rp-border);
+      border-radius: 8px;
+      font-size: .8125rem;
+      text-transform: uppercase;
+    }
+    .ay-ozmal-drivers { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+    .ay-ozmal-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: .25rem;
+      padding: .2rem .45rem;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      font-size: .72rem;
+      font-weight: 600;
+      color: #334155;
+    }
+    .ay-ozmal-chip.is-starred { border-color: #fcd34d; background: #fffbeb; }
+    .ay-ozmal-chip code {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: .65rem;
+      color: #64748b;
+      background: #fff;
+      padding: .1rem .3rem;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+    }
+    .ay-ozmal-chip-btn {
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 0 .15rem;
+      font-size: .75rem;
+      line-height: 1;
+      color: var(--rp-muted);
+    }
+    .ay-ozmal-chip-btn:hover { color: var(--rp-accent); }
+    .ay-ozmal-chip-btn--del:hover { color: var(--rp-danger); }
+    .ay-badge--ozmal { background: #fef3c7; color: #92400e; }
+    .ay-badge--boss { background: #ede9fe; color: #5b21b6; }
   </style>
 </head>
 <body class="rp-page">
@@ -332,6 +586,9 @@
       </button>
       <button type="button" class="ay-subnav-btn" data-goto="section-eksik">
         <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Eksik kayıtlar
+      </button>
+      <button type="button" class="ay-subnav-btn" data-goto="section-ozmal">
+        <i class="fas fa-truck-moving" aria-hidden="true"></i> Özmal araçlar
       </button>
       <button type="button" class="ay-subnav-btn" data-goto="section-imza">
         <i class="fas fa-pen-nib" aria-hidden="true"></i> İmza ayarları
@@ -516,71 +773,173 @@
     <section id="section-yazdir" class="ay-panel" tabindex="-1" aria-labelledby="yazdirTitle">
       <div class="ay-panel__head">
         <div>
-          <h2 id="yazdirTitle">Yazdırma ayarları</h2>
-          <p>Takip formu şablonu ve yükleme notu punto ayarları.</p>
+          <h2 id="yazdirTitle">Yazdırma düzenleyici</h2>
+          <p>Burada gördüğünüz konum, punto ve satır ayarları <strong>Kaydet</strong> dediğinizde takip formu yazdırmaya birebir uygulanır. Metne <strong>iki kez tıklayıp Enter</strong> ile satır kırabilirsiniz — şablonda da önizlemede de aynı görünür.</p>
         </div>
       </div>
 
-      <div style="margin-bottom:1rem;">
-        <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 .35rem;">Takip formu şablonu</h3>
-        <p class="ay-hint">Form arka plan görseli sunucu veritabanında saklanır. Proje köküne <strong>AA.jpg</strong> koyup sunucuyu yeniden başlatın veya aşağıdan yükleyin — dosya kayıpsız kullanılır (1492×1054 JPG).</p>
+      <div id="printLayoutEditor" class="ple-root ple-premium">
+        <div class="ple-toolbar">
+          <div class="ple-field-pick">
+            <label for="pleFieldSelect">Alan</label>
+            <select id="pleFieldSelect"></select>
+          </div>
+          <div class="ple-selected">
+            Seçili: <strong id="pleSelectedLabel">—</strong>
+          </div>
+        </div>
+        <div class="ple-workspace">
+          <div id="pleStage" class="ple-stage" aria-label="Form önizleme">
+            <img id="pleBg" class="ple-bg" alt="Form şablonu">
+            <div id="pleFields"></div>
+          </div>
+
+          <aside id="pleStylePanel" class="ple-sidepanel">
+            <h4 class="ple-sidepanel__title">Metin &amp; satır ayarları</h4>
+
+            <div class="ple-side-block ple-side-block--wide" data-for="text note">
+              <label for="pleSampleText">Örnek metin <span class="ple-hint">— alana iki kez tıklayın veya buradan Enter ile satır kırın</span></label>
+              <textarea id="pleSampleText" rows="4" placeholder="Metni yazın… Enter = yeni satır"></textarea>
+            </div>
+
+            <div class="ple-side-block" data-for="text">
+              <label for="pleFontPt">Punto <span id="pleFontVal">10 pt</span></label>
+              <input id="pleFontPt" type="range" min="5" max="16" step="0.5" value="10">
+            </div>
+            <div class="ple-side-block" data-for="text">
+              <label for="pleLineHeight">Satır aralığı <span id="pleLhVal">1.05</span></label>
+              <input id="pleLineHeight" type="range" min="0.9" max="1.6" step="0.02" value="1.05">
+            </div>
+            <div class="ple-side-block" data-for="text">
+              <label for="pleWrapMode">Uzun metin davranışı</label>
+              <select id="pleWrapMode">
+                <option value="pre-line">Enter ile satır + kutuya sığdır</option>
+                <option value="wrap">Sadece kutuya sığdır</option>
+                <option value="nowrap">Tek satır (taşanı kes)</option>
+              </select>
+            </div>
+            <div class="ple-side-block" data-for="text">
+              <label>Yazı stili</label>
+              <div class="ple-format-bar" role="group" aria-label="Yazı stili">
+                <button type="button" id="pleFmtBold" class="ple-fmt-btn" title="Kalın" aria-pressed="false">B</button>
+                <button type="button" id="pleFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="İtalik" aria-pressed="false">I</button>
+                <button type="button" id="pleFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="Altı çizili" aria-pressed="false">U</button>
+              </div>
+            </div>
+            <div class="ple-side-block" data-for="text">
+              <label for="pleTextAlign">Yatay hiza</label>
+              <select id="pleTextAlign">
+                <option value="left">Sola</option>
+                <option value="center">Ortala</option>
+                <option value="right">Sağa</option>
+              </select>
+            </div>
+            <div class="ple-side-block" data-for="text">
+              <label for="pleValign">Dikey hiza</label>
+              <select id="pleValign">
+                <option value="flex-start">Üst</option>
+                <option value="center">Orta</option>
+                <option value="flex-end">Alt</option>
+              </select>
+            </div>
+            <div class="ple-side-block" data-for="text">
+              <label for="plePadMm">İç boşluk (mm)</label>
+              <input id="plePadMm" type="range" min="0" max="3" step="0.1" value="0.35">
+            </div>
+
+            <div class="ple-side-block ple-side-block--wide" data-for="note">
+              <label for="pleBreakPhrases">Otomatik satır kırma <span class="ple-hint">— bu kelime geçince alt satıra iner (her satıra bir kelime)</span></label>
+              <textarea id="pleBreakPhrases" rows="3" placeholder="SEVK EDİLECEK&#10;ÖZEL ETİKET"></textarea>
+            </div>
+            <div class="ple-side-block" data-for="note">
+              <label>İrsaliye satırı stili</label>
+              <div class="ple-format-bar" role="group" aria-label="İrsaliye satırı stili">
+                <button type="button" id="pleHeadFmtBold" class="ple-fmt-btn" title="Kalın" aria-pressed="false">B</button>
+                <button type="button" id="pleHeadFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="İtalik" aria-pressed="false">I</button>
+                <button type="button" id="pleHeadFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="Altı çizili" aria-pressed="false">U</button>
+              </div>
+            </div>
+            <div class="ple-side-block" data-for="note">
+              <label for="pleHeadPt">İrsaliye punto <span id="pleHeadPtVal">10.75 pt</span></label>
+              <input id="pleHeadPt" type="range" min="6" max="14" step="0.25" value="10.75">
+            </div>
+            <div class="ple-side-block" data-for="note">
+              <label>Açıklama satırı stili</label>
+              <div class="ple-format-bar" role="group" aria-label="Açıklama satırı stili">
+                <button type="button" id="pleDescFmtBold" class="ple-fmt-btn" title="Kalın" aria-pressed="false">B</button>
+                <button type="button" id="pleDescFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="İtalik" aria-pressed="false">I</button>
+                <button type="button" id="pleDescFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="Altı çizili" aria-pressed="false">U</button>
+              </div>
+            </div>
+            <div class="ple-side-block" data-for="note">
+              <label for="pleDescPt">Açıklama punto <span id="pleDescPtVal">9 pt</span></label>
+              <input id="pleDescPt" type="range" min="5" max="14" step="0.25" value="9">
+            </div>
+            <div class="ple-side-block" data-for="note">
+              <label for="pleHeadGap">İrsaliye–açıklama arası (mm)</label>
+              <input id="pleHeadGap" type="range" min="0" max="6" step="0.1" value="1.1">
+            </div>
+            <div class="ple-side-block" data-for="note">
+              <label for="pleMaxLines">En fazla satır</label>
+              <input id="pleMaxLines" type="range" min="1" max="6" step="1" value="3">
+            </div>
+            <div class="ple-side-block" data-for="note">
+              <label for="pleNoteLh">Satır aralığı</label>
+              <input id="pleNoteLh" type="range" min="0.9" max="1.6" step="0.02" value="1.1">
+            </div>
+
+            <div class="ple-side-block" data-for="sig">
+              <label for="pleImgMax">İmza yüksekliği <span id="pleImgMaxVal">12 mm</span></label>
+              <input id="pleImgMax" type="range" min="6" max="22" step="0.5" value="12">
+            </div>
+            <div class="ple-side-block" data-for="sig">
+              <label for="pleNamePt">İsim punto <span id="pleNamePtVal">10 pt</span></label>
+              <input id="pleNamePt" type="range" min="7" max="14" step="0.5" value="10">
+            </div>
+            <div class="ple-side-block" data-for="sig">
+              <label for="pleNameGap">İmza–isim arası (mm)</label>
+              <input id="pleNameGap" type="range" min="0" max="3" step="0.1" value="0.3">
+            </div>
+            <div class="ple-side-block" data-for="sig">
+              <label for="pleAlign">Hiza</label>
+              <select id="pleAlign">
+                <option value="center">Ortala</option>
+                <option value="left">Sola</option>
+              </select>
+            </div>
+          </aside>
+        </div>
+
+        <div class="ple-controls">
+          <div class="ay-ban-actions">
+            <button type="button" class="ay-btn ay-btn--primary" id="pleLivePreviewBtn"><i class="fas fa-print" aria-hidden="true"></i> Canlı baskı önizleme</button>
+            <button type="button" class="ay-btn ay-btn--primary" id="pleSaveBtn">Kaydet — yazdırmaya uygula</button>
+            <button type="button" class="ay-btn" id="pleReloadBtn">Kayıtlıyı yükle</button>
+            <button type="button" class="ay-btn" id="pleResetBtn">Varsayılana dön</button>
+          </div>
+          <p class="ay-hint" style="margin-top:.65rem;">Önizleme örnek verilerle gerçek yazdırma çıktısını açar. Düzenlemeleri kaydetmeden de deneyebilirsiniz; kaydettikten sonra ana sayfadaki takip formuna da uygulanır.</p>
+        </div>
       </div>
-      <form id="printFormBgForm" class="ay-form" style="max-width:720px;grid-template-columns:1fr auto;">
-        <div>
-          <label for="printFormBgFile">JPG / PNG şablon</label>
-          <input id="printFormBgFile" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
-          <div id="printFormBgPreview" style="margin-top:.5rem;max-width:320px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;min-height:80px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:.75rem;">Önizleme</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:.5rem;align-self:end;">
-          <button type="submit" class="ay-btn ay-btn--primary">Sunucuya kaydet</button>
-          <button type="button" class="ay-btn" id="printFormBgImportLegacyBtn">İnternetten otomatik aktar</button>
-          <button type="button" class="ay-btn" id="printFormBgOpenLegacyBtn">Şablonu aç (Hızlı Resim)</button>
-          <button type="button" class="ay-btn" id="printFormBgRefreshBtn">Önbelleği yenile</button>
-        </div>
-      </form>
-      <p class="ay-hint" style="margin-top:.5rem;">Önerilen: proje klasörüne <strong>AA.jpg</strong> kaydedin → <code>node scripts/seed-print-form-bg.js --force</code> veya sunucuyu yeniden başlatın. Ayarlardan yüklemede dosya olduğu gibi saklanır (sıkıştırma yok).</p>
-      <p id="printFormBgStatus" class="ay-hint" style="margin-top:.75rem;"></p>
 
-      <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--rp-border);">
-
-      <div class="ay-panel__head" style="margin-bottom:.75rem;">
-        <div>
-          <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0;">Yükleme notu yazdırma</h3>
-          <p class="ay-hint" style="margin-top:.35rem;">Takip formunda yazdırılan <strong>yükleme notu</strong> alanı için ihracat ve piyasa ayrı punto kullanır. İhracat uzun metinlerde sıkıştırılır; piyasa daha büyük ve okunaklı basılır.</p>
-        </div>
-      </div>
-
-      <form id="yuklemeNotuFitForm" class="ay-form" style="max-width:720px;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-          <fieldset style="border:1px solid #e2e8f0;border-radius:10px;padding:1rem;margin:0;">
-            <legend style="font-weight:700;padding:0 .35rem;">İhracat</legend>
-            <div style="margin-bottom:.75rem;">
-              <label for="ynfIhracatHead">Başlık punto (İrsaliye satırı)</label>
-              <input id="ynfIhracatHead" type="number" min="6" max="14" step="0.05" required>
-            </div>
-            <div>
-              <label for="ynfIhracatDesc">Açıklama punto</label>
-              <input id="ynfIhracatDesc" type="number" min="5" max="12" step="0.05" required>
-            </div>
-          </fieldset>
-          <fieldset style="border:1px solid #e2e8f0;border-radius:10px;padding:1rem;margin:0;">
-            <legend style="font-weight:700;padding:0 .35rem;">Piyasa</legend>
-            <div style="margin-bottom:.75rem;">
-              <label for="ynfPiyasaHead">Başlık punto</label>
-              <input id="ynfPiyasaHead" type="number" min="6" max="14" step="0.05" required>
-            </div>
-            <div>
-              <label for="ynfPiyasaDesc">Açıklama punto</label>
-              <input id="ynfPiyasaDesc" type="number" min="5" max="12" step="0.05" required>
-            </div>
-          </fieldset>
-        </div>
-        <div class="ay-ban-actions" style="margin-top:1rem;">
-          <button type="submit" class="ay-btn ay-btn--primary">Kaydet</button>
-          <button type="button" class="ay-btn" id="ynfResetBtn">Varsayılana dön</button>
-        </div>
-        <p class="ay-hint" style="margin-top:.75rem;">Varsayılan: ihracat İrsaliye 8,5 pt · açıklama 7,5 pt (bir kademe küçük) · piyasa 10 / 8,5 pt. Değişiklikler tarayıcıda saklanır.</p>
-      </form>
+      <details class="ple-template-details" style="margin-top:1.25rem;">
+        <summary style="cursor:pointer;font-weight:700;color:#0f172a;font-size:.9375rem;">Form şablonu (arka plan JPG / PNG)</summary>
+        <p class="ay-hint" style="margin:.65rem 0 .5rem;">Arka plan görseli sunucu veritabanında saklanır. Proje köküne <strong>AA.jpg</strong> koyup sunucuyu yeniden başlatın veya buradan yükleyin (önerilen 1492×1054).</p>
+        <form id="printFormBgForm" class="ay-form" style="max-width:720px;grid-template-columns:1fr auto;">
+          <div>
+            <label for="printFormBgFile">JPG / PNG şablon</label>
+            <input id="printFormBgFile" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
+            <div id="printFormBgPreview" style="margin-top:.5rem;max-width:320px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;min-height:80px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:.75rem;">Önizleme</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:.5rem;align-self:end;">
+            <button type="submit" class="ay-btn ay-btn--primary">Sunucuya kaydet</button>
+            <button type="button" class="ay-btn" id="printFormBgImportLegacyBtn">İnternetten otomatik aktar</button>
+            <button type="button" class="ay-btn" id="printFormBgOpenLegacyBtn">Şablonu aç (Hızlı Resim)</button>
+            <button type="button" class="ay-btn" id="printFormBgRefreshBtn">Önbelleği yenile</button>
+          </div>
+        </form>
+        <p class="ay-hint" style="margin-top:.5rem;">CLI: <code>node scripts/seed-print-form-bg.js --force</code></p>
+        <p id="printFormBgStatus" class="ay-hint" style="margin-top:.5rem;"></p>
+      </details>
 
       <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--rp-border);">
 
@@ -592,6 +951,50 @@
         <button type="button" class="ay-btn ay-btn--danger" id="clearReportsBtn">
           <i class="fas fa-broom" aria-hidden="true"></i> Tümünü Temizle
         </button>
+      </div>
+    </section>
+
+    <section id="section-ozmal" class="ay-panel" tabindex="-1" aria-labelledby="ozmalTitle">
+      <div class="ay-panel__head">
+        <div>
+          <h2 id="ozmalTitle">Özmal araçlar &amp; şoförler</h2>
+          <p>Şirket araç plakalarını ve şoförlerini buradan yönetin. Eklenen plakalar ana sayfada özmal filtresinde görünür; şoförler giriş ekranında listelenir.</p>
+        </div>
+      </div>
+
+      <form id="ozmalAddForm" class="ay-ozmal-form">
+        <div>
+          <label for="ozmalPlateInput">Plaka</label>
+          <input id="ozmalPlateInput" type="text" placeholder="43 ADS 408" autocomplete="off" required>
+        </div>
+        <div>
+          <label for="ozmalDriverInput">Şoför adı soyadı</label>
+          <input id="ozmalDriverInput" type="text" placeholder="MEHMET YILMAZ" autocomplete="off">
+        </div>
+        <button type="submit" class="ay-btn ay-btn--primary">Kaydet</button>
+      </form>
+      <p class="ay-hint" style="margin:0 0 1rem;">Yeni plaka için plaka yeterli. Plaka zaten varsa şoför adı yazıp kaydedin — aynı plakaya ikinci şoför eklenir.</p>
+
+      <div class="ay-ban-actions">
+        <button type="button" class="ay-btn" id="ozmalRefreshBtn"><i class="fas fa-sync" aria-hidden="true"></i> Listeyi yenile</button>
+      </div>
+
+      <div class="ay-table-card">
+        <div class="ay-table-scroll">
+          <table class="ay-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Plaka</th>
+                <th>Şoförler</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="ozmalTbody">
+              <tr><td colspan="4" class="ay-empty">Yükleniyor…</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -649,8 +1052,13 @@
   <div class="toast" id="ayToast"></div>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
   <script src="ayarlar-gate.js"></script>
+  <script src="ozmal-plates.js?v=20260719-ozmal-fix2"></script>
   <script src="signatures-registry.js"></script>
   <script src="print-form-bg-bootstrap.js?v=20260718-form-bg-fix"></script>
+  <script src="print-form-bg-builtin.js"></script>
+  <script src="print-layout-settings.js?v=20260718-layout-v16"></script>
+  <script src="print-layout-editor.js?v=20260718-layout-v16"></script>
+  <script src="asset-loader.js?v=20260718-layout-v16"></script>
   <script src="ayarlar.js"></script>
 </body>
 </html>

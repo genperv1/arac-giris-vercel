@@ -61,9 +61,11 @@ const DRIVER_SEFER_PANEL_ENABLED = process.env.DRIVER_SEFER_PANEL_ENABLED === 't
 
 
 const PG_POOL_MAX = envNumber('PG_POOL_MAX', 5, { min: 1, max: 100 });
-const PG_POOL_MIN = envNumber('PG_POOL_MIN', 2, { min: 0, max: 100 });
-const PG_IDLE_TIMEOUT = envNumber('PG_IDLE_TIMEOUT', 30000, { min: 1000, max: 600000 });
-const PG_CONNECT_TIMEOUT = envNumber('PG_CONNECT_TIMEOUT', 10000, { min: 1000, max: 120000 });
+/** Supabase pooler: min 0 reduces idle connections that churn connect/disconnect. */
+const PG_POOL_MIN = envNumber('PG_POOL_MIN', 0, { min: 0, max: 100 });
+const PG_IDLE_TIMEOUT = envNumber('PG_IDLE_TIMEOUT', 120000, { min: 1000, max: 600000 });
+const PG_CONNECT_TIMEOUT = envNumber('PG_CONNECT_TIMEOUT', 15000, { min: 1000, max: 120000 });
+const PG_POOL_VERBOSE = process.env.PG_POOL_VERBOSE === 'true';
 const PG_MAX_USES = envNumber('PG_MAX_USES', 7500, { min: 100, max: 1000000 });
 const PG_STATEMENT_TIMEOUT = envNumber('PG_STATEMENT_TIMEOUT', 30000, { min: 1000, max: 300000 });
 /** Slow-query console.warn eÅŸiÄŸi (ms). BoÅŸ bÄ±rakÄ±lÄ±rsa 3000 â€” paylaÅŸÄ±mlÄ± DBâ€™de ~1sn listeler uyarÄ± spamâ€™i yapmaz. 0 / off / false = uyarÄ± kapalÄ±. */
@@ -82,7 +84,11 @@ const SQL_SLOW_MS = (() => {
 const VEH_LIST_KEYSET_BATCH = envNumber('VEH_LIST_KEYSET_BATCH', 650, { min: 50, max: 5000 });
 
 /** Statik .js / .css iÃ§in Cache-Control max-age (saniye). 0 = Ã¶nbellek yok. */
-const STATIC_MAX_AGE_SEC = envNumber('STATIC_MAX_AGE_SEC', 60, { min: 0, max: 86400 });
+const STATIC_MAX_AGE_SEC = envNumber(
+  'STATIC_MAX_AGE_SEC',
+  process.env.NODE_ENV === 'production' ? 3600 : 60,
+  { min: 0, max: 86400 }
+);
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '2mb';
 const URLENCODED_BODY_LIMIT = process.env.URLENCODED_BODY_LIMIT || '2mb';
 
@@ -97,6 +103,8 @@ const pool = new Pool({
   connectionTimeoutMillis: PG_CONNECT_TIMEOUT, // return error after 10 seconds if connection cannot be established
   maxUses: PG_MAX_USES, // close (and replace) a connection after it has been used 7500 times
   allowExitOnIdle: false, // keep process alive even if all connections are idle
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
   application_name: process.env.PG_APP_NAME || 'arac-giris-app',
   statement_timeout: PG_STATEMENT_TIMEOUT,
 });
@@ -109,12 +117,11 @@ pool.on('error', (err, client) => {
 });
 
 pool.on('connect', (client) => {
-  console.log('âœ… New client connected to PostgreSQL pool');
-  // Set default timezone for this connection
+  if (PG_POOL_VERBOSE) console.log('PostgreSQL pool: client connected');
   try {
-    client.query('SET timezone = "UTC"').catch(e => 
-      console.warn('Failed to set timezone:', e.message)
-    );
+    client.query('SET timezone = "UTC"').catch(e => {
+      if (PG_POOL_VERBOSE) console.warn('Failed to set timezone:', e.message);
+    });
   } catch (e) {}
 });
 
@@ -124,7 +131,7 @@ pool.on('acquire', (client) => {
 });
 
 pool.on('remove', (client) => {
-  console.log('ğŸ”´ Client removed from pool');
+  if (PG_POOL_VERBOSE) console.log('PostgreSQL pool: client removed');
 });
 
 // âœ… GRACEFUL SHUTDOWN: Clean up pool connections on exit
@@ -580,22 +587,17 @@ async function q(text, params = [], options = {}) {
   const { retry = defaultRetry, timeout = PG_STATEMENT_TIMEOUT } = options;
   
   const queryFn = async () => {
-    const client = await pool.connect();
     const startedAt = Date.now();
-    try {
-      const result = await client.query({
-        text,
-        values: params,
-        statement_timeout: timeout
-      });
-      const elapsed = Date.now() - startedAt;
-      if (SQL_SLOW_MS > 0 && elapsed >= SQL_SLOW_MS) {
-        console.warn(`âš ï¸ Slow query ${elapsed}ms: ${summarizeQuery(text)}`);
-      }
-      return result;
-    } finally {
-      client.release();
+    const result = await pool.query({
+      text,
+      values: params,
+      statement_timeout: timeout,
+    });
+    const elapsed = Date.now() - startedAt;
+    if (SQL_SLOW_MS > 0 && elapsed >= SQL_SLOW_MS) {
+      console.warn(`âš ï¸ Slow query ${elapsed}ms: ${summarizeQuery(text)}`);
     }
+    return result;
   };
 
   try {
@@ -829,7 +831,7 @@ function isBanExemptApiPath(req) {
 }
 
 const SETTINGS_ACCESS_PASSWORD = String(
-  process.env.SETTINGS_ACCESS_PASSWORD || process.env.SHIFT_NOTES_DELETE_PASSWORD || '2026genper'
+  process.env.SETTINGS_ACCESS_PASSWORD || '543723'
 );
 
 const SETTINGS_TOKEN_TTL_MS = 30 * 60 * 1000;

@@ -712,6 +712,7 @@
   }
 
   let eksikRowsCache = [];
+  let ozmalEntriesCache = [];
 
   async function loadIncompleteVehicles() {
     const tbody = document.getElementById('eksikTbody');
@@ -785,6 +786,240 @@
   function bindIncompleteUi() {
     document.getElementById('eksikRefreshBtn')?.addEventListener('click', loadIncompleteVehicles);
     document.getElementById('eksikExportBtn')?.addEventListener('click', exportIncompleteCsv);
+  }
+
+  function serializeOzmalPayload(entries) {
+    const oz = window.OzmalPlates;
+    return (entries || []).map((entry) => ({
+      plaka: entry.plaka,
+      bassofor: !!entry.bassofor,
+      drivers: (entry.drivers || []).map((d) => {
+        const name = typeof d === 'string' ? d : d.name;
+        return {
+          name,
+          starred: !!(typeof d === 'object' && d && d.starred),
+        };
+      }),
+    }));
+  }
+
+  async function loadOzmalEntriesFull() {
+    if (!window.OzmalPlates) return [];
+    try {
+      const r = await apiFetch('/api/settings/ozmal-entries-full');
+      if (r.ok) {
+        const data = await r.json().catch(() => ({}));
+        ozmalEntriesCache = Array.isArray(data.entries) ? data.entries : [];
+        if (ozmalEntriesCache.length && typeof window.OzmalPlates.applyRemoteEntries === 'function') {
+          window.OzmalPlates.applyRemoteEntries(ozmalEntriesCache);
+        }
+        return ozmalEntriesCache;
+      }
+    } catch (e) {
+      console.warn('ozmal load', e);
+    }
+    try {
+      await window.OzmalPlates.ensureSynced();
+    } catch (e) { /* ignore */ }
+    ozmalEntriesCache = window.OzmalPlates.getOzmalEntries();
+    return ozmalEntriesCache;
+  }
+
+  async function persistOzmalEntries(entries) {
+    const payload = serializeOzmalPayload(entries);
+    const r = await apiFetch('/api/settings/ozmal-entries', {
+      method: 'POST',
+      body: JSON.stringify({ entries: payload }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Kaydedilemedi');
+    if (window.OzmalPlates && typeof window.OzmalPlates.applyRemoteEntries === 'function' && data.entries) {
+      window.OzmalPlates.applyRemoteEntries(data.entries);
+    }
+    await loadOzmalEntriesFull();
+    return data;
+  }
+
+  function renderOzmalTable() {
+    const tbody = document.getElementById('ozmalTbody');
+    const oz = window.OzmalPlates;
+    if (!tbody || !oz) return;
+
+    const entries = ozmalEntriesCache.length ? ozmalEntriesCache : oz.getOzmalEntries();
+    if (!entries.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="ay-empty">Henüz özmal plaka yok. Yukarıdan plaka yazıp Kaydet deyin.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = entries.map((entry, i) => {
+      const p = entry.plaka;
+      const bassofor = oz.isBassoforPlate(p);
+      const mark = bassofor
+        ? '<span class="ay-badge ay-badge--boss"><i class="fas fa-crown" aria-hidden="true"></i> BAŞŞOFÖR</span>'
+        : '<span class="ay-badge ay-badge--ozmal">★ ÖZMAL</span>';
+      const drivers = (entry.drivers || []).length
+        ? (entry.drivers || []).map((d) => {
+          const name = typeof d === 'string' ? d : d.name;
+          const starred = !!(typeof d === 'object' && d && d.starred);
+          const pwd = typeof d === 'object' && d && d.passwordPlain ? d.passwordPlain : '';
+          return `<span class="ay-ozmal-chip${starred ? ' is-starred' : ''}">
+            <button type="button" class="ay-ozmal-chip-btn ay-ozmal-star" data-plate="${attrEsc(p)}" data-driver="${attrEsc(name)}" title="Menüde öne al">${starred ? '★' : '☆'}</button>
+            <span>${escapeHtml(name)}</span>
+            ${pwd ? `<code title="Giriş şifresi">${escapeHtml(pwd)}</code>` : ''}
+            ${pwd ? `<button type="button" class="ay-ozmal-chip-btn ay-ozmal-pwd" data-plate="${attrEsc(p)}" data-driver="${attrEsc(name)}" title="Yeni şifre">↻</button>` : ''}
+            <button type="button" class="ay-ozmal-chip-btn ay-ozmal-chip-btn--del ay-ozmal-driver-del" data-plate="${attrEsc(p)}" data-driver="${attrEsc(name)}" title="Şoförü kaldır">×</button>
+          </span>`;
+        }).join('')
+        : '<span class="ay-muted">Şoför yok</span>';
+
+      return `<tr>
+        <td class="col-num">${i + 1}</td>
+        <td class="col-plate">${escapeHtml(p)} ${mark}</td>
+        <td><div class="ay-ozmal-drivers">${drivers}</div></td>
+        <td><button type="button" class="ay-btn ay-btn--danger ay-ozmal-plate-del" data-plate="${attrEsc(p)}">Plakayı kaldır</button></td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.ay-ozmal-plate-del').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const plate = btn.getAttribute('data-plate') || '';
+        if (!plate || !(await confirm(plate + ' plakası listeden kaldırılsın mı?'))) return;
+        try {
+          const ozApi = window.OzmalPlates;
+          if (!ozApi) throw new Error('Modül yüklenemedi');
+          ozApi.removeOzmalPlate(plate);
+          await persistOzmalEntries(ozApi.getOzmalEntries());
+          renderOzmalTable();
+          toast('Plaka kaldırıldı.');
+        } catch (e) {
+          toast(e.message || 'Kaldırılamadı.', true);
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.ay-ozmal-driver-del').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const plate = btn.getAttribute('data-plate') || '';
+        const driver = btn.getAttribute('data-driver') || '';
+        if (!plate || !driver || !(await confirm(driver + ' şoförü kaldırılsın mı?'))) return;
+        try {
+          const ozApi = window.OzmalPlates;
+          if (!ozApi) throw new Error('Modül yüklenemedi');
+          const res = ozApi.removeOzmalDriver(plate, driver);
+          if (!res.ok) throw new Error(res.error || 'Kaldırılamadı');
+          await persistOzmalEntries(ozApi.getOzmalEntries());
+          renderOzmalTable();
+          toast('Şoför kaldırıldı.');
+        } catch (e) {
+          toast(e.message || 'Kaldırılamadı.', true);
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.ay-ozmal-star').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const plate = btn.getAttribute('data-plate') || '';
+        const driver = btn.getAttribute('data-driver') || '';
+        try {
+          const ozApi = window.OzmalPlates;
+          if (!ozApi) throw new Error('Modül yüklenemedi');
+          const res = ozApi.toggleOzmalDriverStar(plate, driver);
+          if (!res.ok) throw new Error(res.error || 'Güncellenemedi');
+          await persistOzmalEntries(ozApi.getOzmalEntries());
+          renderOzmalTable();
+        } catch (e) {
+          toast(e.message || 'Güncellenemedi.', true);
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.ay-ozmal-pwd').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const plate = btn.getAttribute('data-plate') || '';
+        const driver = btn.getAttribute('data-driver') || '';
+        if (!plate || !driver || !(await confirm(driver + ' için yeni şifre oluşturulsun mu?'))) return;
+        try {
+          const r = await apiFetch('/api/settings/ozmal-regenerate-password', {
+            method: 'POST',
+            body: JSON.stringify({ plaka: plate, driver }),
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(data.error || 'Şifre oluşturulamadı');
+          await loadOzmalEntriesFull();
+          renderOzmalTable();
+          toast('Yeni şifre: ' + (data.passwordPlain || '—'));
+        } catch (e) {
+          toast(e.message || 'Şifre oluşturulamadı.', true);
+        }
+      });
+    });
+  }
+
+  async function submitOzmalAdd(ev) {
+    ev.preventDefault();
+    const oz = window.OzmalPlates;
+    if (!oz) {
+      toast('Özmal modülü yüklenemedi.', true);
+      return;
+    }
+    const plateInput = document.getElementById('ozmalPlateInput');
+    const driverInput = document.getElementById('ozmalDriverInput');
+    const plate = (plateInput?.value || '').trim();
+    const driver = (driverInput?.value || '').trim();
+    if (!plate) {
+      toast('Plaka girin.', true);
+      plateInput?.focus();
+      return;
+    }
+
+    try {
+      const r = await apiFetch('/api/settings/ozmal-add', {
+        method: 'POST',
+        body: JSON.stringify({ plaka: plate, driver }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.ok === false) {
+        toast(data.error || 'Kaydedilemedi.', true);
+        return;
+      }
+
+      if (typeof oz.applyRemoteEntries === 'function' && Array.isArray(data.entries)) {
+        oz.applyRemoteEntries(data.entries);
+      }
+      await loadOzmalEntriesFull();
+      renderOzmalTable();
+
+      if (data.addedDriver) {
+        if (driverInput) driverInput.value = '';
+      } else {
+        if (plateInput) plateInput.value = '';
+        if (driverInput) driverInput.value = '';
+      }
+
+      const pwdMsg = data.passwordPlain ? ' · Şifre: ' + data.passwordPlain : '';
+      if (driver) {
+        toast((data.driver || driver) + ' kaydedildi' + pwdMsg + '.');
+      } else {
+        toast((data.plaka || plate) + ' kaydedildi.');
+      }
+    } catch (e) {
+      toast(e.message || 'Sunucuya kaydedilemedi.', true);
+    }
+  }
+
+  function bindOzmalUi() {
+    document.getElementById('ozmalAddForm')?.addEventListener('submit', submitOzmalAdd);
+    document.getElementById('ozmalRefreshBtn')?.addEventListener('click', async () => {
+      const tbody = document.getElementById('ozmalTbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="ay-empty">Yükleniyor…</td></tr>';
+      try {
+        await loadOzmalEntriesFull();
+        renderOzmalTable();
+        toast('Liste yenilendi.');
+      } catch (e) {
+        toast('Liste yüklenemedi.', true);
+      }
+    });
   }
 
   function bindBanUi() {
@@ -890,60 +1125,6 @@
   function bindBackupUi() {
     document.getElementById('backupExportBtn')?.addEventListener('click', handleBackupExport);
     document.getElementById('backupImportBtn')?.addEventListener('click', handleBackupImport);
-  }
-
-  const YNF_STORAGE_KEY = 'yuklemeNotuFit_v1';
-  const YNF_DEFAULTS = {
-    ihracat: { headPt: 8.5, descPt: 6.35 },
-    piyasa: { headPt: 10, descPt: 8.5 },
-  };
-
-  function ynfLoadSettings() {
-    if (window.YuklemeNotuFitSettings && typeof window.YuklemeNotuFitSettings.load === 'function') {
-      return window.YuklemeNotuFitSettings.load();
-    }
-    const out = JSON.parse(JSON.stringify(YNF_DEFAULTS));
-    try {
-      const raw = localStorage.getItem(YNF_STORAGE_KEY);
-      if (!raw) return out;
-      const saved = JSON.parse(raw);
-      ['ihracat', 'piyasa'].forEach((kind) => {
-        const src = saved && saved[kind];
-        if (!src) return;
-        if (src.headPt != null) out[kind].headPt = Number(src.headPt);
-        if (src.descPt != null) out[kind].descPt = Number(src.descPt);
-      });
-    } catch (e) { /* ignore */ }
-    return out;
-  }
-
-  function ynfSaveSettings(payload) {
-    if (window.YuklemeNotuFitSettings && typeof window.YuklemeNotuFitSettings.save === 'function') {
-      return window.YuklemeNotuFitSettings.save(payload);
-    }
-    const cur = ynfLoadSettings();
-    ['ihracat', 'piyasa'].forEach((kind) => {
-      const src = payload && payload[kind];
-      if (!src) return;
-      if (src.headPt != null) cur[kind].headPt = Number(src.headPt);
-      if (src.descPt != null) cur[kind].descPt = Number(src.descPt);
-    });
-    try {
-      localStorage.setItem(YNF_STORAGE_KEY, JSON.stringify(cur));
-    } catch (e) { /* ignore */ }
-    return cur;
-  }
-
-  function ynfFillForm() {
-    const s = ynfLoadSettings();
-    const set = (id, val) => {
-      const el = document.getElementById(id);
-      if (el) el.value = String(val);
-    };
-    set('ynfIhracatHead', s.ihracat.headPt);
-    set('ynfIhracatDesc', s.ihracat.descPt);
-    set('ynfPiyasaHead', s.piyasa.headPt);
-    set('ynfPiyasaDesc', s.piyasa.descPt);
   }
 
   function bindPrintFormBgUi() {
@@ -1078,32 +1259,6 @@
     loadPrintFormBgPreviewFromServer();
   }
 
-  function bindYuklemeNotuFitUi() {
-    const form = document.getElementById('yuklemeNotuFitForm');
-    if (!form || form.__ynfBound) return;
-    form.__ynfBound = true;
-    ynfFillForm();
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      ynfSaveSettings({
-        ihracat: {
-          headPt: document.getElementById('ynfIhracatHead')?.value,
-          descPt: document.getElementById('ynfIhracatDesc')?.value,
-        },
-        piyasa: {
-          headPt: document.getElementById('ynfPiyasaHead')?.value,
-          descPt: document.getElementById('ynfPiyasaDesc')?.value,
-        },
-      });
-      toast('Yükleme notu yazdırma ayarları kaydedildi.');
-    });
-    document.getElementById('ynfResetBtn')?.addEventListener('click', () => {
-      try { localStorage.removeItem(YNF_STORAGE_KEY); } catch (e) { /* ignore */ }
-      ynfFillForm();
-      toast('Varsayılan yükleme notu ayarları yüklendi.');
-    });
-  }
-
   const REPORT_DELETE_PASSWORD = '2026genper';
 
   async function ensureReportDeletePassword() {
@@ -1173,7 +1328,7 @@
   }
 
   function setupEmergencyBanOnly() {
-    ['section-plaka', 'section-imza', 'section-yedek'].forEach((id) => {
+    ['section-plaka', 'section-imza', 'section-yedek', 'section-ozmal'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -1192,6 +1347,7 @@
         if (id) {
           scrollToSection(id);
           if (id === 'section-ban') loadBanList();
+          if (id === 'section-ozmal') loadOzmalEntriesFull().then(renderOzmalTable);
         }
       });
     });
@@ -1264,7 +1420,7 @@
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
         const id = entry.target.id;
-        if (id === 'section-plaka' || id === 'section-eksik' || id === 'section-imza' || id === 'section-ban' || id === 'section-yedek' || id === 'section-yazdir') {
+        if (id === 'section-plaka' || id === 'section-eksik' || id === 'section-ozmal' || id === 'section-imza' || id === 'section-ban' || id === 'section-yedek' || id === 'section-yazdir') {
           activeSection = id;
           document.querySelectorAll('.ay-subnav-btn').forEach((btn) => {
             btn.classList.toggle('is-active', btn.getAttribute('data-goto') === id);
@@ -1272,7 +1428,7 @@
         }
       });
     }, { rootMargin: '-40% 0px -45% 0px', threshold: 0 });
-    ['section-plaka', 'section-eksik', 'section-imza', 'section-ban', 'section-yedek', 'section-yazdir'].forEach((id) => {
+    ['section-plaka', 'section-eksik', 'section-ozmal', 'section-imza', 'section-ban', 'section-yedek', 'section-yazdir'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) obs.observe(el);
     });
@@ -1280,9 +1436,10 @@
     bindBanUi();
     bindBackupUi();
     bindPrintFormBgUi();
-    bindYuklemeNotuFitUi();
+    if (typeof window.bindPrintLayoutEditor === 'function') window.bindPrintLayoutEditor();
     bindClearReportsUi();
     bindIncompleteUi();
+    bindOzmalUi();
   }
 
   function applyHashSection() {
@@ -1293,6 +1450,8 @@
       setTimeout(() => scrollToSection('section-plaka'), 100);
     } else if (hash === 'eksik' || hash === 'section-eksik') {
       setTimeout(() => scrollToSection('section-eksik'), 100);
+    } else if (hash === 'ozmal' || hash === 'section-ozmal') {
+      setTimeout(() => scrollToSection('section-ozmal'), 100);
     } else if (hash === 'ban' || hash === 'section-ban') {
       setTimeout(() => scrollToSection('section-ban'), 100);
     } else if (hash === 'yedek' || hash === 'section-yedek') {
@@ -1352,6 +1511,7 @@
     setActiveTab('products', { scroll: false });
     loadSignaturesList();
     loadIncompleteVehicles();
+    loadOzmalEntriesFull().then(renderOzmalTable);
     applyHashSection();
     try {
       if (window.SignatureRegistry) await window.SignatureRegistry.loadSignatures(true);

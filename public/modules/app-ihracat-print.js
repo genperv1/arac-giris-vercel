@@ -1559,4 +1559,49 @@ async function showIhracatDetailsModal() {
 }
 window.showIhracatDetailsModal = showIhracatDetailsModal;
 
+/** İhracat modalındaki canlı satırları sevkiyat listesi olarak döner */
+function _collectLiveIhracatShipmentRows() {
+  const out = [];
+  const modals = [
+    document.getElementById('ihracatDetailsModal'),
+    window.__ihracatParkedDetailsModal,
+  ].filter(Boolean);
+
+  for (const modal of modals) {
+    modal.querySelectorAll('tr[data-ihr-row-key]').forEach((row) => {
+      try {
+        const built = _ihracatBuildShipmentFromDetailRow(row, modal);
+        if (built && built.plaka) out.push(built);
+      } catch (e) { /* ignore */ }
+    });
+  }
+  return out;
+}
+window._collectLiveIhracatShipmentRows = _collectLiveIhracatShipmentRows;
+
+/** Plakaya göre canlı İhracat modal satırını bul (kart açılışı için) */
+function findIhracatShipmentByPlate(plate) {
+  const keyFn = typeof _ihracatPlateKey === 'function'
+    ? _ihracatPlateKey
+    : (v) => String(v || '').toLowerCase().replace(/[\s-]+/g, '');
+  const needle = keyFn(plate);
+  if (!needle) return null;
+
+  const modals = [
+    document.getElementById('ihracatDetailsModal'),
+    window.__ihracatParkedDetailsModal,
+  ].filter(Boolean);
+
+  for (const modal of modals) {
+    for (const row of modal.querySelectorAll('tr[data-ihr-row-key]')) {
+      const snap = _ihracatReadRowSnapshot(row);
+      if (!snap || !snap.plaka) continue;
+      if (keyFn(snap.plaka) !== needle) continue;
+      return _ihracatBuildShipmentFromDetailRow(row, modal);
+    }
+  }
+  return null;
+}
+window.findIhracatShipmentByPlate = findIhracatShipmentByPlate;
+
 

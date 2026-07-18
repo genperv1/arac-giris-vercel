@@ -33,10 +33,6 @@
     { plaka: '43 ADT 557', drivers: [{ name: 'HÜSEYİN ORHAN' }] },
   ];
 
-  function isBlockedDriver(name) {
-    return normDriverName(name) === normDriverName('FATIH ÜNAL');
-  }
-
   let _entries = null;
   let _plates = null;
   let _keySet = null;
@@ -67,12 +63,12 @@
   function normalizeDriver(raw) {
     if (typeof raw === 'string') {
       const name = normDriverName(raw);
-      if (!name || isBlockedDriver(name)) return null;
+      if (!name) return null;
       return { name, starred: false };
     }
     if (!raw || typeof raw !== 'object') return null;
     const name = normDriverName(raw.name);
-    if (!name || isBlockedDriver(name)) return null;
+    if (!name) return null;
     return { name, starred: !!raw.starred };
   }
 
@@ -468,7 +464,8 @@
     const display = formatPlateDisplay(plaka);
     const key = normKey(display);
     if (!key || key.length < 5) return { ok: false, error: 'Geçersiz plaka' };
-    const driver = normalizeDriver(driverName ? { name: driverName } : null);
+    const rawDriver = String(driverName || '').trim();
+    const driver = normalizeDriver(rawDriver ? { name: rawDriver } : null);
     const entries = getOzmalEntries().map((e) => ({
       plaka: e.plaka,
       bassofor: !!e.bassofor,
@@ -478,6 +475,7 @@
 
     if (idx >= 0) {
       if (!driver) {
+        if (rawDriver) return { ok: false, error: 'Geçersiz şoför adı.' };
         return {
           ok: false,
           error: 'Bu plaka zaten listede. İkinci şoför için şoför adı yazıp tekrar ekleyin.',
@@ -491,6 +489,10 @@
       entries[idx].drivers = drivers;
       saveEntries(entries);
       return { ok: true, plate: display, driver: driver.name, addedDriver: true };
+    }
+
+    if (rawDriver && !driver) {
+      return { ok: false, error: 'Geçersiz şoför adı.' };
     }
 
     entries.push({

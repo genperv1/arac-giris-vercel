@@ -24,62 +24,24 @@
             #loginScreen.login-screen { display: flex; }
             #mainApp { display: none; }
             #loginLoading { display: none !important; }
-            #iceridekiAraclar, #iceridekiAraclarContainer { display: none; }
 
-            /* When logged-in, show main app and Íçerideki Araçlar */
+            /* When logged-in, show main app */
             html.logged-in #loginScreen.login-screen,
             .logged-in #loginScreen.login-screen { display: none !important; }
             html.logged-in #mainApp,
             .logged-in #mainApp { display: block !important; }
             .logged-in #loginLoading{ display: none !important; }
-            .logged-in #iceridekiAraclar, .logged-in #iceridekiAraclarContainer { display: block !important; }
-        </style>
-        <style>
-            /* Gradient for İçerideki Araçlar header: from slate-800 to custom blue */
-            #iceridekiAraclar{
-                --tw-gradient-from: #1e293b;
-                --tw-gradient-to: #4338ca;
-                background-image: linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to));
-            }
-            /* Apply same gradient to the list container */
-            #iceridekiAraclarContainer{
-                --tw-gradient-from: #1e293b;
-                --tw-gradient-to: #4338ca;
-                background-image: linear-gradient(to right, var(--tw-gradient-from), var(--tw-gradient-to));
-            }
         </style>
         <meta name="description" content="Araç plaka giriş-çıkış ve sevkiyat takibi">
         <meta name="theme-color" content="#0f172a">
         <link rel="manifest" href="manifest.webmanifest">
         <title>Araç Plaka Takip Sistemi</title>
         <link rel="stylesheet" href="tailwind-built.css">
-        <link rel="stylesheet" href="styles.css?v=20260716-driver-login">
+        <link rel="stylesheet" href="styles.css?v=1.0.1-20260718">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     </head>
     <body class="min-h-screen text-gray-700">
         <a class="app-skip-link" href="#loginId">İçeriğe atla</a>
-
-        <!-- Top header: İçerideki Araçlar -->
-        
-
-        <!-- Modal: Plate actions -->
-        <div id="iceridekiPlateModal" class="hidden fixed inset-0 bg-black/50 z-50 items-center justify-center p-4">
-            <div class="bg-white rounded-lg w-full max-w-md mx-auto shadow-lg">
-                <div class="p-4 border-b flex items-center justify-between">
-                    <div class="font-bold" id="iceridekiPlateModalTitle">Plaka</div>
-                    <button id="iceridekiPlateModalClose" class="text-gray-500">Kapat</button>
-                </div>
-                <div class="p-4">
-                    <div class="mb-4 text-sm text-gray-600">Şu anki saat:</div>
-                    <div id="iceridekiPlateClock" class="text-2xl font-mono mb-6">--:--:--</div>
-                    <div class="flex gap-2">
-                        <button id="iceridekiPlateCikisBtn" class="flex-1 bg-red-600 text-white py-2 rounded">Çıkış Yap</button>
-                        <button id="iceridekiPlateCancelBtn" class="flex-1 bg-gray-200 text-gray-700 py-2 rounded">İptal</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
 
         <main id="main-region" tabindex="-1" aria-label="Ana uygulama">
 
@@ -223,52 +185,52 @@
             </div>
         </div>
 
-        <script src="core-dom.js?v=20260605-fixes-v1"></script>
-        <script src="asset-version.js?v=20260605-fixes-v1"></script>
-        <script src="asset-loader.js?v=20260605-fixes-v1"></script>
-        <script src="print-form-bg-upload.js?v=20260718-form-bg-v3"></script>
-        <script src="print-form-bg-bootstrap.js?v=20260718-original-jpg-v1"></script>
-        <script src="idb.js?v=20260605-fixes-v1"></script>
-        <script src="dailyStore.js?v=20260605-fixes-v1"></script>
-        <script src="modules/report-events.js?v=20260605-fixes-v1"></script>
-        <script src="errorReporter.js?v=20260605-fixes-v1"></script>
-        <script src="storage.js?v=20260605-fixes-v1"></script>
-        <script src="session-manager.js?v=20260716-login-session-fix"></script>
-        <script src="sync-manager.js?v=20260605-fixes-v1"></script>
-        <script src="network-banner.js?v=20260605-fixes-v1"></script>
-        <script src="issues-sync-bus.js?v=20260605-fixes-v1"></script>
-        <script src="operation-notes-alert.js?v=20260605-fixes-v1"></script>
-        <script src="rp-dialog.js?v=20260605-dialog-z-fix"></script>
-        <script src="signatures-registry.js?v=20260605-fixes-v1"></script>
-        <script src="ayarlar-gate.js?v=20260605-fixes-v1"></script>
-        <script src="excel-utils.js?v=20260605-fixes-v1"></script>
+        <script defer src="core-dom.js?v=1.0.1-20260718"></script>
+        <script defer src="asset-version.js?v=1.0.1-20260718"></script>
+        <script defer src="asset-loader.js?v=1.0.1-20260718"></script>
+        <script defer src="print-form-bg-upload.js?v=1.0.1-20260718"></script>
+        <script defer src="print-form-bg-bootstrap.js?v=1.0.1-20260718"></script>
+        <script defer src="idb.js?v=1.0.1-20260718"></script>
+        <script defer src="dailyStore.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/report-events.js?v=1.0.1-20260718"></script>
+        <script defer src="errorReporter.js?v=1.0.1-20260718"></script>
+        <script defer src="storage.js?v=1.0.1-20260718"></script>
+        <script defer src="session-manager.js?v=1.0.1-20260718"></script>
+        <script defer src="sync-manager.js?v=1.0.1-20260718"></script>
+        <script defer src="network-banner.js?v=1.0.1-20260718"></script>
+        <script defer src="issues-sync-bus.js?v=1.0.1-20260718"></script>
+        <script defer src="operation-notes-alert.js?v=1.0.1-20260718"></script>
+        <script defer src="rp-dialog.js?v=1.0.1-20260718"></script>
+        <script defer src="signatures-registry.js?v=1.0.1-20260718"></script>
+        <script defer src="ayarlar-gate.js?v=1.0.1-20260718"></script>
+        <script defer src="excel-utils.js?v=1.0.1-20260718"></script>
         <!-- Piyasa (globals önce — chip/menü tıklamaları için) -->
-        <script src="modules/piyasa-globals.js?v=20260611-fix2"></script>
-        <script src="modules/piyasa-core.js?v=20260611-fix2"></script>
-        <script src="modules/piyasa-orders.js?v=20260716-paste"></script>
-        <script src="modules/piyasa-excel.js?v=20260716-no-pdf"></script>
-        <script src="modules/piyasa-customers.js?v=20260716-sevkiyat"></script>
-        <script src="modules/piyasa-ui.js?v=20260716-paste"></script>
-        <script src="modules/piyasa-api.js?v=20260716-no-pdf"></script>
-        <script src="modules/app-modals.js?v=20260611-modular"></script>
-        <script src="modules/app-sofor-history.js?v=20260611-modular"></script>
+        <script defer src="modules/piyasa-globals.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/piyasa-core.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/piyasa-orders.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/piyasa-excel.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/piyasa-customers.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/piyasa-ui.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/piyasa-api.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-modals.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-sofor-history.js?v=1.0.1-20260718"></script>
         <!-- app.js modülleri (sıra önemli — paylaşılan global kapsam) -->
-        <script src="modules/app-core.js?v=20260716-login-session-fix"></script>
-        <script src="modules/app-excel-ihracat.js?v=20260718-reprint-bbt"></script>
-        <script src="modules/app-shipment-ui.js?v=20260718-save-merge"></script>
-        <script src="modules/app-signatures-prefs.js?v=20260611-modular"></script>
-        <script src="modules/app-ui-forms-pick.js?v=20260611-modular3"></script>
-        <script src="modules/app-ui-forms-takip.js?v=20260718-driver-card"></script>
-        <script src="modules/app-ui-utils.js?v=20260716-ozmal-settings"></script>
-        <script src="modules/app-auth.js?v=20260717-panel-pwd"></script>
-        <script src="modules/app-issues-core.js?v=20260716-ozmal-drivers"></script>
-        <script src="modules/app-vehicles.js?v=20260718-print-bbt"></script>
-        <script src="modules/app-excel-review.js?v=20260611-modular"></script>
-        <script src="modules/app-ihracat-modal.js?v=20260611-fix1"></script>
-        <script src="modules/app-ihracat-print.js?v=20260611-fix1"></script>
-        <script src="modules/app-sync-handlers.js?v=20260611-modular"></script>
-        <script src="excel-consistency.js?v=20260605-fixes-v1"></script>
-        <script src="excel-ihracat-import.js?v=20260605-fixes-v1"></script>
-        <script src="ozmal-plates.js?v=20260717-ozmal403"></script>
+        <script defer src="modules/app-core.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-ui-utils.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-excel-ihracat.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-shipment-ui.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-signatures-prefs.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-ui-forms-pick.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-ui-forms-takip.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-auth.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-issues-core.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-vehicles.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-excel-review.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-ihracat-modal.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-ihracat-print.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-sync-handlers.js?v=1.0.1-20260718"></script>
+        <script defer src="excel-consistency.js?v=1.0.1-20260718"></script>
+        <script defer src="excel-ihracat-import.js?v=1.0.1-20260718"></script>
+        <script defer src="ozmal-plates.js?v=1.0.1-20260718"></script>
     </body>
 </html>

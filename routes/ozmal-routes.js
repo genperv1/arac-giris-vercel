@@ -5,6 +5,8 @@ const {
   saveOzmalEntries,
   buildDriverLoginAccounts,
   normalizeEntries,
+  addOzmalPlateDriver,
+  formatPlateDisplay,
 } = require('../lib/ozmal-store');
 
 /**
@@ -30,6 +32,23 @@ function registerOzmalRoutes(api, ctx) {
       return res.json({ ok: true, entries });
     } catch (err) {
       return sendApiError(res, err, 500, 'OZMAL_ENTRIES_SAVE_FAILED');
+    }
+  });
+
+  api.post('/settings/ozmal-add', requireSettingsAccess, async (req, res) => {
+    try {
+      const plaka = formatPlateDisplay(req.body?.plaka || '');
+      const driver = String(req.body?.driver || '').trim();
+      if (!plaka) {
+        return res.status(400).json({ ok: false, error: 'Plaka gerekli' });
+      }
+      const result = await addOzmalPlateDriver(q, plaka, driver);
+      if (!result.ok) {
+        return res.status(400).json(result);
+      }
+      return res.json(result);
+    } catch (err) {
+      return sendApiError(res, err, 500, 'OZMAL_ADD_FAILED');
     }
   });
 }

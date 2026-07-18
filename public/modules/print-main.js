@@ -357,7 +357,7 @@
 
   const YUKLEME_NOTU_FIT_STORAGE_KEY = 'yuklemeNotuFit_v1';
   const YUKLEME_NOTU_FIT_DEFAULTS = {
-    ihracat: { headPt: 10.75, descPt: 7.5, minHeadPt: 10, minDescPt: 6.5, headStep: 0.08, descStep: 0.08 },
+    ihracat: { headPt: 10.75, descPt: 9, minHeadPt: 10, minDescPt: 7.5, headStep: 0.08, descStep: 0.08 },
     piyasa: { headPt: 10, descPt: 8.5, minHeadPt: 9, minDescPt: 7.75, headStep: 0.05, descStep: 0.06 },
     screen: {
       ihracat: { minPx: 9, maxPx: 11 },
@@ -562,7 +562,15 @@
   function getYuklemeNotuFitPreset(kind) {
     const settings = loadYuklemeNotuFitSettings();
     const key = kind === 'ihracat' ? 'ihracat' : 'piyasa';
-    return Object.assign({}, settings[key]);
+    const base = Object.assign({}, settings[key]);
+    try {
+      if (window.PrintLayoutSettings) {
+        const n = window.PrintLayoutSettings.getYuklemeNotuStyle();
+        if (n.headPt != null) base.headPt = n.headPt;
+        if (n.descPt != null) base.descPt = n.descPt;
+      }
+    } catch (e) { /* ignore */ }
+    return base;
   }
 
   function getYuklemeNotuScreenFit(kind) {
@@ -580,6 +588,22 @@
   function splitIhracatDescIntoLines(text, maxLines = 3) {
     let t = String(text || '').replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!t) return [];
+
+    try {
+      if (window.PrintLayoutSettings) {
+        const noteStyle = window.PrintLayoutSettings.getYuklemeNotuStyle();
+        const ml = noteStyle.maxLines || maxLines;
+        const split = window.PrintLayoutSettings.splitTextByPhrases(t, noteStyle.breakAfter, ml);
+        if (split.length > 1) return split.slice(0, ml);
+      }
+    } catch (e) { /* ignore */ }
+
+    const sevkOzelMatch = t.match(/^(.*?\bSEVK\s+ED[İI]LECEK)\s+(ÖZEL\s+ETİKET.+)$/iu);
+    if (sevkOzelMatch) {
+      const presetLines = [sevkOzelMatch[1].trim(), sevkOzelMatch[2].trim()].filter(Boolean);
+      if (presetLines.length && presetLines.length <= maxLines) return presetLines;
+    }
+
     t = t.replace(/\.([A-ZÇĞİÖŞÜa-zçğıöşü])/g, '. $1');
 
     let chunks = t
@@ -606,7 +630,23 @@
     const parts = (descParts || []).map((s) => String(s || '').trim()).filter(Boolean);
     if (!parts.length) return [];
     if (kind === 'ihracat') {
-      return splitIhracatDescIntoLines(parts.join(' '), 3);
+      let ml = 3;
+      let breakAfter = null;
+      try {
+        if (window.PrintLayoutSettings) {
+          const ns = window.PrintLayoutSettings.getYuklemeNotuStyle();
+          ml = ns.maxLines || 3;
+          breakAfter = ns.breakAfter;
+        }
+      } catch (e) { /* ignore */ }
+      const joined = parts.join(' ');
+      if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.useStrictPrintLayout === 'function'
+          && window.PrintLayoutSettings.useStrictPrintLayout()
+          && typeof window.PrintLayoutSettings.splitTextByPhrases === 'function') {
+        const split = window.PrintLayoutSettings.splitTextByPhrases(joined, breakAfter, ml);
+        if (split.length) return split.slice(0, ml);
+      }
+      return splitIhracatDescIntoLines(joined, ml);
     }
 
     const mainParts = parts.filter((p) => !isAracBosNoteLine(p));
@@ -641,6 +681,10 @@
 
   function fitYuklemeNotuPrint(box) {
     try {
+      if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.useStrictPrintLayout === 'function'
+          && window.PrintLayoutSettings.useStrictPrintLayout()) {
+        return;
+      }
       if (!box) return;
       if (!box.clientHeight || box.clientHeight < 8) return;
 
@@ -661,11 +705,21 @@
         resolveYuklemeNotuKind();
       const preset = getYuklemeNotuFitPreset(kind);
 
+      let layoutNote = {};
+      let useLayoutNote = false;
+      try {
+        if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.getYuklemeNotuStyle === 'function') {
+          layoutNote = window.PrintLayoutSettings.getYuklemeNotuStyle() || {};
+          useLayoutNote = layoutNote.headPt != null || layoutNote.descPt != null;
+        }
+      } catch (e) { /* ignore */ }
+
       const headEl = inner.querySelector('.note-head');
       const descRows = inner.querySelectorAll('.note-row');
-      let headPt = preset.headPt;
-      const headDescGap = Math.max(0.75, preset.headPt - preset.descPt);
-      let descPt = Math.max(preset.minDescPt, headPt - headDescGap);
+      let headPt = useLayoutNote ? (layoutNote.headPt ?? preset.headPt) : preset.headPt;
+      let descPt = useLayoutNote ? (layoutNote.descPt ?? preset.descPt) : preset.descPt;
+      const headGapMm = useLayoutNote ? (layoutNote.headGapMm ?? 1.1) : 1.1;
+      const noteLineHeight = useLayoutNote ? (layoutNote.lineHeight ?? 1.1) : (kind === 'piyasa' ? 1.18 : 1.08);
       const minHeadPt = preset.minHeadPt;
       const minDescPt = preset.minDescPt;
 
@@ -688,6 +742,37 @@
       };
 
       const applySizes = () => {
+        if (headEl) {
+          headEl.style.lineHeight = kind === 'ihracat' ? '1.12' : '1.1';
+          headEl.style.fontSize = headPt + 'pt';
+          if (useLayoutNote) headEl.style.marginBottom = headGapMm + 'mm';
+        }
+        descRows.forEach((row) => {
+          row.style.lineHeight = useLayoutNote ? String(noteLineHeight) : (kind === 'piyasa' ? '1.18' : '1.08');
+          row.style.fontSize = descPt + 'pt';
+          if (kind === 'ihracat') {
+            row.style.whiteSpace = 'pre-line';
+            row.style.letterSpacing = '0';
+          }
+        });
+      };
+
+      applySizes();
+
+      if (useLayoutNote) {
+        let layoutGuard = 0;
+        while (layoutGuard < 24 && (inner.scrollHeight > availH() + 1 || rowTooWide())) {
+          if (descPt > minDescPt) descPt -= 0.08;
+          else if (headEl && headPt > minHeadPt) headPt -= 0.08;
+          else break;
+          applySizes();
+          layoutGuard++;
+        }
+        return;
+      }
+
+      const headDescGap = Math.max(0.75, preset.headPt - preset.descPt);
+      const applyLegacySizes = () => {
         descPt = Math.max(minDescPt, headPt - headDescGap);
         if (headEl) {
           headEl.style.lineHeight = kind === 'ihracat' ? '1.12' : '1.1';
@@ -703,8 +788,10 @@
         });
       };
 
-      applySizes();
-      const skipShrink = kind === 'piyasa' && descRows.length <= 4;
+      applyLegacySizes();
+      const skipShrink =
+        (kind === 'piyasa' && descRows.length <= 4) ||
+        (kind === 'ihracat' && descRows.length <= 3);
       let guard = 0;
       if (!skipShrink) {
         while (guard < 48 && (inner.scrollHeight > availH() + 1 || rowTooWide())) {
@@ -715,7 +802,7 @@
           } else {
             break;
           }
-          applySizes();
+          applyLegacySizes();
           guard++;
         }
       }
@@ -733,10 +820,11 @@
         if (scale < 1) inner.style.width = `${(100 / scale).toFixed(2)}%`;
       }
 
-      // Piyasa: kutuda boşluk kalıyorsa hafifçe büyüt (satır sayısı az olduğu için)
-      if (kind === 'piyasa' && descRows.length <= 4) {
-        const maxHeadPt = preset.headPt + 1.2;
-        const maxDescPt = preset.descPt + 1.5;
+      // Kutuda boşluk kalıyorsa hafifçe büyüt (satır sayısı az olduğu için)
+      const growMaxRows = kind === 'ihracat' ? 3 : 4;
+      if (descRows.length <= growMaxRows) {
+        const maxHeadPt = preset.headPt + (kind === 'ihracat' ? 0.6 : 1.2);
+        const maxDescPt = preset.descPt + (kind === 'ihracat' ? 2.2 : 1.5);
         let grow = 0;
         while (inner.scrollHeight < availH() * 0.9 && grow < 35) {
           let grew = false;
@@ -748,11 +836,11 @@
             grew = true;
           }
           if (!grew) break;
-          applySizes();
+          applyLegacySizes();
           if (inner.scrollHeight > availH()) {
             if (headEl && headPt > preset.headPt) headPt -= 0.08;
             else descPt -= 0.1;
-            applySizes();
+            applyLegacySizes();
             break;
           }
           grow++;
@@ -1814,8 +1902,33 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
 
         // Takip Formunu Yazdır
     async function yazdirForm(opts = {}) {
+    const clearLayoutSnapshot = () => {
+      try { window.PrintLayoutSettings?.clearPreviewSnapshot?.(); } catch (e) { /* ignore */ }
+    };
+    if (opts.layoutSnapshot && window.PrintLayoutSettings?.setPreviewSnapshot) {
+      window.PrintLayoutSettings.setPreviewSnapshot(opts.layoutSnapshot);
+    }
+
+    try {
     if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
       try { await window.SignatureRegistry.loadSignatures(); } catch (e) { /* ignore */ }
+    }
+
+    const isDemo = !!opts.demo;
+    const demoData = isDemo
+      ? (opts.demoData || (typeof window.PrintLayoutSettings?.getDemoPrintData === 'function'
+          ? window.PrintLayoutSettings.getDemoPrintData()
+          : {}))
+      : null;
+
+    function readFormValue(id) {
+      if (demoData && Object.prototype.hasOwnProperty.call(demoData, id)) {
+        return String(demoData[id] ?? '');
+      }
+      const el = document.getElementById(id);
+      if (!el) return '';
+      if ('value' in el) return String(el.value || '');
+      return String(el.textContent || '');
     }
 
     // ✅ localStorage'dan seçili sayfa boyutunu oku
@@ -1825,15 +1938,18 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     const bgDataUrl = await ensurePrintBgDataUrl();
     if (!bgDataUrl) {
       alert('Takip formu arka plan görseli yüklenemedi. Ayarlar → Yazdırma bölümünden şablon JPG yükleyin veya sunucuyu yeniden başlatın.');
+      clearLayoutSnapshot();
       return null;
     }
     const bgUrl = bgDataUrl;
 
-    const firmaKodu = document.getElementById('firmaKodu')?.value || '';
-    const malzeme = document.getElementById('malzeme')?.value || '';
+    const firmaKodu = readFormValue('firmaKodu');
+    const malzeme = readFormValue('malzeme');
     // ✅ Yükleme sırası: kullanıcı yazdıysa onu baz al, boşsa otomatik
-    const yuklemeSirasiInput = document.getElementById('yuklemeSirasi');
-    const manualStr = (yuklemeSirasiInput?.value || '').trim();
+    const yuklemeSirasiInput = isDemo ? null : document.getElementById('yuklemeSirasi');
+    const manualStr = isDemo
+      ? String(demoData?.yuklemeSirasi || '127').trim()
+      : (yuklemeSirasiInput?.value || '').trim();
 
     let yuklemeSirasiNum = null;
     if (manualStr !== '' && /^\d+$/.test(manualStr)) {
@@ -1843,14 +1959,17 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
         }
     }
 
-    // Manuel geçersiz/boş ise otomatik artır
-    if (yuklemeSirasiNum === null) {
+    // Manuel geçersiz/boş ise otomatik artır (önizleme modunda sayaç artmaz)
+    if (yuklemeSirasiNum === null && !isDemo) {
         yuklemeSirasiNum = getNextYuklemeSirasi();
         if (yuklemeSirasiInput) yuklemeSirasiInput.value = String(yuklemeSirasiNum);
     }
+    if (yuklemeSirasiNum === null && isDemo) {
+        yuklemeSirasiNum = 127;
+    }
 
     const yuklemeSirasi = String(yuklemeSirasiNum);
-const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeNotu')?.value || '');
+const yuklemeNotu = resolveYuklemeNotuForPrint(readFormValue('yuklemeNotu'));
 
     // ✅ Print güvenliği: HTML escape + satır normalize
     const escapeHtml = (s) => String(s ?? '')
@@ -2045,10 +2164,10 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
     const malzemeGridHtml = buildMalzemePrintHtml(malzeme, escapeHtml, MALZEME_PRINT_BOX.wMm);
     const yuklemeNotuPrint = buildYuklemeNotuPrintHtml(yuklemeNotu, notKind);
 
-    // ✅ Takip formu alanları artık span *veya* input olabilir.
-    // - input varsa .value
-    // - span/div varsa .textContent
     function readFieldText(id) {
+      if (demoData && Object.prototype.hasOwnProperty.call(demoData, id)) {
+        return String(demoData[id] ?? '');
+      }
       const el = document.getElementById(id);
       if (!el) return '';
       if ('value' in el) return String(el.value || '');
@@ -2060,22 +2179,22 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
     const tcBilgi          = readFieldText('tcBilgi');
     const cekiciPlakaBilgi = readFieldText('cekiciPlakaBilgi');
     const dorsePlakaBilgi  = readFieldText('dorsePlakaBilgi');
-const sevkYeri = document.getElementById('sevkYeri')?.value || '';
+const sevkYeri = readFormValue('sevkYeri');
 const sevkYeriPrint = formatSevkYeriPrint(sevkYeri);
-const tonaj = document.getElementById('tonaj')?.value || '';
-const ambalajBilgisi = normalizeAmbalajBilgisi(document.getElementById('ambalajBilgisi')?.value || '');
+const tonaj = readFormValue('tonaj');
+const ambalajBilgisi = normalizeAmbalajBilgisi(readFormValue('ambalajBilgisi'));
 const ambalajBilgisiPrint = formatAmbalajBilgisiPrint(ambalajBilgisi);
-const seperatorBilgisi = document.getElementById('seperatorBilgisi')?.value || '';
+const seperatorBilgisi = readFormValue('seperatorBilgisi');
 const seperatorBilgisiPrint = formatSeperatorBilgisiPrint(seperatorBilgisi);
-const imzaKantarAd   = document.getElementById('imzaKantarAd')?.value || '';
+const imzaKantarAd   = readFormValue('imzaKantarAd');
 const imzaKantarSrc  = toPrintSignatureSrc(resolveKantarSignatureSrc(imzaKantarAd));
 const imzaKantarImgHtml = imzaKantarSrc ? `<img src="${imzaKantarSrc}" class="imza-img" alt="İmza">` : ``;
 
-const imzaSahaAd     = document.getElementById('imzaSahaAd')?.value || '';
+const imzaSahaAd     = readFormValue('imzaSahaAd');
 const imzaSahaSrc    = toPrintSignatureSrc(resolveSahaSignatureSrc(imzaSahaAd));
 const imzaSahaImgHtml = imzaSahaSrc ? `<img src="${imzaSahaSrc}" class="imza-img" alt="İmza">` : ``;
-const imzaYukleyenAd = document.getElementById('imzaYukleyenAd')?.value || '';
-const imzaKaliteAd   = document.getElementById('imzaKaliteAd')?.value || '';    // Ambalajlar (Yeni sistem: BBT, BOŞ BBT, ÇUVAL, BOŞ ÇUVAL, PALET, TORBA)
+const imzaYukleyenAd = readFormValue('imzaYukleyenAd');
+const imzaKaliteAd   = readFormValue('imzaKaliteAd');    // Ambalajlar (Yeni sistem: BBT, BOŞ BBT, ÇUVAL, BOŞ ÇUVAL, PALET, TORBA)
 const amb = {
   bbt: "",
   bosBbt: "",
@@ -2086,12 +2205,12 @@ const amb = {
 };
 
 // ✅ Checkbox kaldırıldı: miktar girildiyse yazdır
-amb.bbt = (document.getElementById('bbt')?.value || '').trim();
-amb.bosBbt = (document.getElementById('bosBbt')?.value || '').trim();
-amb.cuval = (document.getElementById('cuval')?.value || '').trim();
-amb.bosCuval = (document.getElementById('bosCuval')?.value || '').trim();
-amb.palet = (document.getElementById('palet')?.value || '').trim();
-amb.torba = (document.getElementById('torba')?.value || '').trim();
+amb.bbt = readFormValue('bbt').trim();
+amb.bosBbt = readFormValue('bosBbt').trim();
+amb.cuval = readFormValue('cuval').trim();
+amb.bosCuval = readFormValue('bosCuval').trim();
+amb.palet = readFormValue('palet').trim();
+amb.torba = readFormValue('torba').trim();
 
 // Print’e basılacak net değerler
 const torbaText = amb.torba;
@@ -2104,11 +2223,13 @@ const bosBbtText = amb.bosBbt;
     const COORD_REF_H = 723;
     const ROW_NUDGE_PX = 38; // grid satırı bir tık yukarı (değerler bir alt satırda kalıyordu)
     function buildTakipFormPrintCoords() {
+      if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.buildBasePrintCoords === 'function') {
+        return window.PrintLayoutSettings.buildBasePrintCoords();
+      }
       const IMG_W = COORD_REF_W;
       const IMG_H = COORD_REF_H;
-      const pageH = FORM_CONTENT_H;
       const xMm = (px) => (px / IMG_W) * 210;
-      const yMm = (py) => (py / IMG_H) * pageH;
+      const yMm = (py) => (py / IMG_H) * FORM_CONTENT_H;
       const mmPx = (mm) => (mm / 210) * IMG_W;
       const ry = (py) => Math.max(0, py - ROW_NUDGE_PX);
       const mid = (y0, y1, shift) => yMm((ry(y0) + ry(y1)) / 2) - shift;
@@ -2117,52 +2238,63 @@ const bosBbtText = amb.bosBbt;
       const packPx = [212].concat(packMm.map(mmPx));
       const imzaMm = [54.8, 105.4, 154.8, 205.7];
       const imzaPx = [20].concat(imzaMm.map(mmPx));
-
       const P = {
-        yuklemeSirasi: { left: xMm(455), top: mid(172, 210, 1.3), w: xMm(535 - 455), align: 'center' },
-        tarih:         { left: xMm(700), top: mid(172, 210, 1.3), w: xMm(990 - 700), align: 'center' },
-        sofor:         { left: xMm(215), top: mid(210, 248, 1.3), w: xMm(539 - 215) },
-        iletisim:      { left: xMm(738), top: mid(210, 248, 1.3), w: xMm(985 - 738), align: 'center' },
-        tc:            { left: xMm(215), top: mid(248, 286, 1.3), w: xMm(539 - 215) },
+        yuklemeSirasi: { left: xMm(455), top: mid(172, 210, 1.3), w: xMm(535 - 455), h: 5, align: 'center' },
+        tarih:         { left: xMm(700), top: mid(172, 210, 1.3), w: xMm(990 - 700), h: 5, align: 'center' },
+        sofor:         { left: xMm(215), top: mid(210, 248, 1.3), w: xMm(539 - 215), h: 5 },
+        iletisim:      { left: xMm(738), top: mid(210, 248, 1.3), w: xMm(985 - 738), h: 5, align: 'center' },
+        tc:            { left: xMm(215), top: mid(248, 286, 1.3), w: xMm(539 - 215), h: 5 },
         sevkYeri:      { left: xMm(702), top: mid(248, 286, 1.3), w: xMm(888 - 702), h: rh(248, 286), align: 'center' },
-        cekici:        { left: xMm(215), top: mid(286, 325, 1.3), w: xMm(539 - 215) },
-        dorse:         { left: xMm(539), top: mid(286, 325, 1.3), w: xMm(1000 - 539), align: 'center' },
-        firma:         { left: xMm(215), top: mid(325, 362, 1.3), w: xMm(1000 - 215) },
+        cekici:        { left: xMm(215), top: mid(286, 325, 1.3), w: xMm(539 - 215), h: 5 },
+        dorse:         { left: xMm(539), top: mid(286, 325, 1.3), w: xMm(1000 - 539), h: 5, align: 'center' },
+        firma:         { left: xMm(215), top: mid(325, 362, 1.3), w: xMm(1000 - 215), h: 5 },
         malzeme:       { left: xMm(215), top: mid(362, 399, 1.3), w: xMm(653 - 215), h: 6.2 },
         ambBilgi:      { left: xMm(798), top: mid(362, 399, 2.4), w: xMm(1000 - 798), h: rh(362, 399) },
-        tonaj:         { left: xMm(215), top: mid(399, 445, 1.3), w: xMm(509 - 215) },
+        tonaj:         { left: xMm(215), top: mid(399, 445, 1.3), w: xMm(509 - 215), h: 5 },
         seperator:     { left: xMm(798), top: mid(399, 445, 3.6), w: xMm(996 - 798), h: Math.max(3.8, rh(399, 445) - 0.8) },
         not:           { left: xMm(215), top: yMm(ry(530)), w: xMm(1000 - 215), h: rh(514, 578) },
       };
-
       ['bbt', 'bosBbt', 'cuval', 'bosCuval', 'palet', 'torba'].forEach(function (key, i) {
-        P[key] = {
-          left: xMm(packPx[i] + 3),
-          top: mid(484, 548, 3.5),
-          w: xMm(packPx[i + 1] - packPx[i] - 6),
-        };
+        P[key] = { left: xMm(packPx[i] + 3), top: mid(484, 548, 3.5), w: xMm(packPx[i + 1] - packPx[i] - 6), h: 5 };
       });
-
       ['imzaKantar', 'imzaSaha', 'imzaYukleyen', 'imzaKalite'].forEach(function (key, i) {
-        P[key] = {
-          left: xMm(imzaPx[i] + 6),
-          top: mid(588, 668, 0.5),
-          w: xMm(imzaPx[i + 1] - imzaPx[i] - 12),
-          h: rh(584, 662),
-        };
+        P[key] = { left: xMm(imzaPx[i] + 6), top: mid(588, 668, 0.5), w: xMm(imzaPx[i + 1] - imzaPx[i] - 12), h: rh(584, 662) };
       });
-
-      P.imzaKantar = {
-        left: xMm(imzaPx[0] + 4),
-        top: mid(588, 668, 0.35),
-        w: xMm(imzaPx[1] - imzaPx[0] - 10),
-        h: rh(584, 662),
-      };
-
       return P;
     }
 
     const P = buildTakipFormPrintCoords();
+    if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.applyLayoutToCoords === 'function') {
+      window.PrintLayoutSettings.applyLayoutToCoords(P);
+    }
+    const layoutKantar = (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.getImzaKantarStyle === 'function')
+      ? window.PrintLayoutSettings.getImzaKantarStyle()
+      : { imgMaxMm: 12, namePt: 10, nameGapMm: 0.3, align: 'center' };
+    const layoutSaha = (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.getStyle === 'function')
+      ? window.PrintLayoutSettings.getStyle('imzaSaha')
+      : { imgMaxMm: 11, namePt: 9.5, nameGapMm: 0.25, align: 'center' };
+    const layoutNote = (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.getYuklemeNotuStyle === 'function')
+      ? window.PrintLayoutSettings.getYuklemeNotuStyle()
+      : { headGapMm: 1.1, headPt: 10.75, descPt: 9, lineHeight: 1.1 };
+    const layoutPrintCss = (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.buildFullPrintLayoutCss === 'function')
+      ? window.PrintLayoutSettings.buildFullPrintLayoutCss()
+      : ((window.PrintLayoutSettings && typeof window.PrintLayoutSettings.buildPrintLayoutCss === 'function')
+        ? window.PrintLayoutSettings.buildPrintLayoutCss()
+        : '');
+    const strictPrintLayout = !!(window.PrintLayoutSettings
+      && typeof window.PrintLayoutSettings.useStrictPrintLayout === 'function'
+      && window.PrintLayoutSettings.useStrictPrintLayout());
+    const pfPos = (key, extra) => {
+      const r = P[key];
+      if (!r) return strictPrintLayout ? '' : (extra || '');
+      let s = `left:${r.left}mm;top:${r.top}mm;width:${r.w}mm;`;
+      if (r.h != null) s += `height:${r.h}mm;`;
+      return s + (strictPrintLayout ? '' : (extra || ''));
+    };
+    const kantarAlignItems = layoutKantar.align === 'left' ? 'flex-start' : 'center';
+    const kantarTextAlign = layoutKantar.align === 'left' ? 'left' : 'center';
+    const sahaAlignItems = layoutSaha.align === 'left' ? 'flex-start' : 'center';
+    const sahaTextAlign = layoutSaha.align === 'left' ? 'left' : 'center';
     const malzemeTopMm = P.malzeme.top - (malzemeLayout.twoLine ? 1.8 : 0);
     const malzemeBoxClass = malzemeLayout.twoLine
       ? 'field malzeme-print-box malzeme-print-box--2'
@@ -2170,13 +2302,58 @@ const bosBbtText = amb.bosBbt;
 
     // ✅ Sayfa boyutuna göre CSS parametrelerini ayarla
     const FORM_PAGE_H = FORM_CONTENT_H;
-    const formOuterTopGap = pageSize === 'A4' ? '5mm' : '0mm';
-    const formInnerPadTop = pageSize === 'A4' ? '0mm' : '1.5mm';
+    const formOuterTopGap = pageSize === 'A4' ? '5mm' : '3.5mm';
+    const formInnerPadTop = '0mm';
     const pageParams = pageSize === 'A4' 
       ? { size: 'A4', width: '210mm', height: '297mm' }
       : { size: 'A5 landscape', width: '210mm', height: '148mm' };
 
-    const printHTML = `
+    const toLayoutPlain = (html) =>
+      (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.normalizePrintFieldText === 'function')
+        ? window.PrintLayoutSettings.normalizePrintFieldText(html)
+        : String(html || '').split(/<br\s*\/?>/gi).join('\n');
+
+    const layoutFmt = window.PrintLayoutSettings?.formatFieldDisplayText?.bind(window.PrintLayoutSettings);
+
+    const layoutFieldValues = {
+      yuklemeSirasi,
+      tarih: trLocaleDateString(),
+      sofor: soforBilgi,
+      iletisim: iletisimBilgi,
+      tc: tcBilgi,
+      cekici: cekiciPlakaBilgi,
+      dorse: dorsePlakaBilgi,
+      sevkYeri: layoutFmt ? layoutFmt('sevkYeri', sevkYeri) : toLayoutPlain(sevkYeriPrint),
+      firma: firmaKodu,
+      malzeme,
+      ambBilgi: layoutFmt ? layoutFmt('ambBilgi', ambalajBilgisi) : toLayoutPlain(ambalajBilgisiPrint),
+      tonaj,
+      seperator: layoutFmt ? layoutFmt('seperator', seperatorBilgisi) : toLayoutPlain(seperatorBilgisiPrint),
+      bbt: amb.bbt,
+      bosBbt: amb.bosBbt,
+      cuval: amb.cuval,
+      bosCuval: amb.bosCuval,
+      palet: amb.palet,
+      torba: amb.torba,
+      not: yuklemeNotu,
+      imzaYukleyen: imzaYukleyenAd,
+      imzaKalite: imzaKaliteAd,
+    };
+    const layoutSignatures = {
+      imzaKantar: { name: imzaKantarAd, src: imzaKantarSrc },
+      imzaSaha: { name: imzaSahaAd, src: imzaSahaSrc },
+    };
+
+    let printHTML;
+    if (strictPrintLayout && typeof window.PrintLayoutSettings?.buildLayoutPrintDocument === 'function') {
+      printHTML = window.PrintLayoutSettings.buildLayoutPrintDocument({
+        bgUrl,
+        pageSize,
+        values: layoutFieldValues,
+        signatures: layoutSignatures,
+      });
+    } else {
+    printHTML = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -2187,7 +2364,7 @@ const bosBbtText = amb.bosBbt;
 
       @page {
         size: ${pageParams.size};
-        margin: ${pageSize === 'A4' ? '0' : '0'};
+        margin: 0;
       }
 
       #printViewport {
@@ -2278,13 +2455,17 @@ const bosBbtText = amb.bosBbt;
 
   .field{
     position:absolute;
-    font-size:12pt;
     font-weight:700;
     color:#000;
-    white-space:nowrap;
-    line-height:1;
     margin:0;
     padding:0;
+    box-sizing:border-box;
+    overflow:hidden;
+    ${strictPrintLayout ? '' : 'font-size:12pt;white-space:nowrap;line-height:1;'}
+  }
+
+  .pf-field.field{
+    overflow:hidden !important;
   }
 
   .field.field-center{
@@ -2295,8 +2476,7 @@ const bosBbtText = amb.bosBbt;
     white-space:normal;
     word-break:break-word;
     overflow-wrap:break-word;
-    font-size:10.5pt;
-    line-height:1.1;
+    ${strictPrintLayout ? '' : 'font-size:10.5pt;line-height:1.1;'}
   }
 
  .note{
@@ -2367,32 +2547,30 @@ const bosBbtText = amb.bosBbt;
   line-height:1.08;
   margin-top:0.15mm;
 }
+${strictPrintLayout ? '' : `
 .note--ihracat .note-head,
 .note-inner[data-not-kind="ihracat"] .note-head{
-  font-size:10.75pt;
-  line-height:1.1;
-  margin-bottom:0.05mm;
+  font-size:${layoutNote.headPt || 10.75}pt;
+  line-height:1.12;
+  margin-bottom:${layoutNote.headGapMm}mm;
 }
 .note--ihracat .note-row,
 .note-inner[data-not-kind="ihracat"] .note-row{
-  font-size:7.5pt;
-  line-height:1.06;
+  font-size:${layoutNote.descPt || 9}pt;
+  line-height:${layoutNote.lineHeight || 1.1};
   white-space:pre-line;
   word-break:normal;
   overflow-wrap:normal;
-  margin:0 0 0.05mm 0;
+  margin:0 0 0.15mm 0;
 }
-.note--ihracat .note-row:first-of-type,
-.note-inner[data-not-kind="ihracat"] .note-row:first-of-type{
-  margin-top:-0.08mm;
-}
+`}
 
+${strictPrintLayout ? '' : `
 .imza-text {
   font-size: 9pt;
   font-weight: 600;
 }
 
-/* KANTAR imza bloğu: üstte imza, altta isim (kutu içinde) */
 .imza-block{
   display:flex;
   flex-direction:column;
@@ -2435,30 +2613,64 @@ const bosBbtText = amb.bosBbt;
   word-break: break-word;
 }
 .imza-block--kantar{
-  align-items:center;
-  justify-content:center;
-  padding:2.4mm 0.6mm 0.9mm 0.6mm;
+  align-items:${kantarAlignItems};
+  justify-content:flex-end;
+  padding:${layoutKantar.padTopMm != null ? layoutKantar.padTopMm : 5}mm 0.5mm 0.6mm;
+  gap:${layoutKantar.nameGapMm}mm;
 }
 .imza-block--kantar .imza-imgwrap{
+  flex:0 0 auto;
+  width:100%;
   align-items:center;
   justify-content:center;
-  flex:0 1 auto;
-  width:100%;
   padding:0;
 }
 .imza-block--kantar .imza-img{
-  max-height:14mm;
-  max-width:88%;
+  max-height:${layoutKantar.imgMaxMm}mm;
+  max-width:90%;
+  object-fit:contain;
   object-position:center center;
 }
 .imza-block--kantar .imza-name{
-  font-size:9.75pt;
+  flex:0 0 auto;
+  font-size:${layoutKantar.namePt}pt;
   font-weight:700;
-  text-align:center;
+  text-align:${kantarTextAlign};
   width:100%;
-  padding-left:0;
-  margin-top:0.2mm;
+  margin:0;
+  padding:0;
+  line-height:1.05;
 }
+.imza-block--saha{
+  align-items:${sahaAlignItems};
+  justify-content:flex-end;
+  padding:${layoutSaha.padTopMm != null ? layoutSaha.padTopMm : 4.5}mm 0.5mm 0.6mm;
+  gap:${layoutSaha.nameGapMm}mm;
+}
+.imza-block--saha .imza-imgwrap{
+  flex:0 0 auto;
+  width:100%;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+}
+.imza-block--saha .imza-img{
+  max-height:${layoutSaha.imgMaxMm}mm;
+  max-width:90%;
+  object-fit:contain;
+  object-position:center center;
+}
+.imza-block--saha .imza-name{
+  flex:0 0 auto;
+  font-size:${layoutSaha.namePt}pt;
+  font-weight:700;
+  text-align:${sahaTextAlign};
+  width:100%;
+  margin:0;
+  padding:0;
+  line-height:1.05;
+}
+`}
 
 			
 
@@ -2560,6 +2772,7 @@ const bosBbtText = amb.bosBbt;
 .malz-grid.cols-6 .malz-qty { font-size: 7.5pt; }
 .malz-grid.cols-6 .malz-desc { font-size: 6.5pt; }
 
+${strictPrintLayout ? '' : `
 /* ✅ SEVK YERİ: değer hücresinde ortalı, bir tık büyük punto */
 .field.wrap.sevk-box{
   display:flex;
@@ -2611,16 +2824,9 @@ const bosBbtText = amb.bosBbt;
   font-weight: 700;
   overflow:hidden;
 }
-.fit-one-line{
-  white-space:nowrap !important;
-}
-.sevk-box .fit-span{
-  display:inline-block;
-  max-width:100%;
-  white-space:nowrap;
-}
+`}
 
-
+${strictPrintLayout ? '' : `
 /* Uzun yazılar taşmasın */
 .wrap{
   white-space: normal !important;
@@ -2637,8 +2843,10 @@ const bosBbtText = amb.bosBbt;
   line-height: 1.1;
   word-break: break-word;
 }
+`}
 
-/* imza isimleri */
+/* Düzenleyici ayarları — en son, baskıda birebir uygulanır */
+${layoutPrintCss}
 
 </style>
 
@@ -2647,110 +2855,110 @@ const bosBbtText = amb.bosBbt;
 <div class="page">
 <img class="bg" src="${bgUrl}" alt="">
 
-    <div class="field field-center" style="left:${P.yuklemeSirasi.left}mm; top:${P.yuklemeSirasi.top}mm; width:${P.yuklemeSirasi.w}mm; text-align:right; padding-right:1mm;">
+    <div class="field pf-field pf-yuklemeSirasi field-center" style="${pfPos('yuklemeSirasi', 'text-align:right;padding-right:1mm;')}">
         ${yuklemeSirasi}
     </div>
 
-    <div class="field field-center" style="left:${P.tarih.left}mm; top:${P.tarih.top}mm; width:${P.tarih.w}mm; text-align:center;">
+    <div class="field pf-field pf-tarih field-center" style="${pfPos('tarih', 'text-align:center;')}">
         ${trLocaleDateString()}
     </div>
 
-    <div class="field" style="left:${P.sofor.left}mm; top:${P.sofor.top}mm; width:${P.sofor.w}mm;">
+    <div class="field pf-field pf-sofor" style="${pfPos('sofor')}">
         ${soforBilgi}
     </div>
 
-    <div class="field field-center" style="left:${P.iletisim.left}mm; top:${P.iletisim.top}mm; width:${P.iletisim.w}mm; text-align:center;">
+    <div class="field pf-field pf-iletisim field-center" style="${pfPos('iletisim', 'text-align:center;')}">
         ${iletisimBilgi}
     </div>
 
-    <div class="field" style="left:${P.tc.left}mm; top:${P.tc.top}mm; width:${P.tc.w}mm;">
+    <div class="field pf-field pf-tc" style="${pfPos('tc')}">
         ${tcBilgi}
     </div>
 
-    <div class="field" style="left:${P.cekici.left}mm; top:${P.cekici.top}mm; width:${P.cekici.w}mm;">
+    <div class="field pf-field pf-cekici" style="${pfPos('cekici')}">
         ${cekiciPlakaBilgi}
     </div>
 
-    <div class="field field-center" style="left:${P.dorse.left}mm; top:${P.dorse.top}mm; width:${P.dorse.w}mm;">
+    <div class="field pf-field pf-dorse field-center" style="${pfPos('dorse', 'text-align:center;')}">
         ${dorsePlakaBilgi}
     </div>
 
-   <div class="field" id="printFirma" style="left:${P.firma.left}mm; top:${P.firma.top}mm; width:${P.firma.w}mm; white-space:nowrap;">
+   <div class="field pf-field pf-firma" id="printFirma" style="${pfPos('firma')}">
         ${firmaKodu}
     </div>
 
-    <div id="printMalzeme" class="${malzemeBoxClass}" style="left:${P.malzeme.left}mm; top:${malzemeTopMm}mm; width:${P.malzeme.w}mm; height:${P.malzeme.h + (malzemeLayout.twoLine ? 4 : 3)}mm;">
+    <div id="printMalzeme" class="${malzemeBoxClass} pf-field pf-malzeme" style="left:${P.malzeme.left}mm;top:${malzemeTopMm}mm;width:${P.malzeme.w}mm;height:${P.malzeme.h + (malzemeLayout.twoLine ? 4 : 3)}mm;">
         ${malzemeGridHtml}
     </div>
 
-<div id="printSevkYeri" class="field wrap sevk-box" style="left:${P.sevkYeri.left}mm; top:${P.sevkYeri.top}mm; width:${P.sevkYeri.w}mm; height:${P.sevkYeri.h}mm; overflow:hidden; text-align:center;">
+<div id="printSevkYeri" class="field pf-field pf-sevkYeri wrap sevk-box" style="${pfPos('sevkYeri', 'overflow:hidden;text-align:center;')}">
   ${sevkYeriPrint}
 </div>
 
-<div id="printAmbalaj" class="field wrap ambalaj-box" style="left:${P.ambBilgi.left}mm; top:${P.ambBilgi.top}mm; width:${P.ambBilgi.w}mm; height:${P.ambBilgi.h}mm; overflow:hidden;">
+<div id="printAmbalaj" class="field pf-field pf-ambBilgi wrap ambalaj-box" style="${pfPos('ambBilgi', 'overflow:hidden;')}">
   ${ambalajBilgisiPrint}
 </div>
 
-<div id="printSeperator" class="field wrap seperator-box" style="left:${P.seperator.left}mm; top:${P.seperator.top}mm; width:${P.seperator.w}mm; height:${P.seperator.h}mm; overflow:hidden;">
+<div id="printSeperator" class="field pf-field pf-seperator wrap seperator-box" style="${pfPos('seperator', 'overflow:hidden;')}">
   ${seperatorBilgisiPrint}
 </div>
 
-<div class="field" style="left:${P.tonaj.left}mm; top:${P.tonaj.top}mm; width:${P.tonaj.w}mm;">
+<div class="field pf-field pf-tonaj" style="${pfPos('tonaj')}">
   ${tonaj}
 </div>
 
 
     <!-- Uzun yazılar taşmasın -->
     <!-- Ambalaj Miktarları -->
-    <div class="field" style="left:${P.bbt.left}mm; top:${P.bbt.top}mm; width:${P.bbt.w}mm; text-align:center;">
+    <div class="field pf-field pf-bbt" style="${pfPos('bbt', 'text-align:center;')}">
         ${amb.bbt}
     </div>
 
-<div class="field" style="left:${P.bosBbt.left}mm; top:${P.bosBbt.top}mm; width:${P.bosBbt.w}mm; text-align:center;">
+<div class="field pf-field pf-bosBbt" style="${pfPos('bosBbt', 'text-align:center;')}">
     ${amb.bosBbt}
 </div>
 
-    <div class="field" style="left:${P.cuval.left}mm; top:${P.cuval.top}mm; width:${P.cuval.w}mm; text-align:center;">
+    <div class="field pf-field pf-cuval" style="${pfPos('cuval', 'text-align:center;')}">
         ${amb.cuval}
     </div>
 
-    <div class="field" style="left:${P.bosCuval.left}mm; top:${P.bosCuval.top}mm; width:${P.bosCuval.w}mm; text-align:center;">
+    <div class="field pf-field pf-bosCuval" style="${pfPos('bosCuval', 'text-align:center;')}">
         ${bosCuvalText}
     </div>
 
-    <div class="field" style="left:${P.palet.left}mm; top:${P.palet.top}mm; width:${P.palet.w}mm; text-align:center;">
+    <div class="field pf-field pf-palet" style="${pfPos('palet', 'text-align:center;')}">
         ${amb.palet}
     </div>
 
-    <div class="field" style="left:${P.torba.left}mm; top:${P.torba.top}mm; width:${P.torba.w}mm; text-align:center;">
+    <div class="field pf-field pf-torba" style="${pfPos('torba', 'text-align:center;')}">
         ${torbaText}
     </div>
 
     <!-- Yükleme Notu -->
-    <div id="printNot" class="note note--${notKind}" data-not-kind="${notKind}" style="left:${P.not.left}mm; top:${P.not.top}mm; width:${P.not.w}mm; height:${P.not.h}mm;">
+    <div id="printNot" class="note note--${notKind} pf-field pf-not" data-not-kind="${notKind}" style="${pfPos('not')}">
         <div class="note-body">${yuklemeNotuPrint}</div>
     </div>
 
 <!-- İmza isimleri -->
-<div class="field imza-block imza-block--kantar"
-     style="left:${P.imzaKantar.left}mm; top:${P.imzaKantar.top}mm; width:${P.imzaKantar.w}mm; height:${P.imzaKantar.h}mm;">
+<div class="field imza-block imza-block--kantar pf-field pf-imzaKantar"
+     style="${pfPos('imzaKantar')}">
   <div class="imza-imgwrap">${imzaKantarImgHtml}</div>
   <div class="imza-name">${imzaKantarAd}</div>
 </div>
 
-<div class="field imza-block"
-     style="left:${P.imzaSaha.left}mm; top:${P.imzaSaha.top}mm; width:${P.imzaSaha.w}mm; height:${P.imzaSaha.h}mm;">
+<div class="field imza-block imza-block--saha pf-field pf-imzaSaha"
+     style="${pfPos('imzaSaha')}">
   <div class="imza-imgwrap">${imzaSahaImgHtml}</div>
   <div class="imza-name">${imzaSahaAd}</div>
 </div>
 
-<div class="field imza-text"
-     style="left:${P.imzaYukleyen.left}mm; top:${P.imzaYukleyen.top}mm; width:${P.imzaYukleyen.w}mm; text-align:center;">
+<div class="field imza-text pf-field pf-imzaYukleyen"
+     style="${pfPos('imzaYukleyen', 'text-align:center;')}">
   ${imzaYukleyenAd}
 </div>
 
-<div class="field imza-text"
-     style="left:${P.imzaKalite.left}mm; top:${P.imzaKalite.top}mm; width:${P.imzaKalite.w}mm; text-align:center;">
+<div class="field imza-text pf-field pf-imzaKalite"
+     style="${pfPos('imzaKalite', 'text-align:center;')}">
   ${imzaKaliteAd}
 </div>
 
@@ -2758,6 +2966,7 @@ const bosBbtText = amb.bosBbt;
 </div></div></body>
 </html>
 `;
+    }
 
 
     
@@ -2766,6 +2975,7 @@ const bosBbtText = amb.bosBbt;
     const w = window.open(shellUrl, '_blank');
     if (!w || !w.document) {
       alert("❌ Yazdırma penceresi açılamadı (popup engeli veya tarayıcı kısıtı). Site için açılır pencere izni verip tekrar deneyin.");
+      clearLayoutSnapshot();
       return null;
     }
     w.document.open();
@@ -2785,6 +2995,8 @@ const bosBbtText = amb.bosBbt;
         if (!page) return;
         page.style.transformOrigin = 'top center';
         page.style.transform = `scale(${PRINT_SAFE_SCALE})`;
+        page.style.marginTop = w.__pageSize === 'A4' ? '5mm' : '3.5mm';
+        page.style.paddingTop = '0mm';
       } catch (e) {}
     };
 
@@ -2810,6 +3022,39 @@ const bosBbtText = amb.bosBbt;
     };
 
     w.onload = () => {
+      const useLayoutRenderer = !!w.document.querySelector('.plf-page');
+      if (useLayoutRenderer) {
+        const finishPreview = () => {
+          if (!isPreview) {
+            try {
+              applyPrintSafeScale();
+              w.focus();
+              w.print();
+            } catch (e) { /* ignore */ }
+          } else {
+            try { w.focus(); } catch (e) { /* ignore */ }
+          }
+        };
+        const waitForImages = (done) => {
+          const pending = [];
+          const bg = w.document.querySelector('.plf-bg');
+          if (bg && !bg.complete) pending.push(bg);
+          w.document.querySelectorAll('.plf-body--sig img').forEach((img) => {
+            if (!img.complete) pending.push(img);
+          });
+          if (!pending.length) { done(); return; }
+          let left = pending.length;
+          const tick = () => { if (--left <= 0) done(); };
+          pending.forEach((img) => {
+            img.addEventListener('load', tick, { once: true });
+            img.addEventListener('error', tick, { once: true });
+          });
+          setTimeout(done, 2500);
+        };
+        waitForImages(finishPreview);
+        return;
+      }
+
       // ✅ Tek satır / çok satır kutuya sığdırma (print penceresi içinde)
       const fitToBoxDiv = (el, minPx = 7, maxPx = 12) => {
         try {
@@ -2844,8 +3089,7 @@ const bosBbtText = amb.bosBbt;
           });
         } catch(e){}
       };
-      autoFitWrapFields();
-      // ✅ MALZEME: 2/3 kolon (üstte BBT, altta HP) - sadece alt satırı küçültmeye çalış
+
       const fitOneLineWidth = (el, minPx, maxPx) => {
         try {
           if (!el) return;
@@ -2889,17 +3133,14 @@ const bosBbtText = amb.bosBbt;
             return;
           }
 
-          // önce CSS fontlarını baz al
           const qtyEls  = box.querySelectorAll('.malz-qty');
           const descEls = box.querySelectorAll('.malz-desc');
 
-          // 1) Önce sadece ALT SATIR (HP...) küçülsün
           descEls.forEach(el => {
             const base = parseFloat(w.getComputedStyle(el).fontSize) || 13;
             fitOneLineWidth(el, 7, base);
           });
 
-          // 2) Eğer yine de yükseklik taşıyorsa, alt satırları birlikte küçült
           let guard = 0;
           while (guard < 40 && box.scrollHeight > box.clientHeight + 1) {
             let changed = false;
@@ -2914,7 +3155,6 @@ const bosBbtText = amb.bosBbt;
             guard++;
           }
 
-          // 3) Hâlâ taşarsa son çare: üst satırları (BBT) biraz küçült
           guard = 0;
           while (guard < 30 && box.scrollHeight > box.clientHeight + 1) {
             let changed = false;
@@ -2928,19 +3168,21 @@ const bosBbtText = amb.bosBbt;
             if (!changed) break;
             guard++;
           }
-
-		  
-		  
         } catch(e){}
       };
 
-fitMalzemeGrid();
-      fitOneLineWidth(w.document.getElementById('printFirma'), 11, 12);
-
-      // ✅ SEVK YERİ / AMBALAJ: bir tık büyük; SEPERATÖR: sağ hücreye oturt
-      fitMultiLineBoxPt(w.document.getElementById('printSevkYeri'), 8.75, 9.5);
-      fitMultiLineBoxPt(w.document.getElementById('printAmbalaj'), 7.75, 8.5);
-      fitMultiLineBoxPt(w.document.getElementById('printSeperator'), 5.5, 8);
+      if (!strictPrintLayout) {
+        autoFitWrapFields();
+        fitMalzemeGrid();
+        fitOneLineWidth(w.document.getElementById('printFirma'), 11, 12);
+        w.document.querySelectorAll('.pf-field.field:not(.wrap):not(.note):not(.imza-block):not(.malzeme-print-box)').forEach((el) => {
+          const base = parseFloat(w.getComputedStyle(el).fontSize) || 12;
+          fitOneLineWidth(el, 7, base);
+        });
+        fitMultiLineBoxPt(w.document.getElementById('printSevkYeri'), 8.75, 9.5);
+        fitMultiLineBoxPt(w.document.getElementById('printAmbalaj'), 7.75, 8.5);
+        fitMultiLineBoxPt(w.document.getElementById('printSeperator'), 5.5, 8);
+      }
 
       // ✅ Yazdırma: yazıcı güvenli alanı (~%96.8), ekranda 1:1
       const layoutFormOnPage = () => {
@@ -2952,7 +3194,7 @@ fitMalzemeGrid();
             page.style.transform = 'none';
             page.style.transformOrigin = '';
             page.style.marginTop = w.__pageSize === 'A4' ? '5mm' : '0mm';
-            page.style.paddingTop = w.__pageSize === 'A4' ? '0mm' : '1.5mm';
+            page.style.paddingTop = '0mm';
           }
         } catch (e) {}
       };
@@ -2980,9 +3222,8 @@ fitMalzemeGrid();
 
       const finishLayoutThenPrint = () => {
         const runAll = () => {
-          fitNoteInBox();
+          if (!strictPrintLayout) fitNoteInBox();
           layoutFormOnPage();
-          fitNoteInBox();
         };
         runAll();
         w.requestAnimationFrame(() => {
@@ -3019,6 +3260,9 @@ fitMalzemeGrid();
 
     // ✅ Çağıran tarafta pencere referansı kullanılabilsin (closed polling)
     return w;
+    } finally {
+      clearLayoutSnapshot();
+    }
 }
 
 
@@ -3029,7 +3273,7 @@ fitMalzemeGrid();
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: '20260718-field-tune-v19',
+    __aracBosRev: '20260718-br-fix-v33',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;

@@ -3663,20 +3663,6 @@ body {
     font-size: 16px;
   }
 
-  #iceridekiPlateModal {
-    padding: 0.5rem;
-    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0));
-  }
-
-  #iceridekiPlateModal .bg-white {
-    border-radius: 12px;
-  }
-
-  #iceridekiPlateCikisBtn,
-  #iceridekiPlateCancelBtn {
-    min-height: 2.75rem;
-  }
-
   #offline-network-banner {
     padding-bottom: calc(10px + env(safe-area-inset-bottom, 0)) !important;
   }

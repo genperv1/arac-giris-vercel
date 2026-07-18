@@ -105,7 +105,11 @@ function showTakipFormu(vehicle) {
             return showTakipFormuImpl(vehicle);
         }
 
+        let __takipFormOpenGen = 0;
+
         async function showTakipFormuImpl(vehicle) {
+            const openGen = ++__takipFormOpenGen;
+            const stillCurrent = () => openGen === __takipFormOpenGen;
             const formContainer = document.getElementById('takipFormu');
             const _rawVehicle = vehicle || {};
             if (_rawVehicle.id && _rawVehicle.id !== 'manual') {
@@ -122,6 +126,9 @@ function showTakipFormu(vehicle) {
             if (prefillExplicit) {
                 shouldPrefill = _rawVehicle._prefillTakipForm;
             } else if (isReprint || isIhracatFlow) {
+                shouldPrefill = true;
+            } else if (!isManual && _rawVehicle.cekiciPlaka) {
+                // Karttan açılış → plaka ile Excel / İhracat listesinden doldur
                 shouldPrefill = true;
             }
 
@@ -150,8 +157,6 @@ function showTakipFormu(vehicle) {
                   lastPrintSnapshot: null,
                 };
 
-            console.log('🔵 showTakipFormu çağrıldı - vehicle:', vehicle);
-            console.log('🔵 vehicle._reprintData:', vehicle?._reprintData);
             
             // ✅ Raporlar / tekrar yazdır için aktif araç referansı
             try { window.__activeTakipVehicleId = vehicle && vehicle.id ? String(vehicle.id) : ''; } catch(e) {}
@@ -161,23 +166,19 @@ function showTakipFormu(vehicle) {
             // ✅ Reprint verileri varsa formu doldur (firma, malzeme, sevk yeri, kantar, basim yeri vb.)
             let _reprintApplyData = null;
             if (vehicle && vehicle._reprintData) {
-              console.log('✅ Reprint verileri bulundu:', vehicle._reprintData);
               const rd = vehicle._reprintData;
               _reprintApplyData = { ...(_rawVehicle.lastPrintSnapshot || {}), ...rd };
               if (rd.firma) {
                 state.formData.defaultFirma = rd.firma;
                 vehicle.defaultFirma = rd.firma;
-                console.log('✅ Firma atandı:', rd.firma);
               }
               if (rd.malzeme) {
                 state.formData.defaultMalzeme = rd.malzeme;
                 vehicle.defaultMalzeme = rd.malzeme;
-                console.log('✅ Malzeme atandı:', rd.malzeme);
               }
               if (rd.sevkYeri) {
                 state.formData.defaultSevkYeri = rd.sevkYeri;
                 vehicle.defaultSevkYeri = rd.sevkYeri;
-                console.log('✅ Sevk yeri atandı:', rd.sevkYeri);
               }
               if (rd.kantar) vehicle._kantarName = rd.kantar;
               if (rd.basimYeri) vehicle._basimYeri = rd.basimYeri;
@@ -205,9 +206,6 @@ function showTakipFormu(vehicle) {
               delete vehicle._reprintData;
             }
 
-            console.log('🔵 Form render öncesi vehicle.defaultFirma:', vehicle?.defaultFirma);
-            console.log('🔵 Form render öncesi vehicle.defaultMalzeme:', vehicle?.defaultMalzeme);
-            console.log('🔵 Form render öncesi state.formData:', state.formData);
 
 // ✅ Olası takılma: üstte kalan seçim overlay'leri inputları kilitlemesin
             try { document.getElementById('quickPickOverlay')?.remove(); } catch(_) {}
@@ -1253,7 +1251,6 @@ try {
                 basimEl.value = savedBasim;
                 persistBasimYeri(savedBasim);
                 // Otomatik seçildi mi hemen sıra sayısını çek
-                console.log('✅ Basım Yeri otomatik seçildi:', savedBasim);
                 updateQueueDisplay(savedBasim);
               } else if (basimEl && String(basimEl.value || '').trim()) {
                 // Zaten seçili ise, sıra sayısını güncelle
@@ -1310,11 +1307,19 @@ try {
             } catch (e) {}
             try {
               if (shouldPrefill && !isReprintSession) {
-                await applyShipmentToTakipForm(vehicle, takipApplyOpts);
+                if (!stillCurrent()) return;
+                const applyOpts = {
+                  ...(takipApplyOpts || {}),
+                  skipExcelReview: true,
+                };
+                await applyShipmentToTakipForm(vehicle, applyOpts);
+                if (!stillCurrent()) return;
               }
-            } catch (e) {}
+            } catch (e) {
+              console.error('Excel → Takip form:', e);
+            }
 
-            // ✅ Araç varsayılan bilgilerini (ve reprint bilgilerini) doldur
+            // ✅ Araç varsayılan bilgilerini (ve reprint bilgilerini) doldur — Excel'den SONRA
             try {
               if (shouldPrefill) {
                 applyVehicleDefaultsToTakipForm(vehicle, { force: isReprintSession });
@@ -1696,7 +1701,6 @@ try {
                         // Legacy keyleri de güncel tut (fallback akışları için)
                         localStorage.setItem('yuklemeSirasiDate', todayKey);
                         localStorage.setItem('yuklemeSirasiCounter', String(ys));
-                        console.log(`✅ Sayaç kaydedildi - ${basimYeri}: ${ys}`);
                     }
                 } catch(e) { console.warn('⚠️ Sayaç kaydet hatası:', e); }
 
@@ -2208,9 +2212,146 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         window.updateSearchMeta = updateSearchMeta;
         window.syncConnectionChip = syncConnectionChip;
 
+        function updateFilterChipsPartial() {
+            const map = [
+                ['ozmalFilterBtn', state.ozmalFilter, 'chip-ozmal'],
+                ['incompleteFilterBtn', state.incompleteFilter, 'chip-alert'],
+                ['issuesFilterBtn', state.issuesFilter, 'chip-alert'],
+                ['recentFilterBtn', state.recentFilter, 'chip-ok'],
+            ];
+            map.forEach(([id, active, chipClass]) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('is-active', !!active);
+                el.classList.toggle(chipClass, !!active);
+            });
+        }
+
+        function updateShowMorePartial() {
+            const filteredVehicles = filterVehicles();
+            const hasSearch = !!(state.searchTerm && state.searchTerm.trim());
+            const needShow = !hasSearch && filteredVehicles.length > state.listLimit;
+            let wrap = document.getElementById('showMoreWrap');
+            if (!needShow) {
+                wrap?.remove();
+                return;
+            }
+            if (!wrap) {
+                wrap = document.createElement('div');
+                wrap.id = 'showMoreWrap';
+                wrap.className = 'mt-4 flex justify-center';
+                const stats = document.getElementById('stats');
+                const list = document.getElementById('vehicleList');
+                const anchor = stats || list;
+                if (anchor && anchor.parentNode) {
+                    anchor.parentNode.insertBefore(wrap, stats || list.nextSibling);
+                }
+            }
+            const label = state.showAll
+                ? 'Gizle'
+                : `Devamını Göster (${filteredVehicles.length - state.listLimit})`;
+            let btn = document.getElementById('showMoreButton');
+            if (!btn) {
+                wrap.innerHTML = `<button id="showMoreButton" class="show-more-btn">${label}</button>`;
+                btn = document.getElementById('showMoreButton');
+                if (btn) {
+                    addOnce(btn, 'click', function () {
+                        const step = parseInt(state.pageSize, 10) || 20;
+                        const total = filterVehicles().length;
+                        if (state.listLimit < step) {
+                            state.listLimit = Math.min(step, total);
+                        } else {
+                            state.listLimit = Math.min(state.listLimit + step, total);
+                        }
+                        updateVehicleList();
+                        updateShowMorePartial();
+                    });
+                }
+            } else {
+                btn.textContent = label;
+            }
+        }
+
+        function updateStatusBarPartial() {
+            const _excelMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+            const _excelCnt = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
+            const _piyasaCnt = (typeof _piyasaLoadedCount === 'function') ? _piyasaLoadedCount() : 0;
+            const _ihrInfoLine = (() => {
+                try {
+                    if (_excelMeta && _excelMeta.fileName) return _excelMeta.fileName;
+                    if (_excelCnt) return `${_excelCnt} kayıt`;
+                } catch (e) {}
+                return '-';
+            })();
+            const _excelStatusInfo = (typeof _getExcelStatusInfo === 'function') ? _getExcelStatusInfo() : {
+                ihrCount: _excelCnt,
+                ihrLine: _ihrInfoLine,
+                piyCount: _piyasaCnt,
+                piyLine: '-',
+            };
+            const _totalVehicleCount = (state.vehicles || []).length;
+            const _statusMeta = _appStatusMeta();
+            const countChip = document.querySelector('#quickStatusRow .status-chip:nth-child(4) b');
+            if (countChip) countChip.textContent = String(_totalVehicleCount);
+            const ihrChip = document.getElementById('chipIhracat');
+            const ihrText = document.getElementById('chipIhracatText');
+            if (ihrChip) {
+                ihrChip.className = 'status-chip status-chip--excel ' + (_excelCnt > 0 ? 'chip-ok' : 'chip-warn');
+                ihrChip.title = _excelCnt > 0 ? ('İHRACAT Excel: ' + _ihrInfoLine) : 'İHRACAT Excel yüklü değil';
+            }
+            if (ihrText) ihrText.textContent = _buildIhracatChipText(_excelStatusInfo);
+            const piyChip = document.getElementById('chipPiyasa');
+            const piyText = document.getElementById('chipPiyasaText');
+            if (piyChip) {
+                piyChip.className = 'status-chip status-chip--excel ' + (_piyasaCnt > 0 ? 'chip-ok' : 'chip-warn');
+                piyChip.title = _piyasaCnt > 0 ? ('PİYASA Excel: ' + _excelStatusInfo.piyLine) : 'PİYASA Excel yüklü değil';
+            }
+            if (piyText) piyText.textContent = _buildPiyasaChipText(_excelStatusInfo);
+            const userChip = document.querySelector('#quickStatusRow .status-chip:nth-child(2) b');
+            if (userChip) userChip.textContent = _statusMeta.userLabel;
+            try { syncConnectionChip(); } catch (_) {}
+        }
+
+        function updateExcelWarnPartial() {
+            const container = document.getElementById('excelDateWarnContainer');
+            if (!container) return;
+            const html = (typeof _computeExcelDateWarnHtml === 'function') ? _computeExcelDateWarnHtml() : '';
+            if (container.innerHTML !== html) container.innerHTML = html;
+        }
+
+        function updateFormPanelPartial() {
+            const panel = document.getElementById('vehicleFormPanel');
+            if (panel) {
+                panel.classList.toggle('vehicle-form-panel--open', !!state.showForm);
+                panel.setAttribute('aria-hidden', state.showForm ? 'false' : 'true');
+            }
+            const title = document.getElementById('vehicleFormTitle');
+            if (title) title.textContent = state.editingId ? 'Kayıt Düzenle' : 'Yeni Araç Kaydı';
+            const toggleBtn = document.getElementById('toggleFormButton');
+            if (toggleBtn) toggleBtn.textContent = state.showForm ? 'İptal' : 'Yeni Kayıt';
+        }
+
+        let _appShellMounted = false;
+
+        function refreshAppPartial() {
+            try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
+            updateStatusBarPartial();
+            updateExcelWarnPartial();
+            updateFormPanelPartial();
+            updateFilterChipsPartial();
+            updateShowMorePartial();
+        }
+        window.refreshAppPartial = refreshAppPartial;
+        window.updateShowMorePartial = updateShowMorePartial;
+
         // UI render
-        function render() {
+        function render(opts) {
             if (!isLoggedIn) return;
+            const forceFull = !!(opts && opts.full);
+            if (!forceFull && _appShellMounted && document.getElementById('vehicleList')) {
+                refreshAppPartial();
+                return;
+            }
             
             const filteredVehicles = filterVehicles();
             
@@ -2349,7 +2490,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                     </div>
 
                     ${(!state.searchTerm && filteredVehicles.length > state.listLimit) ? `
-                      <div class="mt-4 flex justify-center">
+                      <div id="showMoreWrap" class="mt-4 flex justify-center">
                         <button id="showMoreButton" class="show-more-btn">
                           ${state.showAll ? 'Gizle' : `Devamını Göster (${filteredVehicles.length - state.listLimit})`}
                         </button>
@@ -2380,11 +2521,14 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
 
             // Event listener'ları ekle
             attachEventListeners();
+            _appShellMounted = true;
             try { syncConnectionChip(); } catch (_) {}
             try {
               if (typeof window.__piyasaRebind === 'function') window.__piyasaRebind();
               if (typeof window.initPiyasaModule === 'function') window.initPiyasaModule();
             } catch (e) { console.warn('Piyasa rebind:', e); }
         }
+        render.full = function () { render({ full: true }); };
+        window.render = render;
 
 
