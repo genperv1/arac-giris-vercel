@@ -268,6 +268,7 @@ function clearActiveTakipVehicleRefs() {
   try { window.__activeTakipVehicleId = ''; } catch (e) {}
   try { window.__activeTakipVehiclePlate = ''; } catch (e) {}
   try { window.__activeTakipVehicle = null; } catch (e) {}
+  try { window.__takipUseLastPrintMemory = false; } catch (e) {}
 }
 
 function resolveTakipVehicleIdForPrint(plate, hintId) {
@@ -300,6 +301,72 @@ function splitSoforFullName(full) {
   const parts = s.split(' ');
   if (parts.length === 1) return { soforAdi: parts[0], soforSoyadi: '' };
   return { soforAdi: parts.slice(0, -1).join(' '), soforSoyadi: parts[parts.length - 1] };
+}
+
+/** Takip formundaki ambalaj / BBT alanlarını oku */
+function getTakipPackagingPayload() {
+  const formGet = (id) => {
+    try { return (document.getElementById(id)?.value || '').trim(); } catch (e) { return ''; }
+  };
+  return {
+    bbt: formGet('bbt'),
+    bosBbt: formGet('bosBbt'),
+    cuval: formGet('cuval'),
+    bosCuval: formGet('bosCuval'),
+    palet: formGet('palet'),
+    torba: formGet('torba'),
+    seperatorBilgisi: formGet('seperatorBilgisi'),
+  };
+}
+
+/** Rapor → Tekrar Yazdır: kayıtlı tüm alanları takip formuna yazar */
+function applyReprintSnapshotToTakipForm(rd) {
+  if (!rd || typeof rd !== 'object') return;
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = rd[k];
+      if (v != null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  };
+  const set = (id, val) => {
+    const v = val != null ? String(val).trim() : '';
+    if (!v) return;
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  };
+
+  const firma = pick('firma', 'firmaKodu', 'firmaSelect');
+  set('firmaKodu', firma);
+  set('firmaSelect', pick('firmaSelect', 'firmaKodu', 'firma'));
+  set('malzeme', pick('malzeme', 'malzemeSelect'));
+  set('malzemeSelect', pick('malzemeSelect', 'malzeme'));
+  set('sevkYeri', pick('sevkYeri'));
+  set('ambalajBilgisi', pick('ambalajBilgisi', 'ambalaj'));
+  set('tonaj', pick('tonaj'));
+  set('yuklemeNotu', pick('yuklemeNotu', 'baskiNotu'));
+  set('yuklemeSirasi', pick('yuklemeSirasi'));
+  set('basimYeri', pick('basimYeri'));
+  set('bbt', pick('bbt'));
+  set('bosBbt', pick('bosBbt'));
+  set('cuval', pick('cuval'));
+  set('bosCuval', pick('bosCuval'));
+  set('palet', pick('palet'));
+  set('torba', pick('torba'));
+  set('seperatorBilgisi', pick('seperatorBilgisi'));
+  set('cekiciPlakaBilgi', pick('plaka', 'cekiciPlaka', 'plate'));
+  set('imzaKantarAd', pick('kantar', 'imzaKantarAd'));
+
+  try {
+    const drv = driverFieldsFromSnapshot(rd);
+    set('soforBilgi', drv.sofor);
+    set('tcBilgi', drv.tcKimlik);
+    set('iletisimBilgi', drv.iletisim);
+    set('dorsePlakaBilgi', drv.dorsePlaka);
+  } catch (e) { /* ignore */ }
+
+  try { refreshKantarSignaturePreview(); } catch (e) { /* ignore */ }
+  try { refreshSahaSignaturePreview(); } catch (e) { /* ignore */ }
 }
 
 /** Takip formundaki şoför alanlarını oku (yazdırma / rapor için) */
@@ -379,6 +446,7 @@ function captureTakipPrintPayloadForReport(get) {
     || ''
   ).trim();
   const driver = getTakipFormDriverPayload();
+  const packaging = getTakipPackagingPayload();
   return {
     firma,
     firmaKodu: firma,
@@ -397,6 +465,13 @@ function captureTakipPrintPayloadForReport(get) {
     tcKimlik: driver.tcKimlik,
     iletisim: driver.iletisim,
     dorsePlaka: driver.dorsePlaka || g('dorsePlakaBilgi'),
+    bbt: packaging.bbt,
+    bosBbt: packaging.bosBbt,
+    cuval: packaging.cuval,
+    bosCuval: packaging.bosCuval,
+    palet: packaging.palet,
+    torba: packaging.torba,
+    seperatorBilgisi: packaging.seperatorBilgisi,
     excelShipmentKey: (() => {
       try { return excel ? _ihracatShipmentKey(excel) : ''; } catch (e) { return ''; }
     })(),
@@ -513,7 +588,8 @@ function refreshPendingPrintSnapshotFromForm(pending) {
     yuklemeNotu: get('yuklemeNotu') || prev.yuklemeNotu,
     yuklemeSirasi: get('yuklemeSirasi') || prev.yuklemeSirasi,
     basimYeri: get('basimYeri') || prev.basimYeri || pending.basimYeri,
-  }, getTakipFormDriverPayload());
+    kantar: get('imzaKantarAd') || prev.kantar,
+  }, getTakipFormDriverPayload(), getTakipPackagingPayload());
 }
 
 function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
@@ -586,6 +662,13 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     tcKimlik: pp?.tcKimlik || driver.tcKimlik,
     iletisim: pp?.iletisim || driver.iletisim,
     dorsePlaka: pp?.dorsePlaka || driver.dorsePlaka || String(snap.dorsePlaka || formGet('dorsePlakaBilgi') || '').trim(),
+    bbt: String(pp?.bbt || snap.bbt || formGet('bbt') || '').trim(),
+    bosBbt: String(pp?.bosBbt || snap.bosBbt || formGet('bosBbt') || '').trim(),
+    cuval: String(pp?.cuval || snap.cuval || formGet('cuval') || '').trim(),
+    bosCuval: String(pp?.bosCuval || snap.bosCuval || formGet('bosCuval') || '').trim(),
+    palet: String(pp?.palet || snap.palet || formGet('palet') || '').trim(),
+    torba: String(pp?.torba || snap.torba || formGet('torba') || '').trim(),
+    seperatorBilgisi: String(pp?.seperatorBilgisi || snap.seperatorBilgisi || formGet('seperatorBilgisi') || '').trim(),
     ts: pending?.nowTs || Date.now(),
   };
 }
@@ -2098,6 +2181,8 @@ async function commitIhracatImport(uniq2, meta, file) {
 
 window.parseIhracatRowsFromWorkbook = parseIhracatRowsFromWorkbook;
 window.commitIhracatImport = commitIhracatImport;
+window.applyReprintSnapshotToTakipForm = applyReprintSnapshotToTakipForm;
+window.getTakipPackagingPayload = getTakipPackagingPayload;
 
 // Excel okuma (XLSX) - Dinamik header arama ile
 async function importDailyExcel(file) {

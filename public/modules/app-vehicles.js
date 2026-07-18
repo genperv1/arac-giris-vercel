@@ -408,7 +408,7 @@ function setupTakipFormButtons() {
             try {
                 const validateFunc = window.__takipFormValidate;
                 if (typeof validateFunc === 'function') {
-                    const valid = validateFunc({ forPrint: true });
+                    const valid = validateFunc();
                     if (valid === false) return;
                 }
             } catch(e) {}
@@ -506,8 +506,9 @@ function setupTakipFormButtons() {
                         ambalajBilgisi: get('ambalajBilgisi'),
                         tonaj: get('tonaj'),
                         yuklemeSirasi: get('yuklemeSirasi'),
-                        yuklemeNotu: get('yuklemeNotu')
-                    }, getTakipFormDriverPayload());
+                        yuklemeNotu: get('yuklemeNotu'),
+                        kantar: get('imzaKantarAd'),
+                    }, getTakipFormDriverPayload(), getTakipPackagingPayload());
                     const any = Object.keys(s).some(k => k !== 'ts' && String(s[k] || '').trim() !== '');
                     return any ? s : null;
                 } catch (e) { return null; }

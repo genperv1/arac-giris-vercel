@@ -753,59 +753,6 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
     try { exportVehiclesExcel(); } catch (e) { console.error(e); }
   });
 
-  addOnce(document.getElementById('soforPanelMenuButton'), 'click', async () => {
-    try {
-      if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
-        const ok = await window.SessionManager.requireValidSession();
-        if (!ok) return;
-      }
-
-      const ui = window.rpUi || {};
-      let password = null;
-      if (typeof ui.password === 'function') {
-        password = await ui.password('Şoför sefer paneli parolasını girin:');
-      } else if (window.rpDialog && typeof window.rpDialog.password === 'function') {
-        password = await window.rpDialog.password('Şoför sefer paneli parolasını girin:');
-      } else if (typeof window.__rpNativePrompt === 'function') {
-        password = window.__rpNativePrompt('Şoför sefer paneli parolasını girin:', '');
-      }
-      if (password === null || password === '') return;
-
-      const res = await fetch('/api/driver-panel/office-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: String(password) }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        if (typeof ui.alert === 'function') {
-          await ui.alert(data.error || 'Parola hatalı.', 'danger');
-        } else {
-          alert(data.error || 'Parola hatalı.');
-        }
-        return;
-      }
-      sessionStorage.setItem('driverPanelSession_v1', JSON.stringify({
-        token: data.token,
-        role: 'office',
-        ts: Date.now(),
-      }));
-      if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
-        window.SessionManager.openAppPage('sofor-admin.html');
-      } else {
-        location.href = 'sofor-admin.html';
-      }
-    } catch (e) {
-      console.error(e);
-      const ui = window.rpUi || {};
-      if (typeof ui.alert === 'function') {
-        await ui.alert('Panel açılamadı.', 'danger');
-      } else {
-        alert('Panel açılamadı.');
-      }
-    }
-  });
-
   if (window.SessionManager && typeof window.SessionManager.bindAppPageNavigation === 'function') {
     window.SessionManager.bindAppPageNavigation();
   }

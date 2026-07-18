@@ -946,6 +946,138 @@
     set('ynfPiyasaDesc', s.piyasa.descPt);
   }
 
+  function bindPrintFormBgUi() {
+    const form = document.getElementById('printFormBgForm');
+    if (!form || form.__pfbBound) return;
+    form.__pfbBound = true;
+    const statusEl = document.getElementById('printFormBgStatus');
+    const previewEl = document.getElementById('printFormBgPreview');
+
+    async function refreshPrintFormBgStatus() {
+      if (!statusEl) return;
+      try {
+        const r = await apiFetch('/api/print-form-bg/meta');
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.exists || data.needsUpload) {
+          statusEl.textContent = 'Sunucuda şablon yok — proje köküne AA.jpg koyun veya buradan JPG yükleyin.';
+          return;
+        }
+        const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString('tr-TR') : '';
+        statusEl.textContent = 'Sunucuda kayıtlı şablon var' + (when ? ' · ' + when : '') + (data.source ? ' · ' + data.source : '') + '.';
+      } catch (e) {
+        statusEl.textContent = 'Şablon durumu okunamadı.';
+      }
+    }
+
+    async function showPrintFormBgPreview(src) {
+      if (!previewEl) return;
+      if (!src) {
+        previewEl.innerHTML = 'Önizleme';
+        return;
+      }
+      previewEl.innerHTML = '<img src="' + src + '" alt="Form şablonu" style="max-width:100%;display:block;">';
+    }
+
+    async function loadPrintFormBgPreviewFromServer() {
+      try {
+        const r = await apiFetch('/api/print-form-bg');
+        if (!r.ok) return;
+        const blob = await r.blob();
+        showPrintFormBgPreview(URL.createObjectURL(blob));
+      } catch (e) { /* ignore */ }
+    }
+
+    document.getElementById('printFormBgFile')?.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!/^image\/(jpeg|png)$/i.test(file.type)) {
+        toast('Yalnızca JPG veya PNG seçin.', true);
+        return;
+      }
+      if (file.size > 4_500_000) {
+        toast('Dosya çok büyük (max ~4.5 MB).', true);
+        return;
+      }
+      try {
+        const url = await readFileAsDataUrl(file);
+        showPrintFormBgPreview(url);
+      } catch (err) {
+        toast('Dosya okunamadı.', true);
+      }
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const file = document.getElementById('printFormBgFile')?.files?.[0];
+      if (!file) {
+        toast('Önce JPG/PNG dosyası seçin.', true);
+        return;
+      }
+      try {
+        const imageData = await readFileAsDataUrl(file);
+        const r = await apiFetch('/api/print-form-bg', {
+          method: 'POST',
+          body: JSON.stringify({ imageData, source: 'ayarlar-upload' }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          toast(data.error || 'Kaydedilemedi.', true);
+          return;
+        }
+        if (window.PrintFormBg && typeof window.PrintFormBg.clearCache === 'function') {
+          window.PrintFormBg.clearCache();
+        }
+        toast('Takip formu şablonu sunucuya kaydedildi.');
+        await refreshPrintFormBgStatus();
+        await loadPrintFormBgPreviewFromServer();
+      } catch (err) {
+        toast('Kayıt hatası.', true);
+      }
+    });
+
+    document.getElementById('printFormBgImportLegacyBtn')?.addEventListener('click', async () => {
+      toast('Hızlı Resim deneniyor…');
+      try {
+        if (window.PrintFormBgBootstrap && typeof window.PrintFormBgBootstrap.tryAutoImportLegacyPrintFormBg === 'function') {
+          const ok = await window.PrintFormBgBootstrap.tryAutoImportLegacyPrintFormBg();
+          if (ok) {
+            if (window.PrintFormBg && typeof window.PrintFormBg.clearCache === 'function') {
+              window.PrintFormBg.clearCache();
+            }
+            toast('Şablon sunucuya kaydedildi.');
+            await refreshPrintFormBgStatus();
+            await loadPrintFormBgPreviewFromServer();
+            return;
+          }
+        }
+        toast('Otomatik aktarılamadı. Şablonu aç → Farklı kaydet → buradan yükleyin.', true);
+      } catch (e) {
+        toast('Aktarma hatası.', true);
+      }
+    });
+
+    document.getElementById('printFormBgOpenLegacyBtn')?.addEventListener('click', () => {
+      window.open('https://hizliresim.com/36cc3jp', '_blank', 'noopener,noreferrer');
+      toast('Görseli indirip bu sayfadan JPG olarak yükleyin.');
+    });
+
+    document.getElementById('printFormBgRefreshBtn')?.addEventListener('click', async () => {
+      if (window.PrintFormBg && typeof window.PrintFormBg.clearCache === 'function') {
+        window.PrintFormBg.clearCache();
+      }
+      try {
+        if (window.PrintFormBg && typeof window.PrintFormBg.resolvePrintBgUrl === 'function') {
+          await window.PrintFormBg.resolvePrintBgUrl();
+        }
+      } catch (e) { /* ignore */ }
+      toast('Yazdırma önbelleği yenilendi.');
+      await loadPrintFormBgPreviewFromServer();
+    });
+
+    refreshPrintFormBgStatus();
+    loadPrintFormBgPreviewFromServer();
+  }
+
   function bindYuklemeNotuFitUi() {
     const form = document.getElementById('yuklemeNotuFitForm');
     if (!form || form.__ynfBound) return;
@@ -1147,6 +1279,7 @@
 
     bindBanUi();
     bindBackupUi();
+    bindPrintFormBgUi();
     bindYuklemeNotuFitUi();
     bindClearReportsUi();
     bindIncompleteUi();

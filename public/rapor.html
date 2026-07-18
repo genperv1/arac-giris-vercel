@@ -134,6 +134,28 @@
       box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
     }
 
+    .rp-search-row {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-end;
+      gap: 0.75rem 1rem;
+      flex-wrap: nowrap;
+    }
+
+    .rp-search-field {
+      flex: 0 0 auto;
+      min-width: 0;
+    }
+
+    .rp-search-field .rp-input {
+      width: 11.5rem;
+      max-width: none;
+    }
+
+    .rp-filters-block {
+      width: 100%;
+    }
+
     .rp-btn {
       display: inline-flex;
       align-items: center;
@@ -444,6 +466,12 @@
       color: #92400e;
     }
 
+    body.rp-page .status-chip.chip-today {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
     .rp-filter-count {
       display: inline-flex;
       align-items: center;
@@ -624,6 +652,15 @@
         font-size: 16px;
       }
 
+      .rp-search-row {
+        flex-wrap: wrap;
+      }
+
+      .rp-search-field .rp-input {
+        width: 100%;
+        min-width: 9rem;
+      }
+
       .rp-btn {
         min-height: 2.75rem;
       }
@@ -708,20 +745,40 @@
 
     <section class="rp-toolbar p-4 mb-5">
       <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-        <div class="flex flex-col sm:flex-row sm:items-end gap-4 flex-wrap">
-          <div>
-            <label for="plateSearch" class="rp-label">Plaka Ara</label>
-            <input
-              id="plateSearch"
-              type="search"
-              class="rp-input"
-              placeholder="34 ABC 123"
-              autocomplete="off"
-            />
+        <div class="flex flex-col gap-4 flex-1 min-w-0">
+          <div class="rp-search-row">
+            <div class="rp-search-field">
+              <label for="plateSearch" class="rp-label">Plaka Ara</label>
+              <input
+                id="plateSearch"
+                type="search"
+                class="rp-input"
+                placeholder="34 ABC 123"
+                autocomplete="off"
+              />
+            </div>
+            <div class="rp-search-field">
+              <label for="materialSearch" class="rp-label">Malzeme / Firma Ara</label>
+              <input
+                id="materialSearch"
+                type="search"
+                class="rp-input"
+                placeholder="HP87, P05, HP 0.15..."
+                autocomplete="off"
+              />
+            </div>
           </div>
-          <div>
+          <div class="rp-filters-block">
             <span class="rp-label">Filtre</span>
             <div class="rp-filter-chips" role="group" aria-label="Rapor filtreleri">
+              <button
+                type="button"
+                id="todayFilterBtn"
+                class="status-chip app-filter-chip chip-today"
+                title="Sadece bugün yazdırılan kayıtları göster"
+              >
+                <i class="fas fa-calendar-day" aria-hidden="true"></i> Bugün
+              </button>
               <button
                 type="button"
                 id="ozmalFilterBtn"
@@ -804,7 +861,7 @@
   <script src="sync-manager.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
-  <script src="report.js?v=20260716-filter-count-only"></script>
+  <script src="report.js?v=20260718-firma-search"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

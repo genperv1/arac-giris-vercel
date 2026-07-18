@@ -74,7 +74,7 @@
   var printPromise = null;
   window.ensurePrintLoaded = function () {
     var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
-    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260605-fixes-v1';
+    var stalePrint = window.Print && window.Print.__aracBosRev !== '20260718-field-tune-v24';
     if (!needPrint && !stalePrint) return Promise.resolve();
     if (stalePrint) {
       try {
@@ -85,10 +85,16 @@
     }
     if (printPromise) return printPromise;
     printPromise = loadScript('/signatures-registry.js')
-      .then(function () { return loadScript('/modules/print-main.js?rev=20260611-modular'); })
+      .then(function () { return loadScript('/print-form-bg-upload.js?v=20260718-form-bg-v3'); })
+      .then(function () { return loadScript('/modules/print-main.js?rev=20260718-field-tune-v24'); })
       .then(function () { return loadScript('/modules/print-ux-fit.js?rev=20260611-modular'); })
       .then(function () {
-        if (window.Print) window.Print.__aracBosRev = '20260605-fixes-v1';
+        if (window.Print) window.Print.__aracBosRev = '20260718-field-tune-v24';
+      })
+      .then(function () {
+        if (window.PrintFormBg && typeof window.PrintFormBg.resolvePrintBgUrl === 'function') {
+          window.PrintFormBg.resolvePrintBgUrl().catch(function () {});
+        }
       })
       .catch(function (e) {
       printPromise = null;

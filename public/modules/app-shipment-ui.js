@@ -1510,43 +1510,65 @@ let sonuc = {
             try {
                 const get = (id) => (document.getElementById(id)?.value || '').trim();
                 const driver = getTakipFormDriverPayload();
-                let vehicleId = Date.now().toString();
-                try {
-                    const lookup = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
-                    if (lookup.ok) {
-                        const existing = await lookup.json();
-                        if (existing && existing.id) vehicleId = String(existing.id);
-                    }
-                } catch (e) { /* ignore */ }
-
-                const vehicleData = {
-                    id: vehicleId,
-                    cekiciPlaka: plate,
-                    dorsePlaka: driver.dorsePlaka || get('dorsePlakaBilgi') || '',
-                    soforAdi: driver.soforAdi,
-                    soforSoyadi: driver.soforSoyadi,
-                    iletisim: driver.iletisim,
-                    tcKimlik: driver.tcKimlik,
-                    defaultFirma: '',
-                    defaultMalzeme: '',
-                    defaultSevkYeri: '',
-                    defaultYuklemeNotu: '',
-                    kayitTarihi: new Date().toLocaleString('tr-TR')
+                const plateKey = (s) => String(s || '').toUpperCase().replace(/\s+/g, '').trim();
+                const keepIfEmpty = (prev, next) => {
+                    const n = String(next ?? '').trim();
+                    return n ? n : String(prev ?? '').trim();
                 };
 
+                let existing = null;
+                const activeId = String(window.__activeTakipVehicleId || '').trim();
+                if (activeId && activeId !== 'manual') {
+                    existing = (state.vehicles || []).find((v) => String(v.id) === activeId) || null;
+                }
+                if (!existing && plate) {
+                    const pk = plateKey(plate);
+                    existing = (state.vehicles || []).find((v) => plateKey(v?.cekiciPlaka) === pk) || null;
+                }
+                if (!existing && plate) {
+                    try {
+                        const lookup = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+                        if (lookup.ok) {
+                            const found = await lookup.json();
+                            if (found && found.id) existing = found;
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                const vehicleId = existing?.id || Date.now().toString();
+                const vehicleData = {
+                    ...(existing || {}),
+                    id: vehicleId,
+                    cekiciPlaka: plate || existing?.cekiciPlaka || '',
+                    dorsePlaka: keepIfEmpty(existing?.dorsePlaka, driver.dorsePlaka || get('dorsePlakaBilgi')),
+                    soforAdi: keepIfEmpty(existing?.soforAdi, driver.soforAdi),
+                    soforSoyadi: keepIfEmpty(existing?.soforSoyadi, driver.soforSoyadi),
+                    iletisim: keepIfEmpty(existing?.iletisim, driver.iletisim),
+                    tcKimlik: keepIfEmpty(existing?.tcKimlik, driver.tcKimlik),
+                    kayitTarihi: existing?.kayitTarihi || new Date().toLocaleString('tr-TR'),
+                };
+
+                // Yeni kayıt değilse mevcut varsayılanları / 2. şoför / yazdırma sayacını koru
+                if (!existing) {
+                    vehicleData.defaultFirma = '';
+                    vehicleData.defaultMalzeme = '';
+                    vehicleData.defaultSevkYeri = '';
+                    vehicleData.defaultYuklemeNotu = '';
+                }
+
                 await saveVehicleToDatabase(vehicleData);
-                
-                // Cache'i güncelle
+
                 const prevV = (state.vehicles || []).find((v) => String(v.id) === String(vehicleData.id));
                 if (prevV) {
                     vehicleData.printCount = prevV.printCount;
                     vehicleData.lastPrintSnapshot = prevV.lastPrintSnapshot ?? null;
                 }
-                state.vehicles = (state.vehicles || []).filter(v => v.id !== vehicleData.id);
+                state.vehicles = (state.vehicles || []).filter(v => String(v.id) !== String(vehicleData.id));
                 state.vehicles.unshift(vehicleData);
                 storage.save(`vehicle_${vehicleData.id}`, vehicleData);
                 try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
-                
+                try { typeof updateVehicleList === 'function' && updateVehicleList(); } catch (_) {}
+
                 console.log('✅ Yazdırma öncesi araç DB\'ye kaydedildi:', plate);
             } catch (error) {
                 console.error('❌ Yazdırma öncesi araç kaydetme hatası:', error);

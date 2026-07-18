@@ -45,6 +45,8 @@ const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
+const { registerPrintFormBgImageRoute, registerPrintFormBgRoutes } = require('./routes/print-form-bg-routes');
+const { purgeUnacceptablePrintFormBg, seedPrintFormBgIfEmpty, syncPrintFormBgFromAaFile } = require('./lib/print-form-bg-store');
 const { plateNormSql, PLATE_NORM_SQL, PLATE_NORM_SQL_PH } = require('./lib/plate-norm-sql');
 const { signatureRowToSrc } = require('./lib/signature-helpers');
 const { createPiyasaServerApi } = require('./lib/piyasa-server');
@@ -53,6 +55,9 @@ const { formatReportInstant, istanbulMinutesFromTs } = require('./lib/report-for
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is missing in environment (.env)");
 }
+
+/** Şoför sefer paneli (mobil + ofis). Kapalıyken UI/API devre dışı; DB kayıtları korunur. */
+const DRIVER_SEFER_PANEL_ENABLED = process.env.DRIVER_SEFER_PANEL_ENABLED === 'true';
 
 
 const PG_POOL_MAX = envNumber('PG_POOL_MAX', 5, { min: 1, max: 100 });
@@ -405,6 +410,16 @@ async function prepareSchema() {
     await seedDefaultSignatures();
   } catch (e) {
     console.warn('seedDefaultSignatures skipped:', e.message || e);
+  }
+
+  try {
+    const q = (text, params) => pool.query(text, params);
+    const purged = await purgeUnacceptablePrintFormBg(q);
+    if (purged) console.log('Gecersiz takip formu sablonu (SVG/builtin) silindi.');
+    const seeded = await syncPrintFormBgFromAaFile(q) || await seedPrintFormBgIfEmpty(q);
+    if (seeded) console.log('Takip formu arka plani DB ye yuklendi (print_form_bg_v1).');
+  } catch (e) {
+    console.warn('seedPrintFormBgIfEmpty skipped:', e.message || e);
   }
 
   try {
@@ -798,13 +813,18 @@ const resolveClientSite = (ip, role) => clientSiteResolver.resolveClientSite(ip,
 
 function isBanExemptApiPath(req) {
   const p = String(req.originalUrl || req.url || '').split('?')[0];
-  return (
+  if (
     p === '/api/settings/verify-access'
     || p.startsWith('/api/settings/bans')
-    || p === '/api/driver-login'
+    || p === '/api/health'
+  ) {
+    return true;
+  }
+  if (!DRIVER_SEFER_PANEL_ENABLED) return false;
+  return (
+    p === '/api/driver-login'
     || p === '/api/driver-login/accounts'
     || p === '/api/driver-panel/office-login'
-    || p === '/api/health'
   );
 }
 
@@ -1088,11 +1108,15 @@ const routeCtx = {
 
 registerAuthRoutes(api, routeCtx);
 registerOzmalRoutes(api, routeCtx);
-registerDriverAuthRoutes(api, routeCtx);
-registerDriverTripRoutes(api, routeCtx);
+if (DRIVER_SEFER_PANEL_ENABLED) {
+  registerDriverAuthRoutes(api, routeCtx);
+  registerDriverTripRoutes(api, routeCtx);
+}
 
 // İmza görselleri — <img> Authorization gönderemez; auth öncesi public
 registerSignatureImageRoute(api, routeCtx);
+// Takip formu yazdırma şablonu — yazdırma penceresi auth gönderemez
+registerPrintFormBgImageRoute(api, routeCtx);
 
 // Public health check (Railway/monitoring â€” auth gerekmez)
 api.get("/health", async (req, res) => {
@@ -1791,6 +1815,7 @@ api.delete("/print_history/:id", auth.verifyToken, async (req, res) => {
 
 registerPlakaStatsRoutes(api, routeCtx);
 registerSignaturesRoutes(api, routeCtx);
+registerPrintFormBgRoutes(api, routeCtx);
 
 registerSseRoutes(app);
 
@@ -2017,6 +2042,9 @@ function startServerWithPortFallback(basePort) {
         console.log(`âš ï¸ Port ${basePort} dolu olduÄŸu iÃ§in ${port} kullanÄ±lÄ±yor.`);
       }
       console.log(`âœ… Server listening on http://localhost:${port}`);
+      if (!DRIVER_SEFER_PANEL_ENABLED) {
+        console.log('ℹ️ Şoför sefer paneli kapalı (DRIVER_SEFER_PANEL_ENABLED=true ile açılır)');
+      }
     });
 
     server.on('error', (err) => {

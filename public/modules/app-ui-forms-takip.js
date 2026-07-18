@@ -117,20 +117,28 @@ function showTakipFormu(vehicle) {
             const isReprint = !!_rawVehicle._reprintData;
             const isIhracatFlow = !!_rawVehicle._ihracatTakipApplyOpts;
             const prefillExplicit = typeof _rawVehicle._prefillTakipForm === 'boolean';
-            const plateInExcel = typeof hasDailyShipmentForPlate === 'function'
-              && hasDailyShipmentForPlate(_rawVehicle.cekiciPlaka);
 
             let shouldPrefill = false;
             if (prefillExplicit) {
                 shouldPrefill = _rawVehicle._prefillTakipForm;
             } else if (isReprint || isIhracatFlow) {
                 shouldPrefill = true;
-            } else if (!isManual && plateInExcel) {
-                shouldPrefill = true;
             }
 
             const _allowRememberedDefaults = isReprint && shouldPrefill;
-            // Şoför bilgileri karttan her zaman gelir; Excel/sevkiyat yalnızca plaka Excel'de ise doldurulur.
+            const _useLastPrintMemory = isReprint || isIhracatFlow;
+            try { window.__takipUseLastPrintMemory = _useLastPrintMemory; } catch (e) {}
+
+            // Son yazdırma / oturum Excel hafızası yalnızca Tekrar Yazdır ve İhracat akışında
+            if (!_useLastPrintMemory) {
+              try {
+                window.__lastChosenShipment = null;
+                window.__activeExcelShipment = null;
+                window.__ihracatActivePrintShipment = null;
+              } catch (e) {}
+            }
+
+            // Normal açılış: firma/malzeme/sevk boş; şoför bilgileri karttan gelir. Tekrar Yazdır: son kayıt.
             vehicle = _allowRememberedDefaults
               ? _rawVehicle
               : {
@@ -138,7 +146,8 @@ function showTakipFormu(vehicle) {
                   defaultFirma: '',
                   defaultMalzeme: '',
                   defaultSevkYeri: '',
-                  defaultYuklemeNotu: ''
+                  defaultYuklemeNotu: '',
+                  lastPrintSnapshot: null,
                 };
 
             console.log('🔵 showTakipFormu çağrıldı - vehicle:', vehicle);
@@ -150,9 +159,11 @@ function showTakipFormu(vehicle) {
             try { window.__activeTakipVehicle = vehicle || null; } catch(e) {}
 
             // ✅ Reprint verileri varsa formu doldur (firma, malzeme, sevk yeri, kantar, basim yeri vb.)
+            let _reprintApplyData = null;
             if (vehicle && vehicle._reprintData) {
               console.log('✅ Reprint verileri bulundu:', vehicle._reprintData);
               const rd = vehicle._reprintData;
+              _reprintApplyData = { ...(_rawVehicle.lastPrintSnapshot || {}), ...rd };
               if (rd.firma) {
                 state.formData.defaultFirma = rd.firma;
                 vehicle.defaultFirma = rd.firma;
@@ -175,6 +186,21 @@ function showTakipFormu(vehicle) {
                 state.formData.defaultYuklemeNotu = rd.baskiNotu;
                 vehicle.defaultYuklemeNotu = rd.baskiNotu;
               }
+              // Tekrar yazdır: son yazdırılan şoför / plaka bilgileri
+              try {
+                const drv = typeof driverFieldsFromSnapshot === 'function'
+                  ? driverFieldsFromSnapshot(rd)
+                  : null;
+                if (drv) {
+                  if (drv.soforAdi || drv.soforSoyadi) {
+                    vehicle.soforAdi = drv.soforAdi || '';
+                    vehicle.soforSoyadi = drv.soforSoyadi || '';
+                  }
+                  if (drv.tcKimlik) vehicle.tcKimlik = drv.tcKimlik;
+                  if (drv.iletisim) vehicle.iletisim = drv.iletisim;
+                  if (drv.dorsePlaka) vehicle.dorsePlaka = drv.dorsePlaka;
+                }
+              } catch (e) {}
               // Geçici veriyi temizle (tekrar gösterilmesin)
               delete vehicle._reprintData;
             }
@@ -344,16 +370,20 @@ function showTakipFormu(vehicle) {
 
                 <table class="takip-form__table">
                         <tr>
-                            <td class="takip-form__table-label">Firma / müşteri kodu</td>
+                            <td class="takip-form__table-label">Firma / müşteri kodu <span class="takip-form__req" aria-hidden="true">*</span></td>
                             <td class="takip-form__table-cell">
-                                <select class="firma-select" id="firmaSelect">
-                                    <option value="">Seçiniz veya elle yazın</option>
+                                <select class="firma-select" id="firmaSelect" aria-required="true">
+                                    <option value="">Listeden seçin</option>
                                     ${firmaListesi.map(firma => `<option value="${getFirmaKodOnly(firma)}">${getFirmaKodOnly(firma)}</option>`).join('')}
                                 </select>
                                 <div class="takip-form__inline-row">
-                                  <input type="text" class="form-input" id="firmaKodu" placeholder="Veya firma/müşteri kodu giriniz" autocomplete="off" value="${vehicle.defaultFirma || ''}">
+                                  <input type="text" class="form-input" id="firmaKodu" placeholder="HP87 — Bul ile seçin" autocomplete="off" value="${vehicle.defaultFirma || ''}" aria-required="true">
                                   <button type="button" id="firmaAraBtn" class="takip-form__search-btn"><i class="fas fa-search"></i> Bul</button>
                                 </div>
+                                <p class="takip-form__field-hint takip-form__field-hint--warn" id="firmaFieldHint">
+                                  <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                  Zorunlu alan. İhracattan gelen firma bilgisi geçerlidir; piyasa sevkiyatlarında listeden veya <strong>Bul</strong> ile müşteri kodu seçin.
+                                </p>
                             </td>
                         </tr>
                         <tr>
@@ -754,46 +784,57 @@ const openDriverPickForSamePlate = (plate, matches, onPick) => {
 const applyDriverForPlate = (plate) => {
   const p = String(plate || '').trim();
   if (!p) return;
+  const allowLastPrint = !!window.__takipUseLastPrintMemory;
+
+  const fillFromVehicle = (v) => {
+    if (!v) return;
+    const n1 = ((v.soforAdi || '') + (v.soforSoyadi ? ' ' + v.soforSoyadi : '')).trim();
+    if (nameEl) nameEl.value = n1 || '';
+    if (tcEl) tcEl.value = v.tcKimlik || '';
+    if (telEl) telEl.value = formatTRPhone(v.iletisim || '');
+  };
 
   // 1) Öncelik: araç kayıtları (aynı plaka birden fazla kayıtsa SEÇTİR)
   try {
     const matches = getVehiclesByPlate(p) || [];
     if (matches.length > 1) {
-      // geçmişte seçilen şoförü (varsa) liste başına al
-      try {
-        const hist = soforHistoryStorage.list(p) || [];
-        const h = hist[0] || null;
-        if (h) {
-          const hName = String(h.name || '').trim().toUpperCase();
-          const hTc = String(h.tc || '').trim();
-          const hPhone = String(h.phone || '').trim();
+      if (allowLastPrint) {
+        try {
+          const hist = soforHistoryStorage.list(p) || [];
+          const h = hist[0] || null;
+          if (h) {
+            const hName = String(h.name || '').trim().toUpperCase();
+            const hTc = String(h.tc || '').trim();
+            const hPhone = String(h.phone || '').trim();
 
-          matches.sort((a,b) => {
-            const aName = (((a?.soforAdi||'') + (a?.soforSoyadi?(' '+a.soforSoyadi):'')).trim()).toUpperCase();
-            const bName = (((b?.soforAdi||'') + (b?.soforSoyadi?(' '+b.soforSoyadi):'')).trim()).toUpperCase();
-            const aTc = String(a?.tcKimlik || '').trim();
-            const bTc = String(b?.tcKimlik || '').trim();
-            const aPh = String(a?.iletisim || '').trim();
-            const bPh = String(b?.iletisim || '').trim();
+            matches.sort((a,b) => {
+              const aName = (((a?.soforAdi||'') + (a?.soforSoyadi?(' '+a.soforSoyadi):'')).trim()).toUpperCase();
+              const bName = (((b?.soforAdi||'') + (b?.soforSoyadi?(' '+b.soforSoyadi):'')).trim()).toUpperCase();
+              const aTc = String(a?.tcKimlik || '').trim();
+              const bTc = String(b?.tcKimlik || '').trim();
+              const aPh = String(a?.iletisim || '').trim();
+              const bPh = String(b?.iletisim || '').trim();
 
-            const aHit = (hTc && aTc === hTc) || (hPhone && aPh === hPhone) || (hName && aName === hName);
-            const bHit = (hTc && bTc === hTc) || (hPhone && bPh === hPhone) || (hName && bName === hName);
-            return (bHit?1:0) - (aHit?1:0);
-          });
-        }
-      } catch(_) {}
+              const aHit = (hTc && aTc === hTc) || (hPhone && aPh === hPhone) || (hName && aName === hName);
+              const bHit = (hTc && bTc === hTc) || (hPhone && bPh === hPhone) || (hName && bName === hName);
+              return (bHit?1:0) - (aHit?1:0);
+            });
+          }
+        } catch(_) {}
+      }
 
       openDriverPickForSamePlate(p, matches, (v) => {
-        if (!v) return;
-        const n1 = ((v.soforAdi || '') + (v.soforSoyadi ? ' ' + v.soforSoyadi : '')).trim();
-        if (nameEl) nameEl.value = n1 || '';
-        if (tcEl) tcEl.value = v.tcKimlik || '';
-        if (telEl) telEl.value = formatTRPhone(v.iletisim || '');
-
-        // seçimi geçmişe yaz (sonraki sefer otomatik gelsin)
-        try {
-          soforHistoryStorage.add(p, { name: n1, tc: String(v.tcKimlik||'').trim(), phone: String(v.iletisim||'').trim() });
-        } catch(_) {}
+        fillFromVehicle(v);
+        if (allowLastPrint) {
+          try {
+            const n1 = ((v?.soforAdi || '') + (v?.soforSoyadi ? ' ' + v.soforSoyadi : '')).trim();
+            soforHistoryStorage.add(p, {
+              name: n1,
+              tc: String(v?.tcKimlik || '').trim(),
+              phone: String(v?.iletisim || '').trim(),
+            });
+          } catch (_) {}
+        }
       });
       return;
     }
@@ -801,51 +842,52 @@ const applyDriverForPlate = (plate) => {
     if (matches.length === 1) {
       const v = matches[0];
 
-      // geçmiş varsa (tek kayıtta bile) otomatik doldurabilir
-      try {
-        const hist = soforHistoryStorage.list(p) || [];
-        const d = hist[0];
-        if (d) {
-          if (nameEl) nameEl.value = d.name || '';
-          if (tcEl) tcEl.value = d.tc || '';
-          if (telEl) telEl.value = formatTRPhone(d.phone || '');
-          return;
-        }
-      } catch(_) {}
+      if (allowLastPrint) {
+        try {
+          const hist = soforHistoryStorage.list(p) || [];
+          const d = hist[0];
+          if (d) {
+            if (nameEl) nameEl.value = d.name || '';
+            if (tcEl) tcEl.value = d.tc || '';
+            if (telEl) telEl.value = formatTRPhone(d.phone || '');
+            return;
+          }
+        } catch (_) {}
+      }
 
-      const n1 = ((v.soforAdi || '') + (v.soforSoyadi ? ' ' + v.soforSoyadi : '')).trim();
-      if (nameEl) nameEl.value = n1 || '';
-      if (tcEl) tcEl.value = v.tcKimlik || '';
-      if (telEl) telEl.value = formatTRPhone(v.iletisim || '');
+      fillFromVehicle(v);
       return;
     }
   } catch(e) {}
 
-  // 2) Araç kaydı yoksa: geçmişten doldur
-  try {
-    const hist = soforHistoryStorage.list(p) || [];
-    const d = hist[0];
-    if (d) {
-      if (nameEl) nameEl.value = d.name || '';
-      if (tcEl) tcEl.value = d.tc || '';
-      if (telEl) telEl.value = formatTRPhone(d.phone || '');
-      return;
-    }
-  } catch(e) {}
+  // 2) Araç kaydı yoksa: yalnızca Tekrar Yazdır akışında geçmişten doldur
+  if (allowLastPrint) {
+    try {
+      const hist = soforHistoryStorage.list(p) || [];
+      const d = hist[0];
+      if (d) {
+        if (nameEl) nameEl.value = d.name || '';
+        if (tcEl) tcEl.value = d.tc || '';
+        if (telEl) telEl.value = formatTRPhone(d.phone || '');
+      }
+    } catch(e) {}
+  }
 };
 
               const getDriversForPlate = (plate) => {
                 const list = [];
-                // 1) geçmişten (2 kişi)
-                try {
-                  const hist = soforHistoryStorage.list(plate) || [];
-                  hist.slice(0, 2).forEach(d => {
-                    const label = [d.name, d.phone].filter(Boolean).join(' • ');
-                    if (label) list.push(label);
-                  });
-                } catch(e) {}
+                const allowLastPrint = !!window.__takipUseLastPrintMemory;
 
-                // 2) araç kaydından (2 şoför alanı)
+                if (allowLastPrint) {
+                  try {
+                    const hist = soforHistoryStorage.list(plate) || [];
+                    hist.slice(0, 2).forEach(d => {
+                      const label = [d.name, d.phone].filter(Boolean).join(' • ');
+                      if (label) list.push(label);
+                    });
+                  } catch(e) {}
+                }
+
                 if (list.length === 0) {
                   try {
                     const v = getVehicleByPlate(plate);
@@ -1083,12 +1125,18 @@ if (firmaSelect && firmaInput) {
     const val = this.value || '';
     firmaInput.value = val;
     handleFirma(val);
+    try { applyCanonicalFirmaKodu(val); refreshFirmaFieldHint(); } catch (e) {}
   });
 
   firmaInput.addEventListener('input', function () {
     const val = (this.value || '').trim();
     firmaSelect.value = '';
     handleFirma(val);
+    try { refreshFirmaFieldHint(); } catch (e) {}
+  });
+
+  firmaInput.addEventListener('blur', function () {
+    try { refreshFirmaFieldHint(); } catch (e) {}
   });
 }
 
@@ -1134,6 +1182,7 @@ try {
       onPick: (val)=>{
         if (firmaInput) { firmaInput.value = val; handleFirma(val); }
         if (firmaSelect) firmaSelect.value = '';
+        try { applyCanonicalFirmaKodu(val); refreshFirmaFieldHint(); } catch (e) {}
       }
     });
   });
@@ -1261,7 +1310,7 @@ try {
             } catch (e) {}
             try {
               if (shouldPrefill && !isReprintSession) {
-                applyShipmentToTakipForm(vehicle, takipApplyOpts);
+                await applyShipmentToTakipForm(vehicle, takipApplyOpts);
               }
             } catch (e) {}
 
@@ -1271,6 +1320,19 @@ try {
                 applyVehicleDefaultsToTakipForm(vehicle, { force: isReprintSession });
               }
             } catch(e) {}
+
+            // ✅ Tekrar Yazdır: BBT, tonaj, ambalaj vb. tüm alanları rapor kaydından uygula
+            if (isReprint && _reprintApplyData) {
+              try {
+                if (typeof applyReprintSnapshotToTakipForm === 'function') {
+                  applyReprintSnapshotToTakipForm(_reprintApplyData);
+                }
+              } catch (e) {
+                console.warn('Reprint form doldurma hatası:', e);
+              }
+            }
+
+            try { refreshFirmaFieldHint(); } catch (e) {}
 
 }
 
@@ -1301,6 +1363,163 @@ try {
             } catch(e){}
             const w = document.getElementById('takipFormWarn');
             if (w) { w.classList.add('hidden'); w.textContent = ''; }
+            const fh = document.getElementById('firmaFieldHint');
+            if (fh) fh.classList.remove('is-invalid');
+        }
+
+        function getTakipFirmaKoduRaw() {
+            const inp = (document.getElementById('firmaKodu')?.value || '').trim();
+            const sel = (document.getElementById('firmaSelect')?.value || '').trim();
+            let excel = '';
+            try {
+                if (typeof _takipFirmaFromExcelContext === 'function') excel = _takipFirmaFromExcelContext();
+            } catch (e) { /* ignore */ }
+            return inp || sel || String(excel || '').trim();
+        }
+
+        function ihracatFirmaTokenFromRaw(raw) {
+            const s = String(raw || '').trim();
+            if (!s) return '';
+            const m = s.match(/\bYD\d{1,4}(?:\([A-Za-z]+\))?/i);
+            return m ? m[0] : '';
+        }
+
+        function isIhracatFirmaValue(raw) {
+            return !!ihracatFirmaTokenFromRaw(raw);
+        }
+
+        function normalizeFirmaKoduForReport(kod) {
+            const raw = String(kod || '').trim();
+            const ihrToken = ihracatFirmaTokenFromRaw(raw);
+            if (ihrToken && raw.includes('/')) return raw;
+            const k = getFirmaKodOnly(raw);
+            if (!k) return '';
+            try {
+                const cust = window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function'
+                    ? window.piyasa.resolveCustomerByKod(k)
+                    : null;
+                if (cust && cust.kod) return String(cust.kod).trim();
+            } catch (e) { /* ignore */ }
+            const list = (typeof firmaListesi !== 'undefined' ? firmaListesi : window.firmaListesi) || [];
+            for (const f of list) {
+                const code = getFirmaKodOnly(f);
+                if (code && code.toUpperCase() === k.toUpperCase()) return code;
+            }
+            return ihrToken || k;
+        }
+
+        function isValidFirmaKoduForReport(kod) {
+            const raw = String(kod || '').trim();
+            if (!raw) return false;
+            if (isIhracatFirmaValue(raw)) return true;
+            const k = getFirmaKodOnly(raw);
+            if (!k) return false;
+            if (/^YD\d{1,4}(\([A-Za-z]+\))?$/i.test(k)) return true;
+            try {
+                const cust = window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function'
+                    ? window.piyasa.resolveCustomerByKod(k)
+                    : null;
+                if (cust && cust.kod) return true;
+            } catch (e) { /* ignore */ }
+            const list = (typeof firmaListesi !== 'undefined' ? firmaListesi : window.firmaListesi) || [];
+            return list.some((f) => getFirmaKodOnly(f).toUpperCase() === k.toUpperCase());
+        }
+
+        function applyCanonicalFirmaKodu(kod) {
+            const raw = String(kod || '').trim();
+            const canonical = normalizeFirmaKoduForReport(raw);
+            if (!canonical) return '';
+            const firmaEl = document.getElementById('firmaKodu');
+            const firmaSel = document.getElementById('firmaSelect');
+            if (firmaEl) {
+                const keepFullIhracat = isIhracatFirmaValue(raw) && raw.length > canonical.length;
+                firmaEl.value = keepFullIhracat ? raw : canonical;
+            }
+            if (firmaSel) {
+                const match = Array.from(firmaSel.options || []).find(
+                    (o) => getFirmaKodOnly(o.value).toUpperCase() === getFirmaKodOnly(canonical).toUpperCase()
+                );
+                firmaSel.value = match ? match.value : '';
+            }
+            return canonical;
+        }
+
+        function refreshFirmaFieldHint() {
+            const hint = document.getElementById('firmaFieldHint');
+            if (!hint) return;
+            const raw = getTakipFirmaKoduRaw();
+            if (!raw) {
+                hint.style.display = '';
+                hint.classList.add('is-invalid');
+                return;
+            }
+            if (!isValidFirmaKoduForReport(raw)) {
+                hint.style.display = '';
+                hint.classList.add('is-invalid');
+                return;
+            }
+            hint.classList.remove('is-invalid');
+            hint.style.display = isIhracatFirmaValue(raw) ? 'none' : '';
+        }
+
+        function validateTakipForm(opts = {}){
+            _clearTakipFormErrors();
+
+            const issues = [];
+            let firstEl = null;
+
+            if (opts.requireFirma !== false) {
+                const firmaRaw = getTakipFirmaKoduRaw();
+                const firmaEl = document.getElementById('firmaKodu');
+                const firmaSel = document.getElementById('firmaSelect');
+                const ihracatFirma = isIhracatFirmaValue(firmaRaw);
+                if (!firmaRaw) {
+                    issues.push('Firma/Müşteri Kodu');
+                    if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
+                } else if (!isValidFirmaKoduForReport(firmaRaw)) {
+                    issues.push('Firma/Müşteri Kodu (listeden veya Bul ile seçin)');
+                    if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
+                    if (firmaSel && !ihracatFirma) firmaSel.classList.add('input-error');
+                } else {
+                    applyCanonicalFirmaKodu(firmaRaw);
+                }
+            }
+
+            const required = [
+                { id:'malzeme',   label:'Malzeme' },
+                { id:'sevkYeri',  label:'Sevk Yeri' }
+            ];
+
+            required.forEach(r => {
+                const el = document.getElementById(r.id);
+                const val = (el && 'value' in el) ? String(el.value || '').trim() : '';
+                if (!val) {
+                    issues.push(r.label);
+                    if (el) {
+                        el.classList.add('input-error');
+                        if (!firstEl) firstEl = el;
+                    }
+                }
+            });
+
+            refreshFirmaFieldHint();
+
+            if (issues.length) {
+                const w = document.getElementById('takipFormWarn');
+                const msg = issues.some((x) => String(x).includes('Bul'))
+                    ? '⚠️ Yazdırmadan önce zorunlu alanları doldurun. Piyasa sevkiyatlarında firma kodu listeden veya Bul ile seçilmeli; ihracat kayıtlarında alttaki firma satırı yeterlidir.'
+                    : ('⚠️ Zorunlu alanlar eksik: ' + issues.join(', '));
+                if (w) {
+                    w.textContent = msg;
+                    w.classList.remove('hidden');
+                } else {
+                    alert(msg);
+                }
+                try { firstEl && firstEl.focus(); } catch(e){}
+                return false;
+            }
+
+            return true;
         }
 
         function resetTakipFormUI(){
@@ -1371,49 +1590,6 @@ try {
             // dropdown'ları da sıfırla
             try { const fs = document.getElementById('firmaSelect'); if (fs) fs.value = ''; } catch(e){}
             try { const ms = document.getElementById('malzemeSelect'); if (ms) ms.value = ''; } catch(e){}
-        }
-
-        function validateTakipForm(opts = {}){
-            _clearTakipFormErrors();
-
-            if (opts.forPrint) return true;
-
-            const required = [
-                { id:'malzeme',   label:'Malzeme' },
-                { id:'sevkYeri',  label:'Sevk Yeri' }
-            ];
-            if (opts.requireFirma !== false) {
-                required.unshift({ id:'firmaKodu', label:'Firma/Müşteri Kodu' });
-            }
-
-            const missing = [];
-            let firstEl = null;
-
-            required.forEach(r => {
-                const el = document.getElementById(r.id);
-                const val = (el && 'value' in el) ? String(el.value || '').trim() : '';
-                if (!val) {
-                    missing.push(r.label);
-                    if (el) {
-                        el.classList.add('input-error');
-                        if (!firstEl) firstEl = el;
-                    }
-                }
-            });
-
-            if (missing.length) {
-                const w = document.getElementById('takipFormWarn');
-                if (w) {
-                    w.textContent = '⚠️ Zorunlu alanlar eksik: ' + missing.join(', ');
-                    w.classList.remove('hidden');
-                } else {
-                    alert('⚠️ Zorunlu alanlar eksik: ' + missing.join(', '));
-                }
-                try { firstEl && firstEl.focus(); } catch(e){}
-                return false;
-            }
-
-            return true;
         }
 
         // ✅ Make validateTakipForm available to global button handlers
@@ -2114,7 +2290,6 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
             <div class="my-1 border-t"></div>
             <button type="button" id="exportVehiclesExcelBtn" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Tüm araç kayıtlarını Excel olarak indir">📊 Araç Listesi Excel</button>
-            <button type="button" id="soforPanelMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Özmal şoför sefer paneli (ofis)">🚛 Şoför Sefer Paneli</button>
           </div>
         </details>
         <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>

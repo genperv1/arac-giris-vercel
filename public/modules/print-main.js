@@ -5,6 +5,186 @@
 (() => {
   'use strict';
   const TR_APP_TZ = 'Europe/Istanbul';
+  const PRINT_BG_LEGACY = 'https://i.hizliresim.com/36cc3jp.jpg';
+  const PRINT_BG_API = '/api/print-form-bg';
+  const PRINT_BG_ASSET = '/assets/takip-form-bg.jpg';
+  const PRINT_BG_CACHE_KEY = 'printBgDataUrl_v3';
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function syncPrintFormBgToServer(imageData) {
+    try {
+      await fetch(PRINT_BG_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ imageData, source: 'auto-migrate' }),
+      });
+    } catch (_) {}
+  }
+
+  function getPrintOrigin() {
+    try { return window.location.origin || ''; } catch (_) { return ''; }
+  }
+
+  function toPrintBgSrc(url) {
+    const s = String(url || '').trim();
+    if (!s) return PRINT_BG_LEGACY;
+    if (/^data:/i.test(s) || /^https?:\/\//i.test(s)) return s;
+    const origin = getPrintOrigin();
+    if (!origin) return PRINT_BG_LEGACY;
+    if (s.startsWith('/')) return origin + s;
+    return origin + '/' + s;
+  }
+
+  function isRealImageDataUrl(url) {
+    return /^data:image\/(jpeg|jpg|png)/i.test(String(url || ''));
+  }
+
+  async function resolvePrintBgUrl() {
+    try {
+      const custom = String(localStorage.getItem('printBgUrl') || '').trim();
+      if (custom) return toPrintBgSrc(custom);
+    } catch (_) {}
+
+    try {
+      const cached = localStorage.getItem(PRINT_BG_CACHE_KEY);
+      if (cached && isRealImageDataUrl(cached)) return cached;
+    } catch (_) {}
+
+    const origin = getPrintOrigin();
+    const sources = [
+      origin ? origin + PRINT_BG_API : '',
+      origin ? origin + PRINT_BG_ASSET : '',
+      PRINT_BG_LEGACY,
+    ].filter(Boolean);
+
+    for (const src of sources) {
+      try {
+        const r = await fetch(src, { credentials: 'same-origin', cache: 'force-cache' });
+        if (!r.ok) continue;
+        const ct = String(r.headers.get('content-type') || '').toLowerCase();
+        if (ct.includes('xml') || ct.includes('html') || ct.includes('json') || ct.includes('svg')) continue;
+        const blob = await r.blob();
+        if (!blob || blob.size < 500) continue;
+        const dataUrl = await blobToDataUrl(blob);
+        if (!isRealImageDataUrl(dataUrl)) continue;
+        try { localStorage.setItem(PRINT_BG_CACHE_KEY, dataUrl); } catch (_) {}
+        if (src === PRINT_BG_LEGACY) syncPrintFormBgToServer(dataUrl);
+        return dataUrl;
+      } catch (_) {}
+    }
+
+    // Orijinal JPG yoksa harici link — SVG/builtin asla kullanılmaz
+    return origin ? origin + PRINT_BG_API : PRINT_BG_LEGACY;
+  }
+
+  function loadImageAsDataUrl(url) {
+    return new Promise(function (resolve, reject) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () {
+        try {
+          if (!img.naturalWidth || img.naturalWidth < 200) {
+            reject(new Error('image too small'));
+            return;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/jpeg', 0.92));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      img.onerror = function () { reject(new Error('image load failed')); };
+      img.src = String(url || '') + (String(url || '').includes('?') ? '&' : '?') + 't=' + Date.now();
+    });
+  }
+
+  async function ensurePrintBgDataUrl() {
+    try {
+      const cached = localStorage.getItem(PRINT_BG_CACHE_KEY);
+      if (cached && isRealImageDataUrl(cached)) return cached;
+      if (cached && !isRealImageDataUrl(cached)) {
+        try { localStorage.removeItem(PRINT_BG_CACHE_KEY); } catch (_) {}
+      }
+    } catch (_) {}
+
+    let url = await resolvePrintBgUrl();
+    if (isRealImageDataUrl(url)) return url;
+
+    const origin = getPrintOrigin();
+    const candidates = [
+      toPrintBgSrc(url),
+      origin ? origin + PRINT_BG_API : '',
+      origin ? origin + PRINT_BG_ASSET : '',
+      PRINT_BG_LEGACY,
+    ].filter(Boolean);
+
+    const seen = new Set();
+    for (const src of candidates) {
+      if (seen.has(src)) continue;
+      seen.add(src);
+      try {
+        const sameOrigin = !!(origin && src.startsWith(origin));
+        const r = await fetch(src, {
+          credentials: sameOrigin ? 'same-origin' : 'omit',
+          mode: sameOrigin ? 'same-origin' : 'cors',
+          cache: 'no-cache',
+        });
+        if (!r.ok) continue;
+        const ct = String(r.headers.get('content-type') || '').toLowerCase();
+        if (ct.includes('json') || ct.includes('html') || ct.includes('xml') || ct.includes('svg')) continue;
+        const blob = await r.blob();
+        if (!blob || blob.size < 500) continue;
+        const dataUrl = await blobToDataUrl(blob);
+        if (!isRealImageDataUrl(dataUrl)) continue;
+        try { localStorage.setItem(PRINT_BG_CACHE_KEY, dataUrl); } catch (_) {}
+        syncPrintFormBgToServer(dataUrl);
+        return dataUrl;
+      } catch (_) {}
+    }
+
+    try {
+      const dataUrl = await loadImageAsDataUrl(PRINT_BG_LEGACY);
+      if (isRealImageDataUrl(dataUrl)) {
+        try { localStorage.setItem(PRINT_BG_CACHE_KEY, dataUrl); } catch (_) {}
+        syncPrintFormBgToServer(dataUrl);
+        return dataUrl;
+      }
+    } catch (_) {}
+
+    if (window.PrintFormBgUpload && typeof window.PrintFormBgUpload.pickAndUpload === 'function') {
+      const picked = await window.PrintFormBgUpload.pickAndUpload({ silent: false });
+      if (picked && isRealImageDataUrl(picked)) return picked;
+    }
+
+    return null;
+  }
+
+  window.PrintFormBg = {
+    resolvePrintBgUrl,
+    ensurePrintBgDataUrl,
+    toPrintBgSrc,
+    syncPrintFormBgToServer,
+    cacheKey: PRINT_BG_CACHE_KEY,
+    clearCache() {
+      try {
+        localStorage.removeItem(PRINT_BG_CACHE_KEY);
+        localStorage.removeItem('printBgDataUrl');
+        localStorage.removeItem('printBgUrl');
+      } catch (_) {}
+    },
+  };
   function trLocaleDateString(date) {
     const d = date || new Date();
     return d.toLocaleDateString('tr-TR', { timeZone: TR_APP_TZ });
@@ -141,7 +321,7 @@
 
   function resolveIrsaliyeForPrint() {
     try {
-      if (isPiyasaFormContext()) return '';
+      if (isPiyasaFormContext() && !isIhracatFormContext('')) return '';
     } catch (e) {}
     try {
       const xr = document.getElementById('xr_irsaliye');
@@ -170,13 +350,14 @@
     if (!/^İrsaliye\s*No\s*:/im.test(t) && !/^IRSALIYE\s*NO\s*:/im.test(t)) {
       const irs = resolveIrsaliyeForPrint();
       if (irs) t = t ? `İrsaliye No: ${irs}\n${t}` : `İrsaliye No: ${irs}`;
+      else t = t ? `İrsaliye No:\n${t}` : 'İrsaliye No:';
     }
     return t;
   }
 
   const YUKLEME_NOTU_FIT_STORAGE_KEY = 'yuklemeNotuFit_v1';
   const YUKLEME_NOTU_FIT_DEFAULTS = {
-    ihracat: { headPt: 8.5, descPt: 7.5, minHeadPt: 8, minDescPt: 6.5, headStep: 0.08, descStep: 0.08 },
+    ihracat: { headPt: 10.75, descPt: 7.5, minHeadPt: 10, minDescPt: 6.5, headStep: 0.08, descStep: 0.08 },
     piyasa: { headPt: 10, descPt: 8.5, minHeadPt: 9, minDescPt: 7.75, headStep: 0.05, descStep: 0.06 },
     screen: {
       ihracat: { minPx: 9, maxPx: 11 },
@@ -244,6 +425,8 @@
       .replace(/\r?\n+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    // "1.\nARAÇ" gibi kırıkları tek satıra al
+    t = t.replace(/(\d+\.)\s+/g, '$1 ');
     t = t.replace(/(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})\b/g, '$1.$2.$3');
     t = t.replace(/\.(?=[A-ZÇĞİÖŞÜa-zçğıöşü])/g, '. ');
     return t.trim();
@@ -275,14 +458,39 @@
     const t = normalizePiyasaDescText(text);
     if (!t) return [];
 
+    // Numaralı liste: "1. ARAÇ ... 2. ARAÇ ..." — madde numarası metinden ayrılmasın
+    if (/\d+\.\s+[A-ZÇĞİÖŞÜa-zçğıöşü]/i.test(t) && /\.\s+\d+\.\s+/.test(t)) {
+      const listItems = t
+        .split(/(?<=\.)\s+(?=\d+\.\s+[A-ZÇĞİÖŞÜa-zçğıöşü])/i)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (listItems.length > 1) {
+        if (listItems.length <= maxLines) return listItems;
+        let merged = listItems.slice();
+        while (merged.length > maxLines) {
+          let idx = 0;
+          let minLen = Infinity;
+          for (let i = 0; i < merged.length - 1; i++) {
+            const len = merged[i].length + merged[i + 1].length;
+            if (len < minLen) {
+              minLen = len;
+              idx = i;
+            }
+          }
+          merged.splice(idx, 2, `${merged[idx]} ${merged[idx + 1]}`);
+        }
+        return merged;
+      }
+    }
+
     let chunks = t
-      .split(/(?<=[!?])\s+|(?<=\.)(?<!\d)\s+(?!\d)/)
+      .split(/(?<=[!?])\s+|(?<=\.)\s+(?=\d+\.\s+[A-ZÇĞİÖŞÜa-zçğıöşü])|(?<=\.)(?<!\d)\s+(?!\d)/)
       .map((s) => s.trim())
       .filter(Boolean);
     chunks = mergePiyasaDateLineChunks(chunks);
     if (chunks.length <= 1 && t.includes('.')) {
       chunks = t
-        .split(/\.(?=\s+(?!\d))/)
+        .split(/(?<!\d)\.(?=\s+(?!\d))/)
         .map((s, i, arr) => (i < arr.length - 1 ? `${s.trim()}.` : s.trim()))
         .filter(Boolean);
       chunks = mergePiyasaDateLineChunks(chunks);
@@ -326,17 +534,17 @@
   }
 
   function isIhracatFormContext(t) {
-    if (isPiyasaFormContext(t)) return false;
+    try {
+      const fk = String(document.getElementById('firmaKodu')?.value || '').trim();
+      if (/YD\d/i.test(fk)) return true;
+    } catch (e) {}
     try {
       const ch = window.__activeExcelShipment || window.__lastChosenShipment;
       if (ch && (ch.blockMeta || ch.headerText)) return true;
       const chTxt = String(ch?.headerText || ch?.firma || ch?.yuklemeNotu || '');
       if (/YD\d/i.test(chTxt)) return true;
     } catch (e) {}
-    try {
-      const fk = String(document.getElementById('firmaKodu')?.value || '').trim();
-      if (/YD\d/i.test(fk)) return true;
-    } catch (e) {}
+    if (isPiyasaFormContext(t)) return false;
     const note = String(t || '').trim();
     if (/SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(note)) return true;
     if (/^İrsaliye\s*No\s*:/im.test(note) && !looksLikePiyasaNote(note)) return true;
@@ -346,8 +554,8 @@
   /** Takip formu: ihracat ve piyasa ayrı — önce ihracat bağlamı, sonra piyasa siparişi */
   function resolveYuklemeNotuKind(raw) {
     const t = String(raw ?? document.getElementById('yuklemeNotu')?.value ?? '').trim();
-    if (isPiyasaFormContext(t)) return 'piyasa';
     if (isIhracatFormContext(t)) return 'ihracat';
+    if (isPiyasaFormContext(t)) return 'piyasa';
     return 'piyasa';
   }
 
@@ -434,7 +642,7 @@
   function fitYuklemeNotuPrint(box) {
     try {
       if (!box) return;
-      if (!box.clientHeight || box.clientHeight < 24) return;
+      if (!box.clientHeight || box.clientHeight < 8) return;
 
       const body = box.querySelector('.note-body') || box;
       const inner = body.querySelector('.note-inner');
@@ -1613,15 +1821,13 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     // ✅ localStorage'dan seçili sayfa boyutunu oku
     const pageSize = localStorage.getItem('selectedPageSize') || 'A5';
     
-    // ✅ Yazdırma şablonu (arka plan form görseli)
-    const PRINT_BG_DEFAULT = 'https://i.hizliresim.com/36cc3jp.jpg';
-    const bgUrl = (function () {
-      try {
-        const custom = String(localStorage.getItem('printBgUrl') || '').trim();
-        if (custom) return custom;
-      } catch (e) {}
-      return PRINT_BG_DEFAULT;
-    })();
+    // ✅ Yazdırma şablonu — mutlaka data URL (about:blank penceresinde güvenilir)
+    const bgDataUrl = await ensurePrintBgDataUrl();
+    if (!bgDataUrl) {
+      alert('Takip formu arka plan görseli yüklenemedi. Ayarlar → Yazdırma bölümünden şablon JPG yükleyin veya sunucuyu yeniden başlatın.');
+      return null;
+    }
+    const bgUrl = bgDataUrl;
 
     const firmaKodu = document.getElementById('firmaKodu')?.value || '';
     const malzeme = document.getElementById('malzeme')?.value || '';
@@ -1662,9 +1868,9 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
       return t;
     };
 
-    const notKind = isPiyasaFormContext(yuklemeNotu)
-      ? 'piyasa'
-      : (isIhracatFormContext(yuklemeNotu) ? 'ihracat' : resolveYuklemeNotuKind(yuklemeNotu));
+    const notKind = isIhracatFormContext(yuklemeNotu)
+      ? 'ihracat'
+      : (isPiyasaFormContext(yuklemeNotu) ? 'piyasa' : resolveYuklemeNotuKind(yuklemeNotu));
     const buildYuklemeNotuPrintHtml = (raw, kind) => {
       const t = normalizeToLines(raw);
       const noteKind = kind === 'ihracat' || kind === 'piyasa'
@@ -1684,11 +1890,10 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
           descParts.push(line);
         }
       }
-      if (!irsLine && noteKind !== 'piyasa') {
+      if (!irsLine && noteKind === 'ihracat') {
         const irs = resolveIrsaliyeForPrint();
-        if (irs) irsLine = `İrsaliye No: ${irs}`;
+        irsLine = irs ? `İrsaliye No: ${irs}` : 'İrsaliye No:';
       }
-      if (noteKind === 'piyasa') irsLine = '';
 
       const descJoined = descParts.join(' ').replace(/\s+/g, ' ').trim();
       const descInput =
@@ -1731,22 +1936,109 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(document.getElementById('yuklemeN
       const raw = String(value ?? '').trim();
       if (!raw) return '';
 
-      // Özel: NET ve LINERLI varsa ayır
-      if (raw.toUpperCase().includes('NET') && raw.toUpperCase().includes('LINERLI')) {
-        const netIndex = raw.toUpperCase().indexOf('NET');
-        const linerIndex = raw.toUpperCase().indexOf('LINERLI');
-        if (netIndex < linerIndex) {
-          const netPart = raw.slice(netIndex).split('LINERLI')[0].trim();
-          const linerPart = 'LINERLI' + raw.slice(linerIndex + 7).trim();
-          return escapeHtml(netPart) + '<br>' + escapeHtml(linerPart);
+      let t = raw
+        .replace(/LINERLI(BASKISIZ)/gi, 'LINERLI $1')
+        .replace(/LİNERLİ(BASKISIZ)/gi, 'LİNERLİ $1')
+        .replace(/BASKISIZ(LINERLI)/gi, 'BASKISIZ $1')
+        .replace(/BASKISIZ(LİNERLİ)/gi, 'BASKISIZ $1')
+        .replace(/(KG)(LINERLI)/gi, '$1 $2')
+        .replace(/(KG)(LİNERLİ)/gi, '$1 $2')
+        .replace(/\bBIG\s*BAG\b/gi, 'BİGBAG')
+        .replace(/\bBIGBAG\b/gi, 'BİGBAG')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const netKgMatch = t.match(/NET\s+[\d.,]+\s*KG/i);
+      if (netKgMatch) {
+        const netKg = netKgMatch[0].trim();
+        const tail = t.slice(netKgMatch.index + netKgMatch[0].length).trim();
+        const hasBaskisiz = /BASKISIZ/i.test(tail);
+        const hasLiner = /L[Iİ]NERL[Iİ]/i.test(tail);
+        const hasBigbag = /B[Iİ]G\s*BAG|B[Iİ]GBAG/i.test(tail);
+
+        if (hasBaskisiz || hasLiner || hasBigbag) {
+          const line1 = hasBaskisiz ? `${netKg} BASKISIZ` : netKg;
+          let line2 = '';
+          if (hasLiner && hasBigbag) line2 = 'LİNERLİ BİGBAG';
+          else if (hasLiner) line2 = 'LİNERLİ';
+          else if (hasBigbag) line2 = 'BİGBAG';
+          else {
+            const rest = tail.replace(/BASKISIZ/i, '').trim();
+            if (rest) line2 = rest.replace(/L[Iİ]NERL[Iİ]/i, 'LİNERLİ').replace(/B[Iİ]G\s*BAG|B[Iİ]GBAG/gi, 'BİGBAG');
+          }
+          if (line2) {
+            return escapeHtml(line1) + '<br>' + escapeHtml(line2);
+          }
+          return escapeHtml(line1);
         }
       }
 
-      const parts = raw.split('/').map(s => s.trim()).filter(Boolean);
+      const netLinerSplit = t.match(/^(NET\s+[\d.,]+\s*KG\s+L[Iİ]NERL[Iİ])\s+(BASKISIZ.+)$/i);
+      if (netLinerSplit) {
+        const line1 = `${netLinerSplit[1].replace(/\s+L[Iİ]NERL[Iİ]$/i, '').trim()} BASKISIZ`;
+        const line2 = 'LİNERLİ BİGBAG';
+        return escapeHtml(line1) + '<br>' + escapeHtml(line2);
+      }
+
+      if (/NET/i.test(t) && /LINERL/i.test(t) && /BASKISIZ/i.test(t)) {
+        const head = t.match(/^(NET\s+[\d.,]+\s*KG\s+L[Iİ]NERL[Iİ])/i);
+        if (head) {
+          const tail = t.slice(head[0].length).trim();
+          if (tail) {
+            return escapeHtml(head[0].trim()) + '<br>' + escapeHtml(tail);
+          }
+        }
+      }
+
+      // Özel: NET ve LINERLI varsa ayır (tek LINERLI parçası)
+      if (t.toUpperCase().includes('NET') && /LINERL/i.test(t)) {
+        const netIndex = t.toUpperCase().indexOf('NET');
+        const linerMatch = t.slice(netIndex).match(/LINERL[Iİ]/i);
+        if (linerMatch && typeof linerMatch.index === 'number') {
+          const rel = netIndex + linerMatch.index;
+          const netPart = t.slice(netIndex, rel + linerMatch[0].length).trim();
+          const linerPart = t.slice(rel + linerMatch[0].length).trim();
+          if (netPart && linerPart) {
+            return escapeHtml(netPart) + '<br>' + escapeHtml(linerPart);
+          }
+        }
+      }
+
+      const parts = t.split('/').map(s => s.trim()).filter(Boolean);
       if (parts.length >= 2) {
         return parts.map(p => escapeHtml(p)).join('<br>');
       }
-      return escapeHtml(raw).replace(/\r?\n/g, '<br>');
+      return escapeHtml(t).replace(/\r?\n/g, '<br>');
+    };
+
+    const formatSeperatorBilgisiPrint = (value) => {
+      const raw = String(value ?? '').trim();
+      if (!raw) return '';
+      const esc = (s) => escapeHtml(s);
+      const odemeOrg = raw.match(/^ÖDEME\s*TÜRÜ\s*:\s*(.+?)\s+ORG\s*:\s*(.+)$/i);
+      if (odemeOrg) {
+        const odeme = odemeOrg[1].trim();
+        const org = odemeOrg[2].trim();
+        return `${esc('ÖDEME TÜRÜ:')}<br>${esc(`${odeme} ORG:${org}`)}`;
+      }
+      const odemeOnly = raw.match(/^ÖDEME\s*TÜRÜ\s*:\s*(.+)$/i);
+      if (odemeOnly && !/ORG\s*:/i.test(raw)) {
+        return `${esc('ÖDEME TÜRÜ:')}<br>${esc(odemeOnly[1].trim())}`;
+      }
+      if (/ORG\s*:/i.test(raw)) {
+        const idx = raw.search(/\s+ORG\s*:/i);
+        if (idx > 0) {
+          const head = raw.slice(0, idx).trim();
+          const tail = raw.slice(idx).trim().replace(/^ORG\s*:\s*/i, '');
+          if (/^ÖDEME\s*TÜRÜ\s*:/i.test(head)) {
+            const val = head.replace(/^ÖDEME\s*TÜRÜ\s*:\s*/i, '').trim();
+            const line2 = val ? `${val} ORG:${tail}` : `ORG:${tail}`;
+            return `${esc('ÖDEME TÜRÜ:')}<br>${esc(line2)}`;
+          }
+          return `${esc(head)}<br>${esc(`ORG:${tail}`)}`;
+        }
+      }
+      return esc(raw).replace(/\r?\n/g, '<br>');
     };
 
     const malzemeLayout = layoutMalzemeLines(splitMalzemeItems(malzeme));
@@ -1774,6 +2066,7 @@ const tonaj = document.getElementById('tonaj')?.value || '';
 const ambalajBilgisi = normalizeAmbalajBilgisi(document.getElementById('ambalajBilgisi')?.value || '');
 const ambalajBilgisiPrint = formatAmbalajBilgisiPrint(ambalajBilgisi);
 const seperatorBilgisi = document.getElementById('seperatorBilgisi')?.value || '';
+const seperatorBilgisiPrint = formatSeperatorBilgisiPrint(seperatorBilgisi);
 const imzaKantarAd   = document.getElementById('imzaKantarAd')?.value || '';
 const imzaKantarSrc  = toPrintSignatureSrc(resolveKantarSignatureSrc(imzaKantarAd));
 const imzaKantarImgHtml = imzaKantarSrc ? `<img src="${imzaKantarSrc}" class="imza-img" alt="İmza">` : ``;
@@ -1805,79 +2098,80 @@ const torbaText = amb.torba;
 const bosCuvalText = amb.bosCuval;
 const bosBbtText = amb.bosBbt;
 
-    // --- KONUM AYARLARI (mm) ---
-    // Bu değerler JPEG’deki çizgilere göre yerleştirilmiş başlangıç ayarıdır.
-    // Yükleme notu hücresi (imza satırı ~119mm) — 4 satır sığsın diye yükseklik artırıldı
-    const IMZA_ROW_TOP = 119;
-    const NOTE_CELL_BOTTOM = 118.9;
-    const NOTE_TOP_A5 = 106.8;
-    const NOTE_TOP_A4 = 107.2;
-    const noteHeight = (top) => Math.max(12, NOTE_CELL_BOTTOM - top);
+    // --- KONUM AYARLARI (mm) — koordinat referansı 1024×723; AA.jpg (1492×1054) aynı oran, kayıpsız ---
+    const FORM_CONTENT_H = 148;
+    const COORD_REF_W = 1024;
+    const COORD_REF_H = 723;
+    const ROW_NUDGE_PX = 38; // grid satırı bir tık yukarı (değerler bir alt satırda kalıyordu)
+    function buildTakipFormPrintCoords() {
+      const IMG_W = COORD_REF_W;
+      const IMG_H = COORD_REF_H;
+      const pageH = FORM_CONTENT_H;
+      const xMm = (px) => (px / IMG_W) * 210;
+      const yMm = (py) => (py / IMG_H) * pageH;
+      const mmPx = (mm) => (mm / 210) * IMG_W;
+      const ry = (py) => Math.max(0, py - ROW_NUDGE_PX);
+      const mid = (y0, y1, shift) => yMm((ry(y0) + ry(y1)) / 2) - shift;
+      const rh = (y0, y1) => Math.max(4, yMm(ry(y1)) - yMm(ry(y0)) - 1.2);
+      const packMm = [75.3, 104.4, 131.5, 158.9, 183.8, 205.7];
+      const packPx = [212].concat(packMm.map(mmPx));
+      const imzaMm = [54.8, 105.4, 154.8, 205.7];
+      const imzaPx = [20].concat(imzaMm.map(mmPx));
 
-    // ✅ A5 manzara için koordinatlar (210x148mm)
-    const P_A5 = {
-        yuklemeSirasi: { left: 92, top: 27, w: 80 },
-        tarih:         { left: 175, top: 27, w: 40 },
-        sofor:         { left: 55, top: 40.5, w: 5 },
-        iletisim:      { left: 175, top: 40.5, w: 52 },
-        tc:            { left: 55, top: 51, w: 90 },
-        cekici:        { left: 55, top: 62.5, w: 90 },
-        dorse:         { left: 148, top: 62.5, w: 52 },
-        firma:         { left: 50, top: 73.2, w: 155 },
-        sevkYeri:      { left: 130, top: 48, w: 68, h: 10 },
-        malzeme:       { left: 50, top: 80, w: 78, h: 6.2 },
-        ambBilgi:      { left: 156, top: 76.5, w: 82, h: 10 },
-        tonaj:         { left: 50, top: 87, w: 100 },
-        seperator:     { left: 162, top: 87, w: 45 },
-        bbt:           { left: 54,  top: 101, w: 18 },
-        bosBbt:        { left: 81,  top: 101, w: 18 },
-        cuval:         { left: 108, top: 101, w: 18 },
-        bosCuval:      { left: 132, top: 101, w: 18 },
-        palet:         { left: 159, top: 101, w: 18 },
-        torba:         { left: 185, top: 101, w: 18 },
-        not:           { left: 49, top: NOTE_TOP_A5, w: 150, h: noteHeight(NOTE_TOP_A5) },
-        imzaKantar:    { left: 5,  top: IMZA_ROW_TOP, w: 45 },
-        imzaSaha:      { left: 56,  top: 140, w: 45 },
-        imzaYukleyen:  { left: 107, top: 140, w: 45 },
-        imzaKalite:    { left: 158, top: 140, w: 45 }
-    };
+      const P = {
+        yuklemeSirasi: { left: xMm(455), top: mid(172, 210, 1.3), w: xMm(535 - 455), align: 'center' },
+        tarih:         { left: xMm(700), top: mid(172, 210, 1.3), w: xMm(990 - 700), align: 'center' },
+        sofor:         { left: xMm(215), top: mid(210, 248, 1.3), w: xMm(539 - 215) },
+        iletisim:      { left: xMm(738), top: mid(210, 248, 1.3), w: xMm(985 - 738), align: 'center' },
+        tc:            { left: xMm(215), top: mid(248, 286, 1.3), w: xMm(539 - 215) },
+        sevkYeri:      { left: xMm(702), top: mid(248, 286, 1.3), w: xMm(888 - 702), h: rh(248, 286), align: 'center' },
+        cekici:        { left: xMm(215), top: mid(286, 325, 1.3), w: xMm(539 - 215) },
+        dorse:         { left: xMm(539), top: mid(286, 325, 1.3), w: xMm(1000 - 539), align: 'center' },
+        firma:         { left: xMm(215), top: mid(325, 362, 1.3), w: xMm(1000 - 215) },
+        malzeme:       { left: xMm(215), top: mid(362, 399, 1.3), w: xMm(653 - 215), h: 6.2 },
+        ambBilgi:      { left: xMm(798), top: mid(362, 399, 2.4), w: xMm(1000 - 798), h: rh(362, 399) },
+        tonaj:         { left: xMm(215), top: mid(399, 445, 1.3), w: xMm(509 - 215) },
+        seperator:     { left: xMm(798), top: mid(399, 445, 3.6), w: xMm(996 - 798), h: Math.max(3.8, rh(399, 445) - 0.8) },
+        not:           { left: xMm(215), top: yMm(ry(530)), w: xMm(1000 - 215), h: rh(514, 578) },
+      };
 
-    // ✅ A4 dikey için koordinatlar (210x297mm) - resmin altında başlasın, orantılı yerleş
-    const P_A4 = {
-        yuklemeSirasi: { left: 92, top: 27, w: 80 },
-        tarih:         { left: 175, top: 27, w: 40 },
-        sofor:         { left: 55, top: 40.5, w: 5 },
-        iletisim:      { left: 175, top: 40.5, w: 52 },
-        tc:            { left: 55, top: 50, w: 90 },
-        cekici:        { left: 55, top: 61, w: 90 },
-        dorse:         { left: 148, top: 61, w: 52 },
-        firma:         { left: 50, top: 73, w: 155 },
-        sevkYeri:      { left: 130, top: 48, w: 68, h: 10 },
-        malzeme:       { left: 50, top: 81, w: 78, h: 6.2 },
-        ambBilgi:      { left: 156, top: 76.5, w: 82, h: 10 },
-        tonaj:         { left: 50, top: 87, w: 100 },
-        seperator:     { left: 162, top: 87, w: 45 },
-        bbt:           { left: 54,  top: 102, w: 18 },
-        bosBbt:        { left: 81,  top: 102, w: 18 },
-        cuval:         { left: 108, top: 102, w: 18 },
-        bosCuval:      { left: 132, top: 102, w: 18 },
-        palet:         { left: 159, top: 102, w: 18 },
-        torba:         { left: 185, top: 102, w: 18 },
-        not:           { left: 49, top: NOTE_TOP_A4, w: 150, h: noteHeight(NOTE_TOP_A4) },
-        imzaKantar:    { left: 5,  top: IMZA_ROW_TOP, w: 45 },
-        imzaSaha:      { left: 56,  top: 121, w: 45 },
-        imzaYukleyen:  { left: 107, top: 121, w: 45 },
-        imzaKalite:    { left: 158, top: 121, w: 45 }
-    };
+      ['bbt', 'bosBbt', 'cuval', 'bosCuval', 'palet', 'torba'].forEach(function (key, i) {
+        P[key] = {
+          left: xMm(packPx[i] + 3),
+          top: mid(484, 548, 3.5),
+          w: xMm(packPx[i + 1] - packPx[i] - 6),
+        };
+      });
 
-    // ✅ Seçili sayfa boyutuna göre P'yi belirle
-    const P = pageSize === 'A4' ? P_A4 : P_A5;
+      ['imzaKantar', 'imzaSaha', 'imzaYukleyen', 'imzaKalite'].forEach(function (key, i) {
+        P[key] = {
+          left: xMm(imzaPx[i] + 6),
+          top: mid(588, 668, 0.5),
+          w: xMm(imzaPx[i + 1] - imzaPx[i] - 12),
+          h: rh(584, 662),
+        };
+      });
+
+      P.imzaKantar = {
+        left: xMm(imzaPx[0] + 4),
+        top: mid(588, 668, 0.35),
+        w: xMm(imzaPx[1] - imzaPx[0] - 10),
+        h: rh(584, 662),
+      };
+
+      return P;
+    }
+
+    const P = buildTakipFormPrintCoords();
     const malzemeTopMm = P.malzeme.top - (malzemeLayout.twoLine ? 1.8 : 0);
     const malzemeBoxClass = malzemeLayout.twoLine
       ? 'field malzeme-print-box malzeme-print-box--2'
       : 'field malzeme-print-box';
 
     // ✅ Sayfa boyutuna göre CSS parametrelerini ayarla
+    const FORM_PAGE_H = FORM_CONTENT_H;
+    const formOuterTopGap = pageSize === 'A4' ? '5mm' : '0mm';
+    const formInnerPadTop = pageSize === 'A4' ? '0mm' : '1.5mm';
     const pageParams = pageSize === 'A4' 
       ? { size: 'A4', width: '210mm', height: '297mm' }
       : { size: 'A5 landscape', width: '210mm', height: '148mm' };
@@ -1891,44 +2185,87 @@ const bosBbtText = amb.bosBbt;
 <style>
       * { page-break-inside: avoid; break-inside: avoid; }
 
-
-      @media print {
-        html, body { width: ${pageParams.width} !important; height: ${pageParams.height} !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
-        #printViewport { position: fixed !important; left: 0 !important; top: 0 !important; width: ${pageParams.width} !important; height: ${pageParams.height} !important; overflow: hidden !important; }
-        #printRoot { position: absolute !important; left: 0 !important; top: 0 !important; width: ${pageParams.width} !important; height: ${pageParams.height} !important; overflow: hidden !important; }
+      @page {
+        size: ${pageParams.size};
+        margin: ${pageSize === 'A4' ? '0' : '0'};
       }
 
+      #printViewport {
+        width:${pageParams.width};
+        height:${pageParams.height};
+        overflow:hidden;
+        box-sizing:border-box;
+      }
+      #printRoot {
+        width:${pageParams.width};
+        height:${pageParams.height};
+        max-height:${pageParams.height};
+        overflow:hidden;
+        box-sizing:border-box;
+        transform:none;
+      }
 
-      #printViewport { width:${pageParams.width}; height:${pageParams.height}; overflow:hidden; }
-      #printRoot { transform-origin: top left; }
-      #printRoot { width:${pageParams.width}; height:${pageParams.height}; }
+      html, body {
+        margin:0;
+        padding:0;
+        width:${pageParams.width};
+        height:${pageParams.height};
+        max-height:${pageParams.height};
+        overflow:hidden;
+        box-sizing:border-box;
+        page-break-after: avoid;
+        break-after: avoid-page;
+      }
+      body { font-family: Arial, sans-serif; }
 
+      .page{
+        position: relative;
+        width: 210mm;
+        height: ${FORM_PAGE_H}mm;
+        max-height: ${FORM_PAGE_H}mm;
+        margin: ${formOuterTopGap} auto 0;
+        padding-top: ${formInnerPadTop};
+        overflow: hidden;
+        box-sizing: border-box;
+        page-break-after: avoid !important;
+        page-break-before: avoid !important;
+        break-inside: avoid-page;
+        break-after: avoid-page;
+      }
 
-      @page { size: ${pageParams.size}; margin: 0; }
-      html, body { width: ${pageParams.width}; height: ${pageParams.height}; margin: 0; padding: 0; overflow: hidden; }
-      body { margin: 0; padding: 0; overflow: hidden; }
-      .page, .print-page { page-break-after: avoid; page-break-before: avoid; }
+      @media print {
+        html, body {
+          width: ${pageParams.width} !important;
+          height: ${pageParams.height} !important;
+          max-height: ${pageParams.height} !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
+        }
+        #printViewport, #printRoot {
+          position: relative !important;
+          width: ${pageParams.width} !important;
+          height: ${pageParams.height} !important;
+          max-height: ${pageParams.height} !important;
+          min-height: 0 !important;
+          overflow: hidden !important;
+          transform: none !important;
+          page-break-after: avoid !important;
+          break-after: avoid-page !important;
+        }
+        .page {
+          transform: scale(0.968) !important;
+          transform-origin: top center !important;
+          margin-left: auto !important;
+          margin-right: auto !important;
+          margin-top: ${formOuterTopGap} !important;
+          padding-top: ${formInnerPadTop} !important;
+          page-break-after: avoid !important;
+          break-after: avoid-page !important;
+        }
+      }
+
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-
-	
-  @page { size: ${pageParams.size}; margin: 0; }
-			
-  html, body {
-  margin:0;
-  padding:0;
-  width:${pageParams.width};
-}
-  .page{
-  position: relative;
-  width: ${pageParams.width};
-  height: ${pageParams.height};
-  overflow: hidden;
-  font-family: Arial, sans-serif;
-  page-break-after: avoid !important;
-  /* tek sayfa kilidi */
-  break-inside: avoid;
-  break-after: avoid;
-}
 
   .bg{
     position:absolute;
@@ -1945,6 +2282,13 @@ const bosBbtText = amb.bosBbt;
     font-weight:700;
     color:#000;
     white-space:nowrap;
+    line-height:1;
+    margin:0;
+    padding:0;
+  }
+
+  .field.field-center{
+    text-align:center;
   }
 
   .field.wrap{
@@ -1967,7 +2311,7 @@ const bosBbtText = amb.bosBbt;
   height:100%;
   box-sizing:border-box;
   overflow:hidden;
-  padding:0.45mm 0.5mm 0.55mm;
+  padding:1.15mm 0.5mm 0.55mm;
   position:relative;
   display:flex;
   flex-direction:column;
@@ -1987,9 +2331,9 @@ const bosBbtText = amb.bosBbt;
   width:100%;
   white-space:nowrap;
   overflow:hidden;
-  margin:0 0 0.28mm 0;
+  margin:0 0 0.08mm 0;
   padding:0;
-  font-size:8.85pt;
+  font-size:9.5pt;
   line-height:1.12;
 }
 .note-row{
@@ -2025,38 +2369,48 @@ const bosBbtText = amb.bosBbt;
 }
 .note--ihracat .note-head,
 .note-inner[data-not-kind="ihracat"] .note-head{
-  font-size:8.85pt;
-  line-height:1.12;
+  font-size:10.75pt;
+  line-height:1.1;
+  margin-bottom:0.05mm;
 }
 .note--ihracat .note-row,
 .note-inner[data-not-kind="ihracat"] .note-row{
   font-size:7.5pt;
-  line-height:1.08;
+  line-height:1.06;
   white-space:pre-line;
   word-break:normal;
   overflow-wrap:normal;
-  margin:0 0 0.15mm 0;
+  margin:0 0 0.05mm 0;
+}
+.note--ihracat .note-row:first-of-type,
+.note-inner[data-not-kind="ihracat"] .note-row:first-of-type{
+  margin-top:-0.08mm;
 }
 
 .imza-text {
-  font-size: 9pt;     /* ← burayı istediğin gibi değiştir */
+  font-size: 9pt;
   font-weight: 600;
 }
 
 /* KANTAR imza bloğu: üstte imza, altta isim (kutu içinde) */
 .imza-block{
-  display:block;
-  height: 27mm;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
   overflow: visible;
   white-space: normal;
   box-sizing: border-box;
+  padding: 2mm 1mm 0.6mm;
 }
 .imza-imgwrap{
-  height: 18mm;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
   display:flex;
-  align-items:flex-start;
+  align-items:center;
   justify-content:center;
-  padding: 8.5mm 3mm 0 3mm;
+  padding: 0 0.5mm;
   overflow: visible;
   box-sizing: border-box;
 }
@@ -2064,24 +2418,46 @@ const bosBbtText = amb.bosBbt;
   max-width: 100%;
   width: auto;
   height: auto;
-  max-height: 14mm;
+  max-height: 12mm;
   object-fit: contain;
   object-position: center center;
   display:block;
 }
 .imza-name{
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 19.5mm;
-  bottom: auto;
-  margin-top: 0;
+  position: static;
+  flex: 0 0 auto;
+  margin-top: 0.3mm;
   font-size: 8.5pt;
   font-weight: 600;
   text-align:center;
   white-space: normal;
-  line-height: 1.1;
-  z-index: 2;
+  line-height: 1.05;
+  word-break: break-word;
+}
+.imza-block--kantar{
+  align-items:center;
+  justify-content:center;
+  padding:2.4mm 0.6mm 0.9mm 0.6mm;
+}
+.imza-block--kantar .imza-imgwrap{
+  align-items:center;
+  justify-content:center;
+  flex:0 1 auto;
+  width:100%;
+  padding:0;
+}
+.imza-block--kantar .imza-img{
+  max-height:14mm;
+  max-width:88%;
+  object-position:center center;
+}
+.imza-block--kantar .imza-name{
+  font-size:9.75pt;
+  font-weight:700;
+  text-align:center;
+  width:100%;
+  padding-left:0;
+  margin-top:0.2mm;
 }
 
 			
@@ -2184,39 +2560,55 @@ const bosBbtText = amb.bosBbt;
 .malz-grid.cols-6 .malz-qty { font-size: 7.5pt; }
 .malz-grid.cols-6 .malz-desc { font-size: 6.5pt; }
 
-/* ✅ AMBALAJ BİLGİSİ: kısa ise büyük ve ortalı, uzunsa JS küçültüp sığdırır */
-.ambalaj-box{
+/* ✅ SEVK YERİ: değer hücresinde ortalı, bir tık büyük punto */
+.field.wrap.sevk-box{
   display:flex;
-  align-items:flex-start;      /* yukarıdan başlasın */
+  align-items:center;
   justify-content:center;
   text-align:center;
-  max-width:51mm;
-
-  padding:0.6mm;
-  padding-top:3.0mm;           /* KIRMIZI "AMBALAJ BİLGİSİ" yazısından aşağı indirir */
-
+  width:100%;
+  max-width:none;
+  padding:0.4mm 1mm;
   box-sizing:border-box;
   white-space: normal !important;
   word-break: break-word;
-
-  line-height: 1.05;
-  font-size: 6pt;              /* görünür boyut */
+  line-height: 1.12;
+  font-size: 9.5pt;
+  font-weight: 700;
   overflow:hidden;
 }
 
-/* ✅ SEVK YERİ: ambalajla aynı yazı tipi ve boyutu kullan */
-.sevk-box{
+/* ✅ AMBALAJ: yükleme notu açıklama satırı ile aynı punto (8.5pt) */
+.field.wrap.ambalaj-box{
   display:flex;
   align-items:flex-start;
   justify-content:center;
   text-align:center;
-  padding:0.8mm;
-  padding-top:2.0mm;
+  max-width:51mm;
+  padding:0.45mm 0.35mm 0.35mm 1.55mm;
   box-sizing:border-box;
   white-space: normal !important;
   word-break: break-word;
-  line-height: 1.05;
-  font-size: 6pt;
+  line-height: 1.12;
+  font-size: 8.5pt;
+  font-weight: 700;
+  overflow:hidden;
+}
+
+/* ✅ SEPERATÖR: 2 satır (ÖDEME TÜRÜ: / GNP ORG:GNP), hücre üstünde */
+.field.wrap.seperator-box{
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  text-align:center;
+  padding:0.35mm 0.4mm 0.15mm 0.7mm;
+  box-sizing:border-box;
+  white-space: normal !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.06;
+  font-size: 8pt;
+  font-weight: 700;
   overflow:hidden;
 }
 .fit-one-line{
@@ -2246,30 +2638,20 @@ const bosBbtText = amb.bosBbt;
   word-break: break-word;
 }
 
-.cut-line{
-  position:absolute;
-  left:0;
-  top:148.5mm;      /* A4 ortası */
-  width:210mm;
-  border-top:1px dashed #000;
-  opacity:0.85;
-  z-index: 9999;
-  pointer-events:none;
-}
-									
-</style>
+/* imza isimleri */
 
+</style>
 
 </head>
 <body><div id="printViewport"><div id="printRoot">
 <div class="page">
 <img class="bg" src="${bgUrl}" alt="">
 
-    <div class="field" style="left:${P.yuklemeSirasi.left}mm; top:${P.yuklemeSirasi.top}mm; width:${P.yuklemeSirasi.w}mm;">
+    <div class="field field-center" style="left:${P.yuklemeSirasi.left}mm; top:${P.yuklemeSirasi.top}mm; width:${P.yuklemeSirasi.w}mm; text-align:right; padding-right:1mm;">
         ${yuklemeSirasi}
     </div>
 
-    <div class="field" style="left:${P.tarih.left}mm; top:${P.tarih.top}mm; width:${P.tarih.w}mm;">
+    <div class="field field-center" style="left:${P.tarih.left}mm; top:${P.tarih.top}mm; width:${P.tarih.w}mm; text-align:center;">
         ${trLocaleDateString()}
     </div>
 
@@ -2277,7 +2659,7 @@ const bosBbtText = amb.bosBbt;
         ${soforBilgi}
     </div>
 
-    <div class="field" style="left:${P.iletisim.left}mm; top:${P.iletisim.top}mm; width:${P.iletisim.w}mm;">
+    <div class="field field-center" style="left:${P.iletisim.left}mm; top:${P.iletisim.top}mm; width:${P.iletisim.w}mm; text-align:center;">
         ${iletisimBilgi}
     </div>
 
@@ -2289,7 +2671,7 @@ const bosBbtText = amb.bosBbt;
         ${cekiciPlakaBilgi}
     </div>
 
-    <div class="field" style="left:${P.dorse.left}mm; top:${P.dorse.top}mm; width:${P.dorse.w}mm;">
+    <div class="field field-center" style="left:${P.dorse.left}mm; top:${P.dorse.top}mm; width:${P.dorse.w}mm;">
         ${dorsePlakaBilgi}
     </div>
 
@@ -2301,16 +2683,16 @@ const bosBbtText = amb.bosBbt;
         ${malzemeGridHtml}
     </div>
 
-<div id="printSevkYeri" class="field wrap sevk-box" style="left:${P.sevkYeri.left}mm; top:${P.sevkYeri.top}mm; width:${P.sevkYeri.w}mm; height:${P.sevkYeri.h}mm; overflow:auto;">
+<div id="printSevkYeri" class="field wrap sevk-box" style="left:${P.sevkYeri.left}mm; top:${P.sevkYeri.top}mm; width:${P.sevkYeri.w}mm; height:${P.sevkYeri.h}mm; overflow:hidden; text-align:center;">
   ${sevkYeriPrint}
 </div>
 
-<div id="printAmbalaj" class="field wrap ambalaj-box" style="left:${P.ambBilgi.left}mm; top:${P.ambBilgi.top}mm; width:${P.ambBilgi.w}mm; height:${P.ambBilgi.h}mm; overflow:hidden; font-size:${pageSize === 'A4' ? '4pt' : '6pt'};">
+<div id="printAmbalaj" class="field wrap ambalaj-box" style="left:${P.ambBilgi.left}mm; top:${P.ambBilgi.top}mm; width:${P.ambBilgi.w}mm; height:${P.ambBilgi.h}mm; overflow:hidden;">
   ${ambalajBilgisiPrint}
 </div>
 
-<div class="field" style="left:${P.seperator.left}mm; top:${P.seperator.top}mm; width:${P.seperator.w}mm; font-size: 8pt;">
-  ${seperatorBilgisi}
+<div id="printSeperator" class="field wrap seperator-box" style="left:${P.seperator.left}mm; top:${P.seperator.top}mm; width:${P.seperator.w}mm; height:${P.seperator.h}mm; overflow:hidden;">
+  ${seperatorBilgisiPrint}
 </div>
 
 <div class="field" style="left:${P.tonaj.left}mm; top:${P.tonaj.top}mm; width:${P.tonaj.w}mm;">
@@ -2350,14 +2732,14 @@ const bosBbtText = amb.bosBbt;
     </div>
 
 <!-- İmza isimleri -->
-<div class="field imza-block"
-     style="left:${P.imzaKantar.left}mm; top:${P.imzaKantar.top}mm; width:${P.imzaKantar.w}mm;">
+<div class="field imza-block imza-block--kantar"
+     style="left:${P.imzaKantar.left}mm; top:${P.imzaKantar.top}mm; width:${P.imzaKantar.w}mm; height:${P.imzaKantar.h}mm;">
   <div class="imza-imgwrap">${imzaKantarImgHtml}</div>
   <div class="imza-name">${imzaKantarAd}</div>
 </div>
 
 <div class="field imza-block"
-     style="left:${P.imzaSaha.left}mm; top:${P.imzaSaha.top}mm; width:${P.imzaSaha.w}mm;">
+     style="left:${P.imzaSaha.left}mm; top:${P.imzaSaha.top}mm; width:${P.imzaSaha.w}mm; height:${P.imzaSaha.h}mm;">
   <div class="imza-imgwrap">${imzaSahaImgHtml}</div>
   <div class="imza-name">${imzaSahaAd}</div>
 </div>
@@ -2371,8 +2753,6 @@ const bosBbtText = amb.bosBbt;
      style="left:${P.imzaKalite.left}mm; top:${P.imzaKalite.top}mm; width:${P.imzaKalite.w}mm; text-align:center;">
   ${imzaKaliteAd}
 </div>
-			
-<div class="cut-line"></div>
 
 </div>
 </div></div></body>
@@ -2381,7 +2761,9 @@ const bosBbtText = amb.bosBbt;
 
 
     
-    const w = window.open("", "_blank");
+    const shellPath = '/print-shell.html';
+    const shellUrl = (getPrintOrigin() || '') + shellPath;
+    const w = window.open(shellUrl, '_blank');
     if (!w || !w.document) {
       alert("❌ Yazdırma penceresi açılamadı (popup engeli veya tarayıcı kısıtı). Site için açılır pencere izni verip tekrar deneyin.");
       return null;
@@ -2395,10 +2777,21 @@ const bosBbtText = amb.bosBbt;
 
     // ✅ Önizleme modunda: sadece sekmeyi aç, otomatik yazdırma yapma
     const isPreview = !!opts.preview;
+    const PRINT_SAFE_SCALE = 0.968;
+
+    const applyPrintSafeScale = () => {
+      try {
+        const page = w.document.querySelector('.page');
+        if (!page) return;
+        page.style.transformOrigin = 'top center';
+        page.style.transform = `scale(${PRINT_SAFE_SCALE})`;
+      } catch (e) {}
+    };
 
     const doPrint = () => {
       if (isPreview) return;
       try {
+        applyPrintSafeScale();
         w.focus();
         w.print();
         w.onafterprint = () => {
@@ -2417,12 +2810,6 @@ const bosBbtText = amb.bosBbt;
     };
 
     w.onload = () => {
-      // ✅ A4'te arka planın yüksekliğini 50%'ye ayarla
-      const bgImg = w.document.querySelector('.bg');
-      if (bgImg && w.__pageSize === 'A4') {
-        bgImg.style.height = '50%';
-      }
-
       // ✅ Tek satır / çok satır kutuya sığdırma (print penceresi içinde)
       const fitToBoxDiv = (el, minPx = 7, maxPx = 12) => {
         try {
@@ -2438,12 +2825,15 @@ const bosBbtText = amb.bosBbt;
       };
 
       // ✅ Otomatik yazı küçültme (taşma önleyici)
+      const DESC_BOX_IDS = new Set(['printSevkYeri', 'printAmbalaj', 'printSeperator']);
+
       const autoFitWrapFields = () => {
         try {
           const fields = w.document.querySelectorAll('.wrap');
           fields.forEach(el => {
             if (!el) return;
             if (el.id === 'printMalzeme') return;
+            if (DESC_BOX_IDS.has(el.id)) return;
             let size = parseFloat(w.getComputedStyle(el).fontSize) || 12;
             let guard = 0;
             while (guard < 18 && (el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight) && size > 7) {
@@ -2470,15 +2860,19 @@ const bosBbtText = amb.bosBbt;
         } catch(e){}
       };
 
-      const fitMultiLineBox = (el, minPx, maxPx) => {
+      const fitMultiLineBoxPt = (el, minPt, maxPt) => {
         try {
           if (!el) return;
-          let size = maxPx;
-          el.style.fontSize = size + 'px';
+          let size = maxPt;
+          el.style.fontSize = size + 'pt';
           let guard = 0;
-          while (guard < 60 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && size > minPx) {
-            size -= 0.5;
-            el.style.fontSize = size + 'px';
+          while (
+            guard < 80 &&
+            (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) &&
+            size > minPt
+          ) {
+            size -= 0.2;
+            el.style.fontSize = size + 'pt';
             guard++;
           }
         } catch(e){}
@@ -2541,57 +2935,53 @@ const bosBbtText = amb.bosBbt;
       };
 
 fitMalzemeGrid();
-fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
-		
-      // ✅ AMBALAJ ve SEVK YERİ: çok satırlı olabilir, önce wrap ile sığdır, sonra gerekirse font küçült
-      fitMultiLineBox(w.document.getElementById('printSevkYeri'), 7, 12);
-      fitMultiLineBox(w.document.getElementById('printAmbalaj'), 7, 12);
+      fitOneLineWidth(w.document.getElementById('printFirma'), 11, 12);
 
-      // ✅ Sert tek sayfa: içerik A4'e sığmazsa otomatik ölçekle (boş sayfa atmasın)
-      const fitToA4 = () => {
+      // ✅ SEVK YERİ / AMBALAJ: bir tık büyük; SEPERATÖR: sağ hücreye oturt
+      fitMultiLineBoxPt(w.document.getElementById('printSevkYeri'), 8.75, 9.5);
+      fitMultiLineBoxPt(w.document.getElementById('printAmbalaj'), 7.75, 8.5);
+      fitMultiLineBoxPt(w.document.getElementById('printSeperator'), 5.5, 8);
+
+      // ✅ Yazdırma: yazıcı güvenli alanı (~%96.8), ekranda 1:1
+      const layoutFormOnPage = () => {
         try {
           const root = w.document.getElementById('printRoot');
-          const vp = w.document.getElementById('printViewport');
-          if (!root || !vp) return;
-          // reset scale
-          root.style.transform = 'scale(1)';
-          // compute scale
-          const vw = vp.clientWidth || 1;
-          const vh = vp.clientHeight || 1;
-          const rw = root.scrollWidth || root.getBoundingClientRect().width || 1;
-          const rh = root.scrollHeight || root.getBoundingClientRect().height || 1;
-          const sx = vw / rw;
-          const sy = vh / rh;
-          let s = Math.min(1, sx, sy);
-          // küçük güvenlik payı (header/footer gibi sürprizler için)
-          if (s < 1) s = Math.max(0.92, s * 0.98);
-          if (s === 1) s = 1;
-          root.style.transform = `scale(${s})`;
-          try {
-            w.document.documentElement.style.width = '210mm';
-            w.document.documentElement.style.height = '297mm';
-            w.document.body.style.width = '210mm';
-            w.document.body.style.height = '297mm';
-            w.document.body.style.overflow = 'hidden';
-          } catch(e) {}
-        } catch(e) {}
+          const page = w.document.querySelector('.page');
+          if (root) root.style.transform = 'none';
+          if (page) {
+            page.style.transform = 'none';
+            page.style.transformOrigin = '';
+            page.style.marginTop = w.__pageSize === 'A4' ? '5mm' : '0mm';
+            page.style.paddingTop = w.__pageSize === 'A4' ? '0mm' : '1.5mm';
+          }
+        } catch (e) {}
       };
+
+      const applyPrintSafeScaleOnLoad = applyPrintSafeScale;
+
+      w.addEventListener('beforeprint', applyPrintSafeScaleOnLoad);
+      w.addEventListener('afterprint', layoutFormOnPage);
+
       const printRoot = w.document.getElementById('printRoot');
+      const pageEl = w.document.querySelector('.page');
       const fitNoteInBox = () => {
         const noteBox = w.document.getElementById('printNot');
-        const saved = printRoot ? printRoot.style.transform : '';
+        const savedRoot = printRoot ? printRoot.style.transform : '';
+        const savedPage = pageEl ? pageEl.style.transform : '';
         try {
-          if (printRoot) printRoot.style.transform = 'scale(1)';
+          if (printRoot) printRoot.style.transform = 'none';
+          if (pageEl) pageEl.style.transform = 'none';
           fitYuklemeNotuPrint(noteBox);
         } finally {
-          if (printRoot) printRoot.style.transform = saved;
+          if (printRoot) printRoot.style.transform = savedRoot;
+          if (pageEl) pageEl.style.transform = savedPage;
         }
       };
 
       const finishLayoutThenPrint = () => {
         const runAll = () => {
           fitNoteInBox();
-          fitToA4();
+          layoutFormOnPage();
           fitNoteInBox();
         };
         runAll();
@@ -2639,7 +3029,7 @@ fitOneLineWidth(w.document.getElementById('printFirma'), 7, 12);
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: '20260605-fixes-v1',
+    __aracBosRev: '20260718-field-tune-v19',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;

@@ -516,8 +516,37 @@
     <section id="section-yazdir" class="ay-panel" tabindex="-1" aria-labelledby="yazdirTitle">
       <div class="ay-panel__head">
         <div>
-          <h2 id="yazdirTitle">Yükleme notu yazdırma</h2>
-          <p>Takip formunda yazdırılan <strong>yükleme notu</strong> alanı için ihracat ve piyasa ayrı punto kullanır. İhracat uzun metinlerde sıkıştırılır; piyasa daha büyük ve okunaklı basılır.</p>
+          <h2 id="yazdirTitle">Yazdırma ayarları</h2>
+          <p>Takip formu şablonu ve yükleme notu punto ayarları.</p>
+        </div>
+      </div>
+
+      <div style="margin-bottom:1rem;">
+        <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0 0 .35rem;">Takip formu şablonu</h3>
+        <p class="ay-hint">Form arka plan görseli sunucu veritabanında saklanır. Proje köküne <strong>AA.jpg</strong> koyup sunucuyu yeniden başlatın veya aşağıdan yükleyin — dosya kayıpsız kullanılır (1492×1054 JPG).</p>
+      </div>
+      <form id="printFormBgForm" class="ay-form" style="max-width:720px;grid-template-columns:1fr auto;">
+        <div>
+          <label for="printFormBgFile">JPG / PNG şablon</label>
+          <input id="printFormBgFile" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
+          <div id="printFormBgPreview" style="margin-top:.5rem;max-width:320px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;min-height:80px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:.75rem;">Önizleme</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.5rem;align-self:end;">
+          <button type="submit" class="ay-btn ay-btn--primary">Sunucuya kaydet</button>
+          <button type="button" class="ay-btn" id="printFormBgImportLegacyBtn">İnternetten otomatik aktar</button>
+          <button type="button" class="ay-btn" id="printFormBgOpenLegacyBtn">Şablonu aç (Hızlı Resim)</button>
+          <button type="button" class="ay-btn" id="printFormBgRefreshBtn">Önbelleği yenile</button>
+        </div>
+      </form>
+      <p class="ay-hint" style="margin-top:.5rem;">Önerilen: proje klasörüne <strong>AA.jpg</strong> kaydedin → <code>node scripts/seed-print-form-bg.js --force</code> veya sunucuyu yeniden başlatın. Ayarlardan yüklemede dosya olduğu gibi saklanır (sıkıştırma yok).</p>
+      <p id="printFormBgStatus" class="ay-hint" style="margin-top:.75rem;"></p>
+
+      <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--rp-border);">
+
+      <div class="ay-panel__head" style="margin-bottom:.75rem;">
+        <div>
+          <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0;">Yükleme notu yazdırma</h3>
+          <p class="ay-hint" style="margin-top:.35rem;">Takip formunda yazdırılan <strong>yükleme notu</strong> alanı için ihracat ve piyasa ayrı punto kullanır. İhracat uzun metinlerde sıkıştırılır; piyasa daha büyük ve okunaklı basılır.</p>
         </div>
       </div>
 
@@ -621,6 +650,7 @@
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
   <script src="ayarlar-gate.js"></script>
   <script src="signatures-registry.js"></script>
+  <script src="print-form-bg-bootstrap.js?v=20260718-form-bg-fix"></script>
   <script src="ayarlar.js"></script>
 </body>
 </html>

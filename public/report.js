@@ -304,6 +304,7 @@
   if (!window.__reportsPageSize) window.__reportsPageSize = 10; // default page size
   if (window.__reportsOzmalFilter == null) window.__reportsOzmalFilter = false;
   if (window.__reportsBasimYeriFilter == null) window.__reportsBasimYeriFilter = '';
+  if (window.__reportsTodayFilter == null) window.__reportsTodayFilter = false;
 
   function reportRowBasimYeri(row) {
     if (!row) return '';
@@ -325,9 +326,65 @@
     return false;
   }
 
+  function reportRowMaterialText(row) {
+    if (!row) return '';
+    const ev = row.rawEvent || {};
+    const d = (ev.data && typeof ev.data === 'object') ? ev.data : (row.lastPrintSnapshot || {});
+    const parts = [
+      row.defaultFirma,
+      d.firma,
+      d.firmaKodu,
+      d.firmaSelect,
+      ev.firma,
+      d.malzeme,
+      d.malzemeSelect,
+      ev.malzeme,
+      d.sevkYeri,
+      ev.sevkYeri,
+      d.yuklemeTuru,
+      d.ambalajBilgisi,
+      d.yuklemeNotu,
+      d.tonaj
+    ];
+    return parts.map((x) => String(x || '').trim()).filter(Boolean).join(' ');
+  }
+
+  function rowMatchesMaterialQuery(row, mq) {
+    if (!mq) return true;
+    const haystack = normMaterial(reportRowMaterialText(row));
+    if (haystack.includes(mq)) return true;
+
+    const ev = row.rawEvent || {};
+    const d = (ev.data && typeof ev.data === 'object') ? ev.data : (row.lastPrintSnapshot || {});
+    const firmaCodes = [
+      row.defaultFirma,
+      d.firma,
+      d.firmaKodu,
+      d.firmaSelect,
+      ev.firma
+    ].map((x) => normMaterial(x)).filter(Boolean);
+
+    if (/^hp\d+$/i.test(mq.replace(/\s+/g, ''))) {
+      const code = mq.replace(/\s+/g, '');
+      if (firmaCodes.some((f) => f === code)) return true;
+    }
+
+    return firmaCodes.some((f) => f.includes(mq));
+  }
+
+  function reportRowPrintTs(row) {
+    if (!row) return 0;
+    const ev = row.rawEvent;
+    const snap = row.lastPrintSnapshot;
+    return Number((ev && ev.ts) || (snap && snap.ts) || 0) || 0;
+  }
+
   function syncFilterBtns() {
     const ozmalBtn = document.getElementById('ozmalFilterBtn');
     if (ozmalBtn) ozmalBtn.classList.toggle('is-active', !!window.__reportsOzmalFilter);
+
+    const todayBtn = document.getElementById('todayFilterBtn');
+    if (todayBtn) todayBtn.classList.toggle('is-active', !!window.__reportsTodayFilter);
 
     const basimFilter = String(window.__reportsBasimYeriFilter || '').trim();
     ['avdanFilterBtn', 'osb1FilterBtn'].forEach((id) => {
@@ -342,16 +399,28 @@
     syncFilterBtns();
   }
 
-  function reportsEmptyMessage(q) {
+  function reportsEmptyMessage(plateQ, materialQ) {
     const ozmal = !!window.__reportsOzmalFilter;
+    const today = !!window.__reportsTodayFilter;
     const basim = String(window.__reportsBasimYeriFilter || '').trim();
-    if (q) {
+    const hasSearch = !!(plateQ || materialQ);
+    const filterParts = [];
+    if (today) filterParts.push('bugün');
+    if (ozmal) filterParts.push('özmal');
+    if (basim) filterParts.push(basim);
+    const filterHint = filterParts.length ? (' (' + filterParts.join(', ') + ')') : '';
+
+    if (hasSearch) {
+      if (materialQ && plateQ) return 'Plaka ve malzeme/firma aramanıza uygun kayıt bulunamadı' + filterHint + '.';
+      if (materialQ) return 'Malzeme/firma aramanıza uygun kayıt bulunamadı' + filterHint + '.';
       if (ozmal && basim) return 'Seçili filtrelere uygun kayıt bulunamadı.';
       if (ozmal) return 'Özmal araçlarda aramanıza uygun kayıt bulunamadı.';
       if (basim) return basim + ' kayıtlarında aramanıza uygun sonuç bulunamadı.';
-      return 'Aramanıza uygun kayıt bulunamadı.';
+      return 'Aramanıza uygun kayıt bulunamadı' + filterHint + '.';
     }
     if (ozmal && basim) return 'Seçili filtrelere uygun kayıt bulunmuyor.';
+    if (today && materialQ) return 'Bugün bu malzeme için kayıt bulunmuyor.';
+    if (today) return 'Bugün yazdırma kaydı bulunmuyor.';
     if (ozmal) return 'Özmal araç yazdırma kaydı bulunmuyor.';
     if (basim) return basim + ' yazdırma kaydı bulunmuyor.';
     return 'Henüz rapor bulunmuyor.';
@@ -416,12 +485,20 @@
   function updateFilterButtonCounts(stats) {
     const avdan = stats.sites.AVDAN || { total: 0 };
     const osb = stats.sites['1.OSB'] || { total: 0 };
+    const todayTotal = BASIM_SITES.reduce((sum, site) => sum + ((stats.sites[site] && stats.sites[site].total) || 0), 0);
     setFilterButtonCount('avdanFilterBtn', avdan.total);
     setFilterButtonCount('osb1FilterBtn', osb.total);
+    setFilterButtonCount('todayFilterBtn', todayTotal);
   }
 
   function normPlate(s){
     return String(s||'').toLowerCase().replace(/[\s-]+/g,'');
+  }
+
+  function normMaterial(s) {
+    return String(s || '')
+      .toLocaleLowerCase('tr-TR')
+      .replace(/[\s\-./\\|,'']+/g, '');
   }
 
   /** Sunucu /api/vehicles/lookup-batch ile aynı plaka anahtarı */
@@ -558,12 +635,21 @@
 
     // filters
     const q = normPlate(document.getElementById('plateSearch').value || '');
+    const materialEl = document.getElementById('materialSearch');
+    const mq = normMaterial((materialEl ? materialEl.value : '').trim());
     const mode = 'printed';
     try{ const fs=document.getElementById('filterSelect'); if(fs){ fs.value='printed'; fs.disabled=true; } }catch(e){}
 
     let rows = vehicles.slice();
     if (q){
       rows = rows.filter(v => normPlate(v.cekiciPlaka || '').includes(q));
+    }
+    if (mq) {
+      rows = rows.filter(v => rowMatchesMaterialQuery(v, mq));
+    }
+    if (window.__reportsTodayFilter) {
+      const todayKey = getIstanbulTodayKey();
+      rows = rows.filter(v => istanbulDateKeyFromMs(reportRowPrintTs(v)) === todayKey);
     }
     if (window.__reportsOzmalFilter) {
       rows = rows.filter(reportRowIsOzmal);
@@ -592,7 +678,7 @@
     updateFilterButtonCounts(todayStats);
 
     if (!rows.length) {
-      const emptyMsg = reportsEmptyMessage(q);
+      const emptyMsg = reportsEmptyMessage(q, mq);
       tbodyEl.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">' + emptyMsg + '</td></tr>';
       try {
         const pc = document.getElementById('paginationControls');
@@ -941,9 +1027,22 @@
     }
 
     const plate = document.getElementById('plateSearch');
+    const materialSearch = document.getElementById('materialSearch');
     const sel = document.getElementById('filterSelect');
     if (plate) {
       plate.addEventListener('input', () => { window.__reportsPage = 1; window.clearTimeout(window.__rdeb); window.__rdeb = window.setTimeout(render, 120); });
+    }
+    if (materialSearch) {
+      materialSearch.addEventListener('input', () => { window.__reportsPage = 1; window.clearTimeout(window.__mdeb); window.__mdeb = window.setTimeout(render, 120); });
+    }
+
+    const todayBtn = document.getElementById('todayFilterBtn');
+    if (todayBtn) {
+      todayBtn.addEventListener('click', () => {
+        window.__reportsTodayFilter = !window.__reportsTodayFilter;
+        window.__reportsPage = 1;
+        render();
+      });
     }
 
     const ozmalBtn = document.getElementById('ozmalFilterBtn');
