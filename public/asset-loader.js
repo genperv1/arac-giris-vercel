@@ -88,6 +88,11 @@
     printPromise = loadScript('/signatures-registry.js')
       .then(function () { return loadScript('/print-form-bg-upload.js'); })
       .then(function () { return loadScript('/print-layout-settings.js'); })
+      .then(function () {
+        if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.ensureSyncedOnce === 'function') {
+          return window.PrintLayoutSettings.ensureSyncedOnce().catch(function () {});
+        }
+      })
       .then(function () { return loadScript('/modules/print-main.js?rev=' + encodeURIComponent(PRINT_REV)); })
       .then(function () { return loadScript('/modules/print-ux-fit.js'); })
       .then(function () {

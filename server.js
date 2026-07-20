@@ -46,6 +46,7 @@ const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
 const { registerPrintFormBgImageRoute, registerPrintFormBgRoutes } = require('./routes/print-form-bg-routes');
+const { registerPrintLayoutReadRoute, registerPrintLayoutSettingsRoutes } = require('./routes/print-layout-routes');
 const { purgeUnacceptablePrintFormBg, seedPrintFormBgIfEmpty, syncPrintFormBgFromAaFile } = require('./lib/print-form-bg-store');
 const { plateNormSql, PLATE_NORM_SQL, PLATE_NORM_SQL_PH } = require('./lib/plate-norm-sql');
 const { signatureRowToSrc } = require('./lib/signature-helpers');
@@ -1119,6 +1120,9 @@ if (DRIVER_SEFER_PANEL_ENABLED) {
 registerSignatureImageRoute(api, routeCtx);
 // Takip formu yazdırma şablonu — yazdırma penceresi auth gönderemez
 registerPrintFormBgImageRoute(api, routeCtx);
+// Yazdırma düzeni — yazdırma penceresi auth gönderemez
+registerPrintLayoutReadRoute(api, routeCtx);
+registerPrintLayoutSettingsRoutes(api, routeCtx);
 
 // Public health check (Railway/monitoring â€” auth gerekmez)
 api.get("/health", async (req, res) => {

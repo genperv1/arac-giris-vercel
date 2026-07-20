@@ -61,8 +61,8 @@
     const stylePanel = val('pleStylePanel');
     if (!stage || !bg || !fieldsLayer) return;
 
-    let state = PLS.load();
-    let rects = PLS.getAllFieldRects();
+    let state;
+    let rects = {};
     let selectedKey = 'not';
     let drag = null;
     let editingKey = null;
@@ -651,7 +651,7 @@
       };
     }
 
-    function persistCurrentLayout(showToast) {
+    async function persistCurrentLayout(showToast) {
       const fields = {};
       PLS.FIELD_DEFS.forEach((d) => {
         fields[d.key] = Object.assign({}, rects[d.key] || readBoxMm(boxes.get(d.key), stage));
@@ -675,7 +675,7 @@
         imzaKantar: getFieldStyle('imzaKantar'),
         imzaSaha: getFieldStyle('imzaSaha'),
       };
-      PLS.save({ fields, fieldStyles: state.fieldStyles, samples: state.samples || {}, styles });
+      PLS.save({ fields, fieldStyles: state.fieldStyles, samples: state.samples || {}, styles }, { skipServer: true });
       state = PLS.load();
       if (!state.samples) state.samples = {};
       Object.keys(state.fieldStyles || {}).forEach((k) => {
@@ -683,8 +683,13 @@
       });
       rects = PLS.getAllFieldRects();
       renderAll();
+      const result = await PLS.pushToServer(state);
       if (showToast) {
-        toast('Kaydedildi — takip formu yazdırma düzenleyicide gördüğünüz gibi basılacak.');
+        if (result && result.ok) {
+          toast('Kaydedildi — tüm kullanıcılar aynı yazdırma düzenini kullanacak.');
+        } else {
+          toast((result && result.error) || 'Sunucuya kaydedilemedi.', true);
+        }
       }
     }
 
@@ -704,6 +709,19 @@
       }
     }
 
+    function bootstrapEditor() {
+      state = PLS.load();
+      if (!state.samples) state.samples = {};
+      rects = PLS.getAllFieldRects();
+      fieldsLayer.innerHTML = '';
+      PLS.FIELD_DEFS.forEach((d) => buildBox(d));
+      fillFieldSelect();
+      selectField(selectedKey);
+      renderAll();
+      loadBg();
+      loadSigImages();
+    }
+
     val('pleResetBtn')?.addEventListener('click', () => {
       endInlineEdit(false);
       state = PLS.reset();
@@ -712,27 +730,24 @@
       selectField(selectedKey);
       renderAll();
       loadSigImages();
-      toast('Varsayılan ayarlara dönüldü.');
+      toast('Varsayılan ayarlara dönüldü — sunucu düzeni sıfırlandı.');
     });
 
-    val('pleReloadBtn')?.addEventListener('click', () => {
+    val('pleReloadBtn')?.addEventListener('click', async () => {
       endInlineEdit(false);
+      await PLS.ensureSynced();
       state = PLS.load();
       if (!state.samples) state.samples = {};
       rects = PLS.getAllFieldRects();
       selectField(selectedKey);
       renderAll();
       loadSigImages();
-      toast('Kayıtlı ayarlar yüklendi.');
+      toast('Sunucudaki güncel ayarlar yüklendi.');
     });
 
-    fieldsLayer.innerHTML = '';
-    PLS.FIELD_DEFS.forEach((d) => buildBox(d));
-    fillFieldSelect();
-    selectField(selectedKey);
-    renderAll();
-    loadBg();
-    loadSigImages();
+    PLS.ensureSynced().then(bootstrapEditor).catch(function () {
+      bootstrapEditor();
+    });
   }
 
   window.bindPrintLayoutEditor = bindPrintLayoutEditor;

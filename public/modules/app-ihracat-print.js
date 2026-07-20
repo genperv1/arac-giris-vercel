@@ -1115,8 +1115,17 @@ async function showIhracatDetailsModal() {
 
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-  const shipmentsRaw = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
-  const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+  const shipmentsRaw0 = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+  let meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+  let shipmentsRaw = shipmentsRaw0;
+  if (typeof repairIhracatRowFileNames === 'function') {
+    const repaired = repairIhracatRowFileNames(shipmentsRaw0, meta);
+    shipmentsRaw = repaired.rows;
+    meta = repaired.meta;
+    if (repaired.changed && typeof saveDailyShipments === 'function') {
+      saveDailyShipments(shipmentsRaw, meta);
+    }
+  }
   const shipments = typeof _ihracatApplyBlockOverridesToRows === 'function'
     ? _ihracatApplyBlockOverridesToRows(shipmentsRaw, meta)
     : shipmentsRaw;
@@ -1152,8 +1161,19 @@ async function showIhracatDetailsModal() {
 
   const getStatus = (shipment) => shipment._status || 'pending';
   const getFileLabel = (shipment) => {
-    const label = String(shipment.fileName || meta.fileName || '').trim();
-    return label || 'Excel';
+    if (typeof resolveIhracatRowFileLabel === 'function') {
+      const label = String(resolveIhracatRowFileLabel(shipment, meta) || '').trim();
+      if (label) return label;
+    }
+    const parts = typeof splitIhracatFileNames === 'function'
+      ? splitIhracatFileNames(shipment.fileName)
+      : [String(shipment.fileName || '').trim()].filter(Boolean);
+    if (parts.length === 1) return parts[0];
+    const sources = typeof listIhracatExcelSources === 'function'
+      ? listIhracatExcelSources()
+      : (typeof normalizeIhracatMetaFiles === 'function' ? normalizeIhracatMetaFiles(meta) : []);
+    if (sources.length === 1) return sources[0];
+    return parts[0] || 'Excel';
   };
   const getFirmaLabel = (shipment) => {
     const label = String(shipment.firma || '').trim();
@@ -1388,21 +1408,22 @@ async function showIhracatDetailsModal() {
     `;
   };
 
-  const files = [];
-  if (Array.isArray(meta.files)) {
-    meta.files.forEach((f) => { const name = String(f || '').trim(); if (name && !files.includes(name)) files.push(name); });
-  }
-  if (meta.fileName && !files.includes(meta.fileName)) files.push(meta.fileName);
+  const files = typeof listIhracatExcelSources === 'function'
+    ? listIhracatExcelSources()
+    : (typeof normalizeIhracatMetaFiles === 'function' ? normalizeIhracatMetaFiles(meta) : []);
   const groupedByFile = {};
   shipments.forEach((s) => {
     const fileLabel = getFileLabel(s);
+    if (!fileLabel || fileLabel === 'Excel') return;
     if (!groupedByFile[fileLabel]) groupedByFile[fileLabel] = [];
     groupedByFile[fileLabel].push(s);
-    if (!files.includes(fileLabel)) files.push(fileLabel);
   });
-  if (!files.length) files.push('Excel');
+  const fileSections = files.length ? files : Object.keys(groupedByFile);
+  if (!fileSections.length) fileSections.push('Excel');
 
-  const modalSections = files.map((fileLabel) => {
+  const modalSections = fileSections
+    .filter((fileLabel) => (groupedByFile[fileLabel] || []).length > 0)
+    .map((fileLabel) => {
     const items = groupedByFile[fileLabel] || [];
     return renderFileSection(fileLabel, items);
   }).join('');

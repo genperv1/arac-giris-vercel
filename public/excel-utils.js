@@ -239,19 +239,74 @@ function tonajCompare(formTonaj, excelTonaj) {
   return { level: 'ok', pct };
 }
 
+function normalizeIrsaliyeCollisionKey(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const compact = s.replace(/\s+/g, '');
+  if (!/^R\d/i.test(compact)) return '';
+  if (/^R\d{7,15}$/i.test(compact)) {
+    const digitsOnly = compact.slice(1);
+    const candidates = [];
+    for (let prefixLen = 1; prefixLen <= 3; prefixLen++) {
+      const numLen = digitsOnly.length - prefixLen;
+      if (numLen >= 6 && numLen <= 12) {
+        candidates.push({
+          prefix: 'R' + digitsOnly.slice(0, prefixLen),
+          num: digitsOnly.slice(prefixLen),
+        });
+      }
+    }
+    if (candidates.length) {
+      const score = (c) => {
+        let sc = 0;
+        if (/^R\d{2}$/i.test(c.prefix)) sc += 100;
+        else if (/^R\d{1}$/i.test(c.prefix)) sc += 50;
+        if (/^0/.test(c.num)) sc -= 80;
+        if (/^20\d{6}$/.test(c.num)) sc += 60;
+        if (c.num.length === 8) sc += 30;
+        if (c.num.length === 10) sc += 20;
+        return sc;
+      };
+      candidates.sort((a, b) => score(b) - score(a));
+      const best = candidates[0];
+      return `${best.prefix.toUpperCase()} ${best.num}`;
+    }
+  }
+  return s.replace(/\s+/g, ' ').toUpperCase();
+}
+
 function findIrsaliyeCollisions(rows) {
   const map = new Map();
   for (const r of rows || []) {
-    const ir = String(r.irsaliyeNo || r.id || '').trim();
-    if (!ir || !/^R\d/i.test(ir.replace(/\s+/g, ''))) continue;
-    const key = ir.replace(/\s+/g, ' ').toUpperCase();
+    const raw = String(r.irsaliyeNo || '').trim() || String(r.id || '').trim();
+    const key = normalizeIrsaliyeCollisionKey(raw);
+    if (!key) continue;
     if (!map.has(key)) map.set(key, []);
-    map.get(key).push(r.plaka || '-');
+    map.get(key).push({
+      plaka: r.plaka || '-',
+      fileName: String(r.fileName || '').trim(),
+    });
   }
   const out = [];
-  for (const [irs, plates] of map.entries()) {
-    const uniq = [...new Set(plates)];
-    if (uniq.length > 1) out.push({ irsaliyeNo: irs, plates: uniq });
+  for (const [irs, entries] of map.entries()) {
+    const plateKeys = new Set();
+    const plates = [];
+    entries.forEach((entry) => {
+      const pk = String(entry.plaka || '-');
+      if (plateKeys.has(pk)) return;
+      plateKeys.add(pk);
+      plates.push(pk);
+    });
+    if (plates.length > 1) {
+      out.push({
+        irsaliyeNo: irs,
+        plates,
+        entries: entries.filter((entry, idx) => {
+          const pk = String(entry.plaka || '-');
+          return entries.findIndex((e) => String(e.plaka || '-') === pk) === idx;
+        }),
+      });
+    }
   }
   return out;
 }

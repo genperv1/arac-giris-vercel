@@ -462,6 +462,88 @@ test('buildExcelSheetParts — multi Excel dates appear in block headers', () =>
   assert.equal(headers.length, 2);
   assert.match(headers[0], /13\.07\.2026/);
   assert.match(headers[1], /14\.07\.2026/);
+  assert.equal(parts.multiFile, true);
+});
+
+test('buildExcelSheetParts — multi Excel without date uses file name in block header', () => {
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'BLK_5',
+      blockHeaderRow: 5,
+      headerText: 'YD331 / 120 BBT / HP 0,074-0,40',
+      fileName: '20.07.2026.xlsx',
+      _ihracatEmptyBlock: true,
+      plaka: '',
+    },
+    {
+      blockKey: 'BLK_20',
+      blockHeaderRow: 20,
+      headerText: 'YD113 / 100 BBT / HP 1,20-2,80',
+      fileName: '20.07.2026.xlsx',
+      plaka: '03AIT034',
+      bbt: '25',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_20',
+      blockHeaderRow: 20,
+      headerText: 'YD33 / 2444 BBT / HP 0,074-0,30',
+      fileName: 'YD33 (1).xlsx',
+      plaka: '03VT423',
+      bbt: '22',
+      gidenTonaj: '',
+    },
+  ]);
+  const parts = core.buildExcelSheetParts(pending);
+  const headers = parts.nakliyeRows.filter((r) => r.kind === 'header').map((r) => r.a);
+  assert.equal(headers.length, 3);
+  assert.match(headers[0], /20\.07\.2026 · YD331/);
+  assert.match(headers[1], /20\.07\.2026 · YD113/);
+  assert.match(headers[2], /YD33 \(1\) · YD33/);
+});
+
+test('groupItemsByExcelFile — same file blocks stay in one group', () => {
+  const items = [
+    { fileName: '20.07.2026.xlsx', blockHeaderRow: 5, ydKey: 'YD331' },
+    { fileName: '20.07.2026.xlsx', blockHeaderRow: 20, ydKey: 'YD113' },
+    { fileName: 'YD33 (1).xlsx', blockHeaderRow: 10, ydKey: 'YD33' },
+  ];
+  const groups = core.groupItemsByExcelFile(items);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].length, 2);
+  assert.equal(groups[1].length, 1);
+  assert.equal(groups[0][0].ydKey, 'YD331');
+  assert.equal(groups[0][1].ydKey, 'YD113');
+  assert.equal(groups[1][0].ydKey, 'YD33');
+});
+
+test('flattenSheetBlocks — stacked blocks in one Excel column', () => {
+  const blockA = [
+    { kind: 'header', a: 'YD331' },
+    { kind: 'pending', a: '120 BBT DAHA PLAKA VERİLECEK' },
+  ];
+  const blockB = [{ kind: 'header', a: 'YD113' }, { kind: 'plate', a: '03AIT034' }];
+  const rows = core.flattenSheetBlocks([[blockA, blockB]]);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].a, 'YD331');
+  assert.equal(rows[2].a, 'YD113');
+});
+
+test('shouldUseSideBySideFiles — true only for multiple Excel files', () => {
+  assert.equal(
+    core.shouldUseSideBySideFiles([
+      { fileName: 'a.xlsx' },
+      { fileName: 'b.xlsx' },
+    ]),
+    true
+  );
+  assert.equal(
+    core.shouldUseSideBySideFiles([
+      { fileName: 'a.xlsx' },
+      { fileName: 'a.xlsx' },
+    ]),
+    false
+  );
 });
 
 test('buildExcelBlockRows — başşoför plate shows BAŞŞOFÖR label under block', () => {

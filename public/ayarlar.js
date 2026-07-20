@@ -14,7 +14,8 @@
   const DISABLED_STORAGE_KEYS = [
     'firmaListesi', 'malzemeListesi',
     'firmalar', 'malzemeler',
-    'recent_firmalar', 'recent_malzemeler', 'recent_sevk_yerleri'
+    'recent_firmalar', 'recent_malzemeler', 'recent_sevk_yerleri',
+    'takipPrintLayout_v1',
   ];
 
   function authHeaders(json, extra) {

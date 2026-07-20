@@ -186,12 +186,133 @@
     return out;
   }
 
-  function loadRaw() {
+  function clearLegacyLocalStorage() {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+  }
+
+  clearLegacyLocalStorage();
+
+  let _memCache = null;
+  let _syncPromise = null;
+
+  function setCache(cur) {
+    _memCache = cur;
+  }
+
+  function getSettingsToken() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      return migrateRaw(JSON.parse(raw));
-    } catch (e) { return null; }
+      if (window.AyarlarGate && typeof window.AyarlarGate.getSettingsToken === 'function') {
+        return window.AyarlarGate.getSettingsToken() || '';
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
+  async function pullFromServer() {
+    try {
+      const res = await fetch('/api/print-layout', {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (!res.ok) return { status: 'error' };
+      const data = await res.json().catch(() => null);
+      if (!data) return { status: 'error' };
+      if (!data.exists || !data.layout) return { status: 'empty' };
+      return { status: 'ok', layout: migrateRaw(data.layout) };
+    } catch (e) {
+      return { status: 'error' };
+    }
+  }
+
+  async function pushToServer(cur) {
+    const token = getSettingsToken();
+    if (!token) {
+      return { ok: false, error: 'Ayarlar oturumu gerekli — sayfayı yenileyip ayar parolasını girin.' };
+    }
+    const payload = Object.assign({}, cur, { updatedAt: Date.now() });
+    try {
+      const res = await fetch('/api/settings/print-layout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Settings-Token': token,
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({ layout: payload }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: (data && data.error) || 'Sunucuya kaydedilemedi',
+        };
+      }
+      if (data && data.layout) {
+        setCache(migrateRaw(data.layout));
+      }
+      return { ok: true, updatedAt: data && data.updatedAt };
+    } catch (e) {
+      return { ok: false, error: 'Sunucuya bağlanılamadı' };
+    }
+  }
+
+  async function resetOnServer() {
+    const token = getSettingsToken();
+    if (!token) return { ok: false, skipped: true };
+    try {
+      const res = await fetch('/api/settings/print-layout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Settings-Token': token,
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({ reset: true }),
+      });
+      if (!res.ok) return { ok: false };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false };
+    }
+  }
+
+  async function ensureSynced() {
+    const result = await pullFromServer();
+    clearLegacyLocalStorage();
+    if (result.status === 'ok') {
+      setCache(result.layout);
+      return result.layout;
+    }
+    if (result.status === 'empty') {
+      const defaults = emptyStore();
+      setCache(defaults);
+      return defaults;
+    }
+    if (_memCache) return _memCache;
+    const defaults = emptyStore();
+    setCache(defaults);
+    return defaults;
+  }
+
+  function ensureSyncedOnce() {
+    if (!_syncPromise) {
+      _syncPromise = ensureSynced().finally(function () {
+        _syncPromise = null;
+      });
+    }
+    return _syncPromise;
+  }
+
+  function applyRemoteLayout(layout) {
+    if (!layout || typeof layout !== 'object') return load();
+    const migrated = migrateRaw(layout);
+    setCache(migrated);
+    clearLegacyLocalStorage();
+    return migrated;
   }
 
   let previewSnapshot = null;
@@ -206,11 +327,11 @@
 
   function load() {
     if (previewSnapshot) return previewSnapshot;
-    return loadRaw() || emptyStore();
+    return _memCache || emptyStore();
   }
 
-  function save(next) {
-    const cur = previewSnapshot ? (loadRaw() || emptyStore()) : load();
+  function save(next, opts) {
+    const cur = previewSnapshot ? (_memCache || emptyStore()) : load();
     if (next && next.fields) cur.fields = Object.assign({}, cur.fields, next.fields);
     if (next && next.fieldStyles) cur.fieldStyles = Object.assign({}, cur.fieldStyles, next.fieldStyles);
     if (next && next.samples) cur.samples = Object.assign({}, cur.samples || {}, next.samples);
@@ -219,12 +340,19 @@
         cur.styles[k] = Object.assign({}, cur.styles[k] || STYLE_DEFAULTS[k] || {}, next.styles[k]);
       });
     }
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cur)); } catch (e) { /* ignore */ }
+    setCache(cur);
+    if (!opts || !opts.skipServer) {
+      pushToServer(cur).catch(function () { /* ignore */ });
+    }
     return cur;
   }
 
-  function reset() {
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+  function reset(opts) {
+    clearLegacyLocalStorage();
+    setCache(emptyStore());
+    if (!opts || !opts.skipServer) {
+      resetOnServer().catch(function () { /* ignore */ });
+    }
     return emptyStore();
   }
 
@@ -398,7 +526,7 @@
   }
 
   function hasSavedLayout() {
-    const raw = loadRaw();
+    const raw = _memCache;
     if (!raw) return false;
     return Object.keys(raw.fields || {}).length > 0 || Object.keys(raw.fieldStyles || {}).length > 0;
   }
@@ -780,6 +908,12 @@
     load,
     save,
     reset,
+    pushToServer,
+    resetOnServer,
+    ensureSynced,
+    ensureSyncedOnce,
+    applyRemoteLayout,
+    pullFromServer,
     getDef,
     getDefaultFieldStyle,
     getFieldRect,

@@ -337,7 +337,10 @@ function _blockKeyFromHeader(headerText) {
 }
 
 function buildIhracatLoadedRowBlockId(row) {
-  const fileName = String(row?.fileName || '').trim() || '_';
+  const parts = typeof splitIhracatFileNames === 'function'
+    ? splitIhracatFileNames(row?.fileName)
+    : String(row?.fileName || '').trim().split(/\s*\+\s*/).map((s) => s.trim()).filter(Boolean);
+  const fileName = (parts.length === 1 ? parts[0] : (parts[0] || '')).trim() || '_';
   const blockKey = String(row?.blockKey || '').trim()
     || (row?.blockHeaderRow != null ? `BLK_${row.blockHeaderRow}` : '')
     || _blockKeyFromHeader(row?.headerText)

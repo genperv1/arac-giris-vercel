@@ -351,10 +351,15 @@
 
     const parts = core.buildExcelSheetParts(items);
     const blocks = core.groupSheetRowsByBlock(parts.nakliyeRows);
-    const useDual = core.shouldUseDualColumnLayout(parts.nakliyeRows, blocks);
+    const multiFile = !!parts.multiFile;
+    const fileGroups = multiFile && typeof core.groupItemsByExcelFile === 'function'
+      ? core.groupItemsByExcelFile(items)
+      : [];
+    const useSideBySide = multiFile && fileGroups.length > 1;
+    const usePackedDual =
+      !useSideBySide && core.shouldUseDualColumnLayout(parts.nakliyeRows, blocks, { multiFile });
     const sourceDates = new Set(items.map((it) => it.sourceDateLabel).filter(Boolean));
-    const multiSourceDates = sourceDates.size > 1;
-    const dateLabel = multiSourceDates
+    const dateLabel = multiFile || sourceDates.size > 1
       ? ''
       : sourceDates.size === 1
         ? [...sourceDates][0]
@@ -365,14 +370,29 @@
       return;
     }
 
+    const wrapExtra = useSideBySide
+      ? ' nb-sheet-wrap--side nb-sheet-wrap--cols-' + Math.min(fileGroups.length, 4)
+      : usePackedDual
+        ? ' nb-sheet-wrap--dual'
+        : '';
+
     let html =
-      '<div class="nb-sheet-wrap' +
-      (useDual ? ' nb-sheet-wrap--dual' : '') +
-      '" id="nbSheetCarrier">';
+      '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
     if (dateLabel) {
       html += '<div class="nb-sheet-date">' + esc(dateLabel) + '</div>';
     }
-    if (useDual) {
+    if (useSideBySide) {
+      html += '<div class="nb-sheet-columns nb-sheet-columns--side">';
+      fileGroups.forEach((fileItems) => {
+        const fileParts = core.buildExcelSheetParts(fileItems, { multiFile: true });
+        const fileBlocks = core.groupSheetRowsByBlock(fileParts.nakliyeRows);
+        html +=
+          '<div class="nb-sheet-col">' +
+          buildSheetTableHtml(core.flattenSheetBlocks([fileBlocks])) +
+          '</div>';
+      });
+      html += '</div>';
+    } else if (usePackedDual) {
       const cols = core.splitBlocksIntoColumns(blocks);
       html += '<div class="nb-sheet-columns">';
       cols.forEach((colBlocks) => {
@@ -393,44 +413,53 @@
     const outer = document.getElementById('nbSheetOuter');
     const stats = document.getElementById('nbStats');
 
-    const rows = await loadRowsWithLiveDeparted(!!forceReports);
-    if (loading) loading.classList.add('hidden');
+    try {
+      const rows = await loadRowsWithLiveDeparted(!!forceReports);
 
-    if (!rows.length) {
+      if (!rows.length) {
+        empty?.classList.add('hidden');
+        noExcel?.classList.remove('hidden');
+        outer?.classList.add('hidden');
+        if (stats) stats.textContent = '';
+        return;
+      }
+      noExcel?.classList.add('hidden');
+
+      _allItems = core ? core.analyzeNakliyePending(rows) : [];
+      const visible = filterItems(_allItems);
+
+      const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);
+      const waitingCount = visible.reduce((s, x) => s + (x.waitingPlates || []).length, 0);
+      const ozmalCount = visible.reduce((s, x) => s + (x.ozmalPlates || []).length, 0);
+      if (stats) {
+        stats.textContent =
+          visible.length +
+          ' sevkiyat · ' +
+          totalRemaining +
+          ' BBT plaka bekliyor' +
+          (ozmalCount ? ' · ' + ozmalCount + ' özmal' : '') +
+          (waitingCount ? ' · ' + waitingCount + ' gelmeyen plaka' : '') +
+          (_searchNeedle ? ' (filtreli)' : '');
+      }
+
+      const hasSheet = visible.some((x) => core.hasBlockSheetContent(x));
+      if (!hasSheet) {
+        empty?.classList.remove('hidden');
+        outer?.classList.add('hidden');
+        return;
+      }
       empty?.classList.add('hidden');
-      noExcel?.classList.remove('hidden');
-      outer?.classList.add('hidden');
-      if (stats) stats.textContent = '';
-      return;
-    }
-    noExcel?.classList.add('hidden');
-
-    _allItems = core ? core.analyzeNakliyePending(rows) : [];
-    const visible = filterItems(_allItems);
-
-    const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);
-    const waitingCount = visible.reduce((s, x) => s + (x.waitingPlates || []).length, 0);
-    const ozmalCount = visible.reduce((s, x) => s + (x.ozmalPlates || []).length, 0);
-    if (stats) {
-      stats.textContent =
-        visible.length +
-        ' sevkiyat · ' +
-        totalRemaining +
-        ' BBT plaka bekliyor' +
-        (ozmalCount ? ' · ' + ozmalCount + ' özmal' : '') +
-        (waitingCount ? ' · ' + waitingCount + ' gelmeyen plaka' : '') +
-        (_searchNeedle ? ' (filtreli)' : '');
-    }
-
-    const hasSheet = visible.some((x) => core.hasBlockSheetContent(x));
-    if (!hasSheet) {
+      outer?.classList.remove('hidden');
+      renderExcelSheet(visible);
+    } catch (err) {
+      console.error('nakliye-bekleyen renderList', err);
       empty?.classList.remove('hidden');
+      if (empty) empty.textContent = 'Liste gösterilemedi. Sayfayı yenileyin (Ctrl+F5).';
       outer?.classList.add('hidden');
-      return;
+      toast('Liste hazırlanırken hata oluştu');
+    } finally {
+      loading?.classList.add('hidden');
     }
-    empty?.classList.add('hidden');
-    outer?.classList.remove('hidden');
-    renderExcelSheet(visible);
   }
 
   async function init() {

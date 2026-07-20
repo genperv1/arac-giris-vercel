@@ -60,15 +60,47 @@ function normalizeIrsaliyeNo(raw) {
   return `${best.prefix.toUpperCase()} ${best.num}`;
 }
 
+function _irsaliyeFromCell(val) {
+  if (val == null || !String(val).trim()) return '';
+  const n = normalizeIrsaliyeNo(val);
+  return n && looksLikeIrsaliyeNo(n) ? n : '';
+}
+
+function _irsaliyeReservedColumns(cols) {
+  return new Set([
+    cols?.sirano,
+    cols?.plaka,
+    cols?.bbt,
+    cols?.cuval,
+    cols?.palet,
+    cols?.malzeme,
+    cols?.aciklama,
+    cols?.firma,
+    cols?.tonajKg,
+    cols?.bosBbt,
+    cols?.bosCuval,
+    cols?.netTonaj,
+    cols?.ogrTonaj,
+    cols?.gidenTonaj,
+    cols?.fark,
+    cols?.irsaliyeNo,
+  ].filter((x) => x !== undefined));
+}
+
 function resolveIrsaliyeFromRow(d, cols) {
   const row = d || [];
   if (cols && cols.irsaliyeNo !== undefined) {
-    const fromCol = row[cols.irsaliyeNo];
-    if (fromCol != null && String(fromCol).trim()) {
-      const n = normalizeIrsaliyeNo(fromCol);
-      if (n) return n;
-    }
+    const fromPrimary = _irsaliyeFromCell(row[cols.irsaliyeNo]);
+    if (fromPrimary) return fromPrimary;
   }
+
+  const reserved = _irsaliyeReservedColumns(cols);
+  for (let c = 0; c < row.length; c++) {
+    if (reserved.has(c)) continue;
+    const hit = _irsaliyeFromCell(row[c]);
+    if (hit) return hit;
+  }
+
   const a0 = row[0];
   if (a0 != null && looksLikeIrsaliyeNo(a0)) return normalizeIrsaliyeNo(a0);
   return '';
@@ -137,10 +169,38 @@ const IHR_IRS_COLLISION_CELL_STYLE = 'background:#fef3c7;color:#92400e;font-weig
 
 function detectIrsaliyeColumnIndex(grid, headerRowIdx, cols) {
   if (cols.irsaliyeNo !== undefined) return cols.irsaliyeNo;
+
+  const reserved = _irsaliyeReservedColumns(cols);
+  const scores = new Map();
+  const plakaCol = cols.plaka;
+  const start = headerRowIdx + 1;
+  const end = Math.min(grid.length, headerRowIdx + 150);
+
+  for (let r = start; r < end; r++) {
+    const row = grid[r] || [];
+    const hasPlaka = plakaCol !== undefined && row[plakaCol] != null && String(row[plakaCol]).trim();
+    if (!hasPlaka) continue;
+
+    for (let c = 0; c < row.length; c++) {
+      if (reserved.has(c)) continue;
+      if (looksLikeIrsaliyeNo(row[c])) scores.set(c, (scores.get(c) || 0) + 1);
+    }
+  }
+
+  let bestCol;
+  let bestScore = 0;
+  for (const [c, score] of scores.entries()) {
+    if (score > bestScore) {
+      bestScore = score;
+      bestCol = c;
+    }
+  }
+  if (bestScore > 0) return bestCol;
+
   const candidates = [0];
   if (cols.sirano !== undefined && cols.sirano > 0) candidates.push(cols.sirano - 1);
   for (const c of candidates) {
-    for (let r = headerRowIdx + 1; r < Math.min(grid.length, headerRowIdx + 25); r++) {
+    for (let r = start; r < Math.min(grid.length, headerRowIdx + 25); r++) {
       const row = grid[r] || [];
       if (looksLikeIrsaliyeNo(row[c])) return c;
     }
@@ -1071,22 +1131,126 @@ async function clearDailyShipments() {
   } catch(e){ return false; }
 }
 
+/** "a.xlsx + b.xlsx" gibi birleşik etiketleri tekil dosya adlarına ayırır */
+function splitIhracatFileNames(raw) {
+  return String(raw || '')
+    .split(/\s*\+\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function normalizeIhracatMetaFiles(meta) {
+  const m = meta || {};
+  const seen = new Set();
+  const out = [];
+  const add = (raw) => {
+    splitIhracatFileNames(raw).forEach((n) => {
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      out.push(n);
+    });
+  };
+  if (Array.isArray(m.files)) m.files.forEach(add);
+  if (m.fileName) add(m.fileName);
+  return out;
+}
+
+function _ihracatRowBlockContentKey(row) {
+  return (
+    String(row?.blockKey || '').trim()
+    || (row?.blockHeaderRow != null ? `BLK_${row.blockHeaderRow}` : '')
+  );
+}
+
+function resolveIhracatRowFileLabel(row, meta) {
+  const parts = splitIhracatFileNames(row?.fileName);
+  if (parts.length === 1) return parts[0];
+  const sources = normalizeIhracatMetaFiles(meta);
+  const ck = _ihracatRowBlockContentKey(row);
+  if (ck && sources.length) {
+    for (const src of sources) {
+      const rows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+      if (rows.some((r) => {
+        const p = splitIhracatFileNames(r?.fileName);
+        return p.length === 1 && p[0] === src && _ihracatRowBlockContentKey(r) === ck;
+      })) {
+        return src;
+      }
+    }
+  }
+  if (sources.length === 1) return sources[0];
+  return parts[0] || '';
+}
+
+/** Çoklu Excel: birleşik fileName ve meta.files kayıtlarını düzeltir */
+function repairIhracatRowFileNames(rows, meta) {
+  const list = Array.isArray(rows) ? rows : [];
+  const baseMeta = meta || {};
+  const sources = normalizeIhracatMetaFiles(baseMeta);
+  if (!list.length && !sources.length) {
+    return { rows: list, meta: baseMeta, changed: false };
+  }
+
+  const scoped = new Map();
+  list.forEach((r) => {
+    const parts = splitIhracatFileNames(r?.fileName);
+    if (parts.length !== 1) return;
+    const ck = _ihracatRowBlockContentKey(r);
+    if (!ck) return;
+    scoped.set(`${parts[0]}::${ck}`, parts[0]);
+  });
+
+  let rowsChanged = false;
+  const fixedRows = list.map((r) => {
+    const parts = splitIhracatFileNames(r?.fileName);
+    if (parts.length === 1) return r;
+    const ck = _ihracatRowBlockContentKey(r);
+    let resolved = '';
+    if (ck) {
+      for (const src of sources) {
+        if (scoped.has(`${src}::${ck}`)) {
+          resolved = scoped.get(`${src}::${ck}`);
+          break;
+        }
+      }
+    }
+    if (!resolved && sources.length === 1) resolved = sources[0];
+    if (!resolved && parts.length) resolved = parts[0];
+    if (!resolved || String(r.fileName || '').trim() === resolved) return r;
+    rowsChanged = true;
+    return { ...r, fileName: resolved };
+  });
+
+  const fixedMeta = { ...baseMeta };
+  const normFiles = normalizeIhracatMetaFiles(fixedMeta);
+  let metaChanged = false;
+  if (normFiles.length) {
+    const prevJson = JSON.stringify(fixedMeta.files || []);
+    if (prevJson !== JSON.stringify(normFiles)) metaChanged = true;
+    fixedMeta.files = normFiles;
+    const joined = normFiles.join(' + ');
+    if (String(fixedMeta.fileName || '') !== joined) metaChanged = true;
+    fixedMeta.fileName = joined;
+  }
+
+  return { rows: fixedRows, meta: fixedMeta, changed: rowsChanged || metaChanged };
+}
+
 /** Yüklü İHRACAT Excel dosya adları (meta + satır fileName) */
 function listIhracatExcelSources() {
   const rows = loadDailyShipments() || [];
   const meta = loadDailyMeta() || {};
-  const fromMeta = Array.isArray(meta.files) && meta.files.length
-    ? meta.files
-    : (meta.fileName ? String(meta.fileName).split(/\s*\+\s*/).map((s) => s.trim()).filter(Boolean) : []);
-  const fromRows = rows.map((r) => String(r.fileName || '').trim()).filter(Boolean);
   const seen = new Set();
   const out = [];
-  [...fromMeta, ...fromRows].forEach((name) => {
-    const n = String(name || '').trim();
-    if (!n || seen.has(n)) return;
-    seen.add(n);
-    out.push(n);
-  });
+  const addName = (raw) => {
+    splitIhracatFileNames(raw).forEach((n) => {
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      out.push(n);
+    });
+  };
+  normalizeIhracatMetaFiles(meta).forEach(addName);
+  rows.forEach((r) => addName(r.fileName));
   return out;
 }
 
@@ -1123,12 +1287,11 @@ function removeDailyShipmentsBySource(sourceName) {
       return false;
     }
   }
-  const prevFiles = Array.isArray(meta.files) && meta.files.length
-    ? meta.files
-    : (meta.fileName ? String(meta.fileName).split(/\s*\+\s*/).map((s) => s.trim()).filter(Boolean) : []);
+  const prevFiles = normalizeIhracatMetaFiles(meta);
   const nextFiles = prevFiles.filter((f) => String(f).trim() !== target);
-  const rowFiles = [...new Set(kept.map((r) => String(r.fileName || '').trim()).filter(Boolean))];
-  const files = nextFiles.length ? nextFiles : rowFiles;
+  const rowFiles = [];
+  kept.forEach((r) => splitIhracatFileNames(r.fileName).forEach((n) => rowFiles.push(n)));
+  const files = nextFiles.length ? nextFiles : [...new Set(rowFiles)];
   const metaToSave = Object.assign({}, meta, {
     files: files.length ? files : undefined,
     fileName: files.length ? files.join(' + ') : '',
@@ -1175,13 +1338,13 @@ function removeDailyShipmentsByBlocks(selectedBlocks) {
     }
   }
 
-  const rowFiles = [...new Set(kept.map((r) => String(r.fileName || '').trim()).filter(Boolean))];
-  const prevFiles = Array.isArray(meta.files) && meta.files.length
-    ? meta.files.filter((f) => rowFiles.includes(String(f).trim()))
-    : rowFiles;
+  const rowFiles = [];
+  kept.forEach((r) => splitIhracatFileNames(r.fileName).forEach((n) => rowFiles.push(n)));
+  const prevFiles = normalizeIhracatMetaFiles(meta).filter((f) => rowFiles.includes(String(f).trim()));
+  const uniqRowFiles = [...new Set(rowFiles)];
   const metaToSave = Object.assign({}, meta, {
     files: prevFiles.length ? prevFiles : undefined,
-    fileName: prevFiles.length ? prevFiles.join(' + ') : (rowFiles.join(' + ') || meta.fileName || ''),
+    fileName: prevFiles.length ? prevFiles.join(' + ') : (uniqRowFiles.join(' + ') || meta.fileName || ''),
     count: kept.length,
   });
   return saveDailyShipments(kept, metaToSave);
@@ -2346,18 +2509,18 @@ async function commitIhracatImport(uniq2, meta, file) {
       if (doAppend) {
         rowsToSave = existing.concat(uniq2);
         const files = []
-          .concat(existingMeta.files || (existingMeta.fileName ? [existingMeta.fileName] : []))
-          .concat((file && file.name) || meta.fileName || '')
-          .map((s) => String(s || '').trim())
-          .filter(Boolean);
+          .concat(normalizeIhracatMetaFiles(existingMeta))
+          .concat((file && file.name) || meta.fileName || '');
         const seenF = new Set();
         const uniqFiles = [];
-        for (const f of files) {
-          if (!seenF.has(f)) {
-            seenF.add(f);
-            uniqFiles.push(f);
-          }
-        }
+        files.forEach((f) => {
+          splitIhracatFileNames(f).forEach((part) => {
+            if (!seenF.has(part)) {
+              seenF.add(part);
+              uniqFiles.push(part);
+            }
+          });
+        });
         metaToSave = {
           ...existingMeta,
           ...meta,
@@ -2398,6 +2561,11 @@ window.hasDailyExcelLoaded = hasDailyExcelLoaded;
 window.commitIhracatImport = commitIhracatImport;
 window.applyReprintSnapshotToTakipForm = applyReprintSnapshotToTakipForm;
 window.getTakipPackagingPayload = getTakipPackagingPayload;
+window.splitIhracatFileNames = splitIhracatFileNames;
+window.normalizeIhracatMetaFiles = normalizeIhracatMetaFiles;
+window.listIhracatExcelSources = listIhracatExcelSources;
+window.resolveIhracatRowFileLabel = resolveIhracatRowFileLabel;
+window.repairIhracatRowFileNames = repairIhracatRowFileNames;
 
 // Excel okuma (XLSX) - Dinamik header arama ile
 async function importDailyExcel(file) {

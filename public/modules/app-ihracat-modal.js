@@ -11,10 +11,10 @@ function _ihracatFirmaGroupKey(s) {
   return raw.replace(/[^A-Z0-9]/g, '_') || 'GENEL';
 }
 
-/** Excel’deki her sevkiyat bloğu ayrı (aynı booking + farklı malzeme/HP = ayrı blok) */
-function _ihracatBlockGroupKey(s) {
-  const stored = String(s.blockKey || '').trim();
+function _ihracatBlockContentKey(s) {
+  const stored = String(s?.blockKey || '').trim();
   if (stored) return stored;
+  if (s?.blockHeaderRow != null) return `BLK_${s.blockHeaderRow}`;
 
   const ht = String(s.headerText || '').trim();
   const malzeme = String(s.malzeme || '').trim();
@@ -29,6 +29,16 @@ function _ihracatBlockGroupKey(s) {
   if (parts.length) return parts.join('__');
   if (ht) return `HDR_${ht.length}_${ht.slice(0, 48).replace(/\W+/g, '_')}`;
   return `FIRMA_${_ihracatFirmaGroupKey(s)}`;
+}
+
+/** Excel’deki her sevkiyat bloğu ayrı — çoklu dosyada aynı BLK_N satır numarası çakışmasın diye fileName eklenir */
+function _ihracatBlockGroupKey(s) {
+  if (typeof window !== 'undefined' && typeof window.buildIhracatLoadedRowBlockId === 'function') {
+    return window.buildIhracatLoadedRowBlockId(s);
+  }
+  const fileName = String(s?.fileName || '').trim();
+  const contentKey = _ihracatBlockContentKey(s);
+  return fileName ? `${fileName}::${contentKey}` : contentKey;
 }
 
 function isIhracatEmptyBlockRow(s) {
@@ -47,8 +57,9 @@ function ihracatCountBlocks(rows) {
   const keys = new Set();
   (rows || []).forEach((r) => {
     if (!r) return;
-    if (r.blockKey) keys.add(String(r.blockKey));
-    else if (r.blockHeaderRow != null) keys.add(`BLK_${r.blockHeaderRow}`);
+    if (r.blockKey || r.blockHeaderRow != null || r._ihracatEmptyBlock) {
+      keys.add(_ihracatBlockGroupKey(r));
+    }
   });
   return keys.size;
 }
@@ -877,7 +888,12 @@ function _saveIhracatDetailsFromModal(originalShipments, meta) {
   _ihracatApplyBlockFieldsToMap(byKey, blockSevk, blockAmb);
 
   let rows = _ihracatPurgeEmptyBlockPlaceholders(Array.from(byKey.values()));
-  const metaToSave = _ihracatMergeBlockOverridesIntoMeta(meta, blockSevk, blockAmb, Array.from(byKey.values()));
+  let metaToSave = _ihracatMergeBlockOverridesIntoMeta(meta, blockSevk, blockAmb, Array.from(byKey.values()));
+  if (typeof repairIhracatRowFileNames === 'function') {
+    const repaired = repairIhracatRowFileNames(rows, metaToSave);
+    rows = repaired.rows;
+    metaToSave = repaired.meta;
+  }
   const ok = saveDailyShipments(rows, metaToSave);
   if (ok) {
     try {
@@ -1574,7 +1590,11 @@ function _ihracatPersistPendingShipment(ctx) {
     ambalajBilgisi: isNewPlateRow ? '' : (snap.ambalaj || template.ambalajBilgisi || ''),
     ydKey: template.ydKey || '',
     headerText: template.headerText || '',
-    fileName: template.fileName || meta.fileName || '',
+    fileName: template.fileName || (typeof resolveIhracatRowFileLabel === 'function'
+      ? resolveIhracatRowFileLabel(template, meta)
+      : (typeof normalizeIhracatMetaFiles === 'function' && normalizeIhracatMetaFiles(meta).length === 1
+        ? normalizeIhracatMetaFiles(meta)[0]
+        : '')),
     _ihracatManual: true,
     _ihracatEdited: true,
     _ihracatEditedAt: Date.now(),

@@ -69,6 +69,12 @@
     .nb-sheet-wrap.nb-sheet-wrap--dual {
       max-width: 920px;
     }
+    .nb-sheet-wrap.nb-sheet-wrap--side {
+      max-width: min(96vw, 1420px);
+    }
+    .nb-sheet-wrap.nb-sheet-wrap--side .nb-sheet-date {
+      border-bottom: 1px solid #000;
+    }
     .nb-sheet-capture--carrier-only .nb-plate--exclude-copy {
       display: none;
     }
@@ -77,9 +83,21 @@
       align-items: flex-start;
       gap: 10px;
     }
+    .nb-sheet-columns--side {
+      flex-wrap: nowrap;
+      justify-content: center;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
     .nb-sheet-col {
       flex: 1 1 0;
       min-width: 0;
+      max-width: 450px;
+    }
+    .nb-sheet-columns--side .nb-sheet-col {
+      flex: 0 0 auto;
+      width: min(420px, 32vw);
+      min-width: 260px;
       max-width: 450px;
     }
     .nb-sheet-footer {
@@ -223,7 +241,7 @@
     </div>
   </header>
 
-  <main class="max-w-5xl mx-auto p-3 sm:p-4">
+  <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <div class="nb-toolbar-card">
       <p class="nb-hint">Özmal araçlar ilgili sevkiyatın altında görünür. Görsel kopyala özmal hariç nakliyeci listesini alır.</p>
       <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
@@ -247,7 +265,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="dailyStore.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260716-nb-v35"></script>
-  <script src="nakliye-bekleyen.js?v=20260716-nb-v35"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260721-file-cols"></script>
+  <script src="nakliye-bekleyen.js?v=20260721-file-cols"></script>
 </body>
 </html>

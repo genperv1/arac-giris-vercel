@@ -434,17 +434,21 @@
     return [];
   }
 
-  function buildExcelSheetParts(items) {
+  function buildExcelSheetParts(items, opts) {
     const sheetItems = (items || []).filter(hasBlockSheetContent);
+    const multiFile =
+      opts && Object.prototype.hasOwnProperty.call(opts, 'multiFile')
+        ? !!opts.multiFile
+        : countDistinctExcelFiles(sheetItems) > 1;
     const sourceDates = new Set(sheetItems.map((item) => item.sourceDateLabel).filter(Boolean));
     const multiSourceDates = sourceDates.size > 1;
     const nakliyeRows = [];
     sheetItems.forEach((item) => {
-      buildExcelBlockRows(item, { multiSourceDates }).forEach((row) => {
+      buildExcelBlockRows(item, { multiFile, multiSourceDates }).forEach((row) => {
         nakliyeRows.push(row);
       });
     });
-    return { ozmalRows: [], nakliyeRows };
+    return { ozmalRows: [], nakliyeRows, multiFile };
   }
 
   function formatWaitingPlateBbtText(bbt) {
@@ -470,19 +474,49 @@
     return (items || []).reduce((s, item) => s + (parseNum(item?.remainingBbt) > 0 ? parseNum(item.remainingBbt) : 0), 0);
   }
 
-  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourceDateLabel) {
+  function extractFileStemLabel(fileName) {
+    return String(fileName || '')
+      .trim()
+      .replace(/\.xlsx?$/i, '')
+      .trim();
+  }
+
+  /** Blok başlığı ön eki: dosya adından tarih, yoksa Excel dosya adı (YD33 gibi) */
+  function formatBlockSourceLabel(item) {
+    if (!item) return '';
+    const date = String(item.sourceDateLabel || '').trim();
+    if (date) return date;
+    const stem = extractFileStemLabel(item.fileName);
+    if (stem) return stem;
+    return String(item.ydKey || '').trim();
+  }
+
+  function countDistinctExcelFiles(items) {
+    const files = new Set();
+    (items || []).forEach((it) => {
+      const fn = String(it?.fileName || '').trim();
+      if (fn) files.add(fn);
+    });
+    return files.size;
+  }
+
+  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix) {
     let s = `${String(ydKey || 'GENEL').trim()} ${planBbt} BBT`;
     const m = String(malzeme || '').trim();
     if (m) s += ` (${m})`;
-    const d = String(sourceDateLabel || '').trim();
-    if (d) s = `${d} · ${s}`;
+    const prefix = String(sourcePrefix || '').trim();
+    if (prefix) s = `${prefix} · ${s}`;
     return s;
   }
 
   /** Tek blok — Excel görünümü satırları (sadece gelmeyen + kalan BBT) */
   function buildExcelBlockRows(item, opts) {
     if (!item) return [];
+    const multiFile = !!(opts && opts.multiFile);
     const multiSourceDates = !!(opts && opts.multiSourceDates);
+    const sourcePrefix = multiFile
+      ? formatBlockSourceLabel(item)
+      : (multiSourceDates ? item.sourceDateLabel : '');
     const rows = [];
     rows.push({
       kind: 'header',
@@ -490,7 +524,7 @@
         item.ydKey,
         item.planBbt,
         item.malzemeLabel,
-        multiSourceDates ? item.sourceDateLabel : ''
+        sourcePrefix
       ),
     });
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
@@ -534,7 +568,44 @@
     return (sheetRows || []).filter((r) => r && r.kind === 'plate').length;
   }
 
-  function shouldUseDualColumnLayout(bodyRows, blocks) {
+  /** Aynı Excel dosyasındaki blokları birlikte tut (sütun içinde alt alta) */
+  function groupItemsByExcelFile(items) {
+    const map = new Map();
+    const order = [];
+    (items || []).forEach((it) => {
+      const key = String(it?.fileName || '').trim() || '__unknown__';
+      if (!map.has(key)) {
+        map.set(key, []);
+        order.push(key);
+      }
+      map.get(key).push(it);
+    });
+    order.sort((a, b) => a.localeCompare(b, 'tr'));
+    return order
+      .map((key) => {
+        const group = map.get(key) || [];
+        group.sort(compareBlockExcelOrder);
+        return group;
+      })
+      .filter((group) => group.length);
+  }
+
+  function shouldUseSideBySideFiles(items) {
+    return countDistinctExcelFiles(items) > 1;
+  }
+
+  function shouldUseSideBySideLayout(blocks, opts) {
+    if (opts && opts.multiFile) return true;
+    return false;
+  }
+
+  /** @deprecated Tek blok = tek sütun (eski); çoklu Excel için groupItemsByExcelFile kullanın */
+  function layoutBlocksSideBySide(blocks) {
+    return (blocks || []).map((block) => [block]);
+  }
+
+  function shouldUseDualColumnLayout(bodyRows, blocks, opts) {
+    if (opts && opts.multiFile) return false;
     const plateCount = countSheetPlates(bodyRows);
     const blockCount = (blocks || []).length;
     if (blockCount < 2) return false;
@@ -694,6 +765,10 @@
     buildExcelSheetParts,
     buildOzmalSheetRows,
     groupSheetRowsByBlock,
+    groupItemsByExcelFile,
+    shouldUseSideBySideFiles,
+    shouldUseSideBySideLayout,
+    layoutBlocksSideBySide,
     shouldUseDualColumnLayout,
     splitBlocksIntoColumns,
     flattenSheetBlocks,
@@ -703,6 +778,9 @@
     dateKeyFromFileName,
     compareBlockExcelOrder,
     formatHeaderExcelText,
+    formatBlockSourceLabel,
+    extractFileStemLabel,
+    countDistinctExcelFiles,
     formatPendingExcelText,
     formatFooterRemainingText,
     sumRemainingBbt,
