@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>Nakliye Bekleyenleri — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260605-fixes-v1"></script>
+  <style>
+    body.nb-page { background: #e8e8e8; min-height: 100vh; }
+    .nb-header { background: linear-gradient(to right, #92400e, #d97706); color: #fff; }
+    .nb-toolbar-card {
+      background: #fff;
+      border: 1px solid #d4d4d4;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+    }
+    .nb-input {
+      padding: 0.45rem 0.65rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.8125rem;
+    }
+    .nb-btn {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: #334155;
+    }
+    .nb-btn:hover { background: #f8fafc; }
+    .nb-btn--primary { background: #d97706; border-color: #d97706; color: #fff; }
+    .nb-btn--primary:hover { background: #b45309; }
+    .nb-hint { font-size: 0.75rem; color: #64748b; margin: 0 0 10px; }
+    .nb-excel-ok { color: #15803d; font-weight: 600; }
+    .nb-excel-no { color: #94a3b8; font-weight: 600; }
+
+    /* Excel görünümü — tek liste, ekran görüntüsü için */
+    .nb-sheet-outer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 4px 24px;
+    }
+    .nb-sheet-wrap {
+      width: 100%;
+      max-width: 450px;
+      background: #fff;
+    }
+    .nb-sheet-date {
+      text-align: center;
+      font-weight: 800;
+      font-size: 17px;
+      padding: 8px 12px;
+      border: 1px solid #000;
+      border-bottom: none;
+      background: #fff;
+      color: #000;
+    }
+    .nb-sheet-wrap.nb-sheet-wrap--dual {
+      max-width: 920px;
+    }
+    .nb-sheet-wrap.nb-sheet-wrap--side {
+      max-width: min(96vw, 1420px);
+    }
+    .nb-sheet-wrap.nb-sheet-wrap--side .nb-sheet-date {
+      border-bottom: 1px solid #000;
+    }
+    .nb-sheet-capture--carrier-only .nb-plate--exclude-copy {
+      display: none;
+    }
+    .nb-sheet-columns {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .nb-sheet-columns--side {
+      flex-wrap: nowrap;
+      justify-content: center;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .nb-sheet-col {
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: 450px;
+    }
+    .nb-sheet-columns--side .nb-sheet-col {
+      flex: 0 0 auto;
+      width: min(420px, 32vw);
+      min-width: 260px;
+      max-width: 450px;
+    }
+    .nb-sheet-footer {
+      margin-top: 0;
+    }
+    .nb-sheet-footer .nb-sheet-grid {
+      max-width: 450px;
+      margin: 0 auto;
+    }
+    .nb-sheet-grid {
+      width: 100%;
+    }
+    .nb-sheet-grid table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 100%;
+    }
+    .nb-sheet-grid td {
+      border: 1px solid #000;
+      padding: 5px 10px;
+      vertical-align: middle;
+      white-space: nowrap;
+      text-align: center;
+    }
+    .nb-sheet-grid .col-no { width: 34px; }
+    .nb-sheet-grid .col-plaka { width: 32%; }
+    .nb-sheet-grid .col-status { width: 36%; }
+    .nb-sheet-grid .col-bbt { width: 22%; }
+    .nb-sheet-grid tr.nb-hdr td {
+      background: #ffff00;
+      color: #000;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .nb-sheet-grid tr.nb-ozmal-hdr td {
+      background: #81d4fa;
+      color: #000;
+      font-weight: 800;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .nb-sheet-grid tr.nb-plate td.nb-num {
+      background: #fff;
+      color: #000;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 5px 2px;
+    }
+    .nb-sheet-grid tr.nb-plate td.nb-plaka {
+      background: #fff;
+      color: #000;
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .nb-sheet-grid tr.nb-plate td.nb-side-red {
+      background: #fff;
+      color: #ff0000;
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .nb-sheet-grid tr.nb-plate td.nb-side-ozmal {
+      background: #fff;
+      color: #0d47a1;
+      font-weight: 800;
+      font-size: 15px;
+    }
+    .nb-sheet-grid tr.nb-plate td.nb-side-bassofor {
+      background: linear-gradient(135deg, #fef3c7, #fff);
+      color: #7c2d12;
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+    }
+    .nb-sheet-grid tr.nb-plate--bassofor td.nb-plaka {
+      background: #fffbeb;
+    }
+    .nb-sheet-grid tr.nb-plate td.nb-bbt {
+      background: #fff;
+      color: #ff0000;
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .nb-sheet-grid tr.nb-pending td {
+      background: #ff5722;
+      color: #000;
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: 0.02em;
+      padding: 10px 12px;
+      text-transform: uppercase;
+      border: 2px solid #000;
+    }
+    .nb-sheet-grid tr.nb-gap td {
+      border: none;
+      height: 6px;
+      padding: 0;
+      background: #fff;
+    }
+
+    .nb-empty-msg {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: #64748b;
+      font-size: 0.875rem;
+      background: #fff;
+      border: 1px solid #d4d4d4;
+      border-radius: 8px;
+    }
+    .nb-toast {
+      position: fixed;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0f172a;
+      color: #fff;
+      padding: 0.55rem 1rem;
+      border-radius: 999px;
+      font-size: 0.8125rem;
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .nb-toast.is-visible { opacity: 1; }
+
+    @media print {
+      .nb-header, .nb-toolbar-card { display: none !important; }
+      body.nb-page { background: #fff; }
+      .nb-sheet-grid { box-shadow: none; }
+    }
+  </style>
+</head>
+<body class="nb-page text-gray-700">
+  <header class="nb-header">
+    <div class="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <div class="text-lg font-bold">Nakliye Bekleyenleri</div>
+        <div class="text-xs text-amber-100">Görsel kopyala → nakliyeci listesi (özmal hariç)</div>
+      </div>
+      <button type="button" id="nbBackBtn" class="px-4 py-2 bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg text-sm text-white">Ana Sayfa</button>
+    </div>
+  </header>
+
+  <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
+    <div class="nb-toolbar-card">
+      <p class="nb-hint">Özmal araçlar ilgili sevkiyatın altında görünür. Görsel kopyala özmal hariç nakliyeci listesini alır.</p>
+      <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
+      <div class="flex flex-wrap gap-2 items-center">
+        <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD ara…" />
+        <button type="button" id="nbRefreshBtn" class="nb-btn"><i class="fas fa-sync-alt"></i> Yenile</button>
+        <button type="button" id="nbCopyAllBtn" class="nb-btn nb-btn--primary"><i class="fas fa-image"></i> Görsel kopyala</button>
+      </div>
+      <div id="nbStats" class="text-xs text-gray-500 mt-2"></div>
+    </div>
+
+    <div id="nbListLoading" class="nb-empty-msg">Liste hazırlanıyor…</div>
+    <div id="nbListEmpty" class="nb-empty-msg hidden">Bekleyen sevkiyat yok.</div>
+    <div id="nbNoExcel" class="nb-empty-msg hidden">İhracat Excel yüklü değil. Ana sayfadan Excel yükleyin.</div>
+
+    <div id="nbSheetOuter" class="nb-sheet-outer hidden" aria-label="Nakliye bekleyenleri Excel özeti"></div>
+  </main>
+
+  <div id="nbToast" class="nb-toast" role="status"></div>
+
+  <script src="dailyStore.js"></script>
+  <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260722-init-fix"></script>
+  <script src="nakliye-bekleyen.js?v=20260722-init-fix"></script>
+</body>
+</html>
