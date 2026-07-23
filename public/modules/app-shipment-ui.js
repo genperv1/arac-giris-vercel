@@ -1545,12 +1545,16 @@ let sonuc = {
                 };
 
                 let existing = null;
+                const pk = plate ? plateKey(plate) : '';
                 const activeId = String(window.__activeTakipVehicleId || '').trim();
                 if (activeId && activeId !== 'manual') {
                     existing = (state.vehicles || []).find((v) => String(v.id) === activeId) || null;
+                    // Formdaki çekici plaka aktif karttan farklıysa eski özmal/araç kaydına yazma
+                    if (existing && pk && plateKey(existing.cekiciPlaka) !== pk) {
+                        existing = null;
+                    }
                 }
-                if (!existing && plate) {
-                    const pk = plateKey(plate);
+                if (!existing && pk) {
                     existing = (state.vehicles || []).find((v) => plateKey(v?.cekiciPlaka) === pk) || null;
                 }
                 if (!existing && plate) {
@@ -1558,7 +1562,10 @@ let sonuc = {
                         const lookup = await fetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
                         if (lookup.ok) {
                             const found = await lookup.json();
-                            if (found && found.id) existing = found;
+                            // lookup dorse ile de eşleşebilir; yalnızca çekici plaka uyuşuyorsa kullan
+                            if (found && found.id && (!pk || plateKey(found.cekiciPlaka) === pk)) {
+                                existing = found;
+                            }
                         }
                     } catch (e) { /* ignore */ }
                 }

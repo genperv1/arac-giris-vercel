@@ -1715,11 +1715,12 @@ try {
                             const nextCount = (parseInt(cur.printCount || '0', 10) || 0) + 1;
                             let snap = pending.snapshot || cur.lastPrintSnapshot || null;
                             const driverAtPrint = getTakipFormDriverPayload();
+                            const printedPlate = String(pending.plaka || cur.cekiciPlaka || '').trim();
                             if (snap && typeof snap === 'object') {
                               snap = Object.assign({}, snap, {
                                 ts: commitTs,
-                                plaka: String(pending.plaka || cur.cekiciPlaka || '').trim(),
-                                cekiciPlaka: String(cur.cekiciPlaka || pending.plaka || '').trim(),
+                                plaka: printedPlate,
+                                cekiciPlaka: printedPlate,
                                 dorsePlaka: String(
                                   driverAtPrint.dorsePlaka || snap.dorsePlaka || cur.dorsePlaka || ''
                                 ).trim(),
@@ -1727,14 +1728,20 @@ try {
                             } else {
                               snap = {
                                 ts: commitTs,
-                                plaka: String(pending.plaka || cur.cekiciPlaka || '').trim(),
-                                cekiciPlaka: String(cur.cekiciPlaka || pending.plaka || '').trim(),
+                                plaka: printedPlate,
+                                cekiciPlaka: printedPlate,
                                 dorsePlaka: String(
                                   driverAtPrint.dorsePlaka || cur.dorsePlaka || ''
                                 ).trim(),
                               };
                             }
-                            const updated = { ...cur, printCount: nextCount, lastPrintSnapshot: snap };
+                            // Yazdırılan çekici plaka formdakiyse araç kaydını da ona kilitle
+                            const updated = {
+                              ...cur,
+                              cekiciPlaka: printedPlate || cur.cekiciPlaka,
+                              printCount: nextCount,
+                              lastPrintSnapshot: snap,
+                            };
                             try { window.storage?.save('vehicle_' + updated.id, updated); } catch(e) {}
                             state.vehicles = (state.vehicles || []).map(v => String(v.id) === String(updated.id) ? updated : v);
                             try { saveVehicleToDatabase(updated); } catch (e) {}

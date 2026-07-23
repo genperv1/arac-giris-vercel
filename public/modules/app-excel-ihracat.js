@@ -358,22 +358,24 @@ function resolveTakipVehicleIdForPrint(plate, hintId) {
   const pid = String(plate || '').trim();
   const hint = String(hintId || '').trim();
   const vehicles = (typeof state !== 'undefined' && state && Array.isArray(state.vehicles)) ? state.vehicles : [];
+  const key = pid ? _plateKeyForMatch(pid) : '';
 
+  // Hint yalnızca formdaki çekici plaka ile uyuşuyorsa kullanılır.
+  // Aksi halde (ör. eski özmal kartı açıkken yeni plaka yazılınca) yanlış araca bağlanır.
   if (hint && hint !== 'manual') {
     const byHint = vehicles.find((v) => String(v.id) === hint);
-    if (byHint) return String(byHint.id);
+    if (byHint) {
+      if (!key || _plateKeyForMatch(byHint.cekiciPlaka) === key) {
+        return String(byHint.id);
+      }
+    }
   }
 
-  if (pid) {
-    const key = _plateKeyForMatch(pid);
-    const byPlate = vehicles.find((v) => {
-      const plates = [v.cekiciPlaka, v.dorsePlaka, v.plaka].filter(Boolean);
-      return plates.some((p) => _plateKeyForMatch(p) === key);
-    });
-    if (byPlate && byPlate.id) return String(byPlate.id);
+  if (key) {
+    const byCekici = vehicles.find((v) => _plateKeyForMatch(v?.cekiciPlaka) === key);
+    if (byCekici && byCekici.id) return String(byCekici.id);
   }
 
-  if (hint && hint !== 'manual') return hint;
   return 'manual';
 }
 
@@ -692,8 +694,9 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     } catch (e) { /* ignore */ }
   }
 
+  // Rapora her zaman form/pending plakası gitsin; eski araç kaydı (özmal vb.) ezmesin
   const plaka = String(
-    pending?.plaka || pp?.plaka || vehicle?.cekiciPlaka || formGet('cekiciPlakaBilgi') || ''
+    pending?.plaka || pp?.plaka || formGet('cekiciPlakaBilgi') || vehicle?.cekiciPlaka || ''
   ).trim();
   const excelFirma = _takipFirmaFromExcelContext();
   const excel = window.__ihracatActivePrintShipment
@@ -1903,6 +1906,20 @@ function extractPrimaryAmbalajFromHeader(headerText) {
   return extractAmbalajFromHeader(headerText);
 }
 
+/** Blok ambalaj metninden birim NET kg (örn. NET 1250 KG → 1250). */
+function extractNetKgFromAmbalajText(text) {
+  const matches = _collectAmbalajMatches(text);
+  if (matches.length && matches[0].kg > 0) return matches[0].kg;
+  const s = String(text || '').replace(/\b(\d{1,3})\.(\d{3})\b/g, '$1$2').replace(/\s+/g, ' ');
+  const m =
+    s.match(/\bNET\s*([0-9]{1,5})\s*KG\b/i) ||
+    s.match(/\bNET\s*([0-9]{1,5})\b/i) ||
+    s.match(/\b([0-9]{3,5})\s*KG\b/i);
+  if (!m) return 0;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function cleanAmbalajText(text) {
   return String(text || '')
     .replace(/\bBOOKING\b.*$/i, '')
@@ -2703,6 +2720,7 @@ window.normalizeIhracatMetaFiles = normalizeIhracatMetaFiles;
 window.listIhracatExcelSources = listIhracatExcelSources;
 window.resolveIhracatRowFileLabel = resolveIhracatRowFileLabel;
 window.repairIhracatRowFileNames = repairIhracatRowFileNames;
+window.resolveTakipVehicleIdForPrint = resolveTakipVehicleIdForPrint;
 
 // Excel okuma (XLSX) - Dinamik header arama ile
 async function importDailyExcel(file) {

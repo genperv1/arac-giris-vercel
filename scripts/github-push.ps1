@@ -1,4 +1,8 @@
 # Tek tikla GitHub yukleme
+param(
+    [switch]$ForceReplace
+)
+
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 
@@ -75,6 +79,15 @@ function Ensure-Remote($url) {
 }
 
 function Invoke-GitPush {
+    param([switch]$Force)
+
+    if ($Force) {
+        Write-Host ""
+        Write-Host "GitHub'daki eski kayitlar silinip yerel proje yukleniyor..." -ForegroundColor Yellow
+        $push = Invoke-Git push --force -u origin main
+        return ($push.ExitCode -eq 0)
+    }
+
     $push = Invoke-Git push -u origin main
     if ($push.ExitCode -eq 0) { return $true }
 
@@ -128,10 +141,24 @@ try {
         Write-Host "Yeni degisiklik yok, mevcut kayit gonderiliyor..." -ForegroundColor Gray
     }
 
-    Show-TokenHelp
-    Write-Host "GitHub'a gonderiliyor..." -ForegroundColor Cyan
+    if ($ForceReplace) {
+        Write-Host ""
+        Write-Host "UYARI: GitHub'daki mevcut kayitlar silinip yerel proje ile degistirilecek." -ForegroundColor Yellow
+        $confirm = Read-Host "Devam etmek istiyor musunuz? (E/H)"
+        if ($confirm -notmatch '^[Ee]') {
+            Write-Host "Islem iptal edildi." -ForegroundColor Gray
+            exit 0
+        }
+    }
 
-    if (Invoke-GitPush) {
+    Show-TokenHelp
+    if ($ForceReplace) {
+        Write-Host "GitHub'a zorla gonderiliyor (eski veri silinir)..." -ForegroundColor Cyan
+    } else {
+        Write-Host "GitHub'a gonderiliyor..." -ForegroundColor Cyan
+    }
+
+    if (Invoke-GitPush -Force:$ForceReplace) {
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "  BASARILI! Proje GitHub'a yuklendi." -ForegroundColor Green

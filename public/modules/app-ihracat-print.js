@@ -77,7 +77,8 @@ async function _ihracatOpenFullTakipFromRow(row, modal) {
     return;
   }
   const prefilled = _ihracatBuildShipmentFromDetailRow(row, modal);
-  let vehicle = _ihracatFindVehicleByPlate(snap.plaka);
+  // Takip/yazdırma: yalnızca çekici plaka ile eşleş; dorse=ACC iken çekici=NL kartına düşmesin
+  let vehicle = _ihracatFindVehicleByPlate(snap.plaka, { cekiciOnly: true });
   if (!vehicle) {
     vehicle = {
       id: 'manual',
@@ -193,12 +194,13 @@ function _ihracatBindModalPlateAdd(modal, statusApi) {
     row.setAttribute('data-ihr-is-new', '1');
     row.removeAttribute('data-ihr-add-row');
 
-    if (!row.querySelector('td[data-ihr-col="sil"]')) {
-      const silTd = document.createElement('td');
-      silTd.setAttribute('data-ihr-col', 'sil');
-      silTd.style.cssText = IHR_EXCEL_TD_SIL;
-      silTd.innerHTML = _ihracatRowDelBtnHtml();
-      row.insertBefore(silTd, row.firstChild);
+    // Add-row already has Sil TD (data-ihr-col="sil"); only refresh content — never insert
+    // a second Sil cell or columns shift right ("yana atıyor").
+    const silCell = row.querySelector('td[data-ihr-col="sil"]') || row.cells[0];
+    if (silCell) {
+      silCell.setAttribute('data-ihr-col', 'sil');
+      silCell.style.cssText = IHR_EXCEL_TD_SIL;
+      silCell.innerHTML = _ihracatRowDelBtnHtml();
     }
 
     const plakaCell = row.querySelector('td[data-ihr-col="plaka"]');

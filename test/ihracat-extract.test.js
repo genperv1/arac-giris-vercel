@@ -11,8 +11,13 @@ const code = fs.readFileSync(
 );
 const start = code.indexOf('const IHR_PORT_DEFS');
 const end = code.indexOf('function normalizeYdKey');
-const wrapped = `(function(){\n${code.slice(start, end)}\nreturn { extractPortFromHeaderText, extractPrimaryAmbalajFromHeader, getLimanCandidates, extractPrimaryPortFromShipment };})()`;
-const { extractPortFromHeaderText, extractPrimaryAmbalajFromHeader, getLimanCandidates } = eval(wrapped);
+const wrapped = `(function(){\n${code.slice(start, end)}\nreturn { extractPortFromHeaderText, extractPrimaryAmbalajFromHeader, extractNetKgFromAmbalajText, getLimanCandidates, extractPrimaryPortFromShipment };})()`;
+const {
+  extractPortFromHeaderText,
+  extractPrimaryAmbalajFromHeader,
+  extractNetKgFromAmbalajText,
+  getLimanCandidates,
+} = eval(wrapped);
 
 test('extractPortFromHeaderText distinguishes GEMPORT and SAFIPORT', () => {
   assert.strictEqual(
@@ -50,6 +55,13 @@ test('extractPrimaryAmbalajFromHeader preserves Turkish thousand separators', ()
     extractPrimaryAmbalajFromHeader('YD28 / NET 1250 KG BIGBAG / SAFIPORT'),
     'NET 1250 KG BIGBAG'
   );
+});
+
+test('extractNetKgFromAmbalajText reads NET kg for BBT×kg tonaj', () => {
+  assert.strictEqual(extractNetKgFromAmbalajText('NET 1250 KG BIGBAG'), 1250);
+  assert.strictEqual(extractNetKgFromAmbalajText('YD20 / NET 1250 BASKISIZ LINERLI BİGBAG / EVYAP'), 1250);
+  assert.strictEqual(extractNetKgFromAmbalajText('YD28 / NET 1.350 KG BIGBAGLER / GEMPORT'), 1350);
+  assert.strictEqual(extractNetKgFromAmbalajText(''), 0);
 });
 
 test('getLimanCandidates lists ports independently', () => {

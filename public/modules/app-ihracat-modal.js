@@ -980,8 +980,13 @@ function _ihracatPlateKey(value) {
 
 function _ihracatBuildVehiclePlateMap() {
   const map = new Map();
+  // Önce yalnızca çekici plakalar — dorse eşlemesi yanlış çekici kartına bağlanmasın
   (state.vehicles || []).forEach((v) => {
-    [v.cekiciPlaka, v.dorsePlaka, v.plaka].forEach((raw) => {
+    const k = _ihracatPlateKey(v?.cekiciPlaka);
+    if (k && !map.has(k)) map.set(k, v);
+  });
+  (state.vehicles || []).forEach((v) => {
+    [v.dorsePlaka, v.plaka].forEach((raw) => {
       const k = _ihracatPlateKey(raw);
       if (k && !map.has(k)) map.set(k, v);
     });
@@ -989,13 +994,21 @@ function _ihracatBuildVehiclePlateMap() {
   return map;
 }
 
-function _ihracatFindVehicleByPlate(plateRaw) {
+function _ihracatFindVehicleByPlate(plateRaw, opts) {
   const key = _ihracatPlateKey(plateRaw);
   if (!key) return null;
+  const cekiciOnly = !!(opts && opts.cekiciOnly);
+  const vehicles = state.vehicles || [];
+
+  const byCekici = vehicles.find((v) => _ihracatPlateKey(v?.cekiciPlaka) === key);
+  if (byCekici) return byCekici;
+  if (cekiciOnly) return null;
+
   const modalMap = window.__ihracatModalVehicleMap;
   if (modalMap instanceof Map) return modalMap.get(key) || null;
-  return (state.vehicles || []).find((v) => {
-    const plates = [v.cekiciPlaka, v.dorsePlaka, v.plaka].filter(Boolean);
+
+  return vehicles.find((v) => {
+    const plates = [v.dorsePlaka, v.plaka].filter(Boolean);
     return plates.some((p) => _ihracatPlateKey(p) === key);
   }) || null;
 }
@@ -1136,17 +1149,17 @@ function _ihracatRenderExcelSheetDataRow(s, ctx) {
 function _ihracatRenderExcelSheetAddRow() {
   return `
     <tr data-ihr-add-row="1" style="background:#fffbeb;color:#92400e;">
-      <td style="${IHR_EXCEL_TD_SIL};color:#94a3b8;font-size:10px;">—</td>
-      <td style="${IHR_EXCEL_TD_IRS}"><input type="text" data-field="irsaliye" value="" style="${IHR_EXCEL_INP_IRS}" disabled /></td>
+      <td data-ihr-col="sil" style="${IHR_EXCEL_TD_SIL};color:#94a3b8;font-size:10px;">—</td>
+      <td data-ihr-col="irsaliye" style="${IHR_EXCEL_TD_IRS}"><input type="text" data-field="irsaliye" value="" style="${IHR_EXCEL_INP_IRS}" disabled /></td>
       <td data-ihr-col="plaka" style="${IHR_EXCEL_PLAKA_TD}">${_ihracatPlakaCellHtml('', true, true, { excelSheet: true })}</td>
-      <td style="${IHR_EXCEL_TD}"><input type="text" data-field="bbt" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
-      <td style="${IHR_EXCEL_TD}"><input type="text" data-field="cuval" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
-      <td style="${IHR_EXCEL_TD}"><input type="text" data-field="palet" value="" style="${IHR_EXCEL_INP}" disabled /></td>
-      <td style="${IHR_EXCEL_TD}"><input type="text" data-field="bosBbt" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
-      <td style="${IHR_EXCEL_TD}"><input type="text" data-field="bosCuval" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
-      <td style="${IHR_EXCEL_TD_BOLD}"><input type="text" data-field="tonaj" value="" style="${IHR_EXCEL_INP}max-width:58px;" disabled /></td>
-      <td style="${IHR_EXCEL_TD};color:#94a3b8;font-size:10px;">—</td>
-      <td data-field="durum" style="${IHR_EXCEL_TD};font-size:10px;">Plaka girin</td>
+      <td data-ihr-col="bbt" style="${IHR_EXCEL_TD}"><input type="text" data-field="bbt" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
+      <td data-ihr-col="cuval" style="${IHR_EXCEL_TD}"><input type="text" data-field="cuval" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
+      <td data-ihr-col="palet" style="${IHR_EXCEL_TD}"><input type="text" data-field="palet" value="" style="${IHR_EXCEL_INP}" disabled /></td>
+      <td data-ihr-col="bosBbt" style="${IHR_EXCEL_TD}"><input type="text" data-field="bosBbt" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
+      <td data-ihr-col="bosCuval" style="${IHR_EXCEL_TD}"><input type="text" data-field="bosCuval" value="" style="${IHR_EXCEL_INP_WIDE}" disabled /></td>
+      <td data-ihr-col="tonaj" style="${IHR_EXCEL_TD_BOLD}"><input type="text" data-field="tonaj" value="" style="${IHR_EXCEL_INP}max-width:58px;" disabled /></td>
+      <td data-ihr-col="takip" style="${IHR_EXCEL_TD};color:#94a3b8;font-size:10px;">—</td>
+      <td data-ihr-col="durum" data-field="durum" style="${IHR_EXCEL_TD};font-size:10px;">Plaka girin</td>
     </tr>`;
 }
 
@@ -1187,6 +1200,53 @@ function _ihracatAmbalajCellHtml(inpStyle, s) {
 function _ihracatParseNum(val) {
   const n = Number(String(val ?? '').replace(/\./g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Blok ambalajındaki NET kg (ör. 1250). Yoksa 0. */
+function _ihracatResolveBlockNetKg(row) {
+  if (!row) return 0;
+  const parseKg =
+    typeof extractNetKgFromAmbalajText === 'function'
+      ? extractNetKgFromAmbalajText
+      : null;
+  if (!parseKg) return 0;
+
+  const section = row.closest('[data-ihr-block-section]');
+  const ambInp = section?.querySelector('[data-ihr-firma-amb]');
+  const fromAmb = parseKg(ambInp?.value || '');
+  if (fromAmb > 0) return fromAmb;
+
+  const tbody = row.closest('tbody[data-ihr-tbody]');
+  try {
+    const template = JSON.parse(tbody?.getAttribute('data-ihr-template') || '{}');
+    const fromTpl = parseKg(
+      template.ambalaj ||
+        template.ambalajBilgisi ||
+        template.blockMeta?.mainHeader ||
+        template.headerText ||
+        ''
+    );
+    if (fromTpl > 0) return fromTpl;
+  } catch (e) {}
+
+  const autoAmb = section?.getAttribute('data-ihr-amb-auto') || '';
+  return parseKg(autoAmb) || 0;
+}
+
+/** BBT × birim NET kg → tonaj (örn. 22 × 1250 = 27500). */
+function _ihracatAutoFillTonajFromBbt(row) {
+  if (!row || row.getAttribute('data-ihr-add-row') === '1') return false;
+  const bbtInp = row.querySelector('[data-field="bbt"]');
+  const tonajInp = row.querySelector('[data-field="tonaj"]');
+  if (!bbtInp || !tonajInp || tonajInp.disabled) return false;
+  const bbt = _ihracatParseNum(bbtInp.value);
+  if (!(bbt > 0)) return false;
+  const kg = _ihracatResolveBlockNetKg(row);
+  if (!(kg > 0)) return false;
+  const next = String(Math.round(bbt * kg));
+  if (tonajInp.value === next) return false;
+  tonajInp.value = next;
+  return true;
 }
 
 const IHR_TOPLAM_ROW_BG = '#fffbeb';
@@ -1463,6 +1523,10 @@ function _ihracatBindToplamLiveUpdate(modal) {
       )
     ) {
       return;
+    }
+    const row = t.closest('tr[data-ihr-row-key], tr[data-ihr-add-row]');
+    if (t.matches('[data-field="bbt"]') && row) {
+      _ihracatAutoFillTonajFromBbt(row);
     }
     _ihracatRefreshToplamForTbody(t.closest('tbody[data-ihr-tbody]'));
   };
@@ -1938,7 +2002,7 @@ async function _ihracatOpenVehicleRegistrationAsync(plateRaw, opts) {
 
   document.getElementById('ihracatDetailsModal')?.remove();
 
-  const vehicle = _ihracatFindVehicleByPlate(plate);
+  const vehicle = _ihracatFindVehicleByPlate(plate, { cekiciOnly: true });
 
   if (vehicle && !_ihracatVehicleHasDriver(vehicle)) {
     if (typeof window.editVehicleRecord === 'function') {

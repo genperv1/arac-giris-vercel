@@ -1774,6 +1774,7 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
       INSERT INTO print_history(id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, tarih)
       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (id) DO UPDATE SET
+        plaka = EXCLUDED.plaka,
         firma = EXCLUDED.firma,
         malzeme = EXCLUDED.malzeme,
         tonaj = EXCLUDED.tonaj,

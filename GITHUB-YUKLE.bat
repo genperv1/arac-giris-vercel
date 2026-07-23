@@ -2,5 +2,5 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 title GitHub Yukle
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\github-push.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\github-push.ps1" -ForceReplace
 if errorlevel 1 pause
