@@ -593,6 +593,7 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
 
 function buildPrintHistoryPostBody(printEv, pending, commitTs) {
   const yuk = String(printEv.yuklemeTuru || printEv.ambalajBilgisi || '').trim();
+  const vehicleId = String(printEv.vehicleId || pending?.vehicleId || '').trim();
   return {
     plaka: printEv.plaka,
     firma: printEv.firma || printEv.firmaKodu || '',
@@ -603,6 +604,10 @@ function buildPrintHistoryPostBody(printEv, pending, commitTs) {
     sofor: printEv.sofor || '',
     sevk_yeri: String(printEv.sevkYeri || '').trim(),
     yukleme_turu: yuk,
+    iletisim: String(printEv.iletisim || '').trim(),
+    tcKimlik: String(printEv.tcKimlik || '').trim(),
+    dorsePlaka: String(printEv.dorsePlaka || '').trim(),
+    vehicleId: vehicleId && vehicleId !== 'manual' ? vehicleId : '',
     tarih: commitTs,
   };
 }

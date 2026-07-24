@@ -40,6 +40,84 @@
   } catch(e) {}
   const REPORT_TZ = 'Europe/Istanbul';
 
+  function istanbulIsoDateFromMs(ms) {
+    try {
+      const d = new Date(Number(ms));
+      if (isNaN(d.getTime())) return '';
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: REPORT_TZ,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(d);
+      const y = (parts.find((p) => p.type === 'year') || {}).value;
+      const m = (parts.find((p) => p.type === 'month') || {}).value;
+      const day = (parts.find((p) => p.type === 'day') || {}).value;
+      if (!y || !m || !day) return '';
+      return y + '-' + m + '-' + day;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function getIstanbulTodayIso() {
+    return istanbulIsoDateFromMs(Date.now());
+  }
+
+  function addDaysIso(iso, deltaDays) {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    dt.setUTCDate(dt.getUTCDate() + Number(deltaDays || 0));
+    const y = dt.getUTCFullYear();
+    const mo = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(dt.getUTCDate()).padStart(2, '0');
+    return y + '-' + mo + '-' + day;
+  }
+
+  function startOfMonthIso(iso) {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    return m[1] + '-' + m[2] + '-01';
+  }
+
+  function resolveDatePreset(preset) {
+    const today = getIstanbulTodayIso();
+    const key = String(preset || '').trim();
+    if (key === 'today') return { from: today, to: today, preset: 'today' };
+    if (key === 'yesterday') {
+      const y = addDaysIso(today, -1);
+      return { from: y, to: y, preset: 'yesterday' };
+    }
+    if (key === '7d') return { from: addDaysIso(today, -6), to: today, preset: '7d' };
+    if (key === '30d') return { from: addDaysIso(today, -29), to: today, preset: '30d' };
+    if (key === 'month') return { from: startOfMonthIso(today), to: today, preset: 'month' };
+    return { from: '', to: '', preset: 'all' };
+  }
+
+  function detectDatePreset(from, to) {
+    const f = String(from || '').trim();
+    const t = String(to || '').trim();
+    if (!f && !t) return 'all';
+    const presets = ['today', 'yesterday', '7d', '30d', 'month'];
+    for (let i = 0; i < presets.length; i++) {
+      const r = resolveDatePreset(presets[i]);
+      if (r.from === f && r.to === t) return r.preset;
+    }
+    return 'custom';
+  }
+
+  function rowMatchesDateRange(row) {
+    const from = String(window.__reportsDateFrom || '').trim();
+    const to = String(window.__reportsDateTo || '').trim();
+    if (!from && !to) return true;
+    const key = istanbulIsoDateFromMs(reportRowPrintTs(row));
+    if (!key) return false;
+    if (from && key < from) return false;
+    if (to && key > to) return false;
+    return true;
+  }
+
   function fmtDate(ts){
     try{
       if (!ts) return '-';
@@ -304,8 +382,18 @@
   if (!window.__reportsPageSize) window.__reportsPageSize = 10; // default page size
   if (window.__reportsOzmalFilter == null) window.__reportsOzmalFilter = false;
   if (window.__reportsBasimYeriFilter == null) window.__reportsBasimYeriFilter = '';
-  if (window.__reportsTodayFilter == null) window.__reportsTodayFilter = false;
+  if (window.__reportsDateFrom == null) window.__reportsDateFrom = '';
+  if (window.__reportsDateTo == null) window.__reportsDateTo = '';
+  if (window.__reportsDatePreset == null) window.__reportsDatePreset = 'all';
   if (window.__reportsShiftFilter == null) window.__reportsShiftFilter = '';
+  // Eski "bugün" bayrağını tarih aralığına taşı
+  if (window.__reportsTodayFilter) {
+    const todayIso = getIstanbulTodayIso();
+    window.__reportsDateFrom = todayIso;
+    window.__reportsDateTo = todayIso;
+    window.__reportsDatePreset = 'today';
+    window.__reportsTodayFilter = false;
+  }
 
   function timeStrToMinutes(s) {
     try {
@@ -476,12 +564,100 @@
     return Number((ev && ev.ts) || (snap && snap.ts) || 0) || 0;
   }
 
+  function formatIsoTr(iso) {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return String(iso || '');
+    return m[3] + '.' + m[2] + '.' + m[1];
+  }
+
+  function describeDateRange() {
+    const from = String(window.__reportsDateFrom || '').trim();
+    const to = String(window.__reportsDateTo || '').trim();
+    const preset = String(window.__reportsDatePreset || '').trim();
+    if (!from && !to) return '';
+    if (preset === 'today' || (from && from === to && from === getIstanbulTodayIso())) return 'Bugün';
+    if (preset === 'yesterday') return 'Dün';
+    if (preset === '7d') return 'Son 7 gün';
+    if (preset === '30d') return 'Son 30 gün';
+    if (preset === 'month') return 'Bu ay';
+    if (from && to && from === to) return formatIsoTr(from);
+    if (from && to) return formatIsoTr(from) + ' – ' + formatIsoTr(to);
+    if (from) return formatIsoTr(from) + ' sonrası';
+    return formatIsoTr(to) + ' öncesi';
+  }
+
+  function syncDateInputs() {
+    const fromEl = document.getElementById('dateFromInput');
+    const toEl = document.getElementById('dateToInput');
+    const todayIso = getIstanbulTodayIso();
+    const from = String(window.__reportsDateFrom || '').trim();
+    const to = String(window.__reportsDateTo || '').trim();
+    if (fromEl) {
+      fromEl.value = from;
+      fromEl.max = todayIso;
+      if (to) fromEl.max = to < todayIso ? to : todayIso;
+    }
+    if (toEl) {
+      toEl.value = to;
+      toEl.max = todayIso;
+      if (from) toEl.min = from;
+      else toEl.removeAttribute('min');
+    }
+    const preset = String(window.__reportsDatePreset || 'all').trim() || 'all';
+    document.querySelectorAll('.rp-preset[data-range]').forEach((btn) => {
+      const key = String(btn.getAttribute('data-range') || '');
+      btn.classList.toggle('is-active', key === preset);
+    });
+  }
+
+  function syncActiveFiltersBar() {
+    const plateQ = String((document.getElementById('plateSearch') || {}).value || '').trim();
+    const materialQ = String((document.getElementById('materialSearch') || {}).value || '').trim();
+    const dateLabel = describeDateRange();
+    const basim = String(window.__reportsBasimYeriFilter || '').trim();
+    const shift = String(window.__reportsShiftFilter || '').trim();
+    const ozmal = !!window.__reportsOzmalFilter;
+
+    const pillDate = document.getElementById('activePillDate');
+    const pillBasim = document.getElementById('activePillBasim');
+    const pillShift = document.getElementById('activePillShift');
+    const pillOzmal = document.getElementById('activePillOzmal');
+    const pillSearch = document.getElementById('activePillSearch');
+    const emptyEl = document.getElementById('activeFiltersEmpty');
+    const clearBtn = document.getElementById('clearFiltersBtn');
+
+    if (pillDate) {
+      pillDate.hidden = !dateLabel;
+      if (dateLabel) pillDate.innerHTML = '<i class="fas fa-calendar-alt" aria-hidden="true"></i> ' + dateLabel;
+    }
+    if (pillBasim) {
+      pillBasim.hidden = !basim;
+      if (basim) pillBasim.textContent = basim;
+    }
+    if (pillShift) {
+      pillShift.hidden = !shift;
+      if (shift === 'night') pillShift.innerHTML = '<i class="fas fa-moon" aria-hidden="true"></i> Gece';
+      else if (shift === 'day') pillShift.innerHTML = '<i class="fas fa-sun" aria-hidden="true"></i> Gündüz';
+    }
+    if (pillOzmal) pillOzmal.hidden = !ozmal;
+    if (pillSearch) {
+      const parts = [];
+      if (plateQ) parts.push('Plaka: ' + plateQ);
+      if (materialQ) parts.push(materialQ);
+      pillSearch.hidden = !parts.length;
+      if (parts.length) pillSearch.innerHTML = '<i class="fas fa-search" aria-hidden="true"></i> ' + parts.join(' · ');
+    }
+
+    const hasAny = !!(dateLabel || basim || shift || ozmal || plateQ || materialQ);
+    if (emptyEl) emptyEl.hidden = hasAny;
+    if (clearBtn) clearBtn.disabled = !hasAny;
+  }
+
   function syncFilterBtns() {
     const ozmalBtn = document.getElementById('ozmalFilterBtn');
     if (ozmalBtn) ozmalBtn.classList.toggle('is-active', !!window.__reportsOzmalFilter);
 
-    const todayBtn = document.getElementById('todayFilterBtn');
-    if (todayBtn) todayBtn.classList.toggle('is-active', !!window.__reportsTodayFilter);
+    syncDateInputs();
 
     const shiftFilter = String(window.__reportsShiftFilter || '').trim();
     const nightBtn = document.getElementById('shiftNightFilterBtn');
@@ -496,6 +672,8 @@
       const site = String(btn.getAttribute('data-site') || '').trim();
       btn.classList.toggle('is-active', !!site && basimFilter === site);
     });
+
+    syncActiveFiltersBar();
   }
 
   function syncOzmalFilterBtn() {
@@ -504,12 +682,12 @@
 
   function reportsEmptyMessage(plateQ, materialQ) {
     const ozmal = !!window.__reportsOzmalFilter;
-    const today = !!window.__reportsTodayFilter;
+    const dateLabel = describeDateRange();
     const basim = String(window.__reportsBasimYeriFilter || '').trim();
     const shift = String(window.__reportsShiftFilter || '').trim();
     const hasSearch = !!(plateQ || materialQ);
     const filterParts = [];
-    if (today) filterParts.push('bugün');
+    if (dateLabel) filterParts.push(dateLabel);
     if (shift === 'night') filterParts.push('gece (00–08)');
     if (shift === 'day') filterParts.push('gündüz (08–18)');
     if (ozmal) filterParts.push('özmal');
@@ -527,8 +705,7 @@
       return 'Aramanıza uygun kayıt bulunamadı' + filterHint + '.';
     }
     if (ozmal && basim) return 'Seçili filtrelere uygun kayıt bulunmuyor.';
-    if (today && materialQ) return 'Bugün bu malzeme için kayıt bulunmuyor.';
-    if (today) return 'Bugün yazdırma kaydı bulunmuyor.';
+    if (dateLabel) return dateLabel + ' için yazdırma kaydı bulunmuyor.';
     if (shift === 'night') return 'Gece vardiyası (00:00–08:00) yazdırma kaydı bulunmuyor.';
     if (shift === 'day') return 'Gündüz vardiyası (08:00–18:00) yazdırma kaydı bulunmuyor.';
     if (ozmal) return 'Özmal araç yazdırma kaydı bulunmuyor.';
@@ -628,6 +805,49 @@
     return { soforAdi: parts.slice(0, -1).join(' '), soforSoyadi: parts[parts.length - 1] };
   }
 
+  /** Lookup sonucu yalnızca çekici plakası satırla aynıysa kullanılabilir (dorse eşleşmesi yanlış araç getirir). */
+  function acceptLookupVehicleForRow(vehicleData, rowPlate) {
+    if (!vehicleData || typeof vehicleData !== 'object') return null;
+    const rowKey = normPlateKey(rowPlate);
+    if (!rowKey) return null;
+    const cekiciKey = normPlateKey(vehicleData.cekiciPlaka || vehicleData.plaka || '');
+    if (cekiciKey && cekiciKey === rowKey) return vehicleData;
+    return null;
+  }
+
+  /**
+   * NETSIS/Excel kopyası: satır plakası + olay verisi esas; lookup sadece eksik telefon/TC/dorse doldurur.
+   * Yanlış araç kaydı asla plaka/saat/şoförü ezmemeli.
+   */
+  function mergeReportRowVehicleForCopy(rowPlate, sourceData, vehicleData) {
+    const src = sourceData && typeof sourceData === 'object' ? sourceData : {};
+    const fill = acceptLookupVehicleForRow(vehicleData, rowPlate) || {};
+    const plate = String(rowPlate || src.plaka || src.cekiciPlaka || src.plate || '').trim();
+    const fullFromEvent = String(src.sofor || '').trim();
+    const evSplit = fullFromEvent ? splitSoforForExcel(fullFromEvent) : null;
+
+    return {
+      cekiciPlaka: plate,
+      soforAdi: evSplit
+        ? evSplit.soforAdi
+        : (src.soforAdi || src.driverName || src.isim || src.name
+          || fill.soforAdi || fill.driverName || fill.isim || fill.name || ''),
+      soforSoyadi: evSplit
+        ? evSplit.soforSoyadi
+        : (src.soforSoyadi || src.driverSurname || src.soyisim || src.surname
+          || fill.soforSoyadi || fill.driverSurname || fill.soyisim || fill.surname || ''),
+      iletisim: src.iletisim || src.phone || src.driverPhone || src.phoneNumber
+        || fill.iletisim || fill.phone || fill.driverPhone || fill.phoneNumber || '',
+      tcKimlik: src.tcKimlik || src.tc || fill.tcKimlik || fill.tc || '',
+      dorsePlaka: src.dorsePlaka || src.dorse || fill.dorsePlaka || fill.dorse || '',
+      // Saat/tarih yalnızca olay satırından (lookup araç saati irsaliyeyi bozmasın)
+      tarih: src.tarih || src.girisTarihi || src.girisTarih || src.giris || src.entryDate || src.date || '',
+      saat: src.saat || src.girisSaati || src.girisSaat || src.time || src.entryTime || '',
+      cikisTarihi: src.cikisTarihi || src.cikisTarih || src.cikis || src.exitDate || '',
+      cikisSaati: src.cikisSaati || src.cikisSaat || src.cikisTime || src.exitTime || ''
+    };
+  }
+
   function findLastPrintEvent(vehicle) {
     try {
       if (vehicle && vehicle.rawEvent) return vehicle.rawEvent;
@@ -652,7 +872,8 @@
 
   async function resolveReportRowVehicleData(tr) {
     const plate = String(tr.getAttribute('data-plate') || '').trim();
-    const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
+    // print_history / event id ASLA araç id'si değildir — sadece gerçek vehicleId
+    const vehicleId = String(tr.getAttribute('data-actual-vehicle-id') || '').trim();
     const sourceData = parseRowEventData(tr);
 
     let vehicleData = null;
@@ -663,30 +884,24 @@
 
     if (needLookup && plate) {
       try {
-        if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
+        if (
+          window.storage &&
+          typeof window.storage.load === 'function' &&
+          vehicleId &&
+          vehicleId !== 'manual'
+        ) {
           const cached = window.storage.load('vehicle_' + vehicleId);
-          if (cached && typeof cached === 'object') vehicleData = cached;
+          vehicleData = acceptLookupVehicleForRow(cached, plate);
         }
         if (!vehicleData) {
-          vehicleData = await lookupVehicleCached(plate);
+          vehicleData = acceptLookupVehicleForRow(await lookupVehicleCached(plate), plate);
         }
       } catch (e) {
         console.warn('Vehicle lookup for NETSIS failed:', e);
       }
     }
 
-    const full = Object.assign({}, vehicleData || {}, sourceData);
-    const fullFromEvent = String(sourceData.sofor || '').trim();
-    const evSplit = fullFromEvent ? splitSoforForExcel(fullFromEvent) : null;
-
-    return {
-      cekiciPlaka: full.cekiciPlaka || full.plaka || plate || '',
-      soforAdi: evSplit ? evSplit.soforAdi : (full.soforAdi || full.driverName || full.isim || full.name || ''),
-      soforSoyadi: evSplit ? evSplit.soforSoyadi : (full.soforSoyadi || full.driverSurname || full.soyisim || full.surname || ''),
-      iletisim: full.iletisim || full.phone || full.driverPhone || full.phoneNumber || '',
-      tcKimlik: full.tcKimlik || full.tc || '',
-      dorsePlaka: full.dorsePlaka || full.dorse || ''
-    };
+    return mergeReportRowVehicleForCopy(plate, sourceData, vehicleData);
   }
 
   function calcKpis(vehicles, events){
@@ -762,9 +977,8 @@
     if (mq) {
       rows = rows.filter(v => rowMatchesMaterialQuery(v, mq));
     }
-    if (window.__reportsTodayFilter) {
-      const todayKey = getIstanbulTodayKey();
-      rows = rows.filter(v => istanbulDateKeyFromMs(reportRowPrintTs(v)) === todayKey);
+    if (window.__reportsDateFrom || window.__reportsDateTo) {
+      rows = rows.filter(rowMatchesDateRange);
     }
     if (window.__reportsOzmalFilter) {
       rows = rows.filter(reportRowIsOzmal);
@@ -847,26 +1061,28 @@
       const plate = (v.cekiciPlaka || '').toString();
 
       tr.setAttribute('data-print-event-id', String(v.id || '')); // report event id
-      tr.setAttribute('data-vehicle-id', String(v.id || '')); // fallback for existing handlers
+      tr.setAttribute('data-vehicle-id', String(v.id || '')); // print_history id (reprint); NETSIS için data-actual-vehicle-id kullan
       tr.setAttribute('data-plate', plate || '');
 
       // use row's own print event (no full-list scan)
       const lastEv = v.rawEvent || null;
       let lastPrintHtml = '-';
       let ts = (lastEv && lastEv.ts) || (v.lastPrintSnapshot && v.lastPrintSnapshot.ts) || null;
+      if (ts) tr.setAttribute('data-ts', String(ts));
       let d = (lastEv && lastEv.data) ? lastEv.data : {};
       let saat = d.saat || '';
       if (!saat && ts) {
-        const tr = trDateTimeFromMs(ts);
-        if (tr) saat = tr.saat;
+        const trdt = trDateTimeFromMs(ts);
+        if (trdt) saat = trdt.saat;
       }
       
-      // ✅ Tüm event data'sını tr'ye ekle (reprint için)
+      // ✅ Tüm event data'sını tr'ye ekle (reprint / NETSIS için)
       if (lastEv && lastEv.data) {
         try {
           tr.setAttribute('data-event-data', JSON.stringify(lastEv.data));
-          if (lastEv.data.vehicleId) {
-            tr.setAttribute('data-actual-vehicle-id', String(lastEv.data.vehicleId));
+          const realVid = lastEv.data.vehicleId || lastEv.data.vehicle_id || '';
+          if (realVid && String(realVid) !== 'manual') {
+            tr.setAttribute('data-actual-vehicle-id', String(realVid));
           }
         } catch(e) {}
       }
@@ -900,23 +1116,26 @@
         || [lastEv.data.soforAdi, lastEv.data.soforSoyadi].filter(Boolean).join(' ').trim()))
         || '';
       const plateCellHtml = plate
-        ? `${plate}${soforName ? `<div style="font-size:12px;font-weight:600;color:#334155;margin-top:2px">${soforName}</div>` : ''}`
+        ? `${plate}${soforName ? `<div class="rp-sofor-line">${soforName}</div>` : ''}`
         : (soforName || '-');
-      const firmaCellHtml = firmaCode || '-';
+      // Uzun firma/sürücü adları alt satıra kırılsın (yatay kaydırma olmasın)
+      const firmaCellHtml = firmaCode
+        ? `<span class="rp-firma-text">${firmaCode}</span>`
+        : '-';
 
       tr.innerHTML = `
-        <td class="p-3 col-plate font-semibold" data-label="Plaka">${plateCellHtml}</td>
-        <td class="p-3 col-firma" data-label="Firma / Sürücü">${firmaCellHtml}</td>
-        <td class="p-3" data-label="Tarih">${(function(){
+        <td class="col-plate font-semibold" data-label="Plaka">${plateCellHtml}</td>
+        <td class="col-firma" data-label="Firma / Sürücü">${firmaCellHtml}</td>
+        <td class="col-tarih" data-label="Tarih">${(function(){
             const tr = ts ? trDateTimeFromMs(ts) : null;
             const dateStr = tr ? tr.tarih : ((d && d.tarih) ? (d.tarih || '-') : '-');
             const timeStr = tr ? tr.saat : (((d && d.saat) ? d.saat : (lastEv && lastEv.saat)) || '');
             return '<div style="font-weight:700">' + (dateStr || '-') + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + timeStr + '</div>') : '');
           })()}</td>
-        <td class="p-3" data-label="Basım Yeri">${basim || '-'}</td>
-        <td class="p-3" data-label="Malzeme">${lastPrintHtml}</td>
-        <td class="p-3 rp-table-actions" data-label="İşlem">
-          <div class="flex items-center gap-2 flex-wrap rp-table-actions-inner">
+        <td class="col-basim" data-label="Basım Yeri">${basim || '-'}</td>
+        <td class="col-malzeme" data-label="Malzeme">${lastPrintHtml}</td>
+        <td class="col-islem rp-table-actions" data-label="İşlem">
+          <div class="rp-table-actions-inner">
             <button class="report-action-btn netsisBtn"
               data-id="${String(v.id||'')}" title="NETSIS verilerini kopyala">
               <i class="fas fa-link"></i> NETSIS
@@ -927,7 +1146,7 @@
             </button>
             <button class="report-action-btn copyWhatsappBtn"
               data-id="${String(v.id||'')}" title="WhatsApp metnini kopyala">
-              <i class="fab fa-whatsapp"></i> WhatsApp Kopyala
+              <i class="fab fa-whatsapp"></i> WhatsApp
             </button>
             <button class="report-action-btn reprintBtn small"
               data-id="${String(v.id||'')}" title="Yeniden Yazdır">
@@ -1155,10 +1374,63 @@
       materialSearch.addEventListener('input', () => { window.__reportsPage = 1; window.clearTimeout(window.__mdeb); window.__mdeb = window.setTimeout(render, 120); });
     }
 
-    const todayBtn = document.getElementById('todayFilterBtn');
-    if (todayBtn) {
-      todayBtn.addEventListener('click', () => {
-        window.__reportsTodayFilter = !window.__reportsTodayFilter;
+    function applyDateRange(from, to, preset) {
+      let f = String(from || '').trim();
+      let t = String(to || '').trim();
+      if (f && t && f > t) {
+        const tmp = f;
+        f = t;
+        t = tmp;
+      }
+      window.__reportsDateFrom = f;
+      window.__reportsDateTo = t;
+      window.__reportsDatePreset = preset || detectDatePreset(f, t);
+      window.__reportsPage = 1;
+      render();
+    }
+
+    function applyDatePreset(preset) {
+      const key = String(preset || '').trim();
+      if (key === 'today' && window.__reportsDatePreset === 'today') {
+        applyDateRange('', '', 'all');
+        return;
+      }
+      const resolved = resolveDatePreset(key);
+      applyDateRange(resolved.from, resolved.to, resolved.preset);
+    }
+
+    document.querySelectorAll('.rp-preset[data-range]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        applyDatePreset(btn.getAttribute('data-range'));
+      });
+    });
+
+    const dateFromInput = document.getElementById('dateFromInput');
+    const dateToInput = document.getElementById('dateToInput');
+    if (dateFromInput) {
+      dateFromInput.addEventListener('change', () => {
+        applyDateRange(dateFromInput.value, (dateToInput && dateToInput.value) || window.__reportsDateTo);
+      });
+    }
+    if (dateToInput) {
+      dateToInput.addEventListener('change', () => {
+        applyDateRange((dateFromInput && dateFromInput.value) || window.__reportsDateFrom, dateToInput.value);
+      });
+    }
+
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+    if (clearFiltersBtn) {
+      clearFiltersBtn.addEventListener('click', () => {
+        window.__reportsOzmalFilter = false;
+        window.__reportsBasimYeriFilter = '';
+        window.__reportsShiftFilter = '';
+        window.__reportsDateFrom = '';
+        window.__reportsDateTo = '';
+        window.__reportsDatePreset = 'all';
+        const plateEl = document.getElementById('plateSearch');
+        const materialEl = document.getElementById('materialSearch');
+        if (plateEl) plateEl.value = '';
+        if (materialEl) materialEl.value = '';
         window.__reportsPage = 1;
         render();
       });
@@ -1213,6 +1485,7 @@
       if (window.__reportsOzmalFilter) render();
     });
 
+    syncFilterBtns();
     bindRowActions();
   }
 
@@ -1231,45 +1504,49 @@
       return `(${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`;
     }
 
-    function buildDateTime(data, dateKeys, timeKeys) {
-      const date = dateKeys.map(k => String(data[k] || '').trim()).find(Boolean) || '';
-      const time = timeKeys.map(k => String(data[k] || '').trim()).find(Boolean) || '';
-      return [date, time].filter(Boolean).join(' ').trim();
-    }
-
     const plate = safeText(tr.getAttribute('data-plate') || '');
-    const vehicleId = tr.getAttribute('data-actual-vehicle-id') || tr.getAttribute('data-vehicle-id') || '';
+    const vehicleId = String(tr.getAttribute('data-actual-vehicle-id') || '').trim();
     const sourceData = parseRowEventData(tr);
 
     let vehicleData = null;
     const hasName = sourceData.sofor || sourceData.soforAdi || sourceData.driverName || sourceData.isim || sourceData.name;
     const hasPhone = sourceData.iletisim || sourceData.phone || sourceData.driverPhone || sourceData.phoneNumber;
 
-    if (!hasName || !hasPhone) {
-      if (window.storage && typeof window.storage.load === 'function' && vehicleId) {
-        const cached = window.storage.load('vehicle_' + vehicleId);
-        if (cached && typeof cached === 'object') vehicleData = cached;
-      }
-      if (!vehicleData && plate) {
-        vehicleData = await lookupVehicleCached(plate);
-      }
+    if ((!hasName || !hasPhone) && plate) {
+      try {
+        if (
+          window.storage &&
+          typeof window.storage.load === 'function' &&
+          vehicleId &&
+          vehicleId !== 'manual'
+        ) {
+          const cached = window.storage.load('vehicle_' + vehicleId);
+          vehicleData = acceptLookupVehicleForRow(cached, plate);
+        }
+        if (!vehicleData) {
+          vehicleData = acceptLookupVehicleForRow(await lookupVehicleCached(plate), plate);
+        }
+      } catch (e) { /* ignore */ }
     }
 
-    const src = Object.assign({}, vehicleData || {}, sourceData);
-    const fullFromEvent = safeText(sourceData.sofor || '');
-    const firstName = fullFromEvent
-      ? safeText(splitSoforForExcel(fullFromEvent).soforAdi)
-      : safeText(src.soforAdi || src.driverName || src.isim || src.name || '');
-    const lastName = fullFromEvent
-      ? safeText(splitSoforForExcel(fullFromEvent).soforSoyadi)
-      : safeText(src.soforSoyadi || src.driverSurname || src.soyisim || src.surname || '');
+    const merged = mergeReportRowVehicleForCopy(plate, sourceData, vehicleData);
+    const firstName = safeText(merged.soforAdi);
+    const lastName = safeText(merged.soforSoyadi);
     const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || '-';
-    const phone = formatPhoneForExcel(src.iletisim || src.phone || src.driverPhone || src.phoneNumber || '-');
+    const phone = formatPhoneForExcel(merged.iletisim || '-');
 
-    let entry = safeText(buildDateTime(src, ['tarih','girisTarihi','girisTarih','giris','entryDate','date'], ['saat','girisSaati','girisSaat','time','entryTime']));
+    // Giriş/çıkış saati yalnızca bu satırın olay verisi / ts — asla lookup araç kaydından değil
+    let entry = safeText([merged.tarih, merged.saat].filter(Boolean).join(' '));
+    if (!entry) {
+      const ts = Number(tr.getAttribute('data-ts') || 0);
+      if (ts) {
+        const trdt = trDateTimeFromMs(ts);
+        if (trdt) entry = safeText([trdt.tarih, trdt.saat].filter(Boolean).join(' '));
+      }
+    }
     if (!entry) entry = '-';
 
-    let exit = safeText(buildDateTime(src, ['cikisTarihi','cikisTarih','cikis','exitDate'], ['cikisSaati','cikisSaat','cikisTime','exitTime']));
+    let exit = safeText([merged.cikisTarihi, merged.cikisSaati].filter(Boolean).join(' '));
     if (!exit) exit = entry;
     if (!exit) exit = '-';
 

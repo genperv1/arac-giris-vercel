@@ -6,7 +6,7 @@ function registerReportsRoutes(api, ctx) {
 api.get("/reports", async (req, res) => {
   try {
     const { limit, offset } = parsePagination(req, { defaultLimit: 5000, maxLimit: 20000 });
-    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
+    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
     
     const parsed = (r.rows || []).map((row) => {
       try {
@@ -33,6 +33,10 @@ api.get("/reports", async (req, res) => {
           sevkYeri: row.sevk_yeri || '',
           yuklemeTuru: row.yukleme_turu || '',
           ambalajBilgisi: row.yukleme_turu || '',
+          iletisim: row.iletisim || '',
+          tcKimlik: row.tc_kimlik || '',
+          dorsePlaka: row.dorse_plaka || '',
+          vehicleId: row.vehicle_id || '',
           tarih: tarihStr,
           saat: saatStr
         };

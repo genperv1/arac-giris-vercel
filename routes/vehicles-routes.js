@@ -62,13 +62,16 @@ function registerVehicleRoutes(api, ctx) {
         `SELECT id, cekiciPlaka, dorsePlaka, data, rejection_status, rejection_duration, rejection_start_ts, rejection_end_ts
          FROM vehicles
          WHERE ${VEH_PLATE_NORM_SQL_CEK} = $1 OR ${VEH_PLATE_NORM_SQL_DORSE} = $1
-         ORDER BY sort_ts DESC, id DESC
+         ORDER BY CASE WHEN ${VEH_PLATE_NORM_SQL_CEK} = $1 THEN 0 ELSE 1 END,
+                  sort_ts DESC, id DESC
          LIMIT 3`,
         [norm]
       );
       const rows = r.rows || [];
       const parsed = rows.map((row) => mapVehicleRowToApiVehicle(row));
-      return res.json(parsed[0] || null);
+      // Çekici eşleşmesi varsa onu tercih et (dorse ile yanlış araç dönmesin)
+      const cekiciHit = parsed.find((v) => normPlateForLookup(v && v.cekiciPlaka) === norm);
+      return res.json(cekiciHit || parsed[0] || null);
     } catch (err) {
       sendApiError(res, err, 500, 'VEHICLES_LOOKUP_FAILED');
     }
@@ -88,7 +91,9 @@ function registerVehicleRoutes(api, ctx) {
            v.rejection_status, v.rejection_duration, v.rejection_start_ts, v.rejection_end_ts, v.sort_ts
          FROM wanted w
          JOIN vehicles v ON (${VEH_PLATE_NORM_SQL_CEK} = w.pnorm OR ${VEH_PLATE_NORM_SQL_DORSE} = w.pnorm)
-         ORDER BY w.pnorm, v.sort_ts DESC, v.id DESC`,
+         ORDER BY w.pnorm,
+                  CASE WHEN ${VEH_PLATE_NORM_SQL_CEK} = w.pnorm THEN 0 ELSE 1 END,
+                  v.sort_ts DESC, v.id DESC`,
         [norms]
       );
 
