@@ -340,7 +340,7 @@ test('analyzeBlock — özmal plate separated from gelmeyen list', () => {
   assert.equal(item.remainingBbt, 754);
 });
 
-test('buildExcelSheetParts — özmal plates appear inside their shipment block', () => {
+test('buildExcelSheetParts — özmal plates are hidden from nakliyeci sheet', () => {
   const item = core.analyzeBlock([
     {
       blockKey: 'Y',
@@ -359,18 +359,33 @@ test('buildExcelSheetParts — özmal plates appear inside their shipment block'
       gidenTonaj: '',
     },
   ]);
+  assert.equal(item.ozmalPlates.length, 1);
+  assert.equal(item.waitingPlates.length, 1);
   const parts = core.buildExcelSheetParts([item]);
   assert.equal(parts.ozmalRows.length, 0);
-  const hdrIdx = parts.nakliyeRows.findIndex((r) => r.kind === 'header');
-  assert.ok(hdrIdx >= 0);
   const ozmalRow = parts.nakliyeRows.find((r) => r.a === '43ADT550');
-  assert.ok(ozmalRow);
-  assert.equal(ozmalRow.b, core.OZMAL_VEHICLE_LABEL);
-  assert.equal(ozmalRow.ozmal, true);
+  assert.equal(ozmalRow, undefined);
   const waitingRow = parts.nakliyeRows.find((r) => r.a === '43VE530');
   assert.ok(waitingRow);
-  assert.ok(parts.nakliyeRows.indexOf(ozmalRow) > hdrIdx);
-  assert.ok(parts.nakliyeRows.indexOf(waitingRow) > parts.nakliyeRows.indexOf(ozmalRow));
+  assert.equal(waitingRow.b, 'GELMEYEN ARAÇ');
+  assert.equal(waitingRow.ozmal, false);
+});
+
+test('buildExcelBlockRows — LOT no appears in yellow header per product', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'L1',
+      headerText: 'YD331 / 120 BBT / LOT NO 26 07 20 / HP 0,74-0,40',
+      plaka: '43AGK142',
+      bbt: '28',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(item.lotLabel, 'LOT 26 07 20');
+  const rows = core.buildExcelBlockRows(item);
+  assert.equal(rows[0].kind, 'header');
+  assert.equal(rows[0].a, 'YD331 120 BBT · LOT 26 07 20 (HP 0,74-0,40)');
+  assert.equal(rows[0].lotLabel, 'LOT 26 07 20');
 });
 
 test('buildBlockPlateRows — sorts by Excel sira within block', () => {
@@ -386,7 +401,7 @@ test('buildBlockPlateRows — sorts by Excel sira within block', () => {
     {
       blockKey: 'Y',
       headerText: 'YD20 / 360 BBT',
-      plaka: '43 ADT 550',
+      plaka: '43AGK142',
       sira: '18',
       bbt: '20',
       gidenTonaj: '',
@@ -394,7 +409,7 @@ test('buildBlockPlateRows — sorts by Excel sira within block', () => {
     {
       blockKey: 'Y',
       headerText: 'YD20 / 360 BBT',
-      plaka: '43 ADT 553',
+      plaka: '20ANA257',
       sira: '19',
       bbt: '20',
       gidenTonaj: '',
@@ -404,6 +419,10 @@ test('buildBlockPlateRows — sorts by Excel sira within block', () => {
   assert.deepEqual(
     rows.map((r) => r.no),
     [18, 19, 20]
+  );
+  assert.deepEqual(
+    rows.map((r) => r.a),
+    ['43AGK142', '20ANA257', '03DH540']
   );
 });
 
@@ -546,7 +565,7 @@ test('shouldUseSideBySideFiles — true only for multiple Excel files', () => {
   );
 });
 
-test('buildExcelBlockRows — başşoför plate shows BAŞŞOFÖR label under block', () => {
+test('buildExcelBlockRows — özmal / başşoför plates are not listed on sheet', () => {
   const item = core.analyzeBlock([
     {
       blockKey: 'Y',
@@ -557,9 +576,11 @@ test('buildExcelBlockRows — başşoför plate shows BAŞŞOFÖR label under bl
       gidenTonaj: '',
     },
   ]);
+  assert.equal(item.ozmalPlates.length, 1);
+  assert.equal(item.waitingPlates.length, 0);
   const rows = core.buildExcelBlockRows(item);
   const ozmalRow = rows.find((r) => r.a === '43ADS408');
-  assert.ok(ozmalRow);
-  assert.equal(ozmalRow.b, 'BAŞŞOFÖR');
-  assert.equal(ozmalRow.bassofor, true);
+  assert.equal(ozmalRow, undefined);
+  // Özmal BBT plana sayıldığı için kalan düşer; listede plaka yok
+  assert.equal(item.remainingBbt, 776);
 });

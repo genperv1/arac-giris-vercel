@@ -2465,6 +2465,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
             <div class="my-1 border-t"></div>
             <button type="button" id="exportVehiclesExcelBtn" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Tüm araç kayıtlarını Excel olarak indir">📊 Araç Listesi Excel</button>
+            <button type="button" id="vardiyaTakvimButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Vardiya takvimi — gece / gündüz döngüsü">🗓️ Vardiya Takvimi</button>
           </div>
         </details>
         <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>

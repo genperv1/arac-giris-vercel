@@ -180,6 +180,30 @@
       font-weight: 700;
       font-size: 15px;
     }
+    .nb-sheet-grid tr.nb-plate--click-del {
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.12s ease, opacity 0.18s ease;
+    }
+    .nb-sheet-grid tr.nb-plate--click-del:hover td {
+      background: #fff5f5;
+    }
+    .nb-sheet-grid tr.nb-plate--click-del:hover td.nb-plaka::after {
+      content: ' sil';
+      font-size: 10px;
+      font-weight: 700;
+      color: #dc2626;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      opacity: 0.85;
+    }
+    .nb-sheet-grid tr.nb-plate--click-del:focus-visible {
+      outline: 2px solid #f59e0b;
+      outline-offset: -2px;
+    }
+    .nb-sheet-grid tr.nb-plate--removing {
+      opacity: 0.35;
+      transform: scale(0.98);
+    }
     .nb-sheet-grid tr.nb-pending td {
       background: #ff5722;
       color: #000;
@@ -195,6 +219,33 @@
       height: 6px;
       padding: 0;
       background: #fff;
+    }
+
+    .nb-btn--undo {
+      position: relative;
+      border-color: #94a3b8;
+      background: linear-gradient(180deg, #fff 0%, #f1f5f9 100%);
+      color: #0f172a;
+    }
+    .nb-btn--undo:hover:not(:disabled) { background: #e2e8f0; }
+    .nb-btn--undo:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .nb-undo-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.1rem;
+      height: 1.1rem;
+      margin-left: 0.35rem;
+      padding: 0 0.3rem;
+      border-radius: 999px;
+      background: #0f172a;
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 800;
+      line-height: 1;
     }
 
     .nb-empty-msg {
@@ -235,7 +286,7 @@
     <div class="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between gap-4 flex-wrap">
       <div>
         <div class="text-lg font-bold">Nakliye Bekleyenleri</div>
-        <div class="text-xs text-amber-100">Görsel kopyala → nakliyeci listesi (özmal hariç)</div>
+        <div class="text-xs text-amber-100">Özmal hariç · LOT no · tıkla sil / geri al</div>
       </div>
       <button type="button" id="nbBackBtn" class="px-4 py-2 bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg text-sm text-white">Ana Sayfa</button>
     </div>
@@ -243,11 +294,15 @@
 
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <div class="nb-toolbar-card">
-      <p class="nb-hint">Özmal araçlar ilgili sevkiyatın altında görünür. Görsel kopyala özmal hariç nakliyeci listesini alır.</p>
+      <p class="nb-hint">Özmal araçlar bu listede gösterilmez. Her ürün kendi LOT no ile ayrılır. Gelmeyen plakaya tıklayınca silinir; sayılar otomatik güncellenir. Yanlışlıkla sildiyseniz <strong>Geri Al</strong>.</p>
       <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
       <div class="flex flex-wrap gap-2 items-center">
-        <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD ara…" />
+        <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD / LOT ara…" />
         <button type="button" id="nbRefreshBtn" class="nb-btn"><i class="fas fa-sync-alt"></i> Yenile</button>
+        <button type="button" id="nbUndoBtn" class="nb-btn nb-btn--undo" disabled aria-disabled="true" title="Son silinen plakayı geri al">
+          <i class="fas fa-undo" aria-hidden="true"></i> Geri Al
+          <span class="nb-undo-badge" hidden></span>
+        </button>
         <button type="button" id="nbCopyAllBtn" class="nb-btn nb-btn--primary"><i class="fas fa-image"></i> Görsel kopyala</button>
       </div>
       <div id="nbStats" class="text-xs text-gray-500 mt-2"></div>
@@ -264,7 +319,7 @@
 
   <script src="dailyStore.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260722-init-fix"></script>
-  <script src="nakliye-bekleyen.js?v=20260722-init-fix"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260728-lot-del"></script>
+  <script src="nakliye-bekleyen.js?v=20260728-lot-del"></script>
 </body>
 </html>

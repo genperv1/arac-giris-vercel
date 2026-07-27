@@ -7,8 +7,9 @@ api.get("/reports", async (req, res) => {
   try {
     const { limit, offset } = parsePagination(req, { defaultLimit: 5000, maxLimit: 20000 });
     const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
-    
-    const parsed = (r.rows || []).map((row) => {
+
+    const parsed = [];
+    for (const row of (r.rows || [])) {
       try {
         const raw = row.tarih;
         let ms = Date.now();
@@ -41,7 +42,7 @@ api.get("/reports", async (req, res) => {
           saat: saatStr
         };
 
-        return {
+        parsed.push({
           id: row.id,
           type: 'PRINT',
           data: d,
@@ -52,11 +53,11 @@ api.get("/reports", async (req, res) => {
           malzeme: d && d.malzeme ? d.malzeme : '',
           sevkYeri: d && d.sevkYeri ? d.sevkYeri : '',
           firma: (d && (d.firma || d.firmaKodu || d.firmaSelect)) ? (d.firma || d.firmaKodu || d.firmaSelect) : ''
-        };
+        });
       } catch {
-        return { id: row.id, type: row.type, data: row.data, ts: row.ts, saat: '', kantar: '', malzeme: '', sevkYeri: '' };
+        parsed.push({ id: row.id, type: row.type, data: row.data, ts: row.ts, saat: '', kantar: '', malzeme: '', sevkYeri: '' });
       }
-    });
+    }
     res.json(parsed);
   } catch (err) {
     sendApiError(res, err, 500, 'REPORTS_LIST_FAILED');

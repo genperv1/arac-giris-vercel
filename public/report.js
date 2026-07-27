@@ -23,33 +23,53 @@
     return confirm(message);
   }
 
-  // Cleanup legacy localStorage keys that may feed the reports UI
-  try {
-    try { localStorage.removeItem('report_events_v1'); } catch(e) {}
-    try { localStorage.removeItem('pending_reprint_vehicleId'); } catch(e) {}
-    try { localStorage.removeItem('soforHistoryByPlaka'); } catch(e) {}
-    // remove any vehicle_* keys
+  // Cleanup legacy localStorage keys that may feed the reports UI (defer — don't block first paint)
+  setTimeout(function cleanupLegacyReportStorage() {
     try {
-      const toRemove = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i) || '';
-        if (k.startsWith('vehicle_')) toRemove.push(k);
-      }
-      toRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e){} });
+      try { localStorage.removeItem('report_events_v1'); } catch(e) {}
+      try { localStorage.removeItem('pending_reprint_vehicleId'); } catch(e) {}
+      try { localStorage.removeItem('soforHistoryByPlaka'); } catch(e) {}
+      try {
+        const toRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i) || '';
+          if (k.startsWith('vehicle_')) toRemove.push(k);
+        }
+        toRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e){} });
+      } catch(e) {}
     } catch(e) {}
-  } catch(e) {}
+  }, 0);
   const REPORT_TZ = 'Europe/Istanbul';
+
+  // Reuse Intl formatters — creating one per row makes filters crawl on large lists
+  const _isoDateFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: REPORT_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const _trDateFmt = new Intl.DateTimeFormat('tr-TR', { timeZone: REPORT_TZ });
+  const _trTimeFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: REPORT_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    hourCycle: 'h23'
+  });
+  const _minsFmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: REPORT_TZ,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+    hourCycle: 'h23'
+  });
 
   function istanbulIsoDateFromMs(ms) {
     try {
       const d = new Date(Number(ms));
       if (isNaN(d.getTime())) return '';
-      const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: REPORT_TZ,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).formatToParts(d);
+      const parts = _isoDateFmt.formatToParts(d);
       const y = (parts.find((p) => p.type === 'year') || {}).value;
       const m = (parts.find((p) => p.type === 'month') || {}).value;
       const day = (parts.find((p) => p.type === 'day') || {}).value;
@@ -111,7 +131,7 @@
     const from = String(window.__reportsDateFrom || '').trim();
     const to = String(window.__reportsDateTo || '').trim();
     if (!from && !to) return true;
-    const key = istanbulIsoDateFromMs(reportRowPrintTs(row));
+    const key = row && row._isoDate != null ? row._isoDate : istanbulIsoDateFromMs(reportRowPrintTs(row));
     if (!key) return false;
     if (from && key < from) return false;
     if (to && key > to) return false;
@@ -132,18 +152,7 @@
     try {
       const d = new Date(Number(ms));
       if (isNaN(d.getTime())) return null;
-      const tz = { timeZone: REPORT_TZ };
-      return {
-        tarih: d.toLocaleDateString('tr-TR', tz),
-        saat: new Intl.DateTimeFormat('en-GB', {
-          timeZone: REPORT_TZ,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-          hourCycle: 'h23'
-        }).format(d)
-      };
+      return { tarih: _trDateFmt.format(d), saat: _trTimeFmt.format(d) };
     } catch (e) {
       return null;
     }
@@ -245,7 +254,6 @@
   }
   async function getEvents(){
     try{ 
-      console.log('Fetching reports from /api/reports...');
       const r = await fetch('/api/reports?_=' + Date.now(), {
         method: 'GET',
         headers: {
@@ -255,20 +263,8 @@
         },
         credentials: 'include'
       }); 
-      console.log('Reports response status:', r.status);
       if (r.ok) {
-        const data = await r.json();
-        console.log('Reports data received:', data.length, 'items');
-        return data;
-      } else {
-        console.error('Reports fetch failed with status:', r.status);
-        // Try to get error details
-        try {
-          const errorData = await r.json();
-          console.error('Error details:', errorData);
-        } catch(e) {
-          console.error('No error details available');
-        }
+        return await r.json();
       }
     }catch(e){
       console.error('Reports fetch error:', e);
@@ -276,9 +272,79 @@
     return [];
   }
 
-  // cache last loaded events so delete handlers can reuse
+  // cache last loaded events so delete handlers / filters can reuse
   let _latestEvents = [];
+  let _allVehicles = [];
+  let _cachedTodayStats = null;
+  let _cachedTodayShiftStats = null;
+  let _eventsLoadPromise = null;
+  let _eventsLoaded = false;
   const _vehicleLookupCache = new Map();
+
+  function eventsToVehicles(events) {
+    const printEvents = (events || []).filter(ev => ev && ev.type === 'PRINT');
+    return printEvents.map(ev => {
+      const d = ev.data || {};
+      const plate = (d.plaka || d.plate || '').toString();
+      const row = {
+        id: ev.id,
+        cekiciPlaka: plate,
+        defaultFirma: d.firma || d.firmaKodu || d.firmaSelect || '',
+        printCount: 1,
+        lastPrintSnapshot: Object.assign({ ts: ev.ts }, d),
+        rawEvent: ev
+      };
+      // Precompute filter keys once so typing/toggling filters stay instant
+      row._plateNorm = normPlate(plate);
+      row._isoDate = istanbulIsoDateFromMs(Number(ev.ts || 0) || 0);
+      row._basimYeri = String(d.basimYeri || '').trim().toUpperCase();
+      row._shiftKey = eventShiftKey(ev);
+      row._isOzmal = reportRowIsOzmal(row);
+      row._materialHaystack = normMaterial(reportRowMaterialText(row));
+      row._firmaCodes = [
+        row.defaultFirma,
+        d.firma,
+        d.firmaKodu,
+        d.firmaSelect,
+        ev.firma
+      ].map((x) => normMaterial(x)).filter(Boolean);
+      // Prefer API-provided tarih/saat (already formatted server-side)
+      row._displayTarih = d.tarih || ev.tarih || '';
+      row._displaySaat = d.saat || ev.saat || '';
+      if ((!row._displayTarih || !row._displaySaat) && Number(ev.ts)) {
+        const trdt = trDateTimeFromMs(ev.ts);
+        if (trdt) {
+          if (!row._displayTarih) row._displayTarih = trdt.tarih;
+          if (!row._displaySaat) row._displaySaat = trdt.saat;
+        }
+      }
+      return row;
+    });
+  }
+
+  function ingestEvents(events) {
+    _latestEvents = events || [];
+    _allVehicles = eventsToVehicles(_latestEvents);
+    _cachedTodayStats = computeTodayBasimStats(_latestEvents);
+    _cachedTodayShiftStats = computeTodayShiftStats(_latestEvents);
+    _eventsLoaded = true;
+  }
+
+  async function ensureEventsLoaded(force) {
+    if (!force && _eventsLoaded) return _latestEvents;
+    if (!force && _eventsLoadPromise) return _eventsLoadPromise;
+    const p = (async () => {
+      const events = await getEvents();
+      ingestEvents(events);
+      return events;
+    })();
+    _eventsLoadPromise = p;
+    try {
+      return await p;
+    } finally {
+      if (_eventsLoadPromise === p) _eventsLoadPromise = null;
+    }
+  }
 
   function parseRowEventData(tr) {
     if (!tr) return {};
@@ -413,13 +479,7 @@
     try {
       const d = new Date(Number(ms));
       if (isNaN(d.getTime())) return null;
-      const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: REPORT_TZ,
-        hour: 'numeric',
-        minute: 'numeric',
-        hour12: false,
-        hourCycle: 'h23'
-      }).formatToParts(d);
+      const parts = _minsFmt.formatToParts(d);
       const h = parseInt((parts.find((p) => p.type === 'hour') || {}).value, 10);
       const m = parseInt((parts.find((p) => p.type === 'minute') || {}).value, 10);
       if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
@@ -536,18 +596,22 @@
 
   function rowMatchesMaterialQuery(row, mq) {
     if (!mq) return true;
-    const haystack = normMaterial(reportRowMaterialText(row));
+    const haystack = row._materialHaystack != null
+      ? row._materialHaystack
+      : normMaterial(reportRowMaterialText(row));
     if (haystack.includes(mq)) return true;
 
-    const ev = row.rawEvent || {};
-    const d = (ev.data && typeof ev.data === 'object') ? ev.data : (row.lastPrintSnapshot || {});
-    const firmaCodes = [
-      row.defaultFirma,
-      d.firma,
-      d.firmaKodu,
-      d.firmaSelect,
-      ev.firma
-    ].map((x) => normMaterial(x)).filter(Boolean);
+    const firmaCodes = row._firmaCodes || (() => {
+      const ev = row.rawEvent || {};
+      const d = (ev.data && typeof ev.data === 'object') ? ev.data : (row.lastPrintSnapshot || {});
+      return [
+        row.defaultFirma,
+        d.firma,
+        d.firmaKodu,
+        d.firmaSelect,
+        ev.firma
+      ].map((x) => normMaterial(x)).filter(Boolean);
+    })();
 
     if (/^hp\d+$/i.test(mq.replace(/\s+/g, ''))) {
       const code = mq.replace(/\s+/g, '');
@@ -586,27 +650,434 @@
     return formatIsoTr(to) + ' öncesi';
   }
 
+  const TR_MONTHS = [
+    'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+  ];
+
+  const __calState = {
+    viewYear: 0,
+    viewMonth: 0, // 0-11
+    draftFrom: '',
+    draftTo: '',
+    picking: 'from', // from | to
+    open: false,
+    bound: false,
+    applyFn: null
+  };
+
+  function parseIsoParts(iso) {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
+  }
+
+  function isoFromParts(y, m, d) {
+    return String(y) + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+
+  function syncDateRangeTrigger() {
+    const valueEl = document.getElementById('dateRangeTriggerValue');
+    if (!valueEl) return;
+    const from = String(window.__reportsDateFrom || '').trim();
+    const to = String(window.__reportsDateTo || '').trim();
+    const presetLabels = {
+      today: 'Bugün',
+      yesterday: 'Dün',
+      '7d': 'Son 7 gün',
+      '30d': 'Son 30 gün',
+      month: 'Bu ay'
+    };
+    const preset = String(window.__reportsDatePreset || '').trim();
+    const short = presetLabels[preset] || '';
+
+    if (!from && !to) {
+      valueEl.innerHTML = '<span class="is-muted">Tarih seçin</span>';
+      return;
+    }
+
+    let main = '';
+    if (from && to && from === to) main = formatIsoTr(from);
+    else if (from && to) main = formatIsoTr(from) + ' → ' + formatIsoTr(to);
+    else if (from) main = formatIsoTr(from) + ' → …';
+    else main = '… → ' + formatIsoTr(to);
+
+    if (short) {
+      valueEl.innerHTML =
+        '<span>' + short + '</span>' +
+        '<span class="rp-daterange-trigger-sep">·</span>' +
+        '<span style="font-weight:500;color:#64748b;font-size:0.8125rem">' + main + '</span>';
+      return;
+    }
+
+    if (from && to && from === to) {
+      valueEl.innerHTML = '<span>' + formatIsoTr(from) + '</span>';
+      return;
+    }
+    if (from && to) {
+      valueEl.innerHTML =
+        '<span>' + formatIsoTr(from) + '</span>' +
+        '<span class="rp-daterange-trigger-sep">→</span>' +
+        '<span>' + formatIsoTr(to) + '</span>';
+      return;
+    }
+    if (from) {
+      valueEl.innerHTML = '<span>' + formatIsoTr(from) + '</span><span class="rp-daterange-trigger-sep">→</span><span class="is-muted">Bitiş</span>';
+      return;
+    }
+    valueEl.innerHTML = '<span class="is-muted">Başlangıç</span><span class="rp-daterange-trigger-sep">→</span><span>' + formatIsoTr(to) + '</span>';
+  }
+
+  function syncCalHint() {
+    const hint = document.getElementById('calHint');
+    if (!hint) return;
+    const from = __calState.draftFrom;
+    const to = __calState.draftTo;
+    if (!from && !to) {
+      hint.textContent = 'Başlangıç tarihini seçin';
+      return;
+    }
+    if (from && !to) {
+      hint.textContent = formatIsoTr(from) + ' → bitiş seçin';
+      return;
+    }
+    if (from && to && from === to) {
+      hint.textContent = formatIsoTr(from);
+      return;
+    }
+    hint.textContent = formatIsoTr(from) + ' → ' + formatIsoTr(to);
+  }
+
+  function ensureCalViewMonth() {
+    const today = getIstanbulTodayIso();
+    const anchor = __calState.draftTo || __calState.draftFrom || window.__reportsDateTo || window.__reportsDateFrom || today;
+    const parts = parseIsoParts(anchor) || parseIsoParts(today);
+    if (!parts) return;
+    if (!__calState.viewYear) {
+      __calState.viewYear = parts.y;
+      __calState.viewMonth = parts.m - 1;
+    }
+  }
+
+  function renderCalendarGrid() {
+    const grid = document.getElementById('calDayGrid');
+    const monthLabel = document.getElementById('calMonthLabel');
+    if (!grid) return;
+    ensureCalViewMonth();
+    const y = __calState.viewYear;
+    const m = __calState.viewMonth;
+    if (monthLabel) monthLabel.textContent = (TR_MONTHS[m] || '') + ' ' + y;
+
+    const todayIso = getIstanbulTodayIso();
+    const from = __calState.draftFrom;
+    const to = __calState.draftTo;
+    const firstDow = new Date(Date.UTC(y, m, 1)).getUTCDay(); // 0 Sun
+    const mondayFirst = (firstDow + 6) % 7;
+    const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const prevDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+
+    let html = '';
+    for (let i = 0; i < 42; i++) {
+      let cellY = y;
+      let cellM = m;
+      let cellD;
+      let outside = false;
+      if (i < mondayFirst) {
+        cellD = prevDays - mondayFirst + i + 1;
+        cellM = m - 1;
+        if (cellM < 0) { cellM = 11; cellY = y - 1; }
+        outside = true;
+      } else if (i >= mondayFirst + daysInMonth) {
+        cellD = i - (mondayFirst + daysInMonth) + 1;
+        cellM = m + 1;
+        if (cellM > 11) { cellM = 0; cellY = y + 1; }
+        outside = true;
+      } else {
+        cellD = i - mondayFirst + 1;
+      }
+
+      const iso = isoFromParts(cellY, cellM + 1, cellD);
+      const disabled = iso > todayIso;
+      const isToday = iso === todayIso;
+      const isStart = !!from && iso === from;
+      const isEnd = !!to && iso === to;
+      const inRange = !!(from && to && iso > from && iso < to);
+      const selected = isStart || isEnd;
+
+      const cls = [
+        'rp-cal-day',
+        outside ? 'is-outside' : '',
+        disabled ? 'is-disabled' : '',
+        isToday ? 'is-today' : '',
+        inRange ? 'is-in-range' : '',
+        isStart ? 'is-range-start is-selected' : '',
+        isEnd ? 'is-range-end is-selected' : '',
+        selected && isStart && isEnd ? 'is-range-start is-range-end' : ''
+      ].filter(Boolean).join(' ');
+
+      html += '<button type="button" class="' + cls + '" data-iso="' + iso + '"' +
+        (disabled ? ' disabled' : '') +
+        ' aria-label="' + formatIsoTr(iso) + '">' +
+        '<span>' + cellD + '</span></button>';
+    }
+    grid.innerHTML = html;
+    syncCalHint();
+  }
+
+  function positionDateRangePanel() {
+    const panel = document.getElementById('dateRangePanel');
+    const trigger = document.getElementById('dateRangeTrigger');
+    if (!panel || !trigger || panel.hidden) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const gap = 8;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const isMobile = vw <= 768;
+
+    if (isMobile) {
+      panel.style.left = '0.75rem';
+      panel.style.right = '0.75rem';
+      panel.style.width = 'auto';
+      panel.style.top = 'auto';
+      panel.style.bottom = '0.75rem';
+      return;
+    }
+
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.width = '';
+
+    // Ölçüm için görünür olmalı
+    const panelWidth = panel.offsetWidth || Math.min(360, vw - 24);
+    const panelHeight = panel.offsetHeight || 360;
+
+    let left = rect.left;
+    if (left + panelWidth > vw - 12) left = Math.max(12, vw - panelWidth - 12);
+    if (left < 12) left = 12;
+
+    let top = rect.bottom + gap;
+    if (top + panelHeight > vh - 12) {
+      const above = rect.top - gap - panelHeight;
+      if (above >= 12) top = above;
+      else top = Math.max(12, vh - panelHeight - 12);
+    }
+
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+  }
+
+  function openDateRangePanel() {
+    const picker = document.getElementById('dateRangePicker');
+    const panel = document.getElementById('dateRangePanel');
+    const backdrop = document.getElementById('dateRangeBackdrop');
+    const trigger = document.getElementById('dateRangeTrigger');
+    if (!panel || !picker) return;
+    __calState.draftFrom = String(window.__reportsDateFrom || '').trim();
+    __calState.draftTo = String(window.__reportsDateTo || '').trim();
+    __calState.picking = __calState.draftFrom && !__calState.draftTo ? 'to' : 'from';
+    __calState.viewYear = 0;
+    ensureCalViewMonth();
+    renderCalendarGrid();
+
+    // overflow/transform kesmesin diye body'ye taşı
+    if (backdrop && backdrop.parentNode !== document.body) {
+      document.body.appendChild(backdrop);
+    }
+    if (panel.parentNode !== document.body) {
+      document.body.appendChild(panel);
+    }
+
+    if (backdrop) backdrop.hidden = false;
+    panel.hidden = false;
+    picker.classList.add('is-open');
+    __calState.open = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    positionDateRangePanel();
+    window.requestAnimationFrame(positionDateRangePanel);
+  }
+
+  function closeDateRangePanel() {
+    const picker = document.getElementById('dateRangePicker');
+    const panel = document.getElementById('dateRangePanel');
+    const backdrop = document.getElementById('dateRangeBackdrop');
+    const trigger = document.getElementById('dateRangeTrigger');
+    if (panel) panel.hidden = true;
+    if (backdrop) backdrop.hidden = true;
+    if (picker) picker.classList.remove('is-open');
+    __calState.open = false;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  }
+
+  function commitDraftRange() {
+    const from = __calState.draftFrom;
+    const to = __calState.draftTo || __calState.draftFrom;
+    if (typeof __calState.applyFn === 'function') {
+      __calState.applyFn(from, from && to ? to : '', detectDatePreset(from, from && to ? to : ''));
+    }
+  }
+
+  function pickCalendarDay(iso) {
+    if (!iso || iso > getIstanbulTodayIso()) return;
+    const parts = parseIsoParts(iso);
+    if (parts) {
+      __calState.viewYear = parts.y;
+      __calState.viewMonth = parts.m - 1;
+    }
+    if (!__calState.draftFrom || (__calState.draftFrom && __calState.draftTo) || __calState.picking === 'from') {
+      __calState.draftFrom = iso;
+      __calState.draftTo = '';
+      __calState.picking = 'to';
+      renderCalendarGrid();
+      return;
+    }
+    // picking end
+    if (iso < __calState.draftFrom) {
+      __calState.draftTo = __calState.draftFrom;
+      __calState.draftFrom = iso;
+    } else {
+      __calState.draftTo = iso;
+    }
+    __calState.picking = 'from';
+    renderCalendarGrid();
+    commitDraftRange();
+    closeDateRangePanel();
+  }
+
   function syncDateInputs() {
     const fromEl = document.getElementById('dateFromInput');
     const toEl = document.getElementById('dateToInput');
-    const todayIso = getIstanbulTodayIso();
     const from = String(window.__reportsDateFrom || '').trim();
     const to = String(window.__reportsDateTo || '').trim();
-    if (fromEl) {
-      fromEl.value = from;
-      fromEl.max = todayIso;
-      if (to) fromEl.max = to < todayIso ? to : todayIso;
-    }
-    if (toEl) {
-      toEl.value = to;
-      toEl.max = todayIso;
-      if (from) toEl.min = from;
-      else toEl.removeAttribute('min');
-    }
+    if (fromEl) fromEl.value = from;
+    if (toEl) toEl.value = to;
+
     const preset = String(window.__reportsDatePreset || 'all').trim() || 'all';
     document.querySelectorAll('.rp-preset[data-range]').forEach((btn) => {
       const key = String(btn.getAttribute('data-range') || '');
       btn.classList.toggle('is-active', key === preset);
+    });
+
+    syncDateRangeTrigger();
+
+    if (__calState.open) {
+      __calState.draftFrom = from;
+      __calState.draftTo = to;
+      renderCalendarGrid();
+    }
+  }
+
+  function bindDateRangePicker(applyDateRange) {
+    if (__calState.bound) {
+      __calState.applyFn = applyDateRange;
+      return;
+    }
+    __calState.bound = true;
+    __calState.applyFn = applyDateRange;
+
+    const trigger = document.getElementById('dateRangeTrigger');
+    const panel = document.getElementById('dateRangePanel');
+    const backdrop = document.getElementById('dateRangeBackdrop');
+    const prevBtn = document.getElementById('calPrevBtn');
+    const nextBtn = document.getElementById('calNextBtn');
+    const clearBtn = document.getElementById('calClearBtn');
+    const closeBtn = document.getElementById('calCloseBtn');
+    const grid = document.getElementById('calDayGrid');
+
+    if (trigger) {
+      trigger.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (__calState.open) closeDateRangePanel();
+        else openDateRangePanel();
+      });
+    }
+    if (backdrop) {
+      backdrop.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeDateRangePanel();
+      });
+    }
+    if (panel) {
+      panel.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
+    if (prevBtn) {
+      prevBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        ensureCalViewMonth();
+        __calState.viewMonth -= 1;
+        if (__calState.viewMonth < 0) {
+          __calState.viewMonth = 11;
+          __calState.viewYear -= 1;
+        }
+        renderCalendarGrid();
+        positionDateRangePanel();
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        ensureCalViewMonth();
+        const today = parseIsoParts(getIstanbulTodayIso());
+        __calState.viewMonth += 1;
+        if (__calState.viewMonth > 11) {
+          __calState.viewMonth = 0;
+          __calState.viewYear += 1;
+        }
+        if (today && (__calState.viewYear > today.y || (__calState.viewYear === today.y && __calState.viewMonth > today.m - 1))) {
+          __calState.viewYear = today.y;
+          __calState.viewMonth = today.m - 1;
+        }
+        renderCalendarGrid();
+        positionDateRangePanel();
+      });
+    }
+    if (grid) {
+      grid.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const btn = e.target && e.target.closest ? e.target.closest('.rp-cal-day') : null;
+        if (!btn || btn.disabled || btn.getAttribute('disabled') != null) return;
+        const iso = btn.getAttribute('data-iso');
+        if (iso) pickCalendarDay(iso);
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        __calState.draftFrom = '';
+        __calState.draftTo = '';
+        __calState.picking = 'from';
+        if (typeof __calState.applyFn === 'function') __calState.applyFn('', '', 'all');
+        renderCalendarGrid();
+      });
+    }
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (__calState.draftFrom && !__calState.draftTo) {
+          __calState.draftTo = __calState.draftFrom;
+        }
+        commitDraftRange();
+        closeDateRangePanel();
+      });
+    }
+
+    window.addEventListener('resize', () => {
+      if (__calState.open) positionDateRangePanel();
+    });
+    window.addEventListener('scroll', () => {
+      if (__calState.open) positionDateRangePanel();
+    }, true);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && __calState.open) closeDateRangePanel();
     });
   }
 
@@ -719,7 +1190,7 @@
     try {
       const d = new Date(Number(ms));
       if (isNaN(d.getTime())) return '';
-      return d.toLocaleDateString('tr-TR', { timeZone: REPORT_TZ });
+      return _trDateFmt.format(d);
     } catch (e) {
       return '';
     }
@@ -914,26 +1385,18 @@
     return { totalPrintedVehicles, totalPrints, print24 };
   }
 
-  async function render(){
-    // Show loading indicator
+  async function render(opts){
+    const forceReload = !!(opts && opts.force);
     const tbody = document.getElementById('tbody');
-    if (tbody) {
+    const showLoading = forceReload || !_eventsLoaded;
+    if (showLoading && tbody) {
       tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">Yükleniyor...</td></tr>';
     }
     
-    console.log('🕐 Render started - checking hour display...');
-    
     try {
-      // Load all data in parallel for better performance
-      const [events, dailyMeta, dailyCnt, piyasa] = await Promise.all([
-        getEvents(),
-        getDailyMeta(),
-        getDailyCount(),
-        getPiyasaState()
-      ]);
-      
-      // Check if we got valid data
-      if (!events || events.length === 0) {
+      await ensureEventsLoaded(forceReload);
+
+      if (!_latestEvents || !_latestEvents.length) {
         if (tbody) {
           tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">Henüz rapor bulunmuyor.</td></tr>';
         }
@@ -941,38 +1404,22 @@
         syncOzmalFilterBtn();
         return;
       }
-    
-    _latestEvents = events || [];
-    const todayStats = computeTodayBasimStats(_latestEvents);
-    const todayShiftStats = computeTodayShiftStats(_latestEvents);
-    // Show each PRINT event as its own row (do not aggregate by vehicle)
-    const printEvents = (events || []).filter(ev => ev && ev.type === 'PRINT');
-    const vehicles = (printEvents || []).map(ev => {
-      const d = ev.data || {};
-      return {
-        id: ev.id,
-        cekiciPlaka: (d.plaka || d.plate || '').toString(),
-        defaultFirma: d.firma || d.firmaKodu || d.firmaSelect || '',
-        printCount: 1,
-        lastPrintSnapshot: Object.assign({ ts: ev.ts }, d),
-        rawEvent: ev
-      };
-    });
 
-    // KPI
-    const k = calcKpis(vehicles, events);
-
+    const todayStats = _cachedTodayStats || computeTodayBasimStats(_latestEvents);
+    const todayShiftStats = _cachedTodayShiftStats || computeTodayShiftStats(_latestEvents);
+    const vehicles = _allVehicles;
 
     // filters
-    const q = normPlate(document.getElementById('plateSearch').value || '');
+    const plateEl = document.getElementById('plateSearch');
     const materialEl = document.getElementById('materialSearch');
-    const mq = normMaterial((materialEl ? materialEl.value : '').trim());
+    const q = normPlate((plateEl && plateEl.value) || '');
+    const mq = normMaterial(((materialEl && materialEl.value) || '').trim());
     const mode = 'printed';
     try{ const fs=document.getElementById('filterSelect'); if(fs){ fs.value='printed'; fs.disabled=true; } }catch(e){}
 
-    let rows = vehicles.slice();
+    let rows = vehicles;
     if (q){
-      rows = rows.filter(v => normPlate(v.cekiciPlaka || '').includes(q));
+      rows = rows.filter(v => (v._plateNorm || normPlate(v.cekiciPlaka || '')).includes(q));
     }
     if (mq) {
       rows = rows.filter(v => rowMatchesMaterialQuery(v, mq));
@@ -981,15 +1428,15 @@
       rows = rows.filter(rowMatchesDateRange);
     }
     if (window.__reportsOzmalFilter) {
-      rows = rows.filter(reportRowIsOzmal);
+      rows = rows.filter(v => v._isOzmal != null ? v._isOzmal : reportRowIsOzmal(v));
     }
     const basimFilter = String(window.__reportsBasimYeriFilter || '').trim().toUpperCase();
     if (basimFilter) {
-      rows = rows.filter(v => reportRowBasimYeri(v) === basimFilter);
+      rows = rows.filter(v => (v._basimYeri != null ? v._basimYeri : reportRowBasimYeri(v)) === basimFilter);
     }
     const shiftFilter = String(window.__reportsShiftFilter || '').trim();
     if (shiftFilter) {
-      rows = rows.filter(v => reportRowShiftKey(v) === shiftFilter);
+      rows = rows.filter(v => (v._shiftKey != null ? v._shiftKey : reportRowShiftKey(v)) === shiftFilter);
     }
     if (mode === 'printed'){
       rows = rows.filter(v => (parseInt(v.printCount||'0',10)||0) > 0);
@@ -997,16 +1444,17 @@
       rows = rows.filter(v => (parseInt(v.printCount||'0',10)||0) === 0);
     }
 
-    // sort: last print timestamp desc (use lastPrintSnapshot.ts) then kayitTarihi
-    rows.sort((a,b)=>{
-      const ap = (a.lastPrintSnapshot && a.lastPrintSnapshot.ts) ? Number(a.lastPrintSnapshot.ts) : 0;
-      const bp = (b.lastPrintSnapshot && b.lastPrintSnapshot.ts) ? Number(b.lastPrintSnapshot.ts) : 0;
-      if (bp !== ap) return bp - ap;
-      return String(b.kayitTarihi||'').localeCompare(String(a.kayitTarihi||''));
-    });
+    // Already sorted by API (tarih DESC); keep stable order, only re-sort if needed
+    if (q || mq || window.__reportsDateFrom || window.__reportsDateTo || window.__reportsOzmalFilter || basimFilter || shiftFilter) {
+      rows = rows.slice().sort((a,b)=>{
+        const ap = (a.lastPrintSnapshot && a.lastPrintSnapshot.ts) ? Number(a.lastPrintSnapshot.ts) : 0;
+        const bp = (b.lastPrintSnapshot && b.lastPrintSnapshot.ts) ? Number(b.lastPrintSnapshot.ts) : 0;
+        if (bp !== ap) return bp - ap;
+        return String(b.kayitTarihi||'').localeCompare(String(a.kayitTarihi||''));
+      });
+    }
 
     const tbodyEl = document.getElementById('tbody');
-    tbodyEl.innerHTML = '';
     syncOzmalFilterBtn();
     updateFilterButtonCounts(todayStats, todayShiftStats);
 
@@ -1020,28 +1468,6 @@
       return;
     }
 
-    function collectPrintEventIdsForVehicle(vehicle){
-      try{
-        // If the row represents a single event, return its id
-        if (vehicle && vehicle.id) {
-          const exists = (_latestEvents || []).some(ev => ev && String(ev.id) === String(vehicle.id));
-          if (exists) return [String(vehicle.id)];
-        }
-        // Fallback: collect events by vehicleId or plate
-        const plateNorm = normPlate(vehicle.cekiciPlaka || '');
-        const evs = (_latestEvents || []).filter(ev => ev && ev.type === 'PRINT' && ev.data);
-        const ids = [];
-        evs.forEach(ev => {
-          try{
-            const d = ev.data || {};
-            if (d.vehicleId && String(d.vehicleId) === String(vehicle.id)) { if (ev.id) ids.push(String(ev.id)); return; }
-            if (d.plaka && normPlate(d.plaka || '') === plateNorm) { if (ev.id) ids.push(String(ev.id)); return; }
-          }catch(e){}
-        });
-        return ids;
-      }catch(e){ return []; }
-    }
-
     // pagination: compute page slice
     const totalItems = rows.length;
     const pageSize = Number(window.__reportsPageSize) || 20;
@@ -1053,6 +1479,7 @@
     const pageEnd = pageStart + pageSize;
     const pageRows = rows.slice(pageStart, pageEnd);
 
+    const frag = document.createDocumentFragment();
     for (const v of pageRows){
       const pc = (parseInt(v.printCount||'0',10)||0);
       const printed = pc > 0;
@@ -1070,7 +1497,7 @@
       let ts = (lastEv && lastEv.ts) || (v.lastPrintSnapshot && v.lastPrintSnapshot.ts) || null;
       if (ts) tr.setAttribute('data-ts', String(ts));
       let d = (lastEv && lastEv.data) ? lastEv.data : {};
-      let saat = d.saat || '';
+      let saat = v._displaySaat || d.saat || '';
       if (!saat && ts) {
         const trdt = trDateTimeFromMs(ts);
         if (trdt) saat = trdt.saat;
@@ -1097,19 +1524,6 @@
 
       const basim = (d && (d.basimYeri || d.basimYeri === '')) ? (d.basimYeri || '') : ((v && v.lastPrintSnapshot && v.lastPrintSnapshot.basimYeri) || '');
 
-      // determine exit date (Çıkış Tarihi) from event data if available
-      let cikisHtml = '-';
-      try {
-        const cikisRaw = d && (d.cikisTarihi || d.cikisTarih || d.cikis || d.cikisTs || d.cikis_ts || d.cikisTimestamp || d.cikisTime);
-        if (cikisRaw) {
-          if (!isNaN(Number(cikisRaw))) {
-            cikisHtml = '<div style="font-weight:700">' + (new Date(Number(cikisRaw)).toLocaleString('tr-TR', { timeZone: REPORT_TZ })) + '</div>';
-          } else {
-            cikisHtml = '<div style="font-weight:700">' + String(cikisRaw) + '</div>';
-          }
-        }
-      } catch(e) { cikisHtml = '-'; }
-
       const firmaCode = (lastEv && lastEv.data && (lastEv.data.firma || lastEv.data.firmaKodu || lastEv.data.firmaSelect))
         || v.defaultFirma || '';
       const soforName = (lastEv && lastEv.data && (lastEv.data.sofor
@@ -1123,15 +1537,13 @@
         ? `<span class="rp-firma-text">${firmaCode}</span>`
         : '-';
 
+      const dateStr = v._displayTarih || (ts ? ((trDateTimeFromMs(ts) || {}).tarih) : '') || ((d && d.tarih) ? (d.tarih || '-') : '-') || '-';
+      const timeStr = saat || (((d && d.saat) ? d.saat : (lastEv && lastEv.saat)) || '');
+
       tr.innerHTML = `
         <td class="col-plate font-semibold" data-label="Plaka">${plateCellHtml}</td>
         <td class="col-firma" data-label="Firma / Sürücü">${firmaCellHtml}</td>
-        <td class="col-tarih" data-label="Tarih">${(function(){
-            const tr = ts ? trDateTimeFromMs(ts) : null;
-            const dateStr = tr ? tr.tarih : ((d && d.tarih) ? (d.tarih || '-') : '-');
-            const timeStr = tr ? tr.saat : (((d && d.saat) ? d.saat : (lastEv && lastEv.saat)) || '');
-            return '<div style="font-weight:700">' + (dateStr || '-') + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + timeStr + '</div>') : '');
-          })()}</td>
+        <td class="col-tarih" data-label="Tarih">${'<div style="font-weight:700">' + (dateStr || '-') + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + timeStr + '</div>') : '')}</td>
         <td class="col-basim" data-label="Basım Yeri">${basim || '-'}</td>
         <td class="col-malzeme" data-label="Malzeme">${lastPrintHtml}</td>
         <td class="col-islem rp-table-actions" data-label="İşlem">
@@ -1163,8 +1575,10 @@
           </div>
         </td>
       `;
-      tbodyEl.appendChild(tr);
+      frag.appendChild(tr);
     }
+    tbodyEl.innerHTML = '';
+    tbodyEl.appendChild(frag);
 
     // render pagination controls
     try{
@@ -1232,9 +1646,9 @@
     prefetchVehicleLookups(pageRows.map(v => v.cekiciPlaka));
     } catch (error) {
       console.error('Render error:', error);
-      const tbody = document.getElementById('tbody');
-      if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-red-500">Yüklenirken hata oluştu. Lütfen sayfayı yenileyin.</td></tr>';
+      const tbodyErr = document.getElementById('tbody');
+      if (tbodyErr) {
+        tbodyErr.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-red-500">Yüklenirken hata oluştu. Lütfen sayfayı yenileyin.</td></tr>';
       }
     }
   }
@@ -1352,7 +1766,7 @@
               }
             } catch (e) {}
             alert('✅ Seçili kayıtlar silindi.');
-            render();
+            render({ force: true });
           } catch(e) {
             console.error('Silme hatası:', e);
             alert('❌ Silme işlemi başarısız: ' + e.message);
@@ -1402,21 +1816,11 @@
     document.querySelectorAll('.rp-preset[data-range]').forEach((btn) => {
       btn.addEventListener('click', () => {
         applyDatePreset(btn.getAttribute('data-range'));
+        closeDateRangePanel();
       });
     });
 
-    const dateFromInput = document.getElementById('dateFromInput');
-    const dateToInput = document.getElementById('dateToInput');
-    if (dateFromInput) {
-      dateFromInput.addEventListener('change', () => {
-        applyDateRange(dateFromInput.value, (dateToInput && dateToInput.value) || window.__reportsDateTo);
-      });
-    }
-    if (dateToInput) {
-      dateToInput.addEventListener('change', () => {
-        applyDateRange((dateFromInput && dateFromInput.value) || window.__reportsDateFrom, dateToInput.value);
-      });
-    }
+    bindDateRangePicker(applyDateRange);
 
     const clearFiltersBtn = document.getElementById('clearFiltersBtn');
     if (clearFiltersBtn) {
@@ -1482,6 +1886,11 @@
     }
 
     window.addEventListener('ozmal-plates-changed', () => {
+      if (_allVehicles && _allVehicles.length) {
+        for (let i = 0; i < _allVehicles.length; i++) {
+          _allVehicles[i]._isOzmal = reportRowIsOzmal(_allVehicles[i]);
+        }
+      }
       if (window.__reportsOzmalFilter) render();
     });
 
@@ -1695,7 +2104,7 @@
             }
           } catch (e) {}
           uiAlert('Kayıt silindi.', 'success');
-          render();
+          render({ force: true });
         } catch (e) {
           uiAlert('Silme işlemi başarısız: ' + e.message, 'danger');
         }
@@ -1728,24 +2137,24 @@
           // Register report-specific handlers
           window.SyncManager.on('new_report', (data) => {
             console.log('🔄 New report received:', data);
-            render();
+            render({ force: true });
           });
           
           window.SyncManager.on('report_deleted', (data) => {
             console.log('🔄 Report deleted:', data);
-            render();
+            render({ force: true });
           });
           
           window.SyncManager.on('reports_deleted', (data) => {
             console.log('🔄 Multiple reports deleted:', data);
-            render();
+            render({ force: true });
           });
           
           // Manual refresh trigger
           window.SyncManager.on('manual_refresh', (data) => {
             if (data.dataType === 'reports' || data.dataType === 'all') {
               console.log('🔄 Manual refresh for reports');
-              render();
+              render({ force: true });
             }
           });
           

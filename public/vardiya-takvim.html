@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <meta name="theme-color" content="#4f46e5" />
+  <title>Vardiya Takvimi — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <link rel="stylesheet" href="vardiya-takvim.css?v=20260725-vt1">
+  <script src="session-manager.js?v=20260605-fixes-v1"></script>
+</head>
+<body class="vt-page">
+  <header class="vt-header">
+    <div class="max-w-7xl mx-auto px-4 py-5 flex items-center justify-between gap-4 flex-wrap">
+      <div class="flex items-center gap-3">
+        <div class="h-12 w-12 bg-white/15 rounded-xl flex items-center justify-center text-lg font-bold">VT</div>
+        <div>
+          <div class="text-xl font-bold text-white">Vardiya Takvimi</div>
+          <div class="text-sm text-indigo-100">1 hafta gece · 1 hafta gündüz</div>
+        </div>
+      </div>
+      <button type="button" id="vtBackBtn" class="vt-back">Ana Sayfa</button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <div class="vt-shell">
+      <div class="vt-hero">
+        <div>
+          <h1 class="vt-hero__title">
+            Vardiya takvimi
+            <span class="ple-premium-badge">Premium</span>
+          </h1>
+          <p class="vt-hero__sub">Haftalık gece–gündüz dönüşümü, bayramlar ve özel günler tek ekranda. Döngü başlangıcını sağ panelden ayarlayın.</p>
+        </div>
+        <div class="vt-month-nav">
+          <button type="button" id="vtPrevMonth" aria-label="Önceki ay"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+          <div class="vt-month-title" id="vtMonthTitle">—</div>
+          <button type="button" id="vtNextMonth" aria-label="Sonraki ay"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+          <button type="button" id="vtGoToday" class="ay-btn" style="width:auto;margin-left:.25rem;">Bugün</button>
+        </div>
+      </div>
+
+      <div class="vt-layout">
+        <div>
+          <div class="vt-kpi" id="vtSummary" aria-label="Aylık özet"></div>
+          <div class="vt-weekdays" aria-hidden="true">
+            <div class="vt-weekday">Pzt</div>
+            <div class="vt-weekday">Sal</div>
+            <div class="vt-weekday">Çar</div>
+            <div class="vt-weekday">Per</div>
+            <div class="vt-weekday">Cum</div>
+            <div class="vt-weekday">Cmt</div>
+            <div class="vt-weekday">Paz</div>
+          </div>
+          <div class="vt-grid" id="vtCalendar" role="grid" aria-label="Vardiya takvimi"></div>
+          <p class="vt-foot">Resmi tatiller ve dini bayramlar takvimde otomatik gösterilir.</p>
+        </div>
+
+        <aside class="vt-side">
+          <div class="vt-card">
+            <h3>Döngü ayarları</h3>
+            <div class="vt-field">
+              <label for="vtCycleStart">Döngü başlangıç tarihi</label>
+              <input id="vtCycleStart" type="date" />
+            </div>
+            <div class="vt-field">
+              <label for="vtStartShift">Başlangıç haftası</label>
+              <select id="vtStartShift">
+                <option value="night">Gece haftası başlasın</option>
+                <option value="day">Gündüz haftası başlasın</option>
+              </select>
+            </div>
+            <div class="vt-actions">
+              <button type="button" class="ay-btn ay-btn--primary" id="vtSaveSettings">Kaydet</button>
+            </div>
+          </div>
+
+          <div class="vt-card">
+            <h3>Seçili gün</h3>
+            <div class="vt-selected" id="vtSelectedInfo"></div>
+          </div>
+
+          <div class="vt-card">
+            <h3>Gösterge</h3>
+            <div class="vt-legend">
+              <div class="vt-pill"><span class="vt-dot vt-dot--day"></span> Gündüz</div>
+              <div class="vt-pill"><span class="vt-dot vt-dot--night"></span> Gece</div>
+              <div class="vt-pill"><span class="vt-dot vt-dot--off"></span> İzin</div>
+              <div class="vt-pill"><span class="vt-dot vt-dot--holiday"></span> Tatil</div>
+            </div>
+            <p class="vt-rule" style="margin-top:.7rem;">
+              <b>Kural:</b> Gündüz haftasında Pzt–Cum çalışır, Cmt–Paz izin. Gece haftasında Pazar gece başlar, Pzt–Cum gece çalışılır; Cumartesi sabah çıkış notuyla izin sayılır.
+            </p>
+          </div>
+
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="ayToast"></div>
+  <script src="vardiya-takvim.js?v=20260725-vt2"></script>
+  <script>
+    (function () {
+      document.getElementById('vtBackBtn')?.addEventListener('click', function () {
+        if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+          window.SessionManager.openAppPage('GIRIS.html');
+        } else {
+          location.href = 'GIRIS.html';
+        }
+      });
+      if (window.VardiyaTakvim) window.VardiyaTakvim.init();
+    })();
+  </script>
+</body>
+</html>

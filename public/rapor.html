@@ -113,7 +113,7 @@
       border: 1px solid var(--rp-border);
       border-radius: 16px;
       box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
-      overflow: hidden;
+      overflow: visible;
     }
 
     .rp-label {
@@ -225,25 +225,332 @@
       padding-left: 2.1rem;
     }
 
-    .rp-date-row {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      gap: 0.5rem;
-      align-items: end;
+    .rp-daterange {
+      position: relative;
+      width: 100%;
     }
 
-    .rp-date-sep {
-      padding-bottom: 0.7rem;
-      color: #94a3b8;
-      font-size: 0.75rem;
+    .rp-daterange-trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.7rem 0.85rem;
+      border: 1px solid var(--rp-border);
+      border-radius: 12px;
+      background:
+        linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .rp-daterange-trigger:hover {
+      border-color: #c7d2fe;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.08);
+    }
+
+    .rp-daterange.is-open .rp-daterange-trigger {
+      border-color: var(--rp-accent);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+      background: #fff;
+    }
+
+    .rp-daterange-trigger-icon {
+      width: 2.25rem;
+      height: 2.25rem;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(145deg, #4f46e5, #6366f1);
+      color: #fff;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+      box-shadow: 0 4px 10px rgba(79, 70, 229, 0.28);
+    }
+
+    .rp-daterange-trigger-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .rp-daterange-trigger-label {
+      display: block;
+      font-size: 0.625rem;
       font-weight: 700;
-      text-align: center;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 0.15rem;
     }
 
-    .rp-date-input {
+    .rp-daterange-trigger-value {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #0f172a;
       font-variant-numeric: tabular-nums;
-      color-scheme: light;
-      min-height: 2.5rem;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .rp-daterange-trigger-value .is-muted {
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    .rp-daterange-trigger-sep {
+      color: #c7d2fe;
+      font-size: 0.75rem;
+    }
+
+    .rp-daterange-chevron {
+      color: #94a3b8;
+      font-size: 0.7rem;
+      transition: transform 0.18s ease;
+      flex-shrink: 0;
+    }
+
+    .rp-daterange.is-open .rp-daterange-chevron {
+      transform: rotate(180deg);
+      color: var(--rp-accent);
+    }
+
+    .rp-daterange-panel {
+      position: fixed;
+      z-index: 1200;
+      width: min(22.5rem, calc(100vw - 1.5rem));
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      box-shadow:
+        0 18px 40px rgba(15, 23, 42, 0.14),
+        0 2px 6px rgba(15, 23, 42, 0.05);
+      overflow: hidden;
+      transform-origin: top center;
+      animation: rpCalIn 0.16s ease;
+    }
+
+    .rp-daterange-panel[hidden] {
+      display: none !important;
+    }
+
+    .rp-daterange-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1190;
+      background: rgba(15, 23, 42, 0.18);
+    }
+
+    .rp-daterange-backdrop[hidden] {
+      display: none !important;
+    }
+
+    @keyframes rpCalIn {
+      from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .rp-cal-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.85rem 0.9rem 0.55rem;
+      background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .rp-cal-nav {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      color: #475569;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .rp-cal-nav:hover {
+      background: #eef2ff;
+      border-color: #c7d2fe;
+      color: var(--rp-accent);
+    }
+
+    .rp-cal-month {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+      text-transform: capitalize;
+    }
+
+    .rp-cal-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.15rem;
+      padding: 0.55rem 0.75rem 0.2rem;
+    }
+
+    .rp-cal-weekday {
+      text-align: center;
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      padding: 0.2rem 0;
+    }
+
+    .rp-cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.15rem 0;
+      padding: 0.15rem 0.75rem 0.65rem;
+    }
+
+    .rp-cal-day {
+      position: relative;
+      height: 2.15rem;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      color: #334155;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .rp-cal-day span {
+      position: relative;
+      z-index: 1;
+      width: 2rem;
+      height: 2rem;
+      margin: 0 auto;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .rp-cal-day:hover span {
+      background: #eef2ff;
+      color: var(--rp-accent);
+    }
+
+    .rp-cal-day.is-outside {
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    .rp-cal-day.is-disabled {
+      color: #e2e8f0;
+      cursor: not-allowed;
+    }
+
+    .rp-cal-day.is-disabled:hover span {
+      background: transparent;
+      color: #e2e8f0;
+    }
+
+    .rp-cal-day.is-today span {
+      box-shadow: inset 0 0 0 1.5px #a5b4fc;
+    }
+
+    .rp-cal-day.is-in-range::before {
+      content: '';
+      position: absolute;
+      inset: 0.2rem 0;
+      background: #eef2ff;
+      z-index: 0;
+    }
+
+    .rp-cal-day.is-range-start::before {
+      left: 50%;
+      border-radius: 999px 0 0 999px;
+    }
+
+    .rp-cal-day.is-range-end::before {
+      right: 50%;
+      border-radius: 0 999px 999px 0;
+    }
+
+    .rp-cal-day.is-range-start.is-range-end::before {
+      display: none;
+    }
+
+    .rp-cal-day.is-selected span {
+      background: linear-gradient(145deg, #4f46e5, #6366f1);
+      color: #fff;
+      box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
+    }
+
+    .rp-cal-day.is-selected:hover span {
+      background: linear-gradient(145deg, #4338ca, #4f46e5);
+      color: #fff;
+    }
+
+    .rp-cal-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.65rem 0.85rem;
+      border-top: 1px solid #f1f5f9;
+      background: #f8fafc;
+    }
+
+    .rp-cal-hint {
+      font-size: 0.75rem;
+      color: #64748b;
+      font-weight: 500;
+      min-width: 0;
+    }
+
+    .rp-cal-foot-actions {
+      display: flex;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .rp-cal-foot-btn {
+      padding: 0.35rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      font-size: 0.75rem;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    .rp-cal-foot-btn.is-ghost {
+      background: #fff;
+      border-color: #e2e8f0;
+      color: #64748b;
+    }
+
+    .rp-cal-foot-btn.is-ghost:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    .rp-cal-foot-btn.is-primary {
+      background: var(--rp-accent);
+      color: #fff;
+      border-color: var(--rp-accent);
+    }
+
+    .rp-cal-foot-btn.is-primary:hover {
+      background: var(--rp-accent-hover);
     }
 
     .rp-date-presets {
@@ -993,8 +1300,7 @@
         white-space: normal;
       }
 
-      .rp-input,
-      .rp-date-input {
+      .rp-input {
         font-size: 16px;
       }
 
@@ -1010,13 +1316,12 @@
         border-top: 1px solid var(--rp-border);
       }
 
-      .rp-date-row {
-        grid-template-columns: 1fr;
-        gap: 0.65rem;
-      }
-
-      .rp-date-sep {
-        display: none;
+      .rp-daterange-panel {
+        left: 0.75rem !important;
+        right: 0.75rem !important;
+        width: auto !important;
+        max-height: min(70vh, 28rem);
+        overflow: auto;
       }
 
       .rp-filter-foot {
@@ -1162,17 +1467,52 @@
                 <div class="rp-filter-col-sub">Başlangıç ve bitiş tarihine göre göster</div>
               </div>
             </div>
-            <div class="rp-date-row">
-              <div>
-                <label for="dateFromInput" class="rp-label">Başlangıç</label>
-                <input id="dateFromInput" type="date" class="rp-input rp-date-input" />
+            <div class="rp-daterange" id="dateRangePicker">
+              <button type="button" class="rp-daterange-trigger" id="dateRangeTrigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="dateRangePanel">
+                <span class="rp-daterange-trigger-icon" aria-hidden="true"><i class="fas fa-calendar-alt"></i></span>
+                <span class="rp-daterange-trigger-body">
+                  <span class="rp-daterange-trigger-label">Tarih aralığı</span>
+                  <span class="rp-daterange-trigger-value" id="dateRangeTriggerValue">
+                    <span class="is-muted">Tarih seçin</span>
+                  </span>
+                </span>
+                <i class="fas fa-chevron-down rp-daterange-chevron" aria-hidden="true"></i>
+              </button>
+
+              <div class="rp-daterange-backdrop" id="dateRangeBackdrop" hidden></div>
+              <div class="rp-daterange-panel" id="dateRangePanel" role="dialog" aria-label="Takvim" hidden>
+                <div class="rp-cal-top">
+                  <button type="button" class="rp-cal-nav" id="calPrevBtn" aria-label="Önceki ay">
+                    <i class="fas fa-chevron-left" aria-hidden="true"></i>
+                  </button>
+                  <div class="rp-cal-month" id="calMonthLabel">—</div>
+                  <button type="button" class="rp-cal-nav" id="calNextBtn" aria-label="Sonraki ay">
+                    <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <div class="rp-cal-weekdays" aria-hidden="true">
+                  <span class="rp-cal-weekday">Pt</span>
+                  <span class="rp-cal-weekday">Sa</span>
+                  <span class="rp-cal-weekday">Ça</span>
+                  <span class="rp-cal-weekday">Pe</span>
+                  <span class="rp-cal-weekday">Cu</span>
+                  <span class="rp-cal-weekday">Ct</span>
+                  <span class="rp-cal-weekday">Pz</span>
+                </div>
+                <div class="rp-cal-grid" id="calDayGrid"></div>
+                <div class="rp-cal-foot">
+                  <span class="rp-cal-hint" id="calHint">Başlangıç tarihini seçin</span>
+                  <div class="rp-cal-foot-actions">
+                    <button type="button" class="rp-cal-foot-btn is-ghost" id="calClearBtn">Temizle</button>
+                    <button type="button" class="rp-cal-foot-btn is-primary" id="calCloseBtn">Tamam</button>
+                  </div>
+                </div>
               </div>
-              <div class="rp-date-sep" aria-hidden="true">→</div>
-              <div>
-                <label for="dateToInput" class="rp-label">Bitiş</label>
-                <input id="dateToInput" type="date" class="rp-input rp-date-input" />
-              </div>
+
+              <input type="hidden" id="dateFromInput" value="" />
+              <input type="hidden" id="dateToInput" value="" />
             </div>
+
             <div class="rp-date-presets" role="group" aria-label="Hızlı tarih seçimi">
               <button type="button" class="rp-preset" data-range="today" id="todayFilterBtn" title="Sadece bugün">
                 <i class="fas fa-calendar-day" aria-hidden="true"></i> Bugün
@@ -1324,7 +1664,7 @@
   <script src="sync-manager.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
-  <script src="report.js?v=20260725-date-range-filters"></script>
+  <script src="report.js?v=20260728-perf"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

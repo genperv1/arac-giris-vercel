@@ -4,6 +4,9 @@
   const core = window.NakliyeBekleyenCore;
   let _allItems = [];
   let _searchNeedle = '';
+  /** @type {{ snapshot: object, blockKey: string, bbt: number, noteBump: number }[]} */
+  let _undoStack = [];
+  const UNDO_MAX = 25;
 
   function esc(s) {
     return String(s || '')
@@ -173,6 +176,170 @@
     return new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
   }
 
+  function persistRows(rows, meta) {
+    const m = meta || loadMeta();
+    if (window.DailyStore && typeof DailyStore.set === 'function') {
+      DailyStore.set(rows, m);
+      return;
+    }
+    try {
+      localStorage.setItem('daily_shipments_current', JSON.stringify(rows));
+      localStorage.setItem('daily_shipments_meta', JSON.stringify(m || {}));
+    } catch (e) {}
+  }
+
+  function bumpBlockPendingNotes(rows, blockKey, deltaBbt) {
+    const delta = Number(deltaBbt) || 0;
+    if (!delta || !blockKey || !core) return { rows, bumped: 0 };
+    let bumped = 0;
+    const next = (rows || []).map((r) => {
+      if (!r || core.blockGroupKey(r) !== blockKey) return r;
+      const notes = Array.isArray(r.blockPendingPlakaNotes) ? r.blockPendingPlakaNotes : null;
+      if (!notes || !notes.length) return r;
+      let changed = false;
+      const updated = notes.map((n) => {
+        if (n == null || n.remainingBbt == null) return n;
+        const cur = Number(n.remainingBbt) || 0;
+        const nextRem = Math.max(0, cur + delta);
+        if (nextRem === cur) return n;
+        changed = true;
+        bumped = delta;
+        return {
+          text: nextRem > 0 ? `${nextRem}BBT PLAKA VERİLECEK` : 'PLAKA VERİLECEK',
+          remainingBbt: nextRem,
+        };
+      });
+      if (!changed) return r;
+      return Object.assign({}, r, { blockPendingPlakaNotes: updated });
+    });
+    return { rows: next, bumped };
+  }
+
+  function findMatchingShipmentIndex(rows, plateMeta) {
+    if (!core || !plateMeta) return -1;
+    const pk = core.plateKey(plateMeta.plaka || plateMeta.a);
+    if (!pk) return -1;
+    const blockKey = String(plateMeta.blockKey || '').trim();
+    const sira = String(plateMeta.sira || '').trim();
+    const id = String(plateMeta.id || '').trim();
+    const rowRef = String(plateMeta.rowRef || '').trim();
+
+    let best = -1;
+    let bestScore = -1;
+    (rows || []).forEach((r, idx) => {
+      if (!r || r._ihracatEmptyBlock) return;
+      if (core.isRowDeparted(r)) return;
+      if (core.plateKey(r.plaka) !== pk) return;
+      if (blockKey && core.blockGroupKey(r) !== blockKey) return;
+      let score = 1;
+      if (rowRef) {
+        const ref =
+          `${core.blockGroupKey(r)}::${core.plateKey(r.plaka)}::${String(r.sira || '').trim()}::${String(r.id || '').trim()}`;
+        if (ref === rowRef) score += 8;
+      }
+      if (id && String(r.id || '').trim() === id) score += 4;
+      if (sira && String(r.sira || '').trim() === sira) score += 2;
+      if (score > bestScore) {
+        bestScore = score;
+        best = idx;
+      }
+    });
+    return best;
+  }
+
+  function updateUndoButton() {
+    const btn = document.getElementById('nbUndoBtn');
+    if (!btn) return;
+    const n = _undoStack.length;
+    btn.disabled = n === 0;
+    btn.setAttribute('aria-disabled', n === 0 ? 'true' : 'false');
+    const badge = btn.querySelector('.nb-undo-badge');
+    if (badge) {
+      badge.textContent = n > 0 ? String(n) : '';
+      badge.hidden = n === 0;
+    }
+  }
+
+  function pushUndo(entry) {
+    _undoStack.push(entry);
+    if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+    updateUndoButton();
+  }
+
+  async function deletePlateByClick(tr) {
+    if (!core || !tr || tr.classList.contains('nb-plate--ozmal')) return;
+    const meta = {
+      plaka: tr.getAttribute('data-nb-plaka') || '',
+      a: tr.getAttribute('data-nb-plaka-compact') || '',
+      blockKey: tr.getAttribute('data-nb-block') || '',
+      sira: tr.getAttribute('data-nb-sira') || '',
+      id: tr.getAttribute('data-nb-id') || '',
+      rowRef: tr.getAttribute('data-nb-ref') || '',
+      bbt: Number(tr.getAttribute('data-nb-bbt') || 0) || 0,
+    };
+    if (!meta.plaka && !meta.a) return;
+
+    const rows = loadRows().slice();
+    const idx = findMatchingShipmentIndex(rows, meta);
+    if (idx < 0) {
+      toast('Satır bulunamadı — listeyi yenileyin');
+      return;
+    }
+
+    const snapshot = JSON.parse(JSON.stringify(rows[idx]));
+    const blockKey = core.blockGroupKey(snapshot) || meta.blockKey;
+    const bbt = core.parseNum(snapshot.bbt) || meta.bbt || 0;
+    const notesFromDeleted = Array.isArray(snapshot.blockPendingPlakaNotes)
+      ? snapshot.blockPendingPlakaNotes
+      : [];
+
+    rows.splice(idx, 1);
+
+    // Not yalnızca silinen satırdaysa aynı bloğun kardeş satırına taşı
+    if (notesFromDeleted.length && blockKey) {
+      const sibIdx = rows.findIndex((r) => r && core.blockGroupKey(r) === blockKey);
+      if (sibIdx >= 0) {
+        const sib = rows[sibIdx];
+        const existing = Array.isArray(sib.blockPendingPlakaNotes) ? sib.blockPendingPlakaNotes : [];
+        if (!existing.length) {
+          rows[sibIdx] = Object.assign({}, sib, { blockPendingPlakaNotes: notesFromDeleted });
+        }
+      }
+    }
+
+    const bumped = bumpBlockPendingNotes(rows, blockKey, bbt);
+    persistRows(bumped.rows, loadMeta());
+
+    pushUndo({
+      snapshot,
+      blockKey,
+      bbt,
+      noteBump: bumped.bumped || 0,
+    });
+
+    tr.classList.add('nb-plate--removing');
+    toast(`${core.compactPlate(meta.plaka || meta.a)} silindi · Geri Al ile döndürebilirsiniz`);
+    await renderList();
+  }
+
+  async function undoLastDelete() {
+    if (!_undoStack.length || !core) {
+      toast('Geri alınacak silme yok');
+      return;
+    }
+    const entry = _undoStack.pop();
+    updateUndoButton();
+    const rows = loadRows().slice();
+    let next = rows;
+    if (entry.noteBump) {
+      next = bumpBlockPendingNotes(next, entry.blockKey, -Math.abs(entry.noteBump)).rows;
+    }
+    next = next.concat([entry.snapshot]);
+    persistRows(next, loadMeta());
+    toast(`${core.compactPlate(entry.snapshot.plaka)} geri alındı`);
+    await renderList();
+  }
+
   function refreshExcelStatus() {
     const el = document.getElementById('nbExcelStatus');
     if (!el) return;
@@ -206,11 +373,10 @@
         it.port,
         it.headerText,
         it.malzeme,
+        it.lotLabel,
         String(it.planBbt),
         String(it.remainingBbt),
         ...(it.waitingPlates || []).map((p) => p.plaka),
-        ...(it.ozmalPlates || []).map((p) => p.plaka),
-        'ÖZMAL',
       ]
         .join(' ')
         .toUpperCase()
@@ -359,11 +525,33 @@
       if (row.kind === 'plate') {
         const statusCls = row.bassofor ? 'nb-side-bassofor' : row.ozmal ? 'nb-side-ozmal' : 'nb-side-red';
         const excludeCopy = row.ozmal || row.bassofor ? ' nb-plate--exclude-copy' : '';
+        const canDelete = !row.ozmal && !row.bassofor;
         html +=
           '<tr class="nb-plate' +
           (row.bassofor ? ' nb-plate--bassofor' : '') +
           (row.ozmal ? ' nb-plate--ozmal' : '') +
+          (canDelete ? ' nb-plate--click-del' : '') +
           excludeCopy +
+          '"' +
+          (canDelete
+            ? ' tabindex="0" title="Silmek için tıklayın" role="button" aria-label="' +
+              esc(row.a) +
+              ' satırını sil"'
+            : '') +
+          ' data-nb-plaka="' +
+          esc(row.plaka || row.a) +
+          '" data-nb-plaka-compact="' +
+          esc(row.a) +
+          '" data-nb-block="' +
+          esc(row.blockKey || '') +
+          '" data-nb-sira="' +
+          esc(row.sira || '') +
+          '" data-nb-id="' +
+          esc(row.id || '') +
+          '" data-nb-ref="' +
+          esc(row.rowRef || '') +
+          '" data-nb-bbt="' +
+          esc(String(row.bbt != null ? row.bbt : '')) +
           '"><td class="nb-num">' +
           esc(String(row.no || '')) +
           '</td><td class="nb-plaka">' +
@@ -471,14 +659,12 @@
 
       const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);
       const waitingCount = visible.reduce((s, x) => s + (x.waitingPlates || []).length, 0);
-      const ozmalCount = visible.reduce((s, x) => s + (x.ozmalPlates || []).length, 0);
       if (stats) {
         stats.textContent =
           visible.length +
           ' sevkiyat · ' +
           totalRemaining +
           ' BBT plaka bekliyor' +
-          (ozmalCount ? ' · ' + ozmalCount + ' özmal' : '') +
           (waitingCount ? ' · ' + waitingCount + ' gelmeyen plaka' : '') +
           (_searchNeedle ? ' (filtreli)' : '');
       }
@@ -518,10 +704,28 @@
     });
 
     document.getElementById('nbCopyAllBtn')?.addEventListener('click', copySheetImage);
+    document.getElementById('nbUndoBtn')?.addEventListener('click', () => {
+      void undoLastDelete();
+    });
 
     document.getElementById('nbSearch')?.addEventListener('input', (ev) => {
       _searchNeedle = ev.target.value || '';
       renderList();
+    });
+
+    const outer = document.getElementById('nbSheetOuter');
+    outer?.addEventListener('click', (e) => {
+      const tr = e.target.closest('tr.nb-plate--click-del');
+      if (!tr || !outer.contains(tr)) return;
+      e.preventDefault();
+      void deletePlateByClick(tr);
+    });
+    outer?.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const tr = e.target.closest('tr.nb-plate--click-del');
+      if (!tr || !outer.contains(tr)) return;
+      e.preventDefault();
+      void deletePlateByClick(tr);
     });
 
     window.addEventListener('storage', (e) => {
@@ -562,10 +766,12 @@
       }
 
       refreshExcelStatus();
+      updateUndoButton();
       await renderList();
     } catch (err) {
       console.error('nakliye-bekleyen init', err);
       refreshExcelStatus();
+      updateUndoButton();
       document.getElementById('nbListLoading')?.classList.add('hidden');
       document.getElementById('nbListEmpty')?.classList.remove('hidden');
       if (document.getElementById('nbListEmpty')) {

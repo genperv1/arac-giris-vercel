@@ -323,6 +323,22 @@
     return '';
   }
 
+  /** Ürün / sevkiyat lot no — her blok kendi LOT değerini taşır */
+  function extractLotLabel(sample) {
+    if (!sample) return '';
+    const meta = sample.blockMeta || {};
+    const chunks = [sample.headerText, meta.mainHeader]
+      .concat(Array.isArray(meta.subLines) ? meta.subLines : [])
+      .filter(Boolean)
+      .join(' ');
+    const m = String(chunks).match(/LOT\s*NO\s*([\d\s]+)/i);
+    if (!m) return '';
+    const digits = String(m[1] || '')
+      .trim()
+      .replace(/\s+/g, ' ');
+    return digits ? `LOT ${digits}` : '';
+  }
+
   const WAITING_VEHICLE_LABEL = 'GELMEYEN ARAÇ';
   const OZMAL_VEHICLE_LABEL = 'ÖZMAL';
 
@@ -380,8 +396,8 @@
   }
 
   function hasBlockSheetContent(item) {
-    if (!item) return false;
-    return hasNakliyeBlockContent(item) || (item.ozmalPlates || []).length > 0;
+    // Özmal plakalar bu listede gösterilmez; yalnızca nakliyeci bekleyen içerik
+    return hasNakliyeBlockContent(item);
   }
 
   function hasOzmalSheetContent(items) {
@@ -407,7 +423,7 @@
     return String(a?.plaka || '').localeCompare(String(b?.plaka || ''), 'tr');
   }
 
-  function buildPlateRowFromEntry(entry) {
+  function buildPlateRowFromEntry(entry, blockItem) {
     const ozmal = !!entry?.isOzmal;
     const bassofor = ozmal && isBassoforPlate(entry.plaka);
     const no = parseSiraNo(entry?.sira);
@@ -419,15 +435,21 @@
       a: compactPlate(entry.plaka),
       b: ozmal ? ozmalRowStatusLabel(entry.plaka) : WAITING_VEHICLE_LABEL,
       c: formatWaitingPlateBbtText(entry.bbt),
+      plaka: String(entry?.plaka || '').trim(),
+      bbt: entry?.bbt != null ? entry.bbt : null,
+      sira: String(entry?.sira || '').trim(),
+      id: String(entry?.id || '').trim(),
+      blockKey: String(entry?.blockKey || blockItem?.blockKey || '').trim(),
+      fileName: String(entry?.fileName || blockItem?.fileName || '').trim(),
+      rowRef: String(entry?.rowRef || '').trim(),
     };
   }
 
   function buildBlockPlateRows(item) {
-    const plates = (item.waitingPlates || [])
-      .map((p) => Object.assign({}, p, { isOzmal: false }))
-      .concat((item.ozmalPlates || []).map((p) => Object.assign({}, p, { isOzmal: true })));
+    // Özmal / başşoför plakaları nakliyeci listesinde gösterilmez (gelmeyen olsa dahi)
+    const plates = (item.waitingPlates || []).map((p) => Object.assign({}, p, { isOzmal: false }));
     plates.sort(comparePlatesBySira);
-    return plates.map(buildPlateRowFromEntry);
+    return plates.map((p) => buildPlateRowFromEntry(p, item));
   }
 
   function buildOzmalSheetRows(items) {
@@ -500,8 +522,10 @@
     return files.size;
   }
 
-  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix) {
+  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix, lotLabel) {
     let s = `${String(ydKey || 'GENEL').trim()} ${planBbt} BBT`;
+    const lot = String(lotLabel || '').trim();
+    if (lot) s += ` · ${lot}`;
     const m = String(malzeme || '').trim();
     if (m) s += ` (${m})`;
     const prefix = String(sourcePrefix || '').trim();
@@ -524,8 +548,10 @@
         item.ydKey,
         item.planBbt,
         item.malzemeLabel,
-        sourcePrefix
+        sourcePrefix,
+        item.lotLabel
       ),
+      lotLabel: item.lotLabel || '',
     });
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
@@ -685,14 +711,20 @@
         return;
       }
 
+      const bk = blockGroupKey(r);
       const entry = {
         plaka,
         bbt: rowBbt > 0 ? rowBbt : null,
         isOzmal: isOzmalPlate(plaka),
         sira: String(r.sira || '').trim(),
+        id: String(r.id || '').trim(),
+        blockKey: bk,
+        fileName: rowSourceFile(r),
+        rowRef: `${bk}::${plateKey(plaka)}::${String(r.sira || '').trim()}::${String(r.id || '').trim()}`,
       };
       if (entry.isOzmal) ozmalPlates.push(entry);
       else waitingPlates.push(entry);
+      // Özmal BBT de plana sayılır (listede görünmese bile atanmış kabul)
       if (rowBbt > 0) assignedWaitingBbt += rowBbt;
     });
 
@@ -709,6 +741,7 @@
     const ydKey = extractYdLabel(sample);
     const port = extractPort(sample);
     const malzemeLabel = extractMalzemeLabel(sample);
+    const lotLabel = extractLotLabel(sample);
     const status =
       waitingPlates.length === 0 && ozmalPlates.length > 0
         ? 'ozmal'
@@ -729,6 +762,7 @@
       headerText: String(sample.headerText || sample.blockMeta?.mainHeader || '').trim(),
       malzeme: String(sample.malzeme || '').trim(),
       malzemeLabel,
+      lotLabel,
       waitingPlates,
       ozmalPlates,
       explicitNotes,
@@ -787,6 +821,7 @@
     formatWaitingPlateBbtText,
     sumWaitingBbt,
     extractMalzemeLabel,
+    extractLotLabel,
     extractPlanBbt,
     extractYdLabel,
     isValidPlateCell,
