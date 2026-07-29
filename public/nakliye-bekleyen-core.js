@@ -552,6 +552,8 @@
         item.lotLabel
       ),
       lotLabel: item.lotLabel || '',
+      blockKey: String(item.blockKey || '').trim(),
+      fileName: String(item.fileName || '').trim(),
     });
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
@@ -560,6 +562,8 @@
         kind: 'pending',
         a: formatFooterRemainingText(rem),
         b: '',
+        blockKey: String(item.blockKey || '').trim(),
+        fileName: String(item.fileName || '').trim(),
       });
     }
     return rows;

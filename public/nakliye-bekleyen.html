@@ -220,6 +220,25 @@
       font-size: 0.7rem;
     }
     .nb-btn--block-copy:hover { background: #ffedd5; }
+    .nb-btn--block-add {
+      background: #ecfdf5;
+      border-color: #6ee7b7;
+      color: #065f46;
+      white-space: nowrap;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.7rem;
+    }
+    .nb-btn--block-add:hover { background: #d1fae5; }
+    /* BBT hücresi her zaman düzenlenebilir */
+    .nb-sheet-grid tr.nb-plate td.nb-bbt .nb-cell {
+      cursor: text;
+      min-width: 3ch;
+    }
+    .nb-sheet-grid tr.nb-plate td.nb-bbt .nb-cell:focus {
+      outline: 2px solid #f59e0b;
+      outline-offset: 1px;
+      background: #fffbeb;
+    }
     .nb-cell {
       display: inline-block;
       min-width: 1ch;
@@ -370,7 +389,7 @@
 
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <div class="nb-toolbar-card">
-      <p class="nb-hint">Excel görünümü temiz kalır. Sağdaki <strong>Kopyala</strong> ile bloğu görsel alırsınız — butonlar görsele girmez. Satır silmek / düzenlemek için <strong>Düzenle</strong> açın.</p>
+      <p class="nb-hint">BBT yazıp Enter / dışarı tıklayın — alttaki <strong>DAHA PLAKA VERİLECEK</strong> otomatik düşer. Yeni araç için sağdaki <strong>+ Plaka</strong>. Silince kalan artar.</p>
       <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
       <div class="flex flex-wrap gap-2 items-center">
         <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD / LOT ara…" />
@@ -399,7 +418,7 @@
 
   <script src="dailyStore.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260729-clean-v3"></script>
-  <script src="nakliye-bekleyen.js?v=20260729-clean-v3"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260730-capture-fix"></script>
+  <script src="nakliye-bekleyen.js?v=20260730-capture-fix"></script>
 </body>
 </html>

@@ -215,6 +215,159 @@
     return { rows: next, bumped };
   }
 
+  function parseBbtCellText(text) {
+    const s = String(text || '')
+      .trim()
+      .replace(/,/g, '.');
+    if (!s) return 0;
+    const m = s.match(/(\d+(?:\.\d+)?)/);
+    if (!m) return 0;
+    const n = Math.round(parseFloat(m[1]));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  function plateMetaFromTr(tr) {
+    if (!tr) return null;
+    return {
+      plaka: tr.getAttribute('data-nb-plaka') || '',
+      a: tr.getAttribute('data-nb-plaka-compact') || '',
+      blockKey: tr.getAttribute('data-nb-block') || '',
+      sira: tr.getAttribute('data-nb-sira') || '',
+      id: tr.getAttribute('data-nb-id') || '',
+      rowRef: tr.getAttribute('data-nb-ref') || '',
+      bbt: Number(tr.getAttribute('data-nb-bbt') || 0) || 0,
+    };
+  }
+
+  function findSampleRowForBlock(rows, blockKey) {
+    if (!core || !blockKey) return null;
+    return (
+      (rows || []).find(
+        (r) => r && !r._ihracatEmptyBlock && core.blockGroupKey(r) === blockKey && String(r.plaka || '').trim()
+      ) ||
+      (rows || []).find((r) => r && core.blockGroupKey(r) === blockKey) ||
+      null
+    );
+  }
+
+  /** Plaka satırındaki BBT değişince alttaki "DAHA PLAKA VERİLECEK" düşer/artar */
+  async function syncPlateBbtFromDom(tr) {
+    if (!core || !tr || !tr.classList.contains('nb-plate')) return;
+    if (tr.classList.contains('nb-plate--ozmal')) return;
+
+    const meta = plateMetaFromTr(tr);
+    if (!meta || (!meta.plaka && !meta.a)) return;
+
+    const bbtCell = tr.querySelector('td.nb-bbt .nb-cell');
+    const plakaCell = tr.querySelector('td.nb-plaka .nb-cell');
+    const newBbt = parseBbtCellText(bbtCell ? bbtCell.textContent : '');
+    const newPlakaRaw = plakaCell ? String(plakaCell.textContent || '').trim() : '';
+
+    const rows = loadRows().slice();
+    const idx = findMatchingShipmentIndex(rows, meta);
+    if (idx < 0) {
+      toast('Satır bulunamadı — listeyi yenileyin');
+      return;
+    }
+
+    const cur = rows[idx];
+    const oldBbt = core.parseNum(cur.bbt) || 0;
+    const blockKey = core.blockGroupKey(cur) || meta.blockKey;
+    let nextRow = Object.assign({}, cur);
+
+    if (newPlakaRaw && core.plateKey(newPlakaRaw) !== core.plateKey(cur.plaka)) {
+      if (!core.isValidPlateCell(newPlakaRaw)) {
+        toast('Geçersiz plaka');
+        await renderList();
+        return;
+      }
+      nextRow.plaka = newPlakaRaw;
+    }
+
+    if (newBbt === oldBbt && nextRow.plaka === cur.plaka) {
+      if (bbtCell) bbtCell.textContent = newBbt > 0 ? newBbt + ' BBT' : '';
+      return;
+    }
+
+    nextRow.bbt = newBbt > 0 ? String(newBbt) : '';
+    rows[idx] = nextRow;
+
+    // Atanan BBT arttıysa kalan düşer, azaldıysa artar
+    const noteDelta = oldBbt - newBbt;
+    const bumped = bumpBlockPendingNotes(rows, blockKey, noteDelta);
+    persistRows(bumped.rows, loadMeta());
+
+    tr.setAttribute('data-nb-bbt', String(newBbt || ''));
+    if (bbtCell) bbtCell.textContent = newBbt > 0 ? newBbt + ' BBT' : '';
+
+    if (noteDelta !== 0) {
+      toast(
+        noteDelta < 0
+          ? newBbt + ' BBT işlendi · kalan plaka düşürüldü'
+          : 'BBT güncellendi · kalan plaka artırıldı'
+      );
+    }
+    await renderList();
+  }
+
+  /** Bloğa yeni gelmeyen plaka ekle — BBT kadar alttan düş */
+  async function addPlateToBlock(blockEl) {
+    if (!core || !blockEl) return;
+    const blockKey =
+      blockEl.getAttribute('data-nb-block') ||
+      blockEl.querySelector('tr.nb-plate')?.getAttribute('data-nb-block') ||
+      '';
+    if (!blockKey) {
+      toast('Blok anahtarı yok');
+      return;
+    }
+
+    const plaka = window.prompt('Plaka girin (örn. 43 ABC 123)');
+    if (plaka == null) return;
+    const plakaTrim = String(plaka).trim();
+    if (!core.isValidPlateCell(plakaTrim)) {
+      toast('Geçersiz plaka');
+      return;
+    }
+
+    const bbtRaw = window.prompt('BBT miktarı (örn. 25)', '25');
+    if (bbtRaw == null) return;
+    const bbt = parseBbtCellText(bbtRaw);
+    if (bbt <= 0) {
+      toast('BBT girin');
+      return;
+    }
+
+    const rows = loadRows().slice();
+    const sample = findSampleRowForBlock(rows, blockKey);
+    if (!sample) {
+      toast('Blok satırı bulunamadı — Excel\'i yenileyin');
+      return;
+    }
+
+    const newId =
+      'nb-add-' +
+      Date.now().toString(36) +
+      '-' +
+      Math.random().toString(36).slice(2, 7);
+
+    const newRow = Object.assign({}, sample, {
+      id: newId,
+      plaka: plakaTrim,
+      bbt: String(bbt),
+      gidenTonaj: '',
+      sira: '',
+      _ihracatEmptyBlock: false,
+    });
+    delete newRow.blockPendingPlakaNotes;
+
+    rows.push(newRow);
+    const bumped = bumpBlockPendingNotes(rows, blockKey, -bbt);
+    persistRows(bumped.rows, loadMeta());
+    toast(core.compactPlate(plakaTrim) + ' eklendi · ' + bbt + ' BBT düşüldü');
+    await renderList();
+  }
+
   function findMatchingShipmentIndex(rows, plateMeta) {
     if (!core || !plateMeta) return -1;
     const pk = core.plateKey(plateMeta.plaka || plateMeta.a);
@@ -396,8 +549,9 @@
     );
   }
 
-  function editableCellHtml(text, extraClass) {
-    const editOn = document.body.classList.contains('nb-edit-on');
+  function editableCellHtml(text, extraClass, opts) {
+    const forceEdit = !!(opts && opts.alwaysEdit);
+    const editOn = forceEdit || document.body.classList.contains('nb-edit-on');
     return (
       '<span class="nb-cell' +
       (extraClass ? ' ' + extraClass : '') +
@@ -473,36 +627,36 @@
       .slice(0, 48) || 'blok';
   }
 
-  function sanitizeCaptureClone(root) {
-    if (!root) return;
-    root.querySelectorAll('.nb-no-capture, .nb-row-del, .nb-block-bar, .nb-block-side').forEach((node) => {
-      node.remove();
-    });
-    // Yan panel flex kalıntısı kalmasın — sadece tablo gövdesi
-    root.querySelectorAll('.nb-sheet-block-main').forEach((main) => {
-      const body = main.querySelector('.nb-sheet-block-body');
-      if (body && main.parentNode) {
-        main.parentNode.insertBefore(body, main);
-        main.remove();
-      }
-    });
-    root.querySelectorAll('.nb-cell').forEach((cell) => {
-      cell.removeAttribute('contenteditable');
-      cell.style.outline = 'none';
-      cell.style.background = 'transparent';
-      cell.style.boxShadow = 'none';
-    });
-    root.querySelectorAll('tr.nb-pending td').forEach((td) => {
-      td.style.padding = '10px 12px';
-    });
-    root.querySelectorAll('tr.nb-hdr td, tr.nb-ozmal-hdr td').forEach((td) => {
-      td.style.padding = '5px 10px';
-    });
-    root.querySelectorAll('tr.nb-plate td.nb-bbt').forEach((td) => {
-      td.style.paddingRight = '10px';
-    });
+  function hideForCapture(root) {
+    const saved = [];
+    const hide = (el) => {
+      if (!el || el.nodeType !== 1) return;
+      saved.push({ el, cssText: el.style.cssText });
+      el.style.setProperty('display', 'none', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+    };
+    if (!root) return () => {};
+    root.querySelectorAll('.nb-no-capture, .nb-row-del, .nb-block-side, .nb-block-bar, button.nb-row-del').forEach(hide);
+    // Bloğun yanındaki Kopyala / Plaka paneli (kardeş)
+    const main = root.classList?.contains('nb-sheet-block-main')
+      ? root
+      : root.closest?.('.nb-sheet-block-main');
+    if (main) main.querySelectorAll('.nb-block-side').forEach(hide);
+    const block = root.closest?.('.nb-sheet-block') || root;
+    if (block && block !== root) {
+      block.querySelectorAll('.nb-block-side, .nb-no-capture').forEach(hide);
+    }
+    return function restore() {
+      saved.forEach(({ el, cssText }) => {
+        el.style.cssText = cssText;
+      });
+    };
   }
 
+  /**
+   * Görünen tabloyu yerinde yakala (offscreen klon boyut bozuyordu).
+   * Temiz yedek: sabit genişlikte geçici kopya.
+   */
   async function captureElementToBlob(target) {
     if (!target) throw new Error('Hedef yok');
     const ready = await ensureHtml2Canvas();
@@ -514,27 +668,101 @@
       }
     } catch (e) {}
 
+    const gridCount =
+      target.querySelectorAll && target.querySelectorAll('.nb-sheet-grid').length
+        ? target.querySelectorAll('.nb-sheet-grid').length
+        : 0;
+    const isFullSheet =
+      target.id === 'nbSheetCarrier' ||
+      (target.classList && target.classList.contains('nb-sheet-wrap')) ||
+      gridCount > 1;
+
+    const captureRoot = isFullSheet
+      ? target
+      : (target.classList && target.classList.contains('nb-sheet-grid') && target) ||
+        target.querySelector?.('.nb-sheet-grid') ||
+        target;
+
+    const liveRect = captureRoot.getBoundingClientRect();
+    const liveW = Math.round(liveRect.width);
+    const liveH = Math.round(liveRect.height);
+
+    // 1) Önce ekrandaki gerçek tabloyu yakala
+    if (liveW >= 200 && liveH >= 30) {
+      const restore = hideForCapture(isFullSheet ? target : captureRoot);
+      document.body.classList.add('nb-is-capturing');
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      try {
+        const canvas = await html2canvas(captureRoot, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          logging: false,
+          useCORS: true,
+          allowTaint: true,
+        });
+        if (canvas.width >= 200 && canvas.height >= 30 && canvas.width / canvas.height < 40) {
+          return canvasToPngBlob(canvas);
+        }
+      } finally {
+        document.body.classList.remove('nb-is-capturing');
+        restore();
+      }
+    }
+
+    // 2) Yedek: sabit genişlikte temiz klon (görünür layout ile)
+    const width = Math.max(liveW > 100 ? Math.min(liveW, 900) : 450, 360);
     const host = document.createElement('div');
     host.className = 'nb-capture-host';
     host.setAttribute('aria-hidden', 'true');
-    host.style.cssText =
-      'position:fixed;left:-14000px;top:0;z-index:-1;background:#ffffff;padding:0;margin:0;';
+    host.style.cssText = [
+      'position:fixed',
+      'left:0',
+      'top:0',
+      'width:' + width + 'px',
+      'max-width:' + width + 'px',
+      'background:#ffffff',
+      'z-index:2147483646',
+      'padding:0',
+      'margin:0',
+      'overflow:visible',
+      'pointer-events:none',
+      'transform:translateY(-120%)',
+    ].join(';');
 
-    const clone = target.cloneNode(true);
-    sanitizeCaptureClone(clone);
+    const clone = captureRoot.cloneNode(true);
+    clone.querySelectorAll('.nb-no-capture, .nb-row-del, .nb-block-side, .nb-block-bar').forEach((n) => {
+      n.remove();
+    });
+    clone.querySelectorAll('.nb-cell').forEach((cell) => {
+      cell.removeAttribute('contenteditable');
+      cell.style.outline = 'none';
+      cell.style.background = 'transparent';
+    });
+    // Flex yan boşluk kalmasın
+    clone.querySelectorAll('.nb-sheet-block-main').forEach((main) => {
+      main.style.display = 'block';
+      main.style.width = '100%';
+    });
+    clone.style.width = width + 'px';
+    clone.style.maxWidth = width + 'px';
+    clone.style.background = '#ffffff';
+
     host.appendChild(clone);
     document.body.appendChild(host);
-
-    // Layout settle
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     try {
       const canvas = await html2canvas(clone, {
         backgroundColor: '#ffffff',
-        scale: Math.min(window.devicePixelRatio || 1, 2),
+        scale: 2,
         logging: false,
         useCORS: true,
+        width: width,
+        windowWidth: width + 24,
       });
+      if (canvas.height < 30) {
+        throw new Error('Yakalanan görsel bozuk (çok kısa)');
+      }
       return canvasToPngBlob(canvas);
     } finally {
       try {
@@ -605,14 +833,15 @@
       toast('Blok bulunamadı');
       return;
     }
+    // Sadece tablo (.nb-sheet-grid) — yan butonlar hariç
     const body = blockEl.querySelector('.nb-sheet-block-body') || blockEl;
+    const grid = body.querySelector('.nb-sheet-grid') || body;
     const label = blockEl.getAttribute('data-nb-block-label') || 'blok';
-    const fileName =
-      'nakliye-' + sanitizeFilePart(label) + '.png';
+    const fileName = 'nakliye-' + sanitizeFilePart(label) + '.png';
     const preferClipboard = !(opts && opts.downloadOnly);
 
     try {
-      const blob = await captureElementToBlob(body);
+      const blob = await captureElementToBlob(grid);
       await deliverImageBlob(blob, fileName, preferClipboard);
     } catch (e) {
       console.error('copyBlockImage', e);
@@ -650,10 +879,11 @@
         }
         const blockEl = blocks[i];
         const body = blockEl.querySelector('.nb-sheet-block-body') || blockEl;
+        const grid = body.querySelector('.nb-sheet-grid') || body;
         const label = blockEl.getAttribute('data-nb-block-label') || 'blok-' + (i + 1);
         const fileName =
           'nakliye-' + String(i + 1).padStart(2, '0') + '-' + sanitizeFilePart(label) + '.png';
-        const blob = await captureElementToBlob(body);
+        const blob = await captureElementToBlob(grid);
         await shareOrDownloadImage(blob, fileName, { forceDownload: true, silent: true });
         ok += 1;
         await new Promise((r) => setTimeout(r, 280));
@@ -725,7 +955,7 @@
           editableCellHtml(row.b || '') +
           '</td><td class="nb-bbt nb-editable-td">' +
           rowDeleteBtnHtml() +
-          editableCellHtml(row.c || '') +
+          editableCellHtml(row.c || '', '', { alwaysEdit: true }) +
           '</td></tr>';
       }
     });
@@ -740,19 +970,26 @@
 
   function buildBlockUnitHtml(blockRows, blockIdx) {
     const label = blockLabelFromRows(blockRows);
+    const blockKey =
+      (blockRows || []).map((r) => r && r.blockKey).find((k) => k) || '';
     return (
       '<div class="nb-sheet-block" data-nb-block-idx="' +
       esc(String(blockIdx)) +
       '" data-nb-block-label="' +
       esc(label) +
+      '" data-nb-block="' +
+      esc(blockKey) +
       '">' +
       '<div class="nb-sheet-block-main">' +
       '<div class="nb-sheet-block-body">' +
       buildSheetTableHtml(blockRows) +
       '</div>' +
       '<div class="nb-block-side nb-no-capture">' +
-      '<button type="button" class="nb-btn nb-btn--block-copy" data-nb-copy-block title="Bu bloğu görsel kopyala (buton görsele girmez)">' +
+      '<button type="button" class="nb-btn nb-btn--block-copy" data-nb-copy-block title="Bu bloğu görsel kopyala">' +
       '<i class="fas fa-image" aria-hidden="true"></i> Kopyala' +
+      '</button>' +
+      '<button type="button" class="nb-btn nb-btn--block-add" data-nb-add-plate title="Plaka + BBT ekle, alttan düş">' +
+      '<i class="fas fa-plus" aria-hidden="true"></i> Plaka' +
       '</button>' +
       '</div></div></div>'
     );
@@ -956,6 +1193,13 @@
         void copyBlockImage(block);
         return;
       }
+      const addBtn = e.target.closest('[data-nb-add-plate]');
+      if (addBtn && outer.contains(addBtn)) {
+        e.preventDefault();
+        const block = addBtn.closest('.nb-sheet-block');
+        void addPlateToBlock(block);
+        return;
+      }
       const delBtn = e.target.closest('.nb-row-del');
       if (delBtn && outer.contains(delBtn)) {
         e.preventDefault();
@@ -963,6 +1207,17 @@
         const tr = delBtn.closest('tr');
         void removeVisualRow(tr);
       }
+    });
+
+    outer?.addEventListener('focusout', (e) => {
+      const cell = e.target.closest('.nb-cell');
+      if (!cell || !outer.contains(cell)) return;
+      const tr = cell.closest('tr.nb-plate');
+      if (!tr) return;
+      // BBT veya plaka hücresinden çıkınca kaydet + kalanı güncelle
+      const td = cell.closest('td');
+      if (!td || (!td.classList.contains('nb-bbt') && !td.classList.contains('nb-plaka'))) return;
+      void syncPlateBbtFromDom(tr);
     });
 
     outer?.addEventListener('keydown', (e) => {
