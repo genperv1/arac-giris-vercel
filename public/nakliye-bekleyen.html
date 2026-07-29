@@ -53,8 +53,8 @@
     }
     .nb-sheet-wrap {
       width: 100%;
-      max-width: 450px;
-      background: #fff;
+      max-width: 560px;
+      background: transparent;
     }
     .nb-sheet-date {
       text-align: center;
@@ -67,7 +67,7 @@
       color: #000;
     }
     .nb-sheet-wrap.nb-sheet-wrap--dual {
-      max-width: 920px;
+      max-width: 1140px;
     }
     .nb-sheet-wrap.nb-sheet-wrap--side {
       max-width: min(96vw, 1420px);
@@ -92,13 +92,13 @@
     .nb-sheet-col {
       flex: 1 1 0;
       min-width: 0;
-      max-width: 450px;
+      max-width: 560px;
     }
     .nb-sheet-columns--side .nb-sheet-col {
       flex: 0 0 auto;
-      width: min(420px, 32vw);
-      min-width: 260px;
-      max-width: 450px;
+      width: min(520px, 36vw);
+      min-width: 280px;
+      max-width: 560px;
     }
     .nb-sheet-footer {
       margin-top: 0;
@@ -179,30 +179,105 @@
       color: #ff0000;
       font-weight: 700;
       font-size: 15px;
+      position: relative;
     }
-    .nb-sheet-grid tr.nb-plate--click-del {
-      cursor: pointer;
-      transition: background 0.15s ease, transform 0.12s ease, opacity 0.18s ease;
-    }
-    .nb-sheet-grid tr.nb-plate--click-del:hover td {
-      background: #fff5f5;
-    }
-    .nb-sheet-grid tr.nb-plate--click-del:hover td.nb-plaka::after {
-      content: ' sil';
-      font-size: 10px;
-      font-weight: 700;
-      color: #dc2626;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-      opacity: 0.85;
-    }
-    .nb-sheet-grid tr.nb-plate--click-del:focus-visible {
-      outline: 2px solid #f59e0b;
-      outline-offset: -2px;
-    }
-    .nb-sheet-grid tr.nb-plate--removing {
+    .nb-sheet-grid tr.nb-plate--removing,
+    .nb-sheet-grid tr.nb-row--removing {
       opacity: 0.35;
       transform: scale(0.98);
+    }
+
+    /* Excel bloğu: tablo + sağda DIŞARIDA kopyala */
+    .nb-sheet-block {
+      position: relative;
+      margin-bottom: 12px;
+    }
+    .nb-sheet-block:last-child { margin-bottom: 0; }
+    .nb-sheet-block-main {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .nb-sheet-block-body {
+      flex: 1 1 auto;
+      min-width: 0;
+      background: #fff;
+    }
+    .nb-block-side {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-top: 2px;
+    }
+    .nb-btn--block-copy {
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #9a3412;
+      white-space: nowrap;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.7rem;
+    }
+    .nb-btn--block-copy:hover { background: #ffedd5; }
+    .nb-cell {
+      display: inline-block;
+      min-width: 1ch;
+      max-width: 100%;
+      outline: none;
+      cursor: text;
+      border-radius: 2px;
+    }
+    body.nb-edit-on .nb-cell:focus {
+      outline: 2px solid #f59e0b;
+      outline-offset: 1px;
+      background: #fffbeb;
+    }
+    .nb-sheet-grid td.nb-editable-td {
+      position: relative;
+    }
+    .nb-row-del {
+      display: none;
+      position: absolute;
+      top: 50%;
+      right: 2px;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      border: 1px solid #fca5a5;
+      border-radius: 4px;
+      background: #fff;
+      color: #dc2626;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+      z-index: 2;
+    }
+    body.nb-edit-on .nb-row-del { display: block; opacity: 0.7; }
+    body.nb-edit-on .nb-row-del:hover { opacity: 1; background: #fef2f2; }
+    body.nb-edit-on .nb-sheet-grid tr.nb-hdr td,
+    body.nb-edit-on .nb-sheet-grid tr.nb-pending td {
+      padding-right: 22px;
+    }
+    body.nb-edit-on .nb-sheet-grid tr.nb-plate td.nb-bbt {
+      padding-right: 20px;
+    }
+    body.nb-edit-on .nb-sheet-grid tr.nb-plate .nb-row-del {
+      width: 16px;
+      height: 16px;
+      font-size: 11px;
+    }
+    .nb-btn--edit.is-on {
+      background: #0f172a;
+      border-color: #0f172a;
+      color: #fff;
+    }
+    /* Görsel kopyada asla görünmesin */
+    .nb-capture-host,
+    .nb-capture-host * {
+      pointer-events: none !important;
     }
     .nb-sheet-grid tr.nb-pending td {
       background: #ff5722;
@@ -213,6 +288,7 @@
       padding: 10px 12px;
       text-transform: uppercase;
       border: 2px solid #000;
+      position: relative;
     }
     .nb-sheet-grid tr.nb-gap td {
       border: none;
@@ -286,7 +362,7 @@
     <div class="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between gap-4 flex-wrap">
       <div>
         <div class="text-lg font-bold">Nakliye Bekleyenleri</div>
-        <div class="text-xs text-amber-100">Özmal hariç · LOT no · tıkla sil / geri al</div>
+        <div class="text-xs text-amber-100">Temiz Excel · sağdan kopyala · Düzenle ile sil</div>
       </div>
       <button type="button" id="nbBackBtn" class="px-4 py-2 bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg text-sm text-white">Ana Sayfa</button>
     </div>
@@ -294,16 +370,20 @@
 
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <div class="nb-toolbar-card">
-      <p class="nb-hint">Özmal araçlar bu listede gösterilmez. Her ürün kendi LOT no ile ayrılır. Gelmeyen plakaya tıklayınca silinir; sayılar otomatik güncellenir. Yanlışlıkla sildiyseniz <strong>Geri Al</strong>.</p>
+      <p class="nb-hint">Excel görünümü temiz kalır. Sağdaki <strong>Kopyala</strong> ile bloğu görsel alırsınız — butonlar görsele girmez. Satır silmek / düzenlemek için <strong>Düzenle</strong> açın.</p>
       <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
       <div class="flex flex-wrap gap-2 items-center">
         <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD / LOT ara…" />
         <button type="button" id="nbRefreshBtn" class="nb-btn"><i class="fas fa-sync-alt"></i> Yenile</button>
+        <button type="button" id="nbEditBtn" class="nb-btn nb-btn--edit" aria-pressed="false" title="Satır sil / hücre düzenle">
+          <i class="fas fa-pen" aria-hidden="true"></i> Düzenle
+        </button>
         <button type="button" id="nbUndoBtn" class="nb-btn nb-btn--undo" disabled aria-disabled="true" title="Son silinen plakayı geri al">
           <i class="fas fa-undo" aria-hidden="true"></i> Geri Al
           <span class="nb-undo-badge" hidden></span>
         </button>
-        <button type="button" id="nbCopyAllBtn" class="nb-btn nb-btn--primary"><i class="fas fa-image"></i> Görsel kopyala</button>
+        <button type="button" id="nbCopyAllBtn" class="nb-btn nb-btn--primary"><i class="fas fa-image"></i> Tümünü kopyala</button>
+        <button type="button" id="nbCopyBlocksBtn" class="nb-btn" title="Her bloğu ayrı PNG olarak sırayla indir"><i class="fas fa-th-large"></i> Blok blok indir</button>
       </div>
       <div id="nbStats" class="text-xs text-gray-500 mt-2"></div>
     </div>
@@ -319,7 +399,7 @@
 
   <script src="dailyStore.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260728-lot-del"></script>
-  <script src="nakliye-bekleyen.js?v=20260728-lot-del"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260729-clean-v3"></script>
+  <script src="nakliye-bekleyen.js?v=20260729-clean-v3"></script>
 </body>
 </html>

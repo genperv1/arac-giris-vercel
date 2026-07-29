@@ -38,6 +38,26 @@ test('extractPortFromHeaderText distinguishes GEMPORT and SAFIPORT', () => {
   );
 });
 
+test('extractPortFromHeaderText keeps full DEPO/LIMAN phrase, not only YILPORT', () => {
+  assert.strictEqual(
+    extractPortFromHeaderText(
+      'YD385(M) / LOT NO 26 06 45 / BOOKING NO : EBKG17796524 / GEMİ DETAYI : MSC HOUSTON V/NC631R / DEPO;MEDLOG LİMAN YILPORT'
+    ),
+    'DEPO;MEDLOG LİMAN YILPORT'
+  );
+  assert.strictEqual(
+    extractPortFromHeaderText('DEPO;MEDLOG LİMAN YILPORT'),
+    'DEPO;MEDLOG LİMAN YILPORT'
+  );
+  assert.strictEqual(
+    extractPortFromHeaderText(
+      'YD92(M) / NET 1150 KG BASKILI LİNERLİ / BOOKING NO : ISTG14409900 / GEMİ DETAYI : MSC TINA GT632E / EVYAP'
+    ),
+    'EVYAP'
+  );
+  assert.strictEqual(extractPortFromHeaderText('YILPORT'), 'YILPORT');
+});
+
 test('extractPrimaryAmbalajFromHeader preserves Turkish thousand separators', () => {
   assert.strictEqual(
     extractPrimaryAmbalajFromHeader('YD28 / NET 1.350 KG BIGBAGLER / GEMPORT'),

@@ -389,6 +389,26 @@
     return document.getElementById('nbSheetCarrier');
   }
 
+  function rowDeleteBtnHtml() {
+    return (
+      '<button type="button" class="nb-row-del nb-no-capture" title="Satırı sil" aria-label="Satırı sil">' +
+      '&times;</button>'
+    );
+  }
+
+  function editableCellHtml(text, extraClass) {
+    const editOn = document.body.classList.contains('nb-edit-on');
+    return (
+      '<span class="nb-cell' +
+      (extraClass ? ' ' + extraClass : '') +
+      '"' +
+      (editOn ? ' contenteditable="true"' : '') +
+      ' spellcheck="false">' +
+      esc(text) +
+      '</span>'
+    );
+  }
+
   async function canvasToPngBlob(canvas) {
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
@@ -404,22 +424,28 @@
     return true;
   }
 
-  async function shareOrDownloadImage(blob) {
-    const file = new File([blob], 'nakliye-bekleyenleri.png', { type: 'image/png' });
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'Nakliye Bekleyenleri' });
-      toast('Paylaşım menüsü açıldı');
-      return;
+  async function shareOrDownloadImage(blob, fileName, opts) {
+    const name = fileName || 'nakliye-bekleyenleri.png';
+    const forceDownload = !!(opts && opts.forceDownload);
+    const silent = !!(opts && opts.silent);
+    if (!forceDownload) {
+      const file = new File([blob], name, { type: 'image/png' });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Nakliye Bekleyenleri' });
+        if (!silent) toast('Paylaşım menüsü açıldı');
+        return 'shared';
+      }
     }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'nakliye-bekleyenleri.png';
+    a.download = name;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast('PNG indirildi — WhatsApp\'tan gönderin');
+    if (!silent) toast('PNG indirildi — WhatsApp\'tan gönderin');
+    return 'downloaded';
   }
 
   let _html2canvasPromise = null;
@@ -438,6 +464,96 @@
       if (typeof html2canvas !== 'function') _html2canvasPromise = null;
     });
     return _html2canvasPromise;
+  }
+
+  function sanitizeFilePart(s) {
+    return String(s || '')
+      .replace(/[^\w\-ÇĞİÖŞÜçğıöşü.]+/gi, '_')
+      .replace(/_+/g, '_')
+      .slice(0, 48) || 'blok';
+  }
+
+  function sanitizeCaptureClone(root) {
+    if (!root) return;
+    root.querySelectorAll('.nb-no-capture, .nb-row-del, .nb-block-bar, .nb-block-side').forEach((node) => {
+      node.remove();
+    });
+    // Yan panel flex kalıntısı kalmasın — sadece tablo gövdesi
+    root.querySelectorAll('.nb-sheet-block-main').forEach((main) => {
+      const body = main.querySelector('.nb-sheet-block-body');
+      if (body && main.parentNode) {
+        main.parentNode.insertBefore(body, main);
+        main.remove();
+      }
+    });
+    root.querySelectorAll('.nb-cell').forEach((cell) => {
+      cell.removeAttribute('contenteditable');
+      cell.style.outline = 'none';
+      cell.style.background = 'transparent';
+      cell.style.boxShadow = 'none';
+    });
+    root.querySelectorAll('tr.nb-pending td').forEach((td) => {
+      td.style.padding = '10px 12px';
+    });
+    root.querySelectorAll('tr.nb-hdr td, tr.nb-ozmal-hdr td').forEach((td) => {
+      td.style.padding = '5px 10px';
+    });
+    root.querySelectorAll('tr.nb-plate td.nb-bbt').forEach((td) => {
+      td.style.paddingRight = '10px';
+    });
+  }
+
+  async function captureElementToBlob(target) {
+    if (!target) throw new Error('Hedef yok');
+    const ready = await ensureHtml2Canvas();
+    if (!ready) throw new Error('html2canvas yok');
+
+    try {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+    } catch (e) {}
+
+    const host = document.createElement('div');
+    host.className = 'nb-capture-host';
+    host.setAttribute('aria-hidden', 'true');
+    host.style.cssText =
+      'position:fixed;left:-14000px;top:0;z-index:-1;background:#ffffff;padding:0;margin:0;';
+
+    const clone = target.cloneNode(true);
+    sanitizeCaptureClone(clone);
+    host.appendChild(clone);
+    document.body.appendChild(host);
+
+    // Layout settle
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    try {
+      const canvas = await html2canvas(clone, {
+        backgroundColor: '#ffffff',
+        scale: Math.min(window.devicePixelRatio || 1, 2),
+        logging: false,
+        useCORS: true,
+      });
+      return canvasToPngBlob(canvas);
+    } finally {
+      try {
+        host.remove();
+      } catch (e) {}
+    }
+  }
+
+  async function deliverImageBlob(blob, fileName, preferClipboard) {
+    if (preferClipboard !== false) {
+      try {
+        const copied = await writeImageToClipboard(blob);
+        if (copied) {
+          toast('Görsel kopyalandı — WhatsApp\'a yapıştırın');
+          return 'copied';
+        }
+      } catch (e) {}
+    }
+    return shareOrDownloadImage(blob, fileName);
   }
 
   async function copySheetImage() {
@@ -460,16 +576,6 @@
       toast('Tablo bulunamadı');
       return;
     }
-    try {
-      const ready = await ensureHtml2Canvas();
-      if (!ready) {
-        toast('Görsel aracı yüklenemedi');
-        return;
-      }
-    } catch (e) {
-      toast('Görsel aracı yüklenemedi');
-      return;
-    }
 
     const btn = document.getElementById('nbCopyAllBtn');
     const prevHtml = btn ? btn.innerHTML : '';
@@ -480,28 +586,83 @@
 
     try {
       target.classList.add('nb-sheet-capture--carrier-only');
-      const canvas = await html2canvas(target, {
-        backgroundColor: '#ffffff',
-        scale: Math.min(window.devicePixelRatio || 1, 2),
-        logging: false,
-        useCORS: true,
-      });
-      const blob = await canvasToPngBlob(canvas);
-
-      try {
-        const copied = await writeImageToClipboard(blob);
-        if (copied) {
-          toast('Görsel kopyalandı — WhatsApp\'a yapıştırın');
-          return;
-        }
-      } catch (e) {}
-
-      await shareOrDownloadImage(blob);
+      const blob = await captureElementToBlob(target);
+      await deliverImageBlob(blob, 'nakliye-bekleyenleri.png', true);
     } catch (e) {
       console.error('copySheetImage', e);
       toast('Görsel kopyalanamadı');
     } finally {
       target.classList.remove('nb-sheet-capture--carrier-only');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = prevHtml;
+      }
+    }
+  }
+
+  async function copyBlockImage(blockEl, opts) {
+    if (!blockEl) {
+      toast('Blok bulunamadı');
+      return;
+    }
+    const body = blockEl.querySelector('.nb-sheet-block-body') || blockEl;
+    const label = blockEl.getAttribute('data-nb-block-label') || 'blok';
+    const fileName =
+      'nakliye-' + sanitizeFilePart(label) + '.png';
+    const preferClipboard = !(opts && opts.downloadOnly);
+
+    try {
+      const blob = await captureElementToBlob(body);
+      await deliverImageBlob(blob, fileName, preferClipboard);
+    } catch (e) {
+      console.error('copyBlockImage', e);
+      toast('Blok görseli kopyalanamadı');
+    }
+  }
+
+  async function copyAllBlocksAsFiles() {
+    const blocks = Array.from(document.querySelectorAll('#nbSheetCarrier .nb-sheet-block'));
+    if (!blocks.length) {
+      toast('Kopyalanacak blok yok');
+      return;
+    }
+
+    try {
+      await ensureHtml2Canvas();
+    } catch (e) {
+      toast('Görsel aracı yüklenemedi');
+      return;
+    }
+
+    const btn = document.getElementById('nbCopyBlocksBtn');
+    const prevHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> İndiriliyor…';
+    }
+
+    let ok = 0;
+    try {
+      for (let i = 0; i < blocks.length; i++) {
+        if (btn) {
+          btn.innerHTML =
+            '<i class="fas fa-spinner fa-spin"></i> ' + (i + 1) + '/' + blocks.length;
+        }
+        const blockEl = blocks[i];
+        const body = blockEl.querySelector('.nb-sheet-block-body') || blockEl;
+        const label = blockEl.getAttribute('data-nb-block-label') || 'blok-' + (i + 1);
+        const fileName =
+          'nakliye-' + String(i + 1).padStart(2, '0') + '-' + sanitizeFilePart(label) + '.png';
+        const blob = await captureElementToBlob(body);
+        await shareOrDownloadImage(blob, fileName, { forceDownload: true, silent: true });
+        ok += 1;
+        await new Promise((r) => setTimeout(r, 280));
+      }
+      toast(ok + ' blok PNG indirildi');
+    } catch (e) {
+      console.error('copyAllBlocksAsFiles', e);
+      toast('Bloklar indirilemedi');
+    } finally {
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = prevHtml;
@@ -519,26 +680,28 @@
       if (row.kind === 'header' || row.kind === 'pending' || row.kind === 'ozmal-header') {
         const cls =
           row.kind === 'header' ? 'nb-hdr' : row.kind === 'ozmal-header' ? 'nb-ozmal-hdr' : 'nb-pending';
-        html += '<tr class="' + cls + '"><td colspan="4">' + esc(row.a) + '</td></tr>';
+        html +=
+          '<tr class="' +
+          cls +
+          '" data-nb-row-kind="' +
+          esc(row.kind) +
+          '"><td colspan="4" class="nb-editable-td">' +
+          rowDeleteBtnHtml() +
+          editableCellHtml(row.a) +
+          '</td></tr>';
         return;
       }
       if (row.kind === 'plate') {
         const statusCls = row.bassofor ? 'nb-side-bassofor' : row.ozmal ? 'nb-side-ozmal' : 'nb-side-red';
         const excludeCopy = row.ozmal || row.bassofor ? ' nb-plate--exclude-copy' : '';
-        const canDelete = !row.ozmal && !row.bassofor;
+        const canPersistDelete = !row.ozmal && !row.bassofor;
         html +=
           '<tr class="nb-plate' +
           (row.bassofor ? ' nb-plate--bassofor' : '') +
           (row.ozmal ? ' nb-plate--ozmal' : '') +
-          (canDelete ? ' nb-plate--click-del' : '') +
+          (canPersistDelete ? ' nb-plate--persist-del' : '') +
           excludeCopy +
-          '"' +
-          (canDelete
-            ? ' tabindex="0" title="Silmek için tıklayın" role="button" aria-label="' +
-              esc(row.a) +
-              ' satırını sil"'
-            : '') +
-          ' data-nb-plaka="' +
+          '" data-nb-row-kind="plate" data-nb-plaka="' +
           esc(row.plaka || row.a) +
           '" data-nb-plaka-compact="' +
           esc(row.a) +
@@ -552,21 +715,57 @@
           esc(row.rowRef || '') +
           '" data-nb-bbt="' +
           esc(String(row.bbt != null ? row.bbt : '')) +
-          '"><td class="nb-num">' +
-          esc(String(row.no || '')) +
-          '</td><td class="nb-plaka">' +
-          esc(row.a) +
+          '"><td class="nb-num nb-editable-td">' +
+          editableCellHtml(String(row.no || '')) +
+          '</td><td class="nb-plaka nb-editable-td">' +
+          editableCellHtml(row.a) +
           '</td><td class="' +
           statusCls +
-          '">' +
-          esc(row.b || '') +
-          '</td><td class="nb-bbt">' +
-          esc(row.c || '') +
+          ' nb-editable-td">' +
+          editableCellHtml(row.b || '') +
+          '</td><td class="nb-bbt nb-editable-td">' +
+          rowDeleteBtnHtml() +
+          editableCellHtml(row.c || '') +
           '</td></tr>';
       }
     });
     html += '</tbody></table></div>';
     return html;
+  }
+
+  function blockLabelFromRows(blockRows) {
+    const hdr = (blockRows || []).find((r) => r && r.kind === 'header');
+    return hdr && hdr.a ? String(hdr.a) : 'blok';
+  }
+
+  function buildBlockUnitHtml(blockRows, blockIdx) {
+    const label = blockLabelFromRows(blockRows);
+    return (
+      '<div class="nb-sheet-block" data-nb-block-idx="' +
+      esc(String(blockIdx)) +
+      '" data-nb-block-label="' +
+      esc(label) +
+      '">' +
+      '<div class="nb-sheet-block-main">' +
+      '<div class="nb-sheet-block-body">' +
+      buildSheetTableHtml(blockRows) +
+      '</div>' +
+      '<div class="nb-block-side nb-no-capture">' +
+      '<button type="button" class="nb-btn nb-btn--block-copy" data-nb-copy-block title="Bu bloğu görsel kopyala (buton görsele girmez)">' +
+      '<i class="fas fa-image" aria-hidden="true"></i> Kopyala' +
+      '</button>' +
+      '</div></div></div>'
+    );
+  }
+
+  function buildBlocksColumnHtml(blockGroups, startIdx) {
+    let idx = startIdx || 0;
+    let html = '';
+    (blockGroups || []).forEach((block) => {
+      html += buildBlockUnitHtml(block, idx);
+      idx += 1;
+    });
+    return { html, nextIdx: idx };
   }
 
   function renderExcelSheet(items) {
@@ -581,18 +780,20 @@
     const parts = core.buildExcelSheetParts(items);
     const blocks = core.groupSheetRowsByBlock(parts.nakliyeRows);
     const multiFile = !!parts.multiFile;
-    const fileGroups = multiFile && typeof core.groupItemsByExcelFile === 'function'
-      ? core.groupItemsByExcelFile(items)
-      : [];
+    const fileGroups =
+      multiFile && typeof core.groupItemsByExcelFile === 'function'
+        ? core.groupItemsByExcelFile(items)
+        : [];
     const useSideBySide = multiFile && fileGroups.length > 1;
     const usePackedDual =
       !useSideBySide && core.shouldUseDualColumnLayout(parts.nakliyeRows, blocks, { multiFile });
     const sourceDates = new Set(items.map((it) => it.sourceDateLabel).filter(Boolean));
-    const dateLabel = multiFile || sourceDates.size > 1
-      ? ''
-      : sourceDates.size === 1
-        ? [...sourceDates][0]
-        : resolveSheetDateLabel(loadMeta());
+    const dateLabel =
+      multiFile || sourceDates.size > 1
+        ? ''
+        : sourceDates.size === 1
+          ? [...sourceDates][0]
+          : resolveSheetDateLabel(loadMeta());
 
     if (!parts.nakliyeRows.length) {
       outer.innerHTML = '';
@@ -605,34 +806,54 @@
         ? ' nb-sheet-wrap--dual'
         : '';
 
-    let html =
-      '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
+    let html = '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
     if (dateLabel) {
       html += '<div class="nb-sheet-date">' + esc(dateLabel) + '</div>';
     }
     if (useSideBySide) {
       html += '<div class="nb-sheet-columns nb-sheet-columns--side">';
+      let idx = 0;
       fileGroups.forEach((fileItems) => {
         const fileParts = core.buildExcelSheetParts(fileItems, { multiFile: true });
         const fileBlocks = core.groupSheetRowsByBlock(fileParts.nakliyeRows);
-        html +=
-          '<div class="nb-sheet-col">' +
-          buildSheetTableHtml(core.flattenSheetBlocks([fileBlocks])) +
-          '</div>';
+        const built = buildBlocksColumnHtml(fileBlocks, idx);
+        idx = built.nextIdx;
+        html += '<div class="nb-sheet-col">' + built.html + '</div>';
       });
       html += '</div>';
     } else if (usePackedDual) {
       const cols = core.splitBlocksIntoColumns(blocks);
       html += '<div class="nb-sheet-columns">';
+      let idx = 0;
       cols.forEach((colBlocks) => {
-        html += '<div class="nb-sheet-col">' + buildSheetTableHtml(core.flattenSheetBlocks([colBlocks])) + '</div>';
+        const built = buildBlocksColumnHtml(colBlocks, idx);
+        idx = built.nextIdx;
+        html += '<div class="nb-sheet-col">' + built.html + '</div>';
       });
       html += '</div>';
     } else {
-      html += buildSheetTableHtml(parts.nakliyeRows);
+      html += buildBlocksColumnHtml(blocks, 0).html;
     }
     html += '</div>';
     outer.innerHTML = html;
+  }
+
+  async function removeVisualRow(tr) {
+    if (!tr) return;
+    const kind = tr.getAttribute('data-nb-row-kind') || '';
+    if (kind === 'plate' && tr.classList.contains('nb-plate--persist-del')) {
+      await deletePlateByClick(tr);
+      return;
+    }
+    tr.classList.add('nb-row--removing');
+    toast(kind === 'header' ? 'Başlık satırı kaldırıldı' : 'Satır kaldırıldı');
+    setTimeout(() => {
+      const block = tr.closest('.nb-sheet-block');
+      tr.remove();
+      if (block && !block.querySelector('tbody tr')) {
+        block.remove();
+      }
+    }, 120);
   }
 
   async function renderList(forceReports) {
@@ -704,6 +925,19 @@
     });
 
     document.getElementById('nbCopyAllBtn')?.addEventListener('click', copySheetImage);
+    document.getElementById('nbCopyBlocksBtn')?.addEventListener('click', () => {
+      void copyAllBlocksAsFiles();
+    });
+    document.getElementById('nbEditBtn')?.addEventListener('click', () => {
+      const on = document.body.classList.toggle('nb-edit-on');
+      const btn = document.getElementById('nbEditBtn');
+      if (btn) {
+        btn.classList.toggle('is-on', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+      toast(on ? 'Düzenleme açık — × ile satır silin, hücreye yazın' : 'Düzenleme kapalı');
+      void renderList();
+    });
     document.getElementById('nbUndoBtn')?.addEventListener('click', () => {
       void undoLastDelete();
     });
@@ -715,17 +949,29 @@
 
     const outer = document.getElementById('nbSheetOuter');
     outer?.addEventListener('click', (e) => {
-      const tr = e.target.closest('tr.nb-plate--click-del');
-      if (!tr || !outer.contains(tr)) return;
-      e.preventDefault();
-      void deletePlateByClick(tr);
+      const copyBtn = e.target.closest('[data-nb-copy-block]');
+      if (copyBtn && outer.contains(copyBtn)) {
+        e.preventDefault();
+        const block = copyBtn.closest('.nb-sheet-block');
+        void copyBlockImage(block);
+        return;
+      }
+      const delBtn = e.target.closest('.nb-row-del');
+      if (delBtn && outer.contains(delBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const tr = delBtn.closest('tr');
+        void removeVisualRow(tr);
+      }
     });
+
     outer?.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' && e.key !== ' ') return;
-      const tr = e.target.closest('tr.nb-plate--click-del');
-      if (!tr || !outer.contains(tr)) return;
-      e.preventDefault();
-      void deletePlateByClick(tr);
+      const cell = e.target.closest('.nb-cell');
+      if (!cell || !outer.contains(cell)) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        cell.blur();
+      }
     });
 
     window.addEventListener('storage', (e) => {

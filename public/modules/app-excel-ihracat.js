@@ -1811,16 +1811,37 @@ function _findKnownPortsInText(text) {
   return out;
 }
 
+/** Segment sadece liman adıysa kanonik etiket; DEPO;MEDLOG LİMAN YILPORT gibiyse tam metin */
+function _foldPortKey(s) {
+  return String(s || '')
+    .toLocaleUpperCase('tr-TR')
+    .replace(/İ/g, 'I')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _sevkYeriFromPortSegment(segment, knownPorts) {
+  const seg = String(segment || '').replace(/\s+/g, ' ').trim();
+  const last = knownPorts[knownPorts.length - 1] || '';
+  if (!seg) return last;
+  const compact = _foldPortKey(seg);
+  for (const p of knownPorts) {
+    if (compact === _foldPortKey(p)) return p;
+  }
+  // Excel'deki kırmızı depo/liman ifadesinin tamamını koru
+  return seg;
+}
+
 function extractPortFromHeaderText(headerText) {
   const s = String(headerText || '').replace(/\s+/g, ' ').trim();
   if (!s) return '';
   const parts = s.split('/').map((p) => p.trim()).filter(Boolean);
   for (let i = parts.length - 1; i >= 0; i--) {
     const segPorts = _findKnownPortsInText(parts[i]);
-    if (segPorts.length) return segPorts[segPorts.length - 1];
+    if (segPorts.length) return _sevkYeriFromPortSegment(parts[i], segPorts);
   }
   const all = _findKnownPortsInText(s);
-  return all.length ? all[all.length - 1] : '';
+  return all.length ? _sevkYeriFromPortSegment(s, all) : '';
 }
 
 function extractPrimaryPortFromShipment(sh) {
