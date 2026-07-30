@@ -533,9 +533,16 @@
     const root = listRoot || document.getElementById('issuesList');
     if (!root || !handlers || root._issuesDelegated) return;
     root._issuesDelegated = true;
-    const { apiUpdateProblem, apiDeleteProblem, refreshList } = handlers;
+    const { apiUpdateProblem, apiDeleteProblem, refreshList, focusPlate } = handlers;
 
     root.addEventListener('click', async (e) => {
+      const moreBtn = e.target.closest('.issue-dossier__more, [data-focus-plate]');
+      if (moreBtn && root.contains(moreBtn) && moreBtn.dataset.focusPlate) {
+        e.preventDefault();
+        if (typeof focusPlate === 'function') focusPlate(moreBtn.dataset.focusPlate);
+        return;
+      }
+
       const btn = e.target.closest('.issueEditBtn, .issueDelBtn, .issueToggleBtn');
       if (!btn || !root.contains(btn)) return;
 
@@ -631,24 +638,153 @@
     });
   }
 
-  function filterAndSortProblems(all, showClosed) {
+  function issueSortTs(it) {
+    const parsed = parseIssueItem(it);
+    return Date.parse(parsed.dt) || (parsed.dt ? new Date(parsed.dt).getTime() : 0) || Number(it.ts) || 0;
+  }
+
+  function filterAndSortProblems(all, showClosed, forcedPlate) {
+    const forced = forcedPlate ? _normPlate(forcedPlate) : '';
     return (Array.isArray(all) ? all : [])
+      .map((it) => {
+        if (!forced) return it;
+        const hasPlate = _normPlate(it.plate || it.addedPlate || '');
+        return hasPlate ? it : Object.assign({}, it, { plate: forced });
+      })
       .filter((it) => {
         const parsed = parseIssueItem(it);
-        if (!_normPlate(parsed.plate || it.plate || it.addedPlate || '')) return false;
+        const plate = _normPlate(parsed.plate || it.plate || it.addedPlate || forced);
+        if (!plate) return false;
         return showClosed ? true : !parsed.isClosed;
       })
+      .sort((a, b) => issueSortTs(b) - issueSortTs(a));
+  }
+
+  function groupProblemsByPlate(items) {
+    const groups = new Map();
+    (items || []).forEach((it) => {
+      const key = _normPlate(it.plate || it.addedPlate || parseIssueItem(it).plate);
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+    });
+    return [...groups.entries()]
+      .map(([plate, list]) => ({
+        plate,
+        items: list.slice().sort((a, b) => issueSortTs(b) - issueSortTs(a)),
+        openCount: list.filter((it) => !parseIssueItem(it).isClosed).length
+      }))
       .sort((a, b) => {
-        const da = parseIssueItem(a);
-        const db = parseIssueItem(b);
-        const ta = Date.parse(da.dt) || (da.dt ? new Date(da.dt).getTime() : 0) || 0;
-        const tb = Date.parse(db.dt) || (db.dt ? new Date(db.dt).getTime() : 0) || 0;
+        if (b.openCount !== a.openCount) return b.openCount - a.openCount;
+        const ta = a.items[0] ? issueSortTs(a.items[0]) : 0;
+        const tb = b.items[0] ? issueSortTs(b.items[0]) : 0;
         return tb - ta;
       });
   }
 
+  function renderCompactEventHTML(parsed, plateKey, rejection) {
+    const k = escHtml(plateKey || parsed.plate);
+    const id = escHtml(parsed.id || '');
+    const statusBadge = parsed.isClosed
+      ? '<span class="issue-record-badge issue-record-badge--closed">Kapalı</span>'
+      : '<span class="issue-record-badge issue-record-badge--open">Açık</span>';
+    const typeBadge = parsed.type
+      ? `<span class="issue-record-badge issue-record-badge--type">${escHtml(parsed.type)}</span>`
+      : '';
+    const note = String(parsed.note || '').trim();
+    const noteShort = note.length > 110 ? note.slice(0, 110) + '…' : note;
+    const rej = rejection
+      ? `<div class="issue-card-event__rej">Red: ${escHtml(rejection.duration || 'Reddedildi')}</div>`
+      : '';
+
+    return `
+      <article class="issue-card-event ${parsed.isClosed ? 'is-closed' : 'is-open'}">
+        <div class="issue-card-event__top">
+          <time class="issue-card-event__dt">${escHtml(parsed.dt) || '—'}</time>
+          <div class="issue-card-event__badges">${statusBadge}${typeBadge}</div>
+        </div>
+        ${rej}
+        <p class="issue-card-event__note">${noteShort ? escHtml(noteShort) : '—'}</p>
+        <div class="issue-card-event__actions">
+          <button type="button" class="vehicle-card__tool vehicle-card__tool--primary issueEditBtn" data-plate="${k}" data-id="${id}">Düzenle</button>
+          <button type="button" class="vehicle-card__tool issueToggleBtn" data-plate="${k}" data-id="${id}">${parsed.isClosed ? 'Aç' : 'Kapat'}</button>
+          <button type="button" class="vehicle-card__tool vehicle-card__tool--danger issueDelBtn" data-plate="${k}" data-id="${id}">Sil</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderPlateDossierHTML(group, meta, opts) {
+    const compact = !!(opts && opts.compact);
+    const plateKey = group.plate;
+    const plateLabel = escHtml(String(plateKey || '').toUpperCase());
+    const driver = (meta && meta.driverMap && meta.driverMap.get(plateKey)) || null;
+    const openN = group.openCount;
+    const totalN = group.items.length;
+    const statusCls = openN > 0 ? 'is-open' : 'is-clear';
+    const statusLabel = openN > 0 ? `${openN} açık` : 'Temiz';
+    const driverName = driver && driver.name ? escHtml(driver.name) : '';
+    const driverPhone = driver && driver.phone ? escHtml(driver.phone) : '';
+    const driverBlock = (driverName || driverPhone)
+      ? `<div class="issue-dossier__driver">
+          ${driverName ? `<div class="issue-dossier__driver-name">${driverName}</div>` : ''}
+          ${driverPhone ? `<div class="issue-dossier__driver-phone">${driverPhone}</div>` : ''}
+        </div>`
+      : '<div class="issue-dossier__driver issue-dossier__driver--muted">Şoför bilgisi yok</div>';
+
+    const maxShow = compact ? 2 : group.items.length;
+    const shown = group.items.slice(0, maxShow);
+    const more = Math.max(0, group.items.length - shown.length);
+
+    const events = shown.map((it) => {
+      const parsed = parseIssueItem(it);
+      const rejection = resolveRejectionForCard(parsed, plateKey, meta.rejectionMap);
+      if (compact) return renderCompactEventHTML(parsed, plateKey, rejection);
+      return `
+        <li class="issue-timeline__item ${parsed.isClosed ? 'is-closed' : 'is-open'}">
+          <div class="issue-timeline__rail" aria-hidden="true"></div>
+          ${renderIssueCardHTML(parsed, plateKey, { showPlate: false, rejection, driver: null })}
+        </li>
+      `;
+    }).join('');
+
+    const moreLine = more > 0
+      ? `<button type="button" class="issue-dossier__more" data-focus-plate="${escHtml(plateKey)}">+${more} olay daha · plakayı aç</button>`
+      : '';
+
+    const body = compact
+      ? `<div class="issue-dossier__body">${events}${moreLine}</div>`
+      : `<ol class="issue-timeline">${events}</ol>`;
+
+    return `
+      <section class="issue-dossier ${statusCls}${compact ? ' issue-dossier--card' : ''}" data-plate="${escHtml(plateKey)}">
+        <header class="issue-dossier__head">
+          <div class="issue-dossier__identity">
+            <div class="issue-dossier__plate">${plateLabel}</div>
+            ${driverBlock}
+          </div>
+          <div class="issue-dossier__stats">
+            <span class="issue-dossier__pill ${openN > 0 ? 'issue-dossier__pill--danger' : 'issue-dossier__pill--ok'}">${escHtml(statusLabel)}</span>
+            <span class="issue-dossier__pill">${totalN} kayıt</span>
+          </div>
+        </header>
+        ${body}
+      </section>
+    `;
+  }
+
   function renderProblemsGridHTML(items, meta, opts) {
     const showPlate = !!(opts && opts.showPlate);
+    if (opts && opts.asDossiers) {
+      const groups = groupProblemsByPlate(items);
+      if (!groups.length) return '';
+      return `<div class="issue-dossier-list">${groups.map((g) => renderPlateDossierHTML(g, meta, { compact: true })).join('')}</div>`;
+    }
+    if (opts && opts.asTimeline && !showPlate) {
+      const plateKey = _normPlate((opts && opts.plate) || '');
+      const group = { plate: plateKey, items, openCount: items.filter((it) => !parseIssueItem(it).isClosed).length };
+      return `<div class="issue-dossier-list issue-dossier-list--single">${renderPlateDossierHTML(group, meta, { compact: false })}</div>`;
+    }
     return `<div class="issues-list-grid">${items.map((it) => {
       const parsed = parseIssueItem(it);
       const plateKey = _normPlate(it.plate || it.addedPlate || parsed.plate);
@@ -765,9 +901,17 @@
     return false;
   };
 
+  const focusPlate = (p) => {
+    const plateInput = document.getElementById('issuesPlateInput');
+    if (plateInput) plateInput.value = String(p || '').toUpperCase();
+    schedulePlateRefresh(plateInput?.value || p || '');
+    try { plateInput?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (err) { /* ignore */ }
+  };
+
   const issueHandlers = {
     apiUpdateProblem,
     apiDeleteProblem,
+    focusPlate,
     refreshList: (p) => renderList(p !== undefined && p !== null ? p : (document.getElementById('issuesPlateInput')?.value || ''))
   };
 
@@ -795,22 +939,22 @@
         const metaAll = await loadVehicleMetaForPlates(platesAll);
         if (gen !== __listRenderGen) return;
 
-        listEl.innerHTML = renderProblemsGridHTML(filteredAll, metaAll, { showPlate: true });
+        listEl.innerHTML = renderProblemsGridHTML(filteredAll, metaAll, { asDossiers: true });
         if (!listEl._issuesDelegated) attachIssueCardHandlers(listEl, issueHandlers);
         return;
       }
 
-      const items = filterAndSortProblems(await apiFetchProblems(norm), showClosed);
+      const rawItems = await apiFetchProblems(norm);
+      const items = filterAndSortProblems(rawItems, showClosed, norm);
       if (gen !== __listRenderGen) return;
       if (!items.length) {
-        listEl.innerHTML = issuesEmptyHTML('Bu plakaya kayıtlı sorun yok.');
+        listEl.innerHTML = issuesEmptyHTML('Bu plakaya kayıtlı olay yok. İlk kaydı yukarıdan ekleyin.');
         return;
       }
 
       const meta = await loadVehicleMetaForPlates([norm]);
       if (gen !== __listRenderGen) return;
-      const driverForPlate = meta.driverMap.get(_normPlate(norm)) || null;
-      listEl.innerHTML = renderProblemsGridHTML(items, meta, { showPlate: false, driver: driverForPlate });
+      listEl.innerHTML = renderProblemsGridHTML(items, meta, { asTimeline: true, plate: norm });
       if (!listEl._issuesDelegated) attachIssueCardHandlers(listEl, issueHandlers);
     } catch (e) {
       if (gen !== __listRenderGen) return;
@@ -887,19 +1031,44 @@
     });
   }
 
-  card.querySelector('#issuesAddBtn').addEventListener('click', async ()=>{
+  async function apiCreateProblem(plate, issue) {
+    const norm = _normPlate(plate);
+    const payload = {
+      id: Date.now().toString(36) + Math.random().toString(16).slice(2),
+      plate: norm,
+      data: Object.assign({ plate: norm, addedPlate: norm }, issue),
+      ts: Date.now()
+    };
+    const res = await authFetch('/api/problems', { method: 'POST', body: JSON.stringify(payload) });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).error || ''; } catch (e) { /* ignore */ }
+      const err = new Error(detail || 'server');
+      err.status = res.status;
+      throw err;
+    }
+    const body = await res.json().catch(() => ({}));
+    return { id: (body && body.id) || payload.id, plate: norm, payload };
+  }
+
+  const addBtn = card.querySelector('#issuesAddBtn');
+  addBtn.addEventListener('click', async () => {
     const plate = document.getElementById('issuesPlateInput').value || '';
-    const note  = (document.getElementById('issuesNoteInput').value || '').trim();
+    const note = (document.getElementById('issuesNoteInput').value || '').trim();
     const dateV = document.getElementById('issuesDateInput').value || '';
     const msgEl = document.getElementById('issuesAddMsg');
 
     if (!_normPlate(plate)) { msgEl.textContent = '❗ Plaka boş olamaz.'; return; }
-    if (!note) { msgEl.textContent = '❗ Sorun notu yaz.'; return; }
+    if (!note) { msgEl.textContent = '❗ Olay notu yazın.'; return; }
+
+    if (addBtn.disabled) return;
+    addBtn.disabled = true;
+    msgEl.textContent = 'Kaydediliyor…';
 
     let photo = '';
     const file = document.getElementById('issuesPhotoInput')?.files?.[0];
     if (file) {
-      try { photo = await fileToDataUrl(file); } catch(e){ photo=''; }
+      try { photo = await fileToDataUrl(file); } catch (e) { photo = ''; }
     }
 
     const d = dateV ? new Date(dateV) : new Date();
@@ -917,106 +1086,69 @@
       dateISO: d.toISOString(),
       dateLocal: d.toLocaleString('tr-TR')
     };
-    
-    // Check if rejection is selected
+
     const rejectionDuration = document.getElementById('rejectionDurationSelect')?.value || '';
     const customDays = document.getElementById('customDaysInput')?.value || '';
-    
-    if (rejectionDuration) {
-      // Handle rejection
-      try {
-        // Use the same vehicle finding logic as the driver info
-        const vehiclesRes = await authFetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
-        if (!vehiclesRes.ok) throw new Error('Araçlar alınamadı');
-        const vehicle = await vehiclesRes.json();
-        if (!vehicle) {
-          msgEl.textContent = '❗ Araç bulunamadı.';
-          return;
-        }
+    let rejectionOk = false;
+    let rejectionFailed = false;
 
-        // Reject vehicle - use direct API call without complex authentication
-        const rejectionData = { 
-          id: vehicle.id,
-          duration: rejectionDuration, 
-          customDays: rejectionDuration === 'custom' ? Number(customDays) : undefined 
-        };
-        
-        console.log('Reddetme işlemi başlıyor:', rejectionData);
-        
-        let rejectionSyncPayload = null;
+    try {
+      if (rejectionDuration) {
         try {
+          const vehiclesRes = await authFetch('/api/vehicles/lookup?plate=' + encodeURIComponent(plate));
+          if (!vehiclesRes.ok) throw new Error('Araçlar alınamadı');
+          const vehicle = await vehiclesRes.json();
+          if (!vehicle || !vehicle.id) throw new Error('Araç bulunamadı');
+
           const rejectRes = await authFetch('/api/vehicles/reject-simple', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(rejectionData)
+            body: JSON.stringify({
+              id: vehicle.id,
+              duration: rejectionDuration,
+              customDays: rejectionDuration === 'custom' ? Number(customDays) : undefined
+            })
           });
-
-          if (!rejectRes.ok) {
-            console.error('Reddetme API hatası:', rejectRes.status);
-            throw new Error('Reddetme başarısız');
-          }
-
-          rejectionSyncPayload = await rejectRes.json();
-          console.log('Reddetme başarılı:', rejectionSyncPayload);
+          if (!rejectRes.ok) throw new Error('Reddetme başarısız');
+          const rejectionSyncPayload = await rejectRes.json();
           issue.rejectionApplied = true;
           issue.rejectionDuration = (rejectionSyncPayload && rejectionSyncPayload.duration) || '';
           issue.rejectionEndTs = (rejectionSyncPayload && rejectionSyncPayload.endTs != null) ? rejectionSyncPayload.endTs : null;
           issue.rejectedAtLocal = new Date().toLocaleString('tr-TR');
+          rejectionOk = true;
           try { notifyMainTab(plate, { rejection: true }); } catch (e) { /* ignore */ }
-
-        } catch (error) {
-          console.error('Reddetme hatası:', error);
-          // Continue anyway - still save the issue
+          __vehicleMetaCache.delete(_normPlate(plate));
+        } catch (rejErr) {
+          console.error('Reddetme hatası:', rejErr);
+          rejectionFailed = true;
         }
+      }
 
-        // Save issue first
-        try {
-          const payload = { plate: _normPlate(plate), data: issue, ts: Date.now() };
-          const res = await authFetch('/api/problems', { method: 'POST', body: JSON.stringify(payload) });
-          if (!res.ok) throw new Error('server');
-        } catch(e) {
-          addIssue(plate, issue);
-        }
+      await apiCreateProblem(plate, issue);
 
-        msgEl.textContent = '✅ Sorun kaydedildi ve araç reddedildi!';
-        
-        // Clear rejection form
+      document.getElementById('issuesNoteInput').value = '';
+      try { document.getElementById('issuesTypeSelect').value = ''; } catch (e) { /* ignore */ }
+      document.getElementById('issuesPhotoInput').value = '';
+      if (rejectionDuration) {
         document.getElementById('rejectionDurationSelect').value = '';
         document.getElementById('customDaysInput').value = '';
-        document.getElementById('customDaysContainer').classList.add('hidden');
-        
-      } catch (error) {
-        console.error('Reddetme hatası:', error);
-        // If rejection fails, still save the issue
-        try {
-          const payload = { plate: _normPlate(plate), data: issue, ts: Date.now() };
-          const res = await authFetch('/api/problems', { method: 'POST', body: JSON.stringify(payload) });
-          if (!res.ok) throw new Error('server');
-        } catch(e) {
-          addIssue(plate, issue);
-        }
-        msgEl.textContent = '✅ Sorun kaydedildi. (Reddetme başarısız)';
+        document.getElementById('customDaysContainer')?.classList.add('hidden');
       }
-    } else {
-      // Save issue normally
-      try {
-        const payload = { plate: _normPlate(plate), data: issue, ts: Date.now() };
-        const res = await authFetch('/api/problems', { method: 'POST', body: JSON.stringify(payload) });
-        if (!res.ok) throw new Error('server');
-      } catch(e) {
-        addIssue(plate, issue);
-      }
-      msgEl.textContent = '✅ Kaydedildi.';
+
+      if (rejectionOk) msgEl.textContent = '✅ Olay kaydedildi, araç reddedildi.';
+      else if (rejectionFailed) msgEl.textContent = '✅ Olay kaydedildi. (Reddetme başarısız)';
+      else msgEl.textContent = '✅ Olay kaydedildi.';
+
+      await renderList(plate);
+      await syncProblemsToDriverCards(plate, rejectionOk ? { rejection: true } : {});
+    } catch (e) {
+      console.error('Olay kaydı hatası:', e);
+      addIssue(plate, issue);
+      msgEl.textContent = '❗ Sunucuya yazılamadı. Yerel yedek alındı; sayfayı yenileyip tekrar deneyin.';
+      await renderList(plate);
+    } finally {
+      addBtn.disabled = false;
     }
-    
-    // Clear form
-    document.getElementById('issuesNoteInput').value = '';
-    try { document.getElementById('issuesTypeSelect').value = ''; } catch(e){}
-    document.getElementById('issuesPhotoInput').value = '';
-    
-    // Refresh
-    doRefresh();
-    await syncProblemsToDriverCards(plate, rejectionDuration ? { rejection: true } : {});
   });
 
   const plateInput = card.querySelector('#issuesPlateInput');

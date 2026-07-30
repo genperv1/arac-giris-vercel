@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <link rel="apple-touch-icon" href="logo.png" />
   <meta name="theme-color" content="#4f46e5" />
-  <title>Şoför Sorun Kayıtları — Yönetim Paneli</title>
+  <title>Plaka Olay Dosyaları — Yönetim Paneli</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
   <link rel="stylesheet" href="styles.css">
@@ -661,6 +661,273 @@
       color: var(--rp-muted);
     }
 
+    .issue-dossier-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 0.85rem;
+      align-items: stretch;
+    }
+
+    .issue-dossier-list--single {
+      grid-template-columns: 1fr;
+      max-width: 720px;
+    }
+
+    .issue-dossier {
+      background: #fff;
+      border: 1px solid var(--rp-border);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+      transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+    }
+
+    .issue-dossier:hover {
+      border-color: #cbd5e1;
+      box-shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+      transform: translateY(-1px);
+    }
+
+    .issue-dossier.is-open {
+      border-color: #fca5a5;
+      box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.12), 0 6px 20px rgba(239, 68, 68, 0.06);
+    }
+
+    .issue-dossier__head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.65rem;
+      padding: 0.75rem 0.85rem;
+      background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%);
+      border-bottom: 1px solid #fecaca;
+      color: #0f172a;
+    }
+
+    .issue-dossier.is-clear .issue-dossier__head {
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      border-bottom-color: #e2e8f0;
+    }
+
+    .issue-dossier__identity {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .issue-dossier__plate {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      font-size: 1.125rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      line-height: 1.2;
+      color: #0f172a;
+    }
+
+    .issue-dossier__driver {
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
+      line-height: 1.3;
+      color: #475569;
+    }
+
+    .issue-dossier__driver-name {
+      font-weight: 600;
+      color: #334155;
+    }
+
+    .issue-dossier__driver-phone {
+      font-weight: 500;
+      color: #64748b;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .issue-dossier__driver--muted {
+      color: #94a3b8;
+    }
+
+    .issue-dossier__stats {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.3rem;
+      flex-shrink: 0;
+    }
+
+    .issue-dossier__pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.18rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      background: #eef2ff;
+      border: 1px solid #c7d2fe;
+      color: #4338ca;
+      white-space: nowrap;
+    }
+
+    .issue-dossier__pill--danger {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #b91c1c;
+    }
+
+    .issue-dossier__pill--ok {
+      background: #ecfdf5;
+      border-color: #bbf7d0;
+      color: #15803d;
+    }
+
+    .issue-dossier__body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding: 0.7rem 0.8rem 0.8rem;
+      flex: 1;
+    }
+
+    .issue-card-event {
+      padding: 0.55rem 0.6rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .issue-card-event.is-open {
+      background: #fff;
+      border-color: #fecaca;
+    }
+
+    .issue-card-event__top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.4rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .issue-card-event__dt {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #1e293b;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .issue-card-event__badges {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.25rem;
+    }
+
+    .issue-card-event__note {
+      margin: 0;
+      font-size: 0.78rem;
+      line-height: 1.4;
+      color: #475569;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .issue-card-event__rej {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #991b1b;
+      margin-bottom: 0.25rem;
+    }
+
+    .issue-card-event__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.5rem;
+    }
+
+    .issue-dossier__more {
+      align-self: flex-start;
+      margin-top: 0.1rem;
+      padding: 0.3rem 0.55rem;
+      border: 1px dashed #c7d2fe;
+      border-radius: 6px;
+      background: #eef2ff;
+      color: #4338ca;
+      font-size: 0.72rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .issue-dossier__more:hover {
+      background: #e0e7ff;
+    }
+
+    .issue-timeline {
+      list-style: none;
+      margin: 0;
+      padding: 1rem 1rem 1.1rem 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      position: relative;
+    }
+
+    .issue-timeline__item {
+      position: relative;
+      padding-left: 1rem;
+    }
+
+    .issue-timeline__rail {
+      position: absolute;
+      left: 0.15rem;
+      top: 0.35rem;
+      bottom: -0.75rem;
+      width: 2px;
+      background: linear-gradient(180deg, #c7d2fe 0%, #e2e8f0 100%);
+    }
+
+    .issue-timeline__item:last-child .issue-timeline__rail {
+      bottom: 0.4rem;
+    }
+
+    .issue-timeline__item::before {
+      content: "";
+      position: absolute;
+      left: -0.05rem;
+      top: 1.05rem;
+      width: 0.65rem;
+      height: 0.65rem;
+      border-radius: 50%;
+      background: #4f46e5;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 2px #c7d2fe;
+      z-index: 1;
+    }
+
+    .issue-timeline__item.is-open::before {
+      background: #dc2626;
+      box-shadow: 0 0 0 2px #fecaca;
+    }
+
+    .issue-timeline__item.is-closed::before {
+      background: #16a34a;
+      box-shadow: 0 0 0 2px #bbf7d0;
+    }
+
+    .issue-timeline .issue-record-card {
+      margin: 0;
+    }
+
+    @media (max-width: 640px) {
+      .issue-dossier-list {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .issues-empty {
       text-align: center;
       padding: 2.5rem 1rem;
@@ -758,8 +1025,8 @@
 
   <main class="max-w-7xl mx-auto px-4 py-6">
     <div class="mb-6">
-      <h1 class="rp-page-title">Şoför / Plaka Sorun Kayıtları</h1>
-      <p class="rp-page-desc">Plaka yazıldıkça kayıtlar otomatik listelenir. Yeni sorun ekleyebilir veya geçmiş kayıtları inceleyebilirsiniz.</p>
+      <h1 class="rp-page-title">Plaka Olay Dosyaları</h1>
+      <p class="rp-page-desc">Her plakanın kendi olay geçmişi vardır. Plaka yazın, kaydı ekleyin — olay anında o plakanın zaman çizelgesine düşer.</p>
     </div>
 
     <input type="hidden" id="imzaKantarAd" value="" />
@@ -793,7 +1060,7 @@
         <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
           <h2 class="rp-section-title">
             <span class="rp-section-icon"><i class="fas fa-plus" aria-hidden="true"></i></span>
-            Yeni sorun ekle
+            Yeni olay ekle
           </h2>
           <div class="flex items-center gap-3 flex-wrap">
             <div id="issuesAddMsg" class="text-sm font-medium text-slate-600"></div>
@@ -857,8 +1124,8 @@
 
       <section class="rp-section issues-history-section">
         <h2 class="rp-section-title mb-4">
-          <span class="rp-section-icon"><i class="fas fa-clipboard-list" aria-hidden="true"></i></span>
-          Geçmiş kayıtlar
+          <span class="rp-section-icon"><i class="fas fa-stream" aria-hidden="true"></i></span>
+          Plaka olay geçmişi
         </h2>
         <div id="issuesList"></div>
       </section>
@@ -868,6 +1135,6 @@
   <script src="core-dom.js"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
   <script src="issues-sync-bus.js"></script>
-  <script src="issues-page.js"></script>
+  <script src="issues-page.js?v=20260731-plate-cards"></script>
 </body>
 </html>

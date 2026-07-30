@@ -16,10 +16,10 @@ function registerProblemRoutes(api, ctx) {
       const plateQuery = req.query.plate || '';
       if (plateQuery) {
         const plate = String(plateQuery || '');
-        const r = await q('SELECT id, data FROM problems WHERE plate = $1 ORDER BY ts DESC LIMIT $2 OFFSET $3', [plate, limit, offset]);
+        const r = await q('SELECT id, data, plate FROM problems WHERE plate = $1 ORDER BY ts DESC LIMIT $2 OFFSET $3', [plate, limit, offset]);
         const parsed = (r.rows || []).map((row) => {
-          try { return Object.assign({ id: row.id }, JSON.parse(row.data)); }
-          catch { return { id: row.id, raw: row.data }; }
+          try { return Object.assign({ id: row.id, plate: row.plate }, JSON.parse(row.data)); }
+          catch { return { id: row.id, plate: row.plate, raw: row.data }; }
         });
         return res.json(parsed);
       }
@@ -57,10 +57,11 @@ function registerProblemRoutes(api, ctx) {
       }
 
       let data = body.data !== undefined ? body.data : body;
-      if (typeof data === 'string') data = sanitizeString(data, 500);
+      if (typeof data === 'string') data = sanitizeString(data, 8000);
       const raw = (typeof data === 'string') ? data : JSON.stringify(data);
-      if (typeof raw === 'string' && raw.length > 500) {
-        return res.status(400).json({ error: 'data field exceeds 500 characters' });
+      // Not + meta + (opsiyonel) sıkıştırılmış fotoğraf; base64 görseller için üst sınır
+      if (typeof raw === 'string' && raw.length > 2_000_000) {
+        return res.status(400).json({ error: 'data field exceeds size limit' });
       }
       const ts = Number(body.ts || Date.now());
 
@@ -83,8 +84,8 @@ function registerProblemRoutes(api, ctx) {
       const plate = String(body.plate || '');
       const data = body.data !== undefined ? body.data : body;
       const raw = (typeof data === 'string') ? data : JSON.stringify(data);
-      if (typeof raw === 'string' && raw.length > 500) {
-        return res.status(400).json({ error: 'data field exceeds 500 characters' });
+      if (typeof raw === 'string' && raw.length > 2_000_000) {
+        return res.status(400).json({ error: 'data field exceeds size limit' });
       }
       const ts = Number(body.ts || Date.now());
 
