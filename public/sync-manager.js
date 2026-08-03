@@ -319,6 +319,18 @@
       }
     },
 
+    /** Aynı tarayıcıdaki diğer sekmelere olay (SSE beklemeden) */
+    broadcastLocal(type, data) {
+      try {
+        if (this._sseManager && this._sseManager.tabCommunicator) {
+          this._sseManager.tabCommunicator.broadcastEvent(type, data || {});
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        localStorage.setItem('gpm_sync_bump_' + type, String(Date.now()));
+      } catch (e) { /* ignore */ }
+    },
+
     // Get connection status
     isConnected() {
       return eventSource && eventSource.readyState === EventSource.OPEN;

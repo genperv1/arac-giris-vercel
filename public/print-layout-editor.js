@@ -493,6 +493,7 @@
     async function loadBg() {
       if (!bg) return;
       const staticFallbacks = [
+        '/assets/takip-form-bg.png',
         '/assets/takip-form-bg.jpg',
         'https://i.hizliresim.com/36cc3jp.jpg',
       ];
@@ -623,6 +624,177 @@
       openLivePrintPreview();
     });
 
+    // --- Günlük baskıdan örnek veri ---
+    let _reportCache = [];
+
+    function istanbulIsoToday() {
+      try {
+        return new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Europe/Istanbul',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date());
+      } catch (e) {
+        const d = new Date();
+        return d.toISOString().slice(0, 10);
+      }
+    }
+
+    function trDateToIso(tr) {
+      const m = String(tr || '').trim().match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+      if (!m) return '';
+      return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    }
+
+    function isoToTr(iso) {
+      const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return '';
+      return `${m[3]}.${m[2]}.${m[1]}`;
+    }
+
+    function reportToSamples(row) {
+      const d = (row && row.data) || {};
+      const plate = String(d.plaka || d.cekiciPlaka || d.plate || '').trim();
+      const dorse = String(d.dorsePlaka || d.dorse_plaka || '').trim();
+      return {
+        yuklemeSirasi: String(d.yuklemeSirasi || '').trim(),
+        tarih: String(d.tarih || row.tarih || '').trim(),
+        sofor: String(d.sofor || '').trim(),
+        iletisim: String(d.iletisim || '').trim(),
+        tc: String(d.tcKimlik || d.tc_kimlik || d.tc || '').trim(),
+        sevkYeri: String(d.sevkYeri || d.sevk_yeri || '').trim(),
+        cekici: plate,
+        dorse: dorse,
+        firma: String(d.firma || d.firmaKodu || d.firmaSelect || row.firma || '').trim(),
+        malzeme: String(d.malzeme || row.malzeme || '').trim(),
+        ambBilgi: String(d.ambalajBilgisi || d.yuklemeTuru || d.yukleme_turu || '').trim(),
+        tonaj: String(d.tonaj || '').trim(),
+        seperator: String(d.seperatorBilgisi || d.seperator || '').trim(),
+        not: String(d.yuklemeNotu || d.not || '').trim(),
+        bbt: String(d.bbt || '').trim(),
+        bosBbt: String(d.bosBbt || d.bos_bbt || '').trim(),
+        cuval: String(d.cuval || '').trim(),
+        bosCuval: String(d.bosCuval || d.bos_cuval || '').trim(),
+        palet: String(d.palet || '').trim(),
+        torba: String(d.torba || '').trim(),
+        imzaKantar: String(d.kantar || d.imzaKantarAd || '').trim(),
+        imzaSaha: String(d.saha || d.imzaSahaAd || '').trim(),
+        imzaYukleyen: String(d.imzaYukleyenAd || d.yukleyen || '').trim(),
+        imzaKalite: String(d.imzaKaliteAd || d.kalite || '').trim(),
+      };
+    }
+
+    function applySamplesToEditor(samples) {
+      if (!state.samples) state.samples = {};
+      Object.keys(samples || {}).forEach((k) => {
+        if (samples[k] != null && String(samples[k]).trim() !== '') {
+          state.samples[k] = String(samples[k]);
+        }
+      });
+      // Ambalaj gibi çok satırlı alanlar için satır kırma modu
+      if (state.samples.ambBilgi && /\n/.test(state.samples.ambBilgi)) {
+        setFieldStyle('ambBilgi', { wrap: 'pre-line' });
+      }
+      if (state.samples.seperator && /\n/.test(state.samples.seperator)) {
+        setFieldStyle('seperator', { wrap: 'pre-line' });
+      }
+      if (state.samples.sevkYeri && /;/.test(state.samples.sevkYeri)) {
+        setFieldStyle('sevkYeri', { wrap: 'pre-line' });
+      }
+      renderAll();
+      loadSigImages();
+      syncControlsFromState();
+    }
+
+    async function fetchDailyReports() {
+      const dateEl = val('pleReportDate');
+      const sel = val('pleReportSelect');
+      const hint = val('pleReportHint');
+      const applyBtn = val('pleReportApplyBtn');
+      const iso = (dateEl && dateEl.value) || istanbulIsoToday();
+      const wantTr = isoToTr(iso);
+      if (sel) {
+        sel.disabled = true;
+        sel.innerHTML = '<option value="">Yükleniyor…</option>';
+      }
+      if (applyBtn) applyBtn.disabled = true;
+      try {
+        const r = await fetch('/api/reports?limit=800&_=' + Date.now(), {
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (!r.ok) throw new Error('Raporlar alınamadı (' + r.status + ')');
+        const list = await r.json();
+        const rows = (Array.isArray(list) ? list : []).filter((ev) => {
+          if (!ev || ev.type !== 'PRINT') return false;
+          const tr = String((ev.data && ev.data.tarih) || ev.tarih || '').trim();
+          if (wantTr && tr) return trDateToIso(tr) === iso || tr === wantTr;
+          // tarih yoksa ts ile İstanbul günü
+          if (ev.ts) {
+            try {
+              const isoTs = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Europe/Istanbul',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+              }).format(new Date(Number(ev.ts)));
+              return isoTs === iso;
+            } catch (e) { return false; }
+          }
+          return false;
+        });
+        _reportCache = rows;
+        if (!sel) return;
+        if (!rows.length) {
+          sel.innerHTML = '<option value="">Bu günde yazdırma yok</option>';
+          if (hint) hint.textContent = wantTr + ' için kayıt bulunamadı.';
+          return;
+        }
+        sel.innerHTML = rows.map((ev, i) => {
+          const d = ev.data || {};
+          const plate = d.plaka || '—';
+          const firma = (d.firma || d.firmaKodu || '').toString().slice(0, 28);
+          const malz = (d.malzeme || '').toString().slice(0, 22);
+          const saat = d.saat || ev.saat || '';
+          const label = `${saat} · ${plate} · ${firma}${malz ? ' · ' + malz : ''}`;
+          return `<option value="${i}">${String(label).replace(/</g, '&lt;')}</option>`;
+        }).join('');
+        sel.disabled = false;
+        if (applyBtn) applyBtn.disabled = false;
+        if (hint) hint.textContent = rows.length + ' yazdırma yüklendi — sorunluyu seçip «Örneğe yükle» deyin.';
+      } catch (e) {
+        _reportCache = [];
+        if (sel) sel.innerHTML = '<option value="">Hata</option>';
+        if (hint) hint.textContent = (e && e.message) || 'Yüklenemedi';
+        toast('Günlük baskılar alınamadı.', true);
+      }
+    }
+
+    function applySelectedReport() {
+      const sel = val('pleReportSelect');
+      const idx = sel ? Number(sel.value) : -1;
+      const row = _reportCache[idx];
+      if (!row) {
+        toast('Önce listeden bir yazdırma seçin.', true);
+        return;
+      }
+      const samples = reportToSamples(row);
+      applySamplesToEditor(samples);
+      const d = row.data || {};
+      const plate = d.plaka || '';
+      toast('Örnek yüklendi: ' + plate + ' — düzenleyip Kaydet’e basın.');
+      if (val('pleReportHint')) {
+        val('pleReportHint').textContent = 'Şablonda gerçek veri görünüyor. Konum/punto ayarla → Kaydet → canlı siteye geçer.';
+      }
+    }
+
+    const reportDateEl = val('pleReportDate');
+    if (reportDateEl && !reportDateEl.value) reportDateEl.value = istanbulIsoToday();
+    val('pleReportFetchBtn')?.addEventListener('click', () => { fetchDailyReports(); });
+    val('pleReportApplyBtn')?.addEventListener('click', () => { applySelectedReport(); });
+    // Bölüm açılınca bugünün listesini hazırla
+    setTimeout(() => { fetchDailyReports().catch(() => {}); }, 400);
+
     function buildLayoutSnapshot() {
       const fields = {};
       PLS.FIELD_DEFS.forEach((d) => {
@@ -693,9 +865,16 @@
       const result = await PLS.pushToServer(state);
       if (showToast) {
         if (result && result.ok) {
-          toast('Kaydedildi — tüm kullanıcılar aynı yazdırma düzenini kullanacak.');
+          toast('Kaydedildi — canlı sitedeki yazdırma da aynı düzeni kullanacak.');
+          try {
+            // Diğer sekmeler / açık ana sayfa hemen alsın
+            if (window.SyncManager && typeof window.SyncManager.broadcastLocal === 'function') {
+              window.SyncManager.broadcastLocal('print_layout_updated', { updatedAt: result.updatedAt || Date.now() });
+            }
+            localStorage.setItem('printLayoutBump', String(Date.now()));
+          } catch (e) { /* ignore */ }
         } else {
-          toast((result && result.error) || 'Sunucuya kaydedilemedi.', true);
+          toast((result && result.error) || 'Sunucuya kaydedilemedi — ayarlar oturumunu kontrol edin.', true);
         }
       }
     }

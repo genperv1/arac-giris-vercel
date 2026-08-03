@@ -72,7 +72,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v1';
+  var PRINT_REV = 'print-v5-live';
   window.ensurePrintLoaded = function () {
     var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
     var stalePrint = window.Print && window.Print.__aracBosRev !== PRINT_REV;

@@ -632,6 +632,36 @@
     }
     .ple-box--active .ple-resize { background: #2563eb; }
     .ple-controls { margin-top: 1rem; max-width: 1180px; }
+    .ple-report-pick {
+      margin-bottom: 1rem;
+      padding: .85rem 1rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      background: #f8fafc;
+    }
+    .ple-report-pick__row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      align-items: center;
+      margin-bottom: .55rem;
+    }
+    .ple-report-pick__row:last-of-type { margin-bottom: .35rem; }
+    .ple-report-pick label {
+      font-size: .8125rem;
+      font-weight: 700;
+      color: #334155;
+      margin-right: .25rem;
+    }
+    .ple-report-pick select,
+    .ple-report-pick input[type="date"] {
+      padding: .45rem .6rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: .8125rem;
+      background: #fff;
+    }
+    .ple-report-pick select { flex: 1; min-width: 220px; max-width: 100%; }
 
     /* Yazdırma: form üstte tam genişlik, ayarlar altta — kaydırma yok, metinler sığar */
     #section-yazdir .ple-root,
@@ -1623,13 +1653,27 @@
         </div>
 
         <div class="ple-controls">
+          <div class="ple-report-pick" id="pleReportPick">
+            <div class="ple-report-pick__row">
+              <label for="pleReportDate">Günlük baskıdan getir</label>
+              <input type="date" id="pleReportDate" title="Rapor tarihi">
+              <button type="button" class="ay-btn" id="pleReportFetchBtn">Getir</button>
+            </div>
+            <div class="ple-report-pick__row">
+              <select id="pleReportSelect" disabled>
+                <option value="">Önce Getir’e basın…</option>
+              </select>
+              <button type="button" class="ay-btn ay-btn--primary" id="pleReportApplyBtn" disabled>Örneğe yükle</button>
+            </div>
+            <p class="ay-hint" id="pleReportHint" style="margin:0;">Sorunlu bir yazdırmayı seç → düzenle → Kaydet. Düzen sunucuya yazılır; canlı site aynı anda kullanır.</p>
+          </div>
           <div class="ay-ban-actions">
             <button type="button" class="ay-btn ay-btn--primary" id="pleLivePreviewBtn"><i class="fas fa-print" aria-hidden="true"></i> Canlı baskı önizleme</button>
-            <button type="button" class="ay-btn ay-btn--primary" id="pleSaveBtn">Kaydet — yazdırmaya uygula</button>
+            <button type="button" class="ay-btn ay-btn--primary" id="pleSaveBtn">Kaydet — canlı siteye uygula</button>
             <button type="button" class="ay-btn" id="pleReloadBtn">Kayıtlıyı yükle</button>
             <button type="button" class="ay-btn" id="pleResetBtn">Varsayılana dön</button>
           </div>
-          <p class="ay-hint" style="margin-top:.65rem;">Kaydet, düzeni sunucuya yazar — tüm kullanıcılar aynı yazdırma çıktısını alır. Önizleme örnek verilerle gerçek yazdırma çıktısını açar.</p>
+          <p class="ay-hint" style="margin-top:.65rem;">Kaydet düzeni <strong>veritabanına</strong> yazar — localhost ve canlı site aynı kaydı kullanır. Kod/şablon değişiklikleri için canlı sunucuya deploy gerekir.</p>
         </div>
       </div>
 
@@ -1851,9 +1895,9 @@
   <script src="signatures-registry.js"></script>
   <script src="print-form-bg-bootstrap.js?v=20260718-form-bg-fix"></script>
   <script src="print-form-bg-builtin.js"></script>
-  <script src="print-layout-settings.js?v=20260718-layout-v16"></script>
-  <script src="print-layout-editor.js?v=20260722-ple-fix2"></script>
-  <script src="asset-loader.js?v=20260718-layout-v16"></script>
+  <script src="print-layout-settings.js?v=20260804-live-v5"></script>
+  <script src="print-layout-editor.js?v=20260804-live-v5"></script>
+  <script src="asset-loader.js?v=20260804-live-v5"></script>
   <script src="vardiya-takvim.js?v=20260725-vt2"></script>
   <script src="ayarlar.js?v=20260725-vardiya"></script>
 </body>

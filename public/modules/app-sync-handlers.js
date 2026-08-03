@@ -54,6 +54,19 @@
           break;
       }
     });
+
+    window.SyncManager.on('print_layout_updated', () => {
+      try {
+        if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.ensureSynced === 'function') {
+          window.PrintLayoutSettings.ensureSynced().then(() => {
+            try {
+              const root = document.getElementById('printLayoutEditor');
+              if (root && typeof root.__pleRefresh === 'function') root.__pleRefresh();
+            } catch (e) {}
+          }).catch(() => {});
+        }
+      } catch (e) {}
+    });
   }
 
   function refreshVehicleList() {

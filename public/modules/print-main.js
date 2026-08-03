@@ -7,7 +7,8 @@
   const TR_APP_TZ = 'Europe/Istanbul';
   const PRINT_BG_LEGACY = 'https://i.hizliresim.com/36cc3jp.jpg';
   const PRINT_BG_API = '/api/print-form-bg';
-  const PRINT_BG_ASSET = '/assets/takip-form-bg.jpg';
+  const PRINT_BG_ASSET = '/assets/takip-form-bg.png';
+  const PRINT_BG_ASSET_JPG = '/assets/takip-form-bg.jpg';
   const PRINT_BG_CACHE_KEY = 'printBgDataUrl_v3';
 
   function blobToDataUrl(blob) {
@@ -63,6 +64,7 @@
     const sources = [
       origin ? origin + PRINT_BG_API : '',
       origin ? origin + PRINT_BG_ASSET : '',
+      origin ? origin + PRINT_BG_ASSET_JPG : '',
       PRINT_BG_LEGACY,
     ].filter(Boolean);
 
@@ -127,6 +129,7 @@
       toPrintBgSrc(url),
       origin ? origin + PRINT_BG_API : '',
       origin ? origin + PRINT_BG_ASSET : '',
+      origin ? origin + PRINT_BG_ASSET_JPG : '',
       PRINT_BG_LEGACY,
     ].filter(Boolean);
 
@@ -1907,6 +1910,27 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     };
     if (opts.layoutSnapshot && window.PrintLayoutSettings?.setPreviewSnapshot) {
       window.PrintLayoutSettings.setPreviewSnapshot(opts.layoutSnapshot);
+    } else if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.ensureSynced === 'function') {
+      // Ayarlar'da kaydedilen düzen ile sistem yazdırması aynı olsun
+      try { await window.PrintLayoutSettings.ensureSynced(); } catch (e) { /* ignore */ }
+      // Canlı önizleme ile aynı motor: güncel düzeni snapshot olarak kilitle
+      try {
+        const PLS = window.PrintLayoutSettings;
+        if (PLS.setPreviewSnapshot && PLS.getAllFieldRects && PLS.FIELD_DEFS) {
+          const fields = PLS.getAllFieldRects();
+          const fieldStyles = {};
+          PLS.FIELD_DEFS.forEach((d) => {
+            fieldStyles[d.key] = PLS.getFieldStyle(d.key);
+          });
+          const cur = PLS.load() || {};
+          PLS.setPreviewSnapshot({
+            fields,
+            fieldStyles,
+            samples: cur.samples || {},
+            styles: cur.styles || {},
+          });
+        }
+      } catch (e) { /* ignore */ }
     }
 
     try {
@@ -2055,72 +2079,29 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(readFormValue('yuklemeNotu'));
       const raw = String(value ?? '').trim();
       if (!raw) return '';
 
+      // Ortak motor: kelime düşürmeden satır kır
+      if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.formatAmbalajDisplay === 'function') {
+        const plain = window.PrintLayoutSettings.formatAmbalajDisplay(raw);
+        return escapeHtml(plain).replace(/\r?\n/g, '<br>');
+      }
+
+      if (/\r?\n/.test(raw)) {
+        return escapeHtml(raw.replace(/\r\n/g, '\n').trim()).replace(/\r?\n/g, '<br>');
+      }
+
       let t = raw
         .replace(/LINERLI(BASKISIZ)/gi, 'LINERLI $1')
         .replace(/LİNERLİ(BASKISIZ)/gi, 'LİNERLİ $1')
-        .replace(/BASKISIZ(LINERLI)/gi, 'BASKISIZ $1')
-        .replace(/BASKISIZ(LİNERLİ)/gi, 'BASKISIZ $1')
-        .replace(/(KG)(LINERLI)/gi, '$1 $2')
-        .replace(/(KG)(LİNERLİ)/gi, '$1 $2')
-        .replace(/\bBIG\s*BAG\b/gi, 'BİGBAG')
-        .replace(/\bBIGBAG\b/gi, 'BİGBAG')
+        .replace(/BASKILI(L[Iİ]NE+RL[Iİ])/gi, 'BASKILI $1')
+        .replace(/(KG)(BASKILI)/gi, '$1 $2')
+        .replace(/(KG)(BASKISIZ)/gi, '$1 $2')
+        .replace(/(KG)(L[Iİ]NE+RL[Iİ])/gi, '$1 $2')
         .replace(/\s+/g, ' ')
         .trim();
 
-      const netKgMatch = t.match(/NET\s+[\d.,]+\s*KG/i);
-      if (netKgMatch) {
-        const netKg = netKgMatch[0].trim();
-        const tail = t.slice(netKgMatch.index + netKgMatch[0].length).trim();
-        const hasBaskisiz = /BASKISIZ/i.test(tail);
-        const hasLiner = /L[Iİ]NERL[Iİ]/i.test(tail);
-        const hasBigbag = /B[Iİ]G\s*BAG|B[Iİ]GBAG/i.test(tail);
-
-        if (hasBaskisiz || hasLiner || hasBigbag) {
-          const line1 = hasBaskisiz ? `${netKg} BASKISIZ` : netKg;
-          let line2 = '';
-          if (hasLiner && hasBigbag) line2 = 'LİNERLİ BİGBAG';
-          else if (hasLiner) line2 = 'LİNERLİ';
-          else if (hasBigbag) line2 = 'BİGBAG';
-          else {
-            const rest = tail.replace(/BASKISIZ/i, '').trim();
-            if (rest) line2 = rest.replace(/L[Iİ]NERL[Iİ]/i, 'LİNERLİ').replace(/B[Iİ]G\s*BAG|B[Iİ]GBAG/gi, 'BİGBAG');
-          }
-          if (line2) {
-            return escapeHtml(line1) + '<br>' + escapeHtml(line2);
-          }
-          return escapeHtml(line1);
-        }
-      }
-
-      const netLinerSplit = t.match(/^(NET\s+[\d.,]+\s*KG\s+L[Iİ]NERL[Iİ])\s+(BASKISIZ.+)$/i);
-      if (netLinerSplit) {
-        const line1 = `${netLinerSplit[1].replace(/\s+L[Iİ]NERL[Iİ]$/i, '').trim()} BASKISIZ`;
-        const line2 = 'LİNERLİ BİGBAG';
-        return escapeHtml(line1) + '<br>' + escapeHtml(line2);
-      }
-
-      if (/NET/i.test(t) && /LINERL/i.test(t) && /BASKISIZ/i.test(t)) {
-        const head = t.match(/^(NET\s+[\d.,]+\s*KG\s+L[Iİ]NERL[Iİ])/i);
-        if (head) {
-          const tail = t.slice(head[0].length).trim();
-          if (tail) {
-            return escapeHtml(head[0].trim()) + '<br>' + escapeHtml(tail);
-          }
-        }
-      }
-
-      // Özel: NET ve LINERLI varsa ayır (tek LINERLI parçası)
-      if (t.toUpperCase().includes('NET') && /LINERL/i.test(t)) {
-        const netIndex = t.toUpperCase().indexOf('NET');
-        const linerMatch = t.slice(netIndex).match(/LINERL[Iİ]/i);
-        if (linerMatch && typeof linerMatch.index === 'number') {
-          const rel = netIndex + linerMatch.index;
-          const netPart = t.slice(netIndex, rel + linerMatch[0].length).trim();
-          const linerPart = t.slice(rel + linerMatch[0].length).trim();
-          if (netPart && linerPart) {
-            return escapeHtml(netPart) + '<br>' + escapeHtml(linerPart);
-          }
-        }
+      const netSplit = t.match(/^(NET\s+[\d.,]+\s*KG(?:\s+(?:BASKILI|BASKISIZ))?)\s+(.+)$/i);
+      if (netSplit) {
+        return escapeHtml(netSplit[1].trim()) + '<br>' + escapeHtml(netSplit[2].trim());
       }
 
       const parts = t.split('/').map(s => s.trim()).filter(Boolean);
@@ -2344,6 +2325,22 @@ const bosBbtText = amb.bosBbt;
       imzaSaha: { name: imzaSahaAd, src: imzaSahaSrc },
     };
 
+    // Canlı önizleme / yazdırma: yükleme notu satırları print-main ile aynı mantıkta
+    const noteLinesForLayout = (() => {
+      try {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = yuklemeNotuPrint;
+        const rows = [];
+        tmp.querySelectorAll('.note-head, .note-row').forEach((el) => {
+          const t = (el.textContent || '').trim();
+          if (t) rows.push(t);
+        });
+        return rows.length ? rows : null;
+      } catch (e) {
+        return null;
+      }
+    })();
+
     let printHTML;
     if (strictPrintLayout && typeof window.PrintLayoutSettings?.buildLayoutPrintDocument === 'function') {
       printHTML = window.PrintLayoutSettings.buildLayoutPrintDocument({
@@ -2351,6 +2348,7 @@ const bosBbtText = amb.bosBbt;
         pageSize,
         values: layoutFieldValues,
         signatures: layoutSignatures,
+        noteLines: noteLinesForLayout,
       });
     } else {
     printHTML = `
@@ -2987,16 +2985,23 @@ ${layoutPrintCss}
 
     // ✅ Önizleme modunda: sadece sekmeyi aç, otomatik yazdırma yapma
     const isPreview = !!opts.preview;
-    const PRINT_SAFE_SCALE = 0.968;
 
+    // WYSIWYG: önizleme ile yazdır aynı görünüm — ekstra ölçek/margin YOK
     const applyPrintSafeScale = () => {
       try {
-        const page = w.document.querySelector('.page');
-        if (!page) return;
-        page.style.transformOrigin = 'top center';
-        page.style.transform = `scale(${PRINT_SAFE_SCALE})`;
-        page.style.marginTop = w.__pageSize === 'A4' ? '5mm' : '3.5mm';
-        page.style.paddingTop = '0mm';
+        const page = w.document.querySelector('.plf-page');
+        if (page) {
+          page.style.transform = 'none';
+          page.style.marginTop = '0';
+          page.style.paddingTop = '0mm';
+          return;
+        }
+        const legacy = w.document.querySelector('.page');
+        if (!legacy) return;
+        legacy.style.transformOrigin = 'top center';
+        legacy.style.transform = 'scale(0.968)';
+        legacy.style.marginTop = w.__pageSize === 'A4' ? '5mm' : '3.5mm';
+        legacy.style.paddingTop = '0mm';
       } catch (e) {}
     };
 
@@ -3025,9 +3030,16 @@ ${layoutPrintCss}
       const useLayoutRenderer = !!w.document.querySelector('.plf-page');
       if (useLayoutRenderer) {
         const finishPreview = () => {
+          // plf: önizleme = yazdır (ölçek yok)
+          try {
+            const page = w.document.querySelector('.plf-page');
+            if (page) {
+              page.style.transform = 'none';
+              page.style.marginTop = '0';
+            }
+          } catch (e) { /* ignore */ }
           if (!isPreview) {
             try {
-              applyPrintSafeScale();
               w.focus();
               w.print();
             } catch (e) { /* ignore */ }

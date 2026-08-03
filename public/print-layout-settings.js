@@ -623,64 +623,28 @@
   function formatAmbalajDisplay(value) {
     const raw = String(value ?? '').trim();
     if (!raw) return '';
-    if (/\r?\n/.test(raw)) return raw.replace(/\r\n/g, '\n');
+    // Kullanıcı zaten satır kırdıysa aynen bas
+    if (/\r?\n/.test(raw)) return raw.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
 
     let t = raw
       .replace(/LINERLI(BASKISIZ)/gi, 'LINERLI $1')
       .replace(/LİNERLİ(BASKISIZ)/gi, 'LİNERLİ $1')
+      .replace(/L[Iİ]NEERL[Iİ](BASKISIZ)/gi, (m) => m.replace(/(BASKISIZ)/i, ' $1'))
       .replace(/BASKISIZ(LINERLI)/gi, 'BASKISIZ $1')
       .replace(/BASKISIZ(LİNERLİ)/gi, 'BASKISIZ $1')
+      .replace(/BASKILI(L[Iİ]NE+RL[Iİ])/gi, 'BASKILI $1')
       .replace(/(KG)(LINERLI)/gi, '$1 $2')
       .replace(/(KG)(LİNERLİ)/gi, '$1 $2')
-      .replace(/\bBIG\s*BAG\b/gi, 'BİGBAG')
-      .replace(/\bBIGBAG\b/gi, 'BİGBAG')
+      .replace(/(KG)(L[Iİ]NE+RL[Iİ])/gi, '$1 $2')
+      .replace(/(KG)(BASKILI)/gi, '$1 $2')
+      .replace(/(KG)(BASKISIZ)/gi, '$1 $2')
       .replace(/\s+/g, ' ')
       .trim();
 
-    const netKgMatch = t.match(/NET\s+[\d.,]+\s*KG/i);
-    if (netKgMatch) {
-      const netKg = netKgMatch[0].trim();
-      const tail = t.slice(netKgMatch.index + netKgMatch[0].length).trim();
-      const hasBaskisiz = /BASKISIZ/i.test(tail);
-      const hasLiner = /L[Iİ]NERL[Iİ]/i.test(tail);
-      const hasBigbag = /B[Iİ]G\s*BAG|B[Iİ]GBAG/i.test(tail);
-      if (hasBaskisiz || hasLiner || hasBigbag) {
-        const line1 = hasBaskisiz ? `${netKg} BASKISIZ` : netKg;
-        let line2 = '';
-        if (hasLiner && hasBigbag) line2 = 'LİNERLİ BİGBAG';
-        else if (hasLiner) line2 = 'LİNERLİ';
-        else if (hasBigbag) line2 = 'BİGBAG';
-        else {
-          const rest = tail.replace(/BASKISIZ/i, '').trim();
-          if (rest) line2 = rest.replace(/L[Iİ]NERL[Iİ]/i, 'LİNERLİ').replace(/B[Iİ]G\s*BAG|B[Iİ]GBAG/gi, 'BİGBAG');
-        }
-        if (line2) return `${line1}\n${line2}`;
-        return line1;
-      }
-    }
-
-    const netLinerSplit = t.match(/^(NET\s+[\d.,]+\s*KG\s+L[Iİ]NERL[Iİ])\s+(BASKISIZ.+)$/i);
-    if (netLinerSplit) {
-      return `${netLinerSplit[1].replace(/\s+L[Iİ]NERL[Iİ]$/i, '').trim()} BASKISIZ\nLİNERLİ BİGBAG`;
-    }
-
-    if (/NET/i.test(t) && /LINERL/i.test(t) && /BASKISIZ/i.test(t)) {
-      const head = t.match(/^(NET\s+[\d.,]+\s*KG\s+L[Iİ]NERL[Iİ])/i);
-      if (head) {
-        const tail = t.slice(head[0].length).trim();
-        if (tail) return `${head[0].trim()}\n${tail}`;
-      }
-    }
-
-    if (t.toUpperCase().includes('NET') && /LINERL/i.test(t)) {
-      const netIndex = t.toUpperCase().indexOf('NET');
-      const linerMatch = t.slice(netIndex).match(/LINERL[Iİ]/i);
-      if (linerMatch && typeof linerMatch.index === 'number') {
-        const rel = netIndex + linerMatch.index;
-        const netPart = t.slice(netIndex, rel + linerMatch[0].length).trim();
-        const linerPart = t.slice(rel + linerMatch[0].length).trim();
-        if (netPart && linerPart) return `${netPart}\n${linerPart}`;
-      }
+    // NET xxx KG [BASKILI|BASKISIZ]? → 1. satır; kalan TÜM kelimeler → 2. satır (hiçbirini düşürme)
+    const netSplit = t.match(/^(NET\s+[\d.,]+\s*KG(?:\s+(?:BASKILI|BASKISIZ))?)\s+(.+)$/i);
+    if (netSplit) {
+      return `${netSplit[1].trim()}\n${netSplit[2].trim()}`;
     }
 
     const parts = t.split('/').map((s) => s.trim()).filter(Boolean);
@@ -746,14 +710,33 @@
     return `<div class="plf-body plf-body--text" style="${css}"><span style="width:100%;">${inner}</span></div>`;
   }
 
-  function buildNoteInnerHtml(raw, style) {
-    const s = style || defaultNoteStyle();
+  /**
+   * Yükleme notunu düzenleyici + baskı için aynı düz metne çevirir.
+   * opts.lines: hazır satırlar (print-main ihracat/piyasa işlediyse)
+   */
+  function normalizeNotePlainText(raw, opts) {
+    const s = (opts && opts.style) || defaultNoteStyle();
+    if (opts && Array.isArray(opts.lines) && opts.lines.length) {
+      return opts.lines.map((x) => String(x || '').trim()).filter(Boolean).join('\n');
+    }
     const t = String(raw || '').trim();
+    if (!t) return '';
     const lines = t.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    if (!lines.length) return '';
     const head = lines[0] || '';
     let desc = lines.slice(1).join(' ');
     const split = splitTextByPhrases(desc, s.breakAfter, s.maxLines);
     if (split.length > 1) desc = split.join('\n');
+    else if (desc) desc = split[0] || desc;
+    return desc ? `${head}\n${desc}` : head;
+  }
+
+  function buildNoteInnerHtml(raw, style, opts) {
+    const s = style || defaultNoteStyle();
+    const plain = normalizeNotePlainText(raw, Object.assign({}, opts, { style: s }));
+    const lines = plain.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    const head = lines[0] || '';
+    const desc = lines.slice(1).join('\n');
     return (
       `<div class="plf-body plf-body--note" style="height:100%;overflow:hidden;padding:1.15mm 0.5mm 0.55mm;box-sizing:border-box;">` +
       `<div style="font-size:${s.headPt}pt;${typographyInlineCss(s, 'head')}margin:0 0 ${s.headGapMm}mm;line-height:1.1;color:#000;">${escapeHtml(head)}</div>` +
@@ -779,14 +762,16 @@
   }
 
   /**
-   * Düzenleyici ile birebir aynı motor — % konum, aynı punto/satır mantığı.
+   * Düzenleyici şablonu ile birebir aynı motor — % konum, aynı punto/satır.
+   * Ekran önizleme: 1:1 (margin yok, kırpma yok).
+   * Baskı: hafif ölçek + üst boşluk (yazıcı kenar payı), içerik sığar.
    */
   function buildLayoutPrintDocument(opts) {
     const bgUrl = opts && opts.bgUrl ? opts.bgUrl : '';
     const pageSize = (opts && opts.pageSize) || 'A5';
     const values = (opts && opts.values) || {};
     const signatures = (opts && opts.signatures) || {};
-    const formOuterTopGap = pageSize === 'A4' ? '5mm' : '3.5mm';
+    const noteLines = opts && opts.noteLines;
     const pageParams = pageSize === 'A4'
       ? { size: 'A4', width: '210mm', height: '297mm' }
       : { size: 'A5 landscape', width: '210mm', height: '148mm' };
@@ -798,7 +783,11 @@
       const pos = pctStyle(rect);
       let inner = '';
       if (def.kind === 'note') {
-        inner = buildNoteInnerHtml(values.not != null ? values.not : '', getFieldStyle('not'));
+        inner = buildNoteInnerHtml(
+          values.not != null ? values.not : '',
+          getFieldStyle('not'),
+          noteLines ? { lines: noteLines } : null
+        );
       } else if (def.kind === 'sig') {
         const sig = signatures[def.key] || {};
         inner = buildSigInnerHtml(sig.name || values[def.key] || '', sig.src || '', getFieldStyle(def.key));
@@ -817,20 +806,34 @@
 <style>
   @page { size: ${pageParams.size}; margin: 0; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  html, body { margin: 0; padding: 0; width: ${pageParams.width}; height: ${pageParams.height}; overflow: hidden; font-family: Arial, sans-serif; }
-  #printViewport, #printRoot { width: ${pageParams.width}; height: ${pageParams.height}; overflow: hidden; }
+  html, body {
+    margin: 0; padding: 0;
+    width: ${pageParams.width}; height: ${pageParams.height};
+    overflow: hidden; font-family: Arial, sans-serif; background: #fff;
+  }
+  #printViewport, #printRoot {
+    width: ${pageParams.width}; height: ${pageParams.height};
+    overflow: hidden; position: relative;
+  }
+  /* Düzenleyici = önizleme = yazdır — birebir aynı (ölçek farkı yok) */
   .plf-page {
     position: relative;
     width: 210mm;
     height: ${FORM_CONTENT_H}mm;
-    margin: ${formOuterTopGap} auto 0;
+    margin: 0 auto;
     overflow: hidden;
+    transform: none;
+    transform-origin: top center;
   }
-  .plf-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; z-index: 0; }
+  .plf-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; z-index: 0; display: block; }
   .plf-fields { position: absolute; inset: 0; z-index: 1; }
   .plf-field { position: absolute; overflow: hidden; }
   @media print {
-    .plf-page { transform: scale(0.968); transform-origin: top center; margin-top: ${formOuterTopGap}; }
+    html, body, #printViewport, #printRoot { overflow: hidden !important; }
+    .plf-page {
+      transform: none !important;
+      margin: 0 auto !important;
+    }
   }
 </style>
 </head>
@@ -938,11 +941,23 @@
     normalizePrintFieldText,
     formatFieldDisplayText,
     formatSevkYeriDisplay,
+    formatAmbalajDisplay,
     getSampleText,
     getDemoPrintData,
     useStrictPrintLayout,
     hasSavedLayout,
     setPreviewSnapshot,
     clearPreviewSnapshot,
+    normalizeNotePlainText,
   };
+
+  // Sekmeler arası / SSE: düzen güncellenince belleği yenile
+  try {
+    window.addEventListener('storage', function (e) {
+      if (!e || !e.key) return;
+      if (e.key === 'printLayoutBump' || e.key === 'gpm_sync_bump_print_layout_updated') {
+        ensureSynced().catch(function () {});
+      }
+    });
+  } catch (e) { /* ignore */ }
 })();
