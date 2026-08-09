@@ -1964,36 +1964,126 @@
     flashBtnCopied(btn);
   }
 
-  function handleReprint(btn, tr) {
-    const vehicleId = tr.getAttribute('data-vehicle-id') || btn.getAttribute('data-id') || '';
-    const plate = tr.getAttribute('data-plate') || '';
-    if (!vehicleId && !plate) return;
+  function buildReprintPayloadFromRow(tr) {
+    const d = parseRowEventData(tr) || {};
+    const plate = tr.getAttribute('data-plate') || d.plaka || '';
+    const printEventId = tr.getAttribute('data-print-event-id') || tr.getAttribute('data-vehicle-id') || '';
+    const actualVehicleId = tr.getAttribute('data-actual-vehicle-id') || d.vehicleId || d.vehicle_id || '';
+    const amb = d.ambalajBilgisi || d.ambalaj || d.yuklemeTuru || '';
+    const note = d.yuklemeNotu || d.baskiNotu || d.not || '';
+    return {
+      printHistoryId: String(printEventId || '').trim(),
+      vehicleId: String(actualVehicleId || '').trim(),
+      plaka: String(plate || '').trim(),
+      firma: d.firma || d.firmaKodu || d.firmaSelect || '',
+      firmaKodu: d.firmaKodu || d.firma || '',
+      firmaSelect: d.firmaSelect || '',
+      malzeme: d.malzeme || '',
+      sevkYeri: d.sevkYeri || '',
+      tonaj: d.tonaj || '',
+      basimYeri: d.basimYeri || '',
+      yuklemeSirasi: d.yuklemeSirasi || '',
+      ambalajBilgisi: amb,
+      ambalaj: amb,
+      yuklemeNotu: note,
+      baskiNotu: note,
+      seperatorBilgisi: d.seperatorBilgisi || '',
+      sofor: d.sofor || '',
+      soforAdi: d.soforAdi || '',
+      soforSoyadi: d.soforSoyadi || '',
+      tcKimlik: d.tcKimlik || '',
+      iletisim: d.iletisim || '',
+      dorsePlaka: d.dorsePlaka || '',
+      bbt: d.bbt || '',
+      bosBbt: d.bosBbt || '',
+      cuval: d.cuval || '',
+      bosCuval: d.bosCuval || '',
+      palet: d.palet || '',
+      torba: d.torba || '',
+      kantar: d.kantar || d.imzaKantarAd || '',
+      imzaSahaAd: d.imzaSahaAd || d.saha || '',
+      imzaYukleyenAd: d.imzaYukleyenAd || '',
+      imzaKaliteAd: d.imzaKaliteAd || '',
+      tarih: d.tarih || '',
+    };
+  }
 
-    const d = parseRowEventData(tr);
+  async function enrichReprintPayload(payload) {
+    const out = Object.assign({}, payload || {});
+    const needsNote = !String(out.yuklemeNotu || '').trim();
+    const needsAmb = !String(out.ambalajBilgisi || '').trim();
+    const phId = String(out.printHistoryId || '').trim();
+    if ((!needsNote && !needsAmb) || !phId) return out;
+    try {
+      // Tek kayıt: listeden id ile bul (snapshot dahil)
+      const r = await fetch('/api/reports?limit=300&_=' + Date.now(), {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (!r.ok) return out;
+      const list = await r.json();
+      const hit = (Array.isArray(list) ? list : []).find((ev) => ev && String(ev.id) === phId);
+      if (!hit) return out;
+      const d = Object.assign({}, hit.snapshot || {}, hit.data || {});
+      const amb = d.ambalajBilgisi || d.ambalaj || d.yuklemeTuru || '';
+      const note = d.yuklemeNotu || d.baskiNotu || '';
+      const mergeIfEmpty = (key, val) => {
+        if (!String(out[key] || '').trim() && val != null && String(val).trim() !== '') out[key] = String(val).trim();
+      };
+      mergeIfEmpty('yuklemeNotu', note);
+      mergeIfEmpty('baskiNotu', note);
+      mergeIfEmpty('ambalajBilgisi', amb);
+      mergeIfEmpty('ambalaj', amb);
+      ['firma', 'malzeme', 'sevkYeri', 'tonaj', 'basimYeri', 'yuklemeSirasi', 'seperatorBilgisi',
+        'sofor', 'tcKimlik', 'iletisim', 'dorsePlaka', 'bbt', 'bosBbt', 'cuval', 'bosCuval',
+        'palet', 'torba', 'kantar', 'imzaSahaAd', 'imzaYukleyenAd', 'imzaKaliteAd', 'plaka'].forEach((k) => {
+        mergeIfEmpty(k, d[k]);
+      });
+      if (!out.vehicleId && d.vehicleId) out.vehicleId = String(d.vehicleId);
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+
+  async function handleReprint(btn, tr) {
+    const printHistoryId = tr.getAttribute('data-print-event-id') || tr.getAttribute('data-vehicle-id') || btn.getAttribute('data-id') || '';
+    const actualVehicleId = tr.getAttribute('data-actual-vehicle-id') || '';
+    const plate = tr.getAttribute('data-plate') || '';
+    if (!printHistoryId && !actualVehicleId && !plate) return;
+
+    let payload = buildReprintPayloadFromRow(tr);
+    flashBtnBusy(btn);
+    try {
+      payload = await enrichReprintPayload(payload);
+    } catch (e) { /* ignore */ }
+
     const url = new URL('GIRIS.html', window.location.origin);
-    if (vehicleId) url.searchParams.set('reprint', vehicleId);
+    // Ana sayfa araç bulsun diye gerçek vehicleId; yoksa print history id
+    const reprintKey = payload.vehicleId || actualVehicleId || printHistoryId;
+    if (reprintKey) url.searchParams.set('reprint', reprintKey);
     if (plate) url.searchParams.set('plate', plate);
 
-    const firma = d.firma || d.firmaKodu || d.firmaSelect;
+    const firma = payload.firma || payload.firmaKodu;
     if (firma) url.searchParams.set('firma', firma);
-    if (d.malzeme) url.searchParams.set('malzeme', d.malzeme);
-    if (d.sevkYeri) url.searchParams.set('sevkYeri', d.sevkYeri);
-    if (d.kantar) url.searchParams.set('kantar', d.kantar);
-    if (d.basimYeri) url.searchParams.set('basimYeri', d.basimYeri);
-    if (d.ambalaj) url.searchParams.set('ambalaj', d.ambalaj);
-    if (d.baskiNotu) url.searchParams.set('baskiNotu', d.baskiNotu);
+    if (payload.malzeme) url.searchParams.set('malzeme', payload.malzeme);
+    if (payload.sevkYeri) url.searchParams.set('sevkYeri', payload.sevkYeri);
+    if (payload.kantar) url.searchParams.set('kantar', payload.kantar);
+    if (payload.basimYeri) url.searchParams.set('basimYeri', payload.basimYeri);
+    if (payload.ambalajBilgisi) url.searchParams.set('ambalaj', payload.ambalajBilgisi);
+    if (payload.yuklemeNotu) url.searchParams.set('baskiNotu', payload.yuklemeNotu);
 
     try {
-      localStorage.setItem('tempReprintData', JSON.stringify(d));
+      localStorage.setItem('tempReprintData', JSON.stringify(payload));
       localStorage.setItem('pendingReprint', JSON.stringify({
-        reprint: vehicleId,
+        reprint: reprintKey,
         plate: plate,
+        printHistoryId: printHistoryId,
         at: Date.now()
       }));
     } catch (e) { /* ignore */ }
 
     if (window.SessionManager && typeof window.SessionManager.openHomeForReprint === 'function') {
-      window.SessionManager.openHomeForReprint({ vehicleId: vehicleId, plate: plate });
+      window.SessionManager.openHomeForReprint({ vehicleId: reprintKey, plate: plate });
     } else if (window.SessionManager && typeof window.SessionManager.openHomePage === 'function') {
       window.SessionManager.openHomePage(url.pathname + url.search);
     } else {
@@ -2062,7 +2152,7 @@
       }
 
       if (btn.classList.contains('reprintBtn')) {
-        handleReprint(btn, tr);
+        try { await handleReprint(btn, tr); } catch (e) { /* ignore */ }
         return;
       }
 

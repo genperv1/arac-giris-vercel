@@ -167,25 +167,33 @@ function showTakipFormu(vehicle) {
             let _reprintApplyData = null;
             if (vehicle && vehicle._reprintData) {
               const rd = vehicle._reprintData;
-              _reprintApplyData = { ...(_rawVehicle.lastPrintSnapshot || {}), ...rd };
-              if (rd.firma) {
-                state.formData.defaultFirma = rd.firma;
-                vehicle.defaultFirma = rd.firma;
+              // Boş string'ler lastPrintSnapshot'taki dolu açıklama/ambalajı ezmesin
+              _reprintApplyData = (typeof mergeReprintPreferFilled === 'function')
+                ? mergeReprintPreferFilled(_rawVehicle.lastPrintSnapshot || {}, rd)
+                : Object.assign({}, _rawVehicle.lastPrintSnapshot || {}, rd);
+              const note = String(rd.yuklemeNotu || rd.baskiNotu || _reprintApplyData.yuklemeNotu || '').trim();
+              const amb = String(rd.ambalajBilgisi || rd.ambalaj || _reprintApplyData.ambalajBilgisi || '').trim();
+              if (rd.firma || _reprintApplyData.firma) {
+                const f = rd.firma || _reprintApplyData.firma;
+                state.formData.defaultFirma = f;
+                vehicle.defaultFirma = f;
               }
-              if (rd.malzeme) {
-                state.formData.defaultMalzeme = rd.malzeme;
-                vehicle.defaultMalzeme = rd.malzeme;
+              if (rd.malzeme || _reprintApplyData.malzeme) {
+                const m = rd.malzeme || _reprintApplyData.malzeme;
+                state.formData.defaultMalzeme = m;
+                vehicle.defaultMalzeme = m;
               }
-              if (rd.sevkYeri) {
-                state.formData.defaultSevkYeri = rd.sevkYeri;
-                vehicle.defaultSevkYeri = rd.sevkYeri;
+              if (rd.sevkYeri || _reprintApplyData.sevkYeri) {
+                const s = rd.sevkYeri || _reprintApplyData.sevkYeri;
+                state.formData.defaultSevkYeri = s;
+                vehicle.defaultSevkYeri = s;
               }
-              if (rd.kantar) vehicle._kantarName = rd.kantar;
-              if (rd.basimYeri) vehicle._basimYeri = rd.basimYeri;
-              if (rd.ambalaj) vehicle._ambalaj = rd.ambalaj;
-              if (rd.baskiNotu) {
-                state.formData.defaultYuklemeNotu = rd.baskiNotu;
-                vehicle.defaultYuklemeNotu = rd.baskiNotu;
+              if (rd.kantar || _reprintApplyData.kantar) vehicle._kantarName = rd.kantar || _reprintApplyData.kantar;
+              if (rd.basimYeri || _reprintApplyData.basimYeri) vehicle._basimYeri = rd.basimYeri || _reprintApplyData.basimYeri;
+              if (amb) vehicle._ambalaj = amb;
+              if (note) {
+                state.formData.defaultYuklemeNotu = note;
+                vehicle.defaultYuklemeNotu = note;
               }
               // Tekrar yazdır: son yazdırılan şoför / plaka bilgileri
               try {

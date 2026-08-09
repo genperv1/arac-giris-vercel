@@ -654,9 +654,12 @@
     }
 
     function reportToSamples(row) {
-      const d = (row && row.data) || {};
+      const snap = (row && row.snapshot && typeof row.snapshot === 'object') ? row.snapshot : {};
+      const d = Object.assign({}, snap, (row && row.data) || {});
       const plate = String(d.plaka || d.cekiciPlaka || d.plate || '').trim();
       const dorse = String(d.dorsePlaka || d.dorse_plaka || '').trim();
+      const note = String(d.yuklemeNotu || d.not || d.baskiNotu || '').trim();
+      const amb = String(d.ambalajBilgisi || d.yuklemeTuru || d.yukleme_turu || '').trim();
       return {
         yuklemeSirasi: String(d.yuklemeSirasi || '').trim(),
         tarih: String(d.tarih || row.tarih || '').trim(),
@@ -668,10 +671,10 @@
         dorse: dorse,
         firma: String(d.firma || d.firmaKodu || d.firmaSelect || row.firma || '').trim(),
         malzeme: String(d.malzeme || row.malzeme || '').trim(),
-        ambBilgi: String(d.ambalajBilgisi || d.yuklemeTuru || d.yukleme_turu || '').trim(),
+        ambBilgi: amb,
         tonaj: String(d.tonaj || '').trim(),
         seperator: String(d.seperatorBilgisi || d.seperator || '').trim(),
-        not: String(d.yuklemeNotu || d.not || '').trim(),
+        not: note,
         bbt: String(d.bbt || '').trim(),
         bosBbt: String(d.bosBbt || d.bos_bbt || '').trim(),
         cuval: String(d.cuval || '').trim(),
@@ -686,21 +689,24 @@
     }
 
     function applySamplesToEditor(samples) {
-      if (!state.samples) state.samples = {};
-      Object.keys(samples || {}).forEach((k) => {
-        if (samples[k] != null && String(samples[k]).trim() !== '') {
-          state.samples[k] = String(samples[k]);
-        }
+      // Önceki örnek veriyi temizle — eksik alanlar eski demoyu göstermesin
+      state.samples = {};
+      PLS.FIELD_DEFS.forEach((def) => {
+        const v = samples && samples[def.key];
+        state.samples[def.key] = v != null ? String(v) : '';
       });
       // Ambalaj gibi çok satırlı alanlar için satır kırma modu
-      if (state.samples.ambBilgi && /\n/.test(state.samples.ambBilgi)) {
+      if (state.samples.ambBilgi && (/\n/.test(state.samples.ambBilgi) || /BASKILI|L[Iİ]NE/i.test(state.samples.ambBilgi))) {
         setFieldStyle('ambBilgi', { wrap: 'pre-line' });
       }
-      if (state.samples.seperator && /\n/.test(state.samples.seperator)) {
+      if (state.samples.seperator && /\n|ÖDEME/i.test(state.samples.seperator)) {
         setFieldStyle('seperator', { wrap: 'pre-line' });
       }
       if (state.samples.sevkYeri && /;/.test(state.samples.sevkYeri)) {
         setFieldStyle('sevkYeri', { wrap: 'pre-line' });
+      }
+      if (state.samples.not) {
+        setFieldStyle('not', {});
       }
       renderAll();
       loadSigImages();
@@ -770,7 +776,7 @@
       }
     }
 
-    function applySelectedReport() {
+    async function applySelectedReport() {
       const sel = val('pleReportSelect');
       const idx = sel ? Number(sel.value) : -1;
       const row = _reportCache[idx];
@@ -778,13 +784,42 @@
         toast('Önce listeden bir yazdırma seçin.', true);
         return;
       }
-      const samples = reportToSamples(row);
+      let samples = reportToSamples(row);
+      const hasNote = !!(samples.not && String(samples.not).trim());
+      const hasAmb = !!(samples.ambBilgi && String(samples.ambBilgi).trim());
+      // Eski kayıtlarda snapshot yoksa araç lastPrintSnapshot ile tamamla
+      if ((!hasNote || !hasAmb) && row.data && row.data.vehicleId) {
+        try {
+          const vid = String(row.data.vehicleId).trim();
+          if (vid && vid !== 'manual') {
+            const vr = await fetch('/api/vehicles/' + encodeURIComponent(vid), {
+              credentials: 'include',
+              cache: 'no-store',
+            });
+            if (vr.ok) {
+              const vehicle = await vr.json();
+              const snap = vehicle && (vehicle.lastPrintSnapshot || vehicle.data?.lastPrintSnapshot);
+              if (snap && typeof snap === 'object') {
+                samples = reportToSamples({ data: Object.assign({}, snap, row.data), snapshot: snap, tarih: row.tarih });
+              }
+            }
+          }
+        } catch (e) { /* ignore */ }
+      }
       applySamplesToEditor(samples);
-      const d = row.data || {};
-      const plate = d.plaka || '';
-      toast('Örnek yüklendi: ' + plate + ' — düzenleyip Kaydet’e basın.');
+      const plate = samples.cekici || (row.data && row.data.plaka) || '';
+      const missing = [];
+      if (!String(samples.not || '').trim()) missing.push('yükleme notu');
+      if (!String(samples.ambBilgi || '').trim()) missing.push('ambalaj');
+      if (missing.length) {
+        toast('Yüklendi: ' + plate + ' — eksik: ' + missing.join(', ') + ' (eski kayıt; yeni yazdırmalarda tam gelir).', true);
+      } else {
+        toast('Tam veri yüklendi: ' + plate + ' — düzenleyip Kaydet’e basın.');
+      }
       if (val('pleReportHint')) {
-        val('pleReportHint').textContent = 'Şablonda gerçek veri görünüyor. Konum/punto ayarla → Kaydet → canlı siteye geçer.';
+        val('pleReportHint').textContent = hasNote || String(samples.not || '').trim()
+          ? 'Şablonda gerçek yazdırma verisi (açıklama dahil). Konum/punto ayarla → Kaydet.'
+          : 'Bu kayıt eski — açıklama yok. Bir kez yeniden yazdırırsanız Getir tam veri getirir.';
       }
     }
 

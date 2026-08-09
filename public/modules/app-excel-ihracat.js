@@ -414,9 +414,9 @@ function applyReprintSnapshotToTakipForm(rd) {
     }
     return '';
   };
-  const set = (id, val) => {
+  const set = (id, val, forceEmpty) => {
     const v = val != null ? String(val).trim() : '';
-    if (!v) return;
+    if (!v && !forceEmpty) return;
     const el = document.getElementById(id);
     if (el) el.value = v;
   };
@@ -427,9 +427,9 @@ function applyReprintSnapshotToTakipForm(rd) {
   set('malzeme', pick('malzeme', 'malzemeSelect'));
   set('malzemeSelect', pick('malzemeSelect', 'malzeme'));
   set('sevkYeri', pick('sevkYeri'));
-  set('ambalajBilgisi', pick('ambalajBilgisi', 'ambalaj'));
+  set('ambalajBilgisi', pick('ambalajBilgisi', 'ambalaj', 'yuklemeTuru'));
   set('tonaj', pick('tonaj'));
-  set('yuklemeNotu', pick('yuklemeNotu', 'baskiNotu'));
+  set('yuklemeNotu', pick('yuklemeNotu', 'baskiNotu', 'not'));
   set('yuklemeSirasi', pick('yuklemeSirasi'));
   set('basimYeri', pick('basimYeri'));
   set('bbt', pick('bbt'));
@@ -441,6 +441,9 @@ function applyReprintSnapshotToTakipForm(rd) {
   set('seperatorBilgisi', pick('seperatorBilgisi'));
   set('cekiciPlakaBilgi', pick('plaka', 'cekiciPlaka', 'plate'));
   set('imzaKantarAd', pick('kantar', 'imzaKantarAd'));
+  set('imzaSahaAd', pick('imzaSahaAd', 'saha'));
+  set('imzaYukleyenAd', pick('imzaYukleyenAd'));
+  set('imzaKaliteAd', pick('imzaKaliteAd'));
 
   try {
     const drv = driverFieldsFromSnapshot(rd);
@@ -452,6 +455,19 @@ function applyReprintSnapshotToTakipForm(rd) {
 
   try { refreshKantarSignaturePreview(); } catch (e) { /* ignore */ }
   try { refreshSahaSignaturePreview(); } catch (e) { /* ignore */ }
+}
+
+/** Boş string ile dolu değeri ezme — reprint merge */
+function mergeReprintPreferFilled(base, overlay) {
+  const out = Object.assign({}, base || {});
+  Object.keys(overlay || {}).forEach((k) => {
+    const v = overlay[k];
+    if (v == null) return;
+    const s = String(v).trim();
+    if (s === '') return;
+    out[k] = overlay[k];
+  });
+  return out;
 }
 
 /** Takip formundaki şoför alanlarını oku (yazdırma / rapor için) */
@@ -594,6 +610,40 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
 function buildPrintHistoryPostBody(printEv, pending, commitTs) {
   const yuk = String(printEv.yuklemeTuru || printEv.ambalajBilgisi || '').trim();
   const vehicleId = String(printEv.vehicleId || pending?.vehicleId || '').trim();
+  // Tam form anlık görüntüsü — Ayarlar → günlük baskıdan getir için
+  const snapshot = {
+    plaka: printEv.plaka || '',
+    firma: printEv.firma || printEv.firmaKodu || '',
+    firmaKodu: printEv.firmaKodu || printEv.firma || '',
+    firmaSelect: printEv.firmaSelect || '',
+    malzeme: printEv.malzeme || '',
+    tonaj: printEv.tonaj || '',
+    basimYeri: printEv.basimYeri || '',
+    sofor: printEv.sofor || '',
+    soforAdi: printEv.soforAdi || '',
+    soforSoyadi: printEv.soforSoyadi || '',
+    sevkYeri: String(printEv.sevkYeri || '').trim(),
+    ambalajBilgisi: String(printEv.ambalajBilgisi || yuk || '').trim(),
+    yuklemeTuru: yuk,
+    yuklemeNotu: String(printEv.yuklemeNotu || '').trim(),
+    yuklemeSirasi: String(printEv.yuklemeSirasi || '').trim(),
+    iletisim: String(printEv.iletisim || '').trim(),
+    tcKimlik: String(printEv.tcKimlik || '').trim(),
+    dorsePlaka: String(printEv.dorsePlaka || '').trim(),
+    seperatorBilgisi: String(printEv.seperatorBilgisi || '').trim(),
+    bbt: String(printEv.bbt || '').trim(),
+    bosBbt: String(printEv.bosBbt || '').trim(),
+    cuval: String(printEv.cuval || '').trim(),
+    bosCuval: String(printEv.bosCuval || '').trim(),
+    palet: String(printEv.palet || '').trim(),
+    torba: String(printEv.torba || '').trim(),
+    kantar: String(printEv.kantar || '').trim(),
+    imzaSahaAd: String(printEv.imzaSahaAd || printEv.saha || '').trim(),
+    imzaYukleyenAd: String(printEv.imzaYukleyenAd || '').trim(),
+    imzaKaliteAd: String(printEv.imzaKaliteAd || '').trim(),
+    vehicleId: vehicleId && vehicleId !== 'manual' ? vehicleId : '',
+    ts: commitTs || Date.now(),
+  };
   return {
     plaka: printEv.plaka,
     firma: printEv.firma || printEv.firmaKodu || '',
@@ -609,6 +659,7 @@ function buildPrintHistoryPostBody(printEv, pending, commitTs) {
     dorsePlaka: String(printEv.dorsePlaka || '').trim(),
     vehicleId: vehicleId && vehicleId !== 'manual' ? vehicleId : '',
     tarih: commitTs,
+    snapshot,
   };
 }
 
@@ -745,6 +796,9 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     printCount: printCount || 1,
     tarih: tarihTr || '',
     kantar: formGet('imzaKantarAd'),
+    imzaSahaAd: formGet('imzaSahaAd'),
+    imzaYukleyenAd: formGet('imzaYukleyenAd'),
+    imzaKaliteAd: formGet('imzaKaliteAd'),
     ambalajBilgisi: String(pp?.ambalajBilgisi || snap.ambalajBilgisi || formGet('ambalajBilgisi') || '').trim(),
     yuklemeNotu: String(pp?.yuklemeNotu || snap.yuklemeNotu || formGet('yuklemeNotu') || '').trim(),
     sofor: pp?.sofor || driver.sofor,
@@ -2740,6 +2794,7 @@ window.findShipmentForPlate = findShipmentForPlate;
 window.hasDailyExcelLoaded = hasDailyExcelLoaded;
 window.commitIhracatImport = commitIhracatImport;
 window.applyReprintSnapshotToTakipForm = applyReprintSnapshotToTakipForm;
+window.mergeReprintPreferFilled = mergeReprintPreferFilled;
 window.getTakipPackagingPayload = getTakipPackagingPayload;
 window.splitIhracatFileNames = splitIhracatFileNames;
 window.normalizeIhracatMetaFiles = normalizeIhracatMetaFiles;

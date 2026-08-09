@@ -6,7 +6,7 @@ function registerReportsRoutes(api, ctx) {
 api.get("/reports", async (req, res) => {
   try {
     const { limit, offset } = parsePagination(req, { defaultLimit: 5000, maxLimit: 20000 });
-    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
+    const r = await q("SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih, snapshot FROM print_history ORDER BY tarih DESC LIMIT $1 OFFSET $2", [limit, offset]);
 
     const parsed = [];
     for (const row of (r.rows || [])) {
@@ -23,36 +23,66 @@ api.get("/reports", async (req, res) => {
         }
         const { tarih: tarihStr, saat: saatStr } = formatReportInstant(ms);
 
-        const d = {
-          plaka: row.plaka,
-          firma: row.firma,
-          malzeme: row.malzeme,
-          tonaj: row.tonaj,
-          basimYeri: row.basim_yeri,
+        let snap = null;
+        if (row.snapshot) {
+          try {
+            snap = typeof row.snapshot === 'string' ? JSON.parse(row.snapshot) : row.snapshot;
+            if (!snap || typeof snap !== 'object') snap = null;
+          } catch (_) { snap = null; }
+        }
+
+        const pickSnap = (...keys) => {
+          for (const k of keys) {
+            const v = snap && snap[k];
+            if (v != null && String(v).trim() !== '') return String(v).trim();
+          }
+          return '';
+        };
+        const amb = pickSnap('ambalajBilgisi', 'ambalaj', 'yuklemeTuru') || row.yukleme_turu || '';
+        const note = pickSnap('yuklemeNotu', 'baskiNotu', 'not');
+        const d = Object.assign({}, snap || {}, {
+          plaka: pickSnap('plaka') || row.plaka,
+          firma: pickSnap('firma', 'firmaKodu', 'firmaSelect') || row.firma,
+          malzeme: pickSnap('malzeme') || row.malzeme,
+          tonaj: pickSnap('tonaj') || row.tonaj,
+          basimYeri: pickSnap('basimYeri') || row.basim_yeri,
           sevkiyat_id: row.sevkiyat_id,
-          sofor: row.sofor || '',
-          sevkYeri: row.sevk_yeri || '',
-          yuklemeTuru: row.yukleme_turu || '',
-          ambalajBilgisi: row.yukleme_turu || '',
-          iletisim: row.iletisim || '',
-          tcKimlik: row.tc_kimlik || '',
-          dorsePlaka: row.dorse_plaka || '',
-          vehicleId: row.vehicle_id || '',
+          sofor: pickSnap('sofor') || row.sofor || '',
+          sevkYeri: pickSnap('sevkYeri') || row.sevk_yeri || '',
+          yuklemeTuru: amb,
+          ambalajBilgisi: amb,
+          ambalaj: amb,
+          yuklemeNotu: note,
+          baskiNotu: note,
+          yuklemeSirasi: pickSnap('yuklemeSirasi'),
+          seperatorBilgisi: pickSnap('seperatorBilgisi'),
+          bbt: pickSnap('bbt'),
+          bosBbt: pickSnap('bosBbt'),
+          cuval: pickSnap('cuval'),
+          bosCuval: pickSnap('bosCuval'),
+          palet: pickSnap('palet'),
+          torba: pickSnap('torba'),
+          kantar: pickSnap('kantar', 'imzaKantarAd'),
+          iletisim: pickSnap('iletisim') || row.iletisim || '',
+          tcKimlik: pickSnap('tcKimlik') || row.tc_kimlik || '',
+          dorsePlaka: pickSnap('dorsePlaka') || row.dorse_plaka || '',
+          vehicleId: pickSnap('vehicleId', 'vehicle_id') || row.vehicle_id || '',
           tarih: tarihStr,
           saat: saatStr
-        };
+        });
 
         parsed.push({
           id: row.id,
           type: 'PRINT',
           data: d,
+          snapshot: snap,
           ts: ms,
           tarih: tarihStr,
           saat: saatStr,
-          kantar: d && d.kantar ? d.kantar : '',
-          malzeme: d && d.malzeme ? d.malzeme : '',
-          sevkYeri: d && d.sevkYeri ? d.sevkYeri : '',
-          firma: (d && (d.firma || d.firmaKodu || d.firmaSelect)) ? (d.firma || d.firmaKodu || d.firmaSelect) : ''
+          kantar: d.kantar || '',
+          malzeme: d.malzeme || '',
+          sevkYeri: d.sevkYeri || '',
+          firma: d.firma || d.firmaKodu || d.firmaSelect || ''
         });
       } catch {
         parsed.push({ id: row.id, type: row.type, data: row.data, ts: row.ts, saat: '', kantar: '', malzeme: '', sevkYeri: '' });

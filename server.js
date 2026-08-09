@@ -305,6 +305,8 @@ async function prepareSchema() {
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS tc_kimlik TEXT;`);
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS dorse_plaka TEXT;`);
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`);
+  // Tam takip formu anlık görüntüsü (yükleme notu, ambalaj adetleri, imza adları vb.)
+  await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS snapshot TEXT;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS operation_notes(
@@ -1707,7 +1709,7 @@ api.get("/print_history", async (req, res) => {
     const basimYeri = basimYeriRaw ? basimYeriRaw.toUpperCase() : "";
     const limit = Math.min(Number(req.query.limit || 100), 1000);
     
-    let query = "SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih FROM print_history";
+    let query = "SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih, snapshot FROM print_history";
     let params = [];
     
     if (plaka) {
@@ -1748,7 +1750,14 @@ api.get("/print_history", async (req, res) => {
     params.push(limit);
     
     const r = await q(query, params);
-    res.json(r.rows || []);
+    const rows = (r.rows || []).map((row) => {
+      let snap = null;
+      if (row.snapshot) {
+        try { snap = typeof row.snapshot === 'string' ? JSON.parse(row.snapshot) : row.snapshot; } catch (_) { snap = null; }
+      }
+      return Object.assign({}, row, { snapshot: snap });
+    });
+    res.json(rows);
   } catch (err) {
     console.error("GET /print_history error", err);
     sendApiError(res, err, 500, 'PRINT_HISTORY_LIST_FAILED');
@@ -1769,19 +1778,32 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
     const sevkiyat_id = sanitizeString(body.sevkiyat_id || "", 100);
     const sofor = sanitizeString(body.sofor || "", 120);
     const sevk_yeri = sanitizeString(body.sevk_yeri || body.sevkYeri || "", 200);
-    const yukleme_turu = sanitizeString(body.yukleme_turu || body.yuklemeTuru || body.ambalajBilgisi || "", 100);
+    const yukleme_turu = sanitizeString(body.yukleme_turu || body.yuklemeTuru || body.ambalajBilgisi || "", 200);
     const iletisim = sanitizeString(body.iletisim || body.phone || "", 30);
     const tc_kimlik = sanitizeString(body.tc_kimlik || body.tcKimlik || body.tc || "", 11);
     const dorse_plaka = sanitizeString(body.dorse_plaka || body.dorsePlaka || body.dorse || "", 50);
     const vehicle_id = sanitizeString(body.vehicle_id || body.vehicleId || "", 80);
     // Her zaman sunucu saati (NTP); istemci Windows tarihi ileri/geri olsa bile rapor doğru anı tutar
     const tarih = Date.now();
+
+    let snapshotRaw = '';
+    try {
+      const snapObj = body.snapshot && typeof body.snapshot === 'object'
+        ? body.snapshot
+        : (body.printSnapshot && typeof body.printSnapshot === 'object' ? body.printSnapshot : null);
+      if (snapObj) {
+        const cleaned = Object.assign({}, snapObj);
+        // Güvenlik: çok büyük blob'ları kes
+        const json = JSON.stringify(cleaned);
+        snapshotRaw = json.length > 120000 ? json.slice(0, 120000) : json;
+      }
+    } catch (_) { snapshotRaw = ''; }
     
     if (!plaka) return res.status(400).json({ error: "plaka required" });
     
     await q(`
-      INSERT INTO print_history(id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih)
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      INSERT INTO print_history(id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih, snapshot)
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       ON CONFLICT (id) DO UPDATE SET
         plaka = EXCLUDED.plaka,
         firma = EXCLUDED.firma,
@@ -1796,8 +1818,9 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
         tc_kimlik = EXCLUDED.tc_kimlik,
         dorse_plaka = EXCLUDED.dorse_plaka,
         vehicle_id = EXCLUDED.vehicle_id,
-        tarih = EXCLUDED.tarih
-    `, [id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih]);
+        tarih = EXCLUDED.tarih,
+        snapshot = COALESCE(EXCLUDED.snapshot, print_history.snapshot)
+    `, [id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih, snapshotRaw || null]);
     
     // Broadcast real-time update to all connected clients
     broadcastReportUpdate({

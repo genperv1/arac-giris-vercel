@@ -19,7 +19,7 @@
 
   const AY_SECTIONS = [
     'section-plaka', 'section-pasif', 'section-eksik', 'section-ozmal',
-    'section-vardiya', 'section-imza', 'section-yazdir', 'section-ban', 'section-yedek',
+    'section-imza', 'section-yazdir', 'section-ban', 'section-yedek',
   ];
 
   const SECTION_META = {
@@ -42,11 +42,6 @@
       title: 'Özmal araçlar & şoförler',
       desc: 'Şirket plakaları ve şoför listesi — ana sayfa filtresine yansır.',
       hash: 'ozmal',
-    },
-    'section-vardiya': {
-      title: 'Vardiya takvimi',
-      desc: '1 hafta gece / 1 hafta gündüz döngüsü, resmi tatiller ve özel günler.',
-      hash: 'vardiya',
     },
     'section-imza': {
       title: 'İmza ayarları',
@@ -215,7 +210,6 @@
   function runSectionLoader(id) {
     if (id === 'section-ban') loadBanList();
     if (id === 'section-ozmal') loadOzmalEntriesFull().then(renderOzmalTable);
-    if (id === 'section-vardiya' && window.VardiyaTakvim) window.VardiyaTakvim.init();
     if (id === 'section-pasif') loadPasifDriversTable();
     if (id === 'section-eksik') loadIncompleteVehicles();
     if (id === 'section-imza') loadSignaturesList();
@@ -1861,8 +1855,6 @@
       'section-pasif': 'section-pasif',
       ozmal: 'section-ozmal',
       'section-ozmal': 'section-ozmal',
-      vardiya: 'section-vardiya',
-      'section-vardiya': 'section-vardiya',
       ban: 'section-ban',
       'section-ban': 'section-ban',
       yedek: 'section-yedek',

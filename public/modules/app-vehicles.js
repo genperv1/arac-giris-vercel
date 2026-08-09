@@ -249,33 +249,63 @@ async function deleteVehicle(id) {
                 return;
               }
               
-              // Vehicle'ı bul
-              
+              // Vehicle'ı bul (reprint id çoğu zaman print_history id'sidir — önce plaka / gerçek vehicleId)
+              let reprintData = {};
+              try {
+                const savedReprintData = localStorage.getItem('tempReprintData');
+                if (savedReprintData) {
+                  reprintData = JSON.parse(savedReprintData) || {};
+                  localStorage.removeItem('tempReprintData');
+                }
+              } catch (e) {
+                console.error('🔍 Reprint data okuma hatası:', e);
+              }
+
+              const actualVid = String(
+                (reprintData && (reprintData.vehicleId || reprintData.vehicle_id)) || ''
+              ).trim();
+              const plateFromData = String((reprintData && reprintData.plaka) || platePrm || '').trim();
+
               let vehicle = null;
-              if (reprintId) {
+              if (actualVid) {
+                vehicle = state.vehicles.find(v => String(v.id) === String(actualVid));
+              }
+              if (!vehicle && reprintId) {
                 vehicle = state.vehicles.find(v => String(v.id) === String(reprintId));
               }
-              if (!vehicle && platePrm) {
-                const normPlate = (s) => String(s||'').toLowerCase().replace(/[\s-]+/g, '');
-                vehicle = state.vehicles.find(v => normPlate(v.cekiciPlaka) === normPlate(platePrm));
+              if (!vehicle && plateFromData) {
+                const normPlate = (s) => String(s || '').toLowerCase().replace(/[\s-]+/g, '');
+                vehicle = state.vehicles.find(v => normPlate(v.cekiciPlaka) === normPlate(plateFromData));
               }
-              
-              if (vehicle) {
-                // URL'den reprint bilgilerini al (firma, malzeme, sevk yeri vb.)
-                // URL parametreleri temizlendiği için report.js'den gelen event data'yı kullan
-                // Rapor sayfasından event data'yı localStorage'a geçici olarak kaydetmiştik
-                let reprintData = {};
+
+              // Araç listede yoksa (çıkış yapmış vb.) rapor verisiyle sentetik araç aç
+              if (!vehicle && (reprintId || plateFromData || Object.keys(reprintData).length)) {
+                const plate = plateFromData || platePrm || '';
+                vehicle = {
+                  id: actualVid || 'manual',
+                  cekiciPlaka: plate,
+                  soforAdi: '',
+                  soforSoyadi: '',
+                  tcKimlik: reprintData.tcKimlik || '',
+                  iletisim: reprintData.iletisim || '',
+                  dorsePlaka: reprintData.dorsePlaka || '',
+                  lastPrintSnapshot: null,
+                };
                 try {
-                  const savedReprintData = localStorage.getItem('tempReprintData');
-                  if (savedReprintData) {
-                    reprintData = JSON.parse(savedReprintData);
-                    localStorage.removeItem('tempReprintData'); // temizle
+                  const drv = typeof driverFieldsFromSnapshot === 'function'
+                    ? driverFieldsFromSnapshot(reprintData)
+                    : null;
+                  if (drv) {
+                    vehicle.soforAdi = drv.soforAdi || '';
+                    vehicle.soforSoyadi = drv.soforSoyadi || '';
+                    if (drv.tcKimlik) vehicle.tcKimlik = drv.tcKimlik;
+                    if (drv.iletisim) vehicle.iletisim = drv.iletisim;
+                    if (drv.dorsePlaka) vehicle.dorsePlaka = drv.dorsePlaka;
                   }
-                } catch(e) {
-                  console.error('🔍 Reprint data okuma hatası:', e);
-                }
-                
-                // Eğer kaydedilen data yoksa boş object kullan
+                } catch (e) { /* ignore */ }
+              }
+
+              if (vehicle) {
                 if (!reprintData || Object.keys(reprintData).length === 0) {
                   reprintData = {
                     firma: '',
@@ -284,14 +314,19 @@ async function deleteVehicle(id) {
                     kantar: '',
                     basimYeri: '',
                     ambalaj: '',
-                    baskiNotu: ''
+                    ambalajBilgisi: '',
+                    baskiNotu: '',
+                    yuklemeNotu: ''
                   };
                 }
-                
-                // Reprint bilgilerini vehicle'a geçici olarak ekle
+                // Alan adı eşlemesi (eski/yeni)
+                if (!reprintData.yuklemeNotu && reprintData.baskiNotu) reprintData.yuklemeNotu = reprintData.baskiNotu;
+                if (!reprintData.baskiNotu && reprintData.yuklemeNotu) reprintData.baskiNotu = reprintData.yuklemeNotu;
+                if (!reprintData.ambalajBilgisi && reprintData.ambalaj) reprintData.ambalajBilgisi = reprintData.ambalaj;
+                if (!reprintData.ambalaj && reprintData.ambalajBilgisi) reprintData.ambalaj = reprintData.ambalajBilgisi;
+
                 vehicle._reprintData = reprintData;
-                
-                // Takip formunu aç
+
                 setTimeout(() => {
                   showTakipFormu(vehicle);
                 }, 500);
