@@ -29,7 +29,7 @@
   window._pickerRenderHook = window._pickerRenderHook || null;
 
   window.CUSTOMER_LIST_LS_KEY = 'piyasa_customer_list_cache_v2';
-  window.CUSTOMER_LIST_PASSWORD = '2026genper';
+  window.CUSTOMER_LIST_PASSWORD = '543723';
   window.DURUM_RESET_EPOCH_LS = 'piyasa_durum_reset_epoch_v1';
   window._durumStatus = window._durumStatus || {
     frozen: false,

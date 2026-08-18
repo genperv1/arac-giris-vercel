@@ -1766,6 +1766,7 @@ try {
                                 const snapFix = Object.assign({}, updated.lastPrintSnapshot || {}, {
                                   firmaKodu: printEv.firma || '',
                                   firmaSelect: printEv.firmaSelect || printEv.firma || '',
+                                  firmaAdi: printEv.firmaAdi || '',
                                   malzeme: printEv.malzeme || '',
                                   sevkYeri: printEv.sevkYeri || '',
                                 });

@@ -100,6 +100,39 @@ function _ihracatEmptyBlockHintRowHtml(sample) {
     </tr>`;
 }
 
+function _ihracatParseBbtCount(raw) {
+  const s = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!s) return 0;
+  const m = s.match(/(\d+(?:[.,]\d+)?)\s*BBT\b/i);
+  const src = m ? m[1] : (/^\d+(?:[.,]\d+)?$/.test(s) ? s : '');
+  if (!src) return 0;
+  const n = typeof _ihracatParseNum === 'function'
+    ? _ihracatParseNum(src)
+    : Number(String(src).replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
+function _ihracatBlockPlannedBbtCount(sample) {
+  const totalsBbt = _ihracatParseBbtCount(sample?.blockTotals?.bbt);
+  if (totalsBbt > 0) return totalsBbt;
+  const meta = sample?.blockMeta || {};
+  const footerBbt = _ihracatParseBbtCount(meta.footerLine || meta.bbtPaletLine || meta.bbtPaletSummary);
+  if (footerBbt > 0) return footerBbt;
+  const headerBbt = _ihracatParseBbtCount(sample?.headerText || meta.mainHeader);
+  if (headerBbt > 0) return headerBbt;
+  const notes = Array.isArray(sample?.blockPendingPlakaNotes) ? sample.blockPendingPlakaNotes : [];
+  return notes.reduce((sum, n) => sum + (Number(n?.remainingBbt) || 0), 0);
+}
+
+function _ihracatBlockBbtCount(sample, items) {
+  const realItems = (items || []).filter((i) => !i._ihracatEmptyBlock);
+  if (typeof _ihracatSumItemsTotals === 'function' && realItems.length) {
+    const n = Math.round(_ihracatSumItemsTotals(realItems).bbt || 0);
+    if (n > 0) return n;
+  }
+  return _ihracatBlockPlannedBbtCount(sample);
+}
+
 function _ihracatExtractBlockPlannedSummary(sample) {
   const ht = String(sample?.headerText || sample?.blockMeta?.mainHeader || '').replace(/\s+/g, ' ');
   const parts = [];
@@ -107,15 +140,12 @@ function _ihracatExtractBlockPlannedSummary(sample) {
   if (book) parts.push(`Booking ${book}`);
   const ton = (ht.match(/(\d+)\s*TON\b/i) || [])[1];
   if (ton) parts.push(`${ton} ton`);
-  const bbt = (ht.match(/(\d+)\s*BBT\b/i) || [])[1];
-  if (bbt) parts.push(`${bbt} BBT`);
   const cuval = (ht.match(/(\d+)\s*(?:ÇUVAL|CUVAL)\b/i) || [])[1];
   if (cuval) parts.push(`${cuval} çuval`);
   const palet = (ht.match(/(\d+)\s*PALET\b/i) || [])[1];
   if (palet) parts.push(`${palet} palet`);
 
   const totals = sample?.blockTotals || null;
-  if (totals && !bbt && String(totals.bbt || '').trim()) parts.push(`${totals.bbt} BBT`);
   if (totals && !cuval && String(totals.cuval || '').trim()) parts.push(`${totals.cuval} çuval`);
   return parts.join(' · ');
 }
@@ -262,6 +292,18 @@ function _ihracatBlockSectionIsManuallyEdited(section) {
   return false;
 }
 
+function _ihracatRefreshBlockPortChips(modal) {
+  if (!modal) return;
+  modal.querySelectorAll('[data-ihr-block-section]').forEach((section) => {
+    const chip = section.querySelector('[data-ihr-block-port-chip]');
+    if (!chip) return;
+    const sevk = String(section.querySelector('[data-ihr-firma-sevk]')?.value || '').trim();
+    chip.textContent = sevk;
+    chip.setAttribute('title', sevk);
+    chip.style.display = sevk ? '' : 'none';
+  });
+}
+
 function _ihracatRefreshBlockManualBadges(modal) {
   if (!modal) return;
   modal.querySelectorAll('[data-ihr-block-section]').forEach((section) => {
@@ -352,6 +394,7 @@ function _ihracatBindModalEnhancements(modal, meta, shipments, handlers) {
 
   const refreshUx = () => {
     _ihracatRefreshBlockManualBadges(modal);
+    _ihracatRefreshBlockPortChips(modal);
     _ihracatRefreshYdPortWarnings(modal);
   };
   refreshUx();
@@ -1507,6 +1550,19 @@ function _ihracatRefreshToplamForTbody(tbody) {
     } else {
       const def = bbtPaletEl.getAttribute('data-ihr-header-bbt-palet-default') || '';
       if (def) bbtPaletEl.textContent = def;
+    }
+  }
+  const bbtChip = section?.querySelector('[data-ihr-block-bbt-chip]');
+  if (bbtChip) {
+    const live = Math.round(sums.bbt);
+    const planned = Number(bbtChip.getAttribute('data-ihr-block-bbt-default') || 0) || 0;
+    const shown = live > 0 ? live : planned;
+    if (shown > 0) {
+      bbtChip.textContent = `${shown} BBT`;
+      bbtChip.style.display = '';
+    } else {
+      bbtChip.textContent = '';
+      bbtChip.style.display = 'none';
     }
   }
 }

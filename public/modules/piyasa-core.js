@@ -202,6 +202,7 @@ function piyasaOverlayStyle(zIndex) {
         orders: (state.orders || []).map(o => ({
           __idx: o.__idx,
           firma: o.firma,
+          sipNo: o.sipNo || '',
           firmaAdi: o.firmaAdi,
           malzeme: o.malzeme,
           yuklemeTuru: o.yuklemeTuru,
@@ -329,6 +330,9 @@ function piyasaOverlayStyle(zIndex) {
     window.SyncManager.on('piyasa_updated', (data) => {
       requestPiyasaSyncIfRemoteNewer(data || {}).catch(() => {});
     });
+    window.SyncManager.on('piyasa_customers_updated', () => {
+      loadPiyasaCustomers(true).catch(() => {});
+    });
     window.SyncManager.on('manual_refresh', (payload) => {
       if (payload && payload.dataType === 'piyasa') {
         requestPiyasaSyncIfRemoteNewer(payload.data || payload).catch(() => {});
@@ -427,6 +431,7 @@ function piyasaOverlayStyle(zIndex) {
       _sourceWeek: o._sourceWeek ?? null,
       _sourceSheet: o._sourceSheet || null,
       firma: o.firma || '',
+      sipNo: o.sipNo || '',
       firmaAdi: hSutunValue,
       malzeme: o.malzeme || '',
       yuklemeTuru: o.yuklemeTuru || '',
@@ -453,6 +458,7 @@ function piyasaOverlayStyle(zIndex) {
       _sourceWeek: o._sourceWeek ?? null,
       _sourceSheet: o._sourceSheet || null,
       firma: o.firma,
+      sipNo: o.sipNo || '',
       firmaAdi: o.firmaAdi,
       malzeme: o.malzeme,
       yuklemeTuru: o.yuklemeTuru,
@@ -632,11 +638,14 @@ function piyasaOverlayStyle(zIndex) {
 
   function _resolvePickerFirmaAdi(o) {
     if (o.firmaAdi && String(o.firmaAdi).trim()) return String(o.firmaAdi).trim();
-    return getFirmaFullName(String(o.firma || '').trim()) || '';
+    const code = String(o.firma || '').trim();
+    const fromList = getFirmaFullName(code) || '';
+    if (fromList) return fromList;
+    return code;
   }
 
   function _pickerEntrySearchHay(o, firmaAdi, sevkiyat) {
-    return `${o.firma || ''} ${firmaAdi} ${o.malzeme || ''} ${o.sevkYeri || ''} ${o.il || ''} ${o.yuklemeTuru || ''} ${o.aciklama || ''} ${o.miktar || ''} ${o.odemeTuru || ''} ${o.org || ''} ${sevkiyat} ${o._weekLabel || ''}`.toLowerCase();
+    return `${o.firma || ''} ${o.sipNo || ''} ${firmaAdi} ${o.malzeme || ''} ${o.sevkYeri || ''} ${o.il || ''} ${o.yuklemeTuru || ''} ${o.aciklama || ''} ${o.miktar || ''} ${o.odemeTuru || ''} ${o.org || ''} ${sevkiyat} ${o._weekLabel || ''}`.toLowerCase();
   }
 
   /** Sipariş seçici araması için önceden hesaplanmış metin (her tuşta getFirmaFullName çağrılmasın). */

@@ -73,14 +73,15 @@
               <col style="width:3%">
               <col style="width:5%">
               <col style="width:5%">
-              <col style="width:10%">
+              <col style="width:9%">
+              <col style="width:8%">
               <col style="width:9%">
               <col style="width:7%">
               <col style="width:7%">
               <col style="width:4%">
               <col style="width:8%">
               <col style="width:8%">
-              <col style="width:28%">
+              <col style="width:21%">
               <col style="width:6%">
             </colgroup>
             <thead>
@@ -88,6 +89,7 @@
                 <th style="text-align:center;padding:6px 4px;border:1px solid #eee;white-space:nowrap;font-size:10px;">#</th>
                 <th style="text-align:center;padding:6px 2px;border:1px solid #eee;white-space:nowrap;font-size:9px;">DURUM</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">FİRMA</th>
+                <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">SİP NO</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">FİRMA<br>ADI</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">MALZEME</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">YÜKLEME<br>TÜRÜ</th>
@@ -95,13 +97,39 @@
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;">ORG</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">ŞEHİR</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">MİKTAR</th>
-                <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;">AÇIKLAMA</th>
+                <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;" title="Tıklayınca açılır">AÇIKLAMA</th>
                 <th style="text-align:center;padding:6px 4px;border:1px solid #eee;white-space:nowrap;font-size:10px;">SEÇ</th>
               </tr>
             </thead>
             <tbody id="piyasaTbody"></tbody>
           </table>
         </div>
+        <style>
+          #piyasaOrderPickerOverlay .piyasa-sipno-cell {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            word-break: keep-all;
+            overflow-wrap: normal;
+            font-size: 11px;
+            letter-spacing: -0.02em;
+          }
+          #piyasaOrderPickerOverlay .piyasa-aciklama-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            line-height: 1.45;
+          }
+          #piyasaOrderPickerOverlay .piyasa-aciklama-cell.is-open .piyasa-aciklama-text {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: unset;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+          }
+          #piyasaOrderPickerOverlay .piyasa-aciklama-cell[data-aciklama-toggle="1"] { cursor: pointer; }
+          #piyasaOrderPickerOverlay .piyasa-aciklama-cell[data-aciklama-toggle="1"]:hover { filter: brightness(0.97); }
+        </style>
       </div>
     `;
     document.body.appendChild(overlay);
@@ -139,10 +167,11 @@
     const skippedBtn = overlay.querySelector('#piyasaSkippedBtn');
     if (skippedBtn) skippedBtn.onclick = () => showPiyasaSkippedRowsModal();
 
-    const CELL_WRAP_EXTRA = 'white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;vertical-align:top;';
+    const CELL_WRAP_EXTRA = 'white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;vertical-align:middle;';
     const SEHIR_CELL_EXTRA = CELL_WRAP_EXTRA;
     const MIKTAR_CELL_EXTRA = CELL_WRAP_EXTRA;
-    const ACIKLAMA_CELL_EXTRA = 'white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.5;vertical-align:top;font-size:11px;color:#1e293b;max-width:0;';
+    const SIPNO_CELL_EXTRA = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:keep-all;overflow-wrap:normal;vertical-align:middle;font-size:11px;';
+    const ACIKLAMA_CELL_EXTRA = 'vertical-align:middle;font-size:11px;color:#1e293b;max-width:0;';
     const SELECT_CELL_EXTRA = 'white-space:nowrap;text-align:center;vertical-align:middle;';
     const STATUS_CELL_EXTRA = 'white-space:nowrap;text-align:center;vertical-align:middle;font-size:10px;padding:4px 2px;';
     const NO_CELL_EXTRA = 'white-space:nowrap;text-align:center;vertical-align:middle;font-weight:700;';
@@ -289,18 +318,20 @@
         return normalStyle;
       };
       const aciklamaFull = String(o.aciklama || '').trim();
+      const aciklamaOneLine = aciklamaFull.replace(/\s+/g, ' ');
       const miktarFull = String(o.miktar || '').trim();
       const sehirFull = String(o.il || o.sevkYeri || '').trim();
       const sehirCellStyle = `${isDuplicate ? redStyle : cellStyle(false)}${SEHIR_CELL_EXTRA}`;
       const miktarCellStyle = `${isDuplicate ? redStyle : cellStyle(false)}${MIKTAR_CELL_EXTRA}${isDuplicate ? 'color:#FFBF00;' : ''}`;
+      const sipNoCellStyle = `${isDuplicate ? redStyle : cellStyle(false)}${SIPNO_CELL_EXTRA}`;
       const aciklamaCellStyle = `${cellStyle(false)}${ACIKLAMA_CELL_EXTRA}${isDuplicate ? 'color:#FFBF00;font-weight:bold;' : ''}`;
       const selectBg = isDuplicate ? '#111210' : (isUsed ? '#f3f4f6' : '#fff');
       const selectCellStyle = `${cellStyle(false)}${SELECT_CELL_EXTRA}background:${selectBg};text-align:center;`;
       const aciklamaInner = formatAciklamaHtml(aciklamaFull) || '<span style="color:#9ca3af;">—</span>';
       const aciklamaTd = forPrint
         ? `<td class="col-acik"${printDupClass || printUsedClass}>${aciklamaInner}</td>`
-        : `<td class="piyasa-aciklama-cell" style="${aciklamaCellStyle}" title="${escapeHtml(aciklamaFull)}">
-            <div class="piyasa-aciklama-text" style="font-size:11px;line-height:1.5;color:inherit;">${aciklamaInner}</div>
+        : `<td class="piyasa-aciklama-cell" data-aciklama-toggle="${aciklamaFull ? '1' : '0'}" data-full="${escapeHtml(aciklamaFull)}" style="${aciklamaCellStyle}" title="${escapeHtml(aciklamaFull || '')}">
+            <div class="piyasa-aciklama-text" style="font-size:11px;line-height:1.45;color:inherit;">${aciklamaOneLine ? escapeHtml(aciklamaOneLine) : '<span style="color:#9ca3af;">—</span>'}</div>
           </td>`;
       const selectTd = forPrint ? '' : `<td style="${selectCellStyle}">
             <button type="button" data-pick-key="${escapeHtml(o._pickKey || String(o.__idx))}" style="cursor:pointer;border:0;background:${isUsed ? '#4b5563' : '#111827'};color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;">Seç</button>
@@ -315,11 +346,13 @@
         : '';
       const noCellStyle = forPrint ? '' : `${cellStyle(false)}${NO_CELL_EXTRA}`;
 
+      const sipNo = String(o.sipNo || '').trim();
       return `
         <tr${rowClass}${rowStyle}>
           <td${forPrint ? ' class="col-no"' : ''} style="${noCellStyle}">${o.__idx}${weekBadge}</td>
           ${statusTd}
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(firmaCode)}</td>
+          <td class="piyasa-sipno-cell"${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : sipNoCellStyle}" title="${escapeHtml(sipNo)}">${sipNo ? escapeHtml(sipNo) : ''}</td>
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(firmaAdi)}</td>
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(o.malzeme||'')}</td>
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(true)}">${escapeHtml(o.yuklemeTuru||'')}</td>
@@ -396,14 +429,15 @@
     col.c-no { width: 3%; }
     col.c-durum { width: 5%; }
     col.c-firma { width: 6%; }
-    col.c-fadi { width: 10%; }
+    col.c-sip { width: 6%; }
+    col.c-fadi { width: 9%; }
     col.c-malz { width: 10%; }
     col.c-yuk { width: 7%; }
     col.c-ode { width: 7%; }
     col.c-org { width: 4%; }
     col.c-seh { width: 8%; }
     col.c-mik { width: 8%; }
-    col.c-acik { width: 32%; }
+    col.c-acik { width: 27%; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; break-inside: avoid-page; }
     th, td { border: 1px solid #000; padding: 1px 2px; vertical-align: top; line-height: 1.25; color: #000; background: #fff; overflow: visible; max-width: none; }
@@ -459,13 +493,13 @@
   ${dupWarn}
   <table class="piyasa-print-table">
     <colgroup>
-      <col class="c-no"><col class="c-durum"><col class="c-firma"><col class="c-fadi"><col class="c-malz">
+      <col class="c-no"><col class="c-durum"><col class="c-firma"><col class="c-sip"><col class="c-fadi"><col class="c-malz">
       <col class="c-yuk"><col class="c-ode"><col class="c-org"><col class="c-seh">
       <col class="c-mik"><col class="c-acik">
     </colgroup>
     <thead>
       <tr>
-        <th class="col-no">#</th><th class="col-durum">DURUM</th><th>FİRMA</th><th>FİRMA ADI</th><th>MALZEME</th>
+        <th class="col-no">#</th><th class="col-durum">DURUM</th><th>FİRMA</th><th>SİP NO</th><th>FİRMA ADI</th><th>MALZEME</th>
         <th>YÜK.TÜR</th><th>ÖD.TÜR</th><th>ORG</th><th>ŞEHİR</th>
         <th>MİKTAR</th><th class="col-acik">AÇIKLAMA</th>
       </tr>
@@ -502,6 +536,19 @@
     if (!tbody._piyasaPickerClickBound) {
       tbody._piyasaPickerClickBound = true;
       tbody.addEventListener('click', async (e) => {
+        const acikCell = e.target.closest('.piyasa-aciklama-cell');
+        if (acikCell && acikCell.getAttribute('data-aciklama-toggle') === '1') {
+          e.preventDefault();
+          e.stopPropagation();
+          const textEl = acikCell.querySelector('.piyasa-aciklama-text');
+          const full = acikCell.getAttribute('data-full') || '';
+          const open = acikCell.classList.toggle('is-open');
+          if (textEl) {
+            if (open) textEl.innerHTML = formatAciklamaHtml(full) || '—';
+            else textEl.textContent = full.replace(/\s+/g, ' ');
+          }
+          return;
+        }
         const historyBtn = e.target.closest('button[data-history-key]');
         if (historyBtn) {
           e.preventDefault();

@@ -522,6 +522,44 @@ function _isIhracatPrintContext(pending) {
   return false;
 }
 
+function splitFirmaCodeAndName(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { code: '', name: '' };
+  const cut = s.indexOf('/');
+  if (cut < 0) return { code: s, name: '' };
+  return { code: s.slice(0, cut).trim(), name: s.slice(cut + 1).trim() };
+}
+
+function resolvePrintFirmaAdi(code, explicitAdi) {
+  const parsed = splitFirmaCodeAndName(code);
+  let name = String(explicitAdi || '').trim() || parsed.name;
+  if (name) return name;
+  const lookupCode = parsed.code || String(code || '').trim();
+  try {
+    if (window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function') {
+      const c = window.piyasa.resolveCustomerByKod(lookupCode);
+      if (c && c.ad) return String(c.ad).trim();
+    }
+  } catch (e) {}
+  try {
+    if (window.piyasa && typeof window.piyasa.getFirmaFullName === 'function') {
+      const n = window.piyasa.getFirmaFullName(lookupCode);
+      if (n) return String(n).trim();
+    }
+  } catch (e) {}
+  try {
+    const last = window.piyasa && window.piyasa._state && window.piyasa._state._lastAppliedOrder;
+    if (last) {
+      const lastAdi = String(last.firmaAdi || last._hSutunValue || '').trim();
+      const lastCode = String(last.firma || '').trim();
+      if (lastAdi && (!lookupCode || lastCode.toUpperCase() === lookupCode.toUpperCase())) {
+        return lastAdi;
+      }
+    }
+  } catch (e) {}
+  return lookupCode;
+}
+
 /** print.js ile aynı anda okunan değerler — rapor = kağıttaki (WYSIWYG) */
 function captureTakipPrintPayloadForReport(get) {
   const g = typeof get === 'function'
@@ -546,12 +584,16 @@ function captureTakipPrintPayloadForReport(get) {
     || (excel && String(excel.malzeme || '').trim())
     || ''
   ).trim();
+  const lastOrder = (window.piyasa && window.piyasa._state && window.piyasa._state._lastAppliedOrder) || null;
+  const excelAdi = String((excel && (excel.firmaAdi || excel._hSutunValue)) || '').trim();
+  const orderAdi = String((lastOrder && (lastOrder.firmaAdi || lastOrder._hSutunValue)) || '').trim();
   const driver = getTakipFormDriverPayload();
   const packaging = getTakipPackagingPayload();
   return {
     firma,
     firmaKodu: firma,
     firmaSelect: g('firmaSelect'),
+    firmaAdi: resolvePrintFirmaAdi(firma, excelAdi || orderAdi),
     malzeme,
     sevkYeri: g('sevkYeri') || String(excel?.sevkYeri || '').trim(),
     basimYeri: g('basimYeri'),
@@ -596,6 +638,10 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
       printEv.firma = f;
       printEv.firmaKodu = f;
     }
+    printEv.firmaAdi = resolvePrintFirmaAdi(
+      printEv.firma || f,
+      o.firmaAdi || o._hSutunValue || printEv.firmaAdi
+    );
     if (m) printEv.malzeme = m;
     const userSevk = String(printEv.sevkYeri || '').trim();
     if (sehir && !userSevk) printEv.sevkYeri = sehir;
@@ -616,6 +662,7 @@ function buildPrintHistoryPostBody(printEv, pending, commitTs) {
     firma: printEv.firma || printEv.firmaKodu || '',
     firmaKodu: printEv.firmaKodu || printEv.firma || '',
     firmaSelect: printEv.firmaSelect || '',
+    firmaAdi: printEv.firmaAdi || '',
     malzeme: printEv.malzeme || '',
     tonaj: printEv.tonaj || '',
     basimYeri: printEv.basimYeri || '',
@@ -721,6 +768,7 @@ function refreshPendingPrintSnapshotFromForm(pending) {
   pending.snapshot = Object.assign({}, prev, {
     firmaKodu: get('firmaKodu') || prev.firmaKodu || excelFirma,
     firmaSelect: get('firmaSelect') || prev.firmaSelect,
+    firmaAdi: prev.firmaAdi || '',
     malzeme: get('malzeme') || prev.malzeme,
     malzemeSelect: get('malzemeSelect') || prev.malzemeSelect,
     sevkYeri: get('sevkYeri') || prev.sevkYeri,
@@ -784,6 +832,10 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     firma,
     firmaKodu: firma,
     firmaSelect: String(pp?.firmaSelect || formGet('firmaSelect') || snap.firmaSelect || '').trim(),
+    firmaAdi: resolvePrintFirmaAdi(
+      firma,
+      pp?.firmaAdi || snap.firmaAdi || (excel && (excel.firmaAdi || excel._hSutunValue)) || ''
+    ),
     malzeme,
     sevkYeri: String(
       pp?.sevkYeri || formGet('sevkYeri') || snap.sevkYeri
@@ -2635,6 +2687,7 @@ firma: (firma || '').slice(0, 40),
 
     blockRows.forEach((br) => {
       br.blockPendingPlakaNotes = blockPendingPlakaNotes;
+      if (blockTotals) br.blockTotals = blockTotals;
     });
 
     if (!blockRows.length) {

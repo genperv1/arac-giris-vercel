@@ -150,13 +150,19 @@
 
     .rp-filter-top {
       display: grid;
-      grid-template-columns: 1.1fr 1fr;
+      grid-template-columns: minmax(0, 1.15fr) 17.5rem;
       gap: 0;
+      align-items: start;
     }
 
     .rp-filter-col {
-      padding: 1.1rem 1.25rem;
+      padding: 0.85rem 1.1rem;
       min-width: 0;
+    }
+
+    .rp-filter-col--cal {
+      padding-left: 1rem;
+      padding-right: 1rem;
     }
 
     .rp-filter-col + .rp-filter-col {
@@ -168,7 +174,7 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      margin-bottom: 0.85rem;
+      margin-bottom: 0.55rem;
     }
 
     .rp-filter-col-icon {
@@ -230,145 +236,40 @@
       width: 100%;
     }
 
-    .rp-daterange-trigger {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.7rem 0.85rem;
-      border: 1px solid var(--rp-border);
-      border-radius: 12px;
-      background:
-        linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-      cursor: pointer;
-      text-align: left;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-    }
-
-    .rp-daterange-trigger:hover {
-      border-color: #c7d2fe;
-      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.08);
-    }
-
-    .rp-daterange.is-open .rp-daterange-trigger {
-      border-color: var(--rp-accent);
-      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
-      background: #fff;
-    }
-
-    .rp-daterange-trigger-icon {
-      width: 2.25rem;
-      height: 2.25rem;
-      border-radius: 10px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(145deg, #4f46e5, #6366f1);
-      color: #fff;
-      font-size: 0.85rem;
-      flex-shrink: 0;
-      box-shadow: 0 4px 10px rgba(79, 70, 229, 0.28);
-    }
-
-    .rp-daterange-trigger-body {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .rp-daterange-trigger-label {
-      display: block;
-      font-size: 0.625rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: #94a3b8;
-      margin-bottom: 0.15rem;
-    }
-
-    .rp-daterange-trigger-value {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #0f172a;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-      overflow: hidden;
-    }
-
-    .rp-daterange-trigger-value .is-muted {
-      color: #94a3b8;
-      font-weight: 500;
+    .rp-daterange-summary {
+      display: none;
     }
 
     .rp-daterange-trigger-sep {
       color: #c7d2fe;
-      font-size: 0.75rem;
-    }
-
-    .rp-daterange-chevron {
-      color: #94a3b8;
       font-size: 0.7rem;
-      transition: transform 0.18s ease;
-      flex-shrink: 0;
-    }
-
-    .rp-daterange.is-open .rp-daterange-chevron {
-      transform: rotate(180deg);
-      color: var(--rp-accent);
     }
 
     .rp-daterange-panel {
-      position: fixed;
-      z-index: 1200;
-      width: min(22.5rem, calc(100vw - 1.5rem));
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      box-shadow:
-        0 18px 40px rgba(15, 23, 42, 0.14),
-        0 2px 6px rgba(15, 23, 42, 0.05);
-      overflow: hidden;
-      transform-origin: top center;
-      animation: rpCalIn 0.16s ease;
-    }
-
-    .rp-daterange-panel[hidden] {
-      display: none !important;
-    }
-
-    .rp-daterange-backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: 1190;
-      background: rgba(15, 23, 42, 0.18);
-    }
-
-    .rp-daterange-backdrop[hidden] {
-      display: none !important;
-    }
-
-    @keyframes rpCalIn {
-      from { opacity: 0; transform: translateY(-6px) scale(0.98); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      overflow: visible;
     }
 
     .rp-cal-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.5rem;
-      padding: 0.85rem 0.9rem 0.55rem;
-      background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
-      border-bottom: 1px solid #f1f5f9;
+      gap: 0.25rem;
+      width: 100%;
+      padding: 0;
+      background: transparent;
     }
 
     .rp-cal-nav {
-      width: 2rem;
-      height: 2rem;
-      border-radius: 8px;
+      width: 1.4rem;
+      height: 1.4rem;
+      border-radius: 6px;
       border: 1px solid #e2e8f0;
       background: #fff;
       color: #475569;
@@ -376,6 +277,8 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
+      font-size: 0.6rem;
+      flex-shrink: 0;
       transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     }
 
@@ -386,46 +289,85 @@
     }
 
     .rp-cal-month {
-      font-size: 0.9375rem;
+      font-size: 0.75rem;
       font-weight: 700;
       color: #0f172a;
       letter-spacing: -0.01em;
       text-transform: capitalize;
+      text-align: center;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: nowrap;
+      gap: 0.25rem;
+      line-height: 1.2;
+      min-width: 0;
+    }
+
+    .rp-cal-weeks {
+      font-size: 0.5625rem;
+      font-weight: 650;
+      color: var(--rp-accent);
+      letter-spacing: 0;
+      text-transform: none;
+      white-space: nowrap;
     }
 
     .rp-cal-weekdays {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 0.15rem;
-      padding: 0.55rem 0.75rem 0.2rem;
+      grid-template-columns: 1.1rem repeat(7, 1fr);
+      gap: 0;
+      padding: 0.05rem 0 0;
     }
 
     .rp-cal-weekday {
       text-align: center;
-      font-size: 0.625rem;
+      font-size: 0.5rem;
       font-weight: 700;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.02em;
       text-transform: uppercase;
       color: #94a3b8;
-      padding: 0.2rem 0;
+      padding: 0;
+    }
+
+    .rp-cal-weekday.is-weeknum {
+      color: var(--rp-accent);
     }
 
     .rp-cal-grid {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 0.15rem 0;
-      padding: 0.15rem 0.75rem 0.65rem;
+      grid-template-columns: 1.1rem repeat(7, 1fr);
+      gap: 0;
+      padding: 0;
+      align-items: center;
+    }
+
+    .rp-cal-weeknum {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 0.95rem;
+      font-size: 0.5rem;
+      font-weight: 700;
+      color: #818cf8;
+      font-variant-numeric: tabular-nums;
+      user-select: none;
+    }
+
+    .rp-cal-weeknum.is-current {
+      color: var(--rp-accent);
     }
 
     .rp-cal-day {
       position: relative;
-      height: 2.15rem;
+      height: 0.95rem;
       border: 0;
       background: transparent;
       padding: 0;
       cursor: pointer;
       color: #334155;
-      font-size: 0.8125rem;
+      font-size: 0.5625rem;
       font-weight: 600;
       font-variant-numeric: tabular-nums;
     }
@@ -433,8 +375,8 @@
     .rp-cal-day span {
       position: relative;
       z-index: 1;
-      width: 2rem;
-      height: 2rem;
+      width: 0.95rem;
+      height: 0.95rem;
       margin: 0 auto;
       border-radius: 999px;
       display: flex;
@@ -470,7 +412,7 @@
     .rp-cal-day.is-in-range::before {
       content: '';
       position: absolute;
-      inset: 0.2rem 0;
+      inset: 0.08rem 0;
       background: #eef2ff;
       z-index: 0;
     }
@@ -492,7 +434,7 @@
     .rp-cal-day.is-selected span {
       background: linear-gradient(145deg, #4f46e5, #6366f1);
       color: #fff;
-      box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
+      box-shadow: 0 2px 6px rgba(79, 70, 229, 0.28);
     }
 
     .rp-cal-day.is-selected:hover span {
@@ -501,75 +443,37 @@
     }
 
     .rp-cal-foot {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-      padding: 0.65rem 0.85rem;
-      border-top: 1px solid #f1f5f9;
-      background: #f8fafc;
+      display: none;
     }
 
     .rp-cal-hint {
-      font-size: 0.75rem;
-      color: #64748b;
-      font-weight: 500;
-      min-width: 0;
-    }
-
-    .rp-cal-foot-actions {
-      display: flex;
-      gap: 0.35rem;
-      flex-shrink: 0;
-    }
-
-    .rp-cal-foot-btn {
-      padding: 0.35rem 0.7rem;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      font-size: 0.75rem;
-      font-weight: 650;
-      cursor: pointer;
-    }
-
-    .rp-cal-foot-btn.is-ghost {
-      background: #fff;
-      border-color: #e2e8f0;
-      color: #64748b;
-    }
-
-    .rp-cal-foot-btn.is-ghost:hover {
-      background: #f1f5f9;
-      color: #0f172a;
-    }
-
-    .rp-cal-foot-btn.is-primary {
-      background: var(--rp-accent);
-      color: #fff;
-      border-color: var(--rp-accent);
-    }
-
-    .rp-cal-foot-btn.is-primary:hover {
-      background: var(--rp-accent-hover);
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
     }
 
     .rp-date-presets {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.4rem;
-      margin-top: 0.75rem;
+      gap: 0.3rem;
+      padding: 0.5rem 1.1rem;
+      margin-top: 0;
+      border-top: 1px solid var(--rp-border);
+      background: #fff;
     }
 
     .rp-preset {
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
-      padding: 0.35rem 0.7rem;
+      gap: 0.25rem;
+      padding: 0.2rem 0.5rem;
       border-radius: 999px;
       border: 1px solid var(--rp-border);
       background: #fff;
       color: #475569;
-      font-size: 0.75rem;
+      font-size: 0.6875rem;
       font-weight: 600;
       cursor: pointer;
       transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
@@ -819,15 +723,34 @@
     }
 
     .rp-table .col-firma .rp-firma-text {
-      display: inline-block;
+      display: block;
       max-width: 100%;
       white-space: normal;
       word-break: break-word;
       overflow-wrap: anywhere;
     }
 
+    .rp-table .col-firma .rp-firma-name {
+      display: block;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #475569;
+      margin-top: 2px;
+      line-height: 1.25;
+      white-space: normal;
+      word-break: break-word;
+    }
+
     .rp-table .col-tarih {
-      width: 10%;
+      width: 13%;
+    }
+
+    .rp-table .col-tarih .rp-week-label {
+      font-weight: 600;
+      font-size: 0.75rem;
+      color: #64748b;
+      white-space: nowrap;
     }
 
     .rp-table .col-basim {
@@ -1310,18 +1233,14 @@
         grid-template-columns: 1fr;
       }
 
+      .rp-filter-col--cal {
+        max-width: none;
+      }
+
       .rp-filter-col + .rp-filter-col,
       .rp-filter-group + .rp-filter-group {
         border-left: none;
         border-top: 1px solid var(--rp-border);
-      }
-
-      .rp-daterange-panel {
-        left: 0.75rem !important;
-        right: 0.75rem !important;
-        width: auto !important;
-        max-height: min(70vh, 28rem);
-        overflow: auto;
       }
 
       .rp-filter-foot {
@@ -1459,38 +1378,26 @@
             </div>
           </div>
 
-          <div class="rp-filter-col">
+          <div class="rp-filter-col rp-filter-col--cal">
             <div class="rp-filter-col-head">
               <span class="rp-filter-col-icon" aria-hidden="true"><i class="fas fa-calendar-alt"></i></span>
-              <div>
-                <div class="rp-filter-col-title">Tarih aralığı</div>
-                <div class="rp-filter-col-sub">Başlangıç ve bitiş tarihine göre göster</div>
+              <div class="rp-cal-top">
+                <button type="button" class="rp-cal-nav" id="calPrevBtn" aria-label="Önceki ay">
+                  <i class="fas fa-chevron-left" aria-hidden="true"></i>
+                </button>
+                <div class="rp-cal-month" id="calMonthLabel">—</div>
+                <button type="button" class="rp-cal-nav" id="calNextBtn" aria-label="Sonraki ay">
+                  <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                </button>
               </div>
             </div>
             <div class="rp-daterange" id="dateRangePicker">
-              <button type="button" class="rp-daterange-trigger" id="dateRangeTrigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="dateRangePanel">
-                <span class="rp-daterange-trigger-icon" aria-hidden="true"><i class="fas fa-calendar-alt"></i></span>
-                <span class="rp-daterange-trigger-body">
-                  <span class="rp-daterange-trigger-label">Tarih aralığı</span>
-                  <span class="rp-daterange-trigger-value" id="dateRangeTriggerValue">
-                    <span class="is-muted">Tarih seçin</span>
-                  </span>
-                </span>
-                <i class="fas fa-chevron-down rp-daterange-chevron" aria-hidden="true"></i>
-              </button>
-
-              <div class="rp-daterange-backdrop" id="dateRangeBackdrop" hidden></div>
-              <div class="rp-daterange-panel" id="dateRangePanel" role="dialog" aria-label="Takvim" hidden>
-                <div class="rp-cal-top">
-                  <button type="button" class="rp-cal-nav" id="calPrevBtn" aria-label="Önceki ay">
-                    <i class="fas fa-chevron-left" aria-hidden="true"></i>
-                  </button>
-                  <div class="rp-cal-month" id="calMonthLabel">—</div>
-                  <button type="button" class="rp-cal-nav" id="calNextBtn" aria-label="Sonraki ay">
-                    <i class="fas fa-chevron-right" aria-hidden="true"></i>
-                  </button>
-                </div>
+              <div class="rp-daterange-summary" id="dateRangeTriggerValue" hidden>
+                <span class="is-muted">Tarih seçin</span>
+              </div>
+              <div class="rp-daterange-panel" id="dateRangePanel" role="group" aria-label="Takvim">
                 <div class="rp-cal-weekdays" aria-hidden="true">
+                  <span class="rp-cal-weekday is-weeknum">Hf</span>
                   <span class="rp-cal-weekday">Pt</span>
                   <span class="rp-cal-weekday">Sa</span>
                   <span class="rp-cal-weekday">Ça</span>
@@ -1500,40 +1407,34 @@
                   <span class="rp-cal-weekday">Pz</span>
                 </div>
                 <div class="rp-cal-grid" id="calDayGrid"></div>
-                <div class="rp-cal-foot">
-                  <span class="rp-cal-hint" id="calHint">Başlangıç tarihini seçin</span>
-                  <div class="rp-cal-foot-actions">
-                    <button type="button" class="rp-cal-foot-btn is-ghost" id="calClearBtn">Temizle</button>
-                    <button type="button" class="rp-cal-foot-btn is-primary" id="calCloseBtn">Tamam</button>
-                  </div>
-                </div>
+                <span class="rp-cal-hint" id="calHint">Başlangıç tarihini seçin</span>
               </div>
-
+              <button type="button" class="rp-cal-foot-btn is-ghost" id="calClearBtn" hidden>Temizle</button>
               <input type="hidden" id="dateFromInput" value="" />
               <input type="hidden" id="dateToInput" value="" />
             </div>
-
-            <div class="rp-date-presets" role="group" aria-label="Hızlı tarih seçimi">
-              <button type="button" class="rp-preset" data-range="today" id="todayFilterBtn" title="Sadece bugün">
-                <i class="fas fa-calendar-day" aria-hidden="true"></i> Bugün
-              </button>
-              <button type="button" class="rp-preset" data-range="yesterday" title="Dün">
-                Dün
-              </button>
-              <button type="button" class="rp-preset" data-range="7d" title="Son 7 gün">
-                Son 7 gün
-              </button>
-              <button type="button" class="rp-preset" data-range="30d" title="Son 30 gün">
-                Son 30 gün
-              </button>
-              <button type="button" class="rp-preset" data-range="month" title="Bu ay">
-                Bu ay
-              </button>
-              <button type="button" class="rp-preset" data-range="all" title="Tüm tarihler">
-                Tümü
-              </button>
-            </div>
           </div>
+        </div>
+
+        <div class="rp-date-presets" role="group" aria-label="Hızlı tarih seçimi">
+          <button type="button" class="rp-preset" data-range="today" id="todayFilterBtn" title="Sadece bugün">
+            <i class="fas fa-calendar-day" aria-hidden="true"></i> Bugün
+          </button>
+          <button type="button" class="rp-preset" data-range="yesterday" title="Dün">
+            Dün
+          </button>
+          <button type="button" class="rp-preset" data-range="7d" title="Son 7 gün">
+            Son 7 gün
+          </button>
+          <button type="button" class="rp-preset" data-range="30d" title="Son 30 gün">
+            Son 30 gün
+          </button>
+          <button type="button" class="rp-preset" data-range="month" title="Bu ay">
+            Bu ay
+          </button>
+          <button type="button" class="rp-preset" data-range="all" title="Tüm tarihler">
+            Tümü
+          </button>
         </div>
 
         <div class="rp-filter-mid">
@@ -1625,8 +1526,8 @@
         <table class="rp-table rp-table--responsive">
           <thead>
             <tr>
-              <th class="col-plate">Plaka</th>
-              <th class="col-firma">Firma / Sürücü</th>
+              <th class="col-plate">Plaka / Sürücü</th>
+              <th class="col-firma">Firma</th>
               <th class="col-tarih">Tarih</th>
               <th class="col-basim">Basım Yeri</th>
               <th class="col-malzeme">Malzeme Bilgisi</th>
@@ -1664,7 +1565,7 @@
   <script src="sync-manager.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
-  <script src="report.js?v=20260810-reprint"></script>
+  <script src="report.js?v=20260819-week-col"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

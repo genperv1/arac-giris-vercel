@@ -167,7 +167,10 @@
       _sourceWeek: week,
       _sourceSheet: sheet,
       firma: String(o.firma || '').trim(),
-      firmaAdi: String(o.firmaAdi || o._hSutunValue || '').trim(),
+      sipNo: String(o.sipNo || '').trim(),
+      firmaAdi: (typeof _resolvePickerFirmaAdi === 'function'
+        ? _resolvePickerFirmaAdi(o)
+        : String(o.firmaAdi || o._hSutunValue || '').trim()),
       malzeme: String(o.malzeme || '').trim(),
       yuklemeTuru: String(o.yuklemeTuru || '').trim(),
       odemeTuru: String(o.odemeTuru || '').trim(),
@@ -644,7 +647,7 @@
     const fullTable = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     const visibility = filterHiddenRowsAoA(ws, fullTable);
     const table = visibility.table;
-    const expected = ['SİRA','SIRA','SEVK','FİRMA','FIRMA','FİRMA ADI','FIRMA ADI','MALZEME','YÜKLEME TÜRÜ','YUKLEME TURU','AÇIKLAMA','ACIKLAMA','İL','IL','LOT NO','LOT','MİKTAR','MIKTAR','MİKTAR DANE','MIKTAR DANE','MIKTARDANE','MİKTARDANE','SEVKİYAT TİPİ','SEVKIYAT TIPI'];
+    const expected = ['SİRA','SIRA','SEVK','FİRMA','FIRMA','SİP NO','SIP NO','FİRMA ADI','FIRMA ADI','MALZEME','YÜKLEME TÜRÜ','YUKLEME TURU','AÇIKLAMA','ACIKLAMA','İL','IL','LOT NO','LOT','MİKTAR','MIKTAR','MİKTAR DANE','MIKTAR DANE','MIKTARDANE','MİKTARDANE','SEVKİYAT TİPİ','SEVKIYAT TIPI'];
 
     function cellNorm(v){
       return String(v||'')
@@ -764,6 +767,43 @@
     return inferSevkiyatTipiFromFirma(o && o.firma);
   }
 
+  function normalizeSipNo(v) {
+    if (v == null || v === '') return '';
+    let s = String(v).trim();
+    if (!s) return '';
+    if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+    return s;
+  }
+
+  function isSipNoHeaderKey(key) {
+    const n = normKey(key).replace(/[.\-_/]/g, ' ').replace(/\s+/g, ' ').trim();
+    const compact = n.replace(/\s+/g, '');
+    return compact === 'SIPNO'
+      || compact === 'SIPARISNO'
+      || compact === 'SIPARISNUMARASI'
+      || n === 'SIP NO'
+      || n === 'SIPARIS NO'
+      || n === 'SIPARIS NUMARASI'
+      || n === 'SIPARIS NUMARA';
+  }
+
+  function pickSipNo(r) {
+    let v = pick(r, [
+      'SİP NO', 'SIP NO', 'SİP.NO', 'SIP.NO', 'SİPNO', 'SIPNO',
+      'SİPARİŞ NO', 'SIPARIS NO', 'SİPARİŞ NUMARASI', 'SIPARIS NUMARASI',
+      'SİPARİŞ NO.', 'SIPARIS NO.',
+    ]);
+    if (v) return normalizeSipNo(v);
+    try {
+      for (const hk of Object.keys(r || {})) {
+        if (!isSipNoHeaderKey(hk)) continue;
+        const val = normalizeSipNo(r[hk]);
+        if (val) return val;
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
   function pickAciklama(r) {
     let v = pick(r, ['AÇIKLAMA', 'ACIKLAMA', 'NOT', 'YÜKLEME NOTU', 'YUKLEME NOTU', 'AÇIKLAMA 1', 'ACIKLAMA 1']);
     if (v) return v;
@@ -802,6 +842,14 @@
       if (r && r.__parseMeta) return;
       const firmaCode = pick(r, ['FİRMA','FIRMA']);
       let firmaAdi = r._hSutunValue ? String(r._hSutunValue).trim() : '';
+      if (!firmaAdi && firmaCode) {
+        try {
+          if (typeof getFirmaFullName === 'function') {
+            firmaAdi = String(getFirmaFullName(firmaCode) || '').trim();
+          }
+        } catch (e) {}
+        if (!firmaAdi) firmaAdi = String(firmaCode).trim();
+      }
       const odemeVal = pick(r, ['ÖDEME TÜRÜ','ODEME TURU','ÖDEME','ODEME']);
       const malzemeVal = pick(r, ['MALZEME']);
       const yuklemeVal = pick(r, ['YÜKLEME TÜRÜ','YUKLEME TURU','YÜKLEME TURU']);
@@ -823,6 +871,7 @@
         ? eu().pickPiyasaMiktar(r)
         : pick(r, ['MİKTAR DANE','MIKTAR DANE','MİKTARDANE','MIKTARDANE','MİKTAR','MIKTAR']);
       if (eu().miktarToKg) miktarVal = eu().miktarToKg(miktarVal, unit);
+      if (eu().hasValidPiyasaMiktar && !eu().hasValidPiyasaMiktar(miktarVal)) miktarVal = '';
 
       let sevkiyatTipi = pickSevkiyatTipi(r);
       if (!sevkiyatTipi) sevkiyatTipi = inferSevkiyatTipiFromFirma(firmaCode);
@@ -830,6 +879,7 @@
       const o = {
         __idx: idx + 1,
         firma: firmaCode,
+        sipNo: pickSipNo(r),
         firmaAdi: firmaAdi,
         odemeTuru: odemeVal,
         malzeme: malzemeVal,

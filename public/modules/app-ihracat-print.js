@@ -1295,6 +1295,16 @@ async function showIhracatDetailsModal() {
     const emptyBlockBadge = isEmptyBlock
       ? '<span style="font-size:11px;font-weight:700;color:#64748b;background:#e2e8f0;padding:3px 8px;border-radius:999px;flex-shrink:0;">Henüz plaka yok</span>'
       : '';
+    const chipBase = 'font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;flex-shrink:0;white-space:nowrap;';
+    const bbtCount = typeof _ihracatBlockBbtCount === 'function'
+      ? _ihracatBlockBbtCount(sample, realItems.length ? realItems : items)
+      : 0;
+    const plannedBbt = typeof _ihracatBlockPlannedBbtCount === 'function'
+      ? _ihracatBlockPlannedBbtCount(sample)
+      : bbtCount;
+    const portLabel = String(sevkVal || '').trim();
+    const bbtBadge = `<span data-ihr-block-bbt-chip="1" data-ihr-block-bbt-default="${plannedBbt || ''}" style="${chipBase}color:#3730a3;background:#eef2ff;border:1px solid #c7d2fe;${bbtCount ? '' : 'display:none;'}">${bbtCount ? `${bbtCount} BBT` : ''}</span>`;
+    const portBadge = `<span data-ihr-block-port-chip="1" title="${escapeHtml(portLabel)}" style="${chipBase}color:#9f1239;background:#fff1f2;border:1px solid #fecdd3;max-width:220px;overflow:hidden;text-overflow:ellipsis;${portLabel ? '' : 'display:none;'}">${escapeHtml(portLabel)}</span>`;
     const sectionBorder = isEmptyBlock ? 'border:1px dashed #cbd5e1;' : 'border:1px solid #e2e8f0;';
     return `
       <div data-ihr-block-section="1" data-ihr-block-gk="${escapeHtml(gk)}" data-ihr-yd="${escapeHtml(String(yd).toUpperCase())}" data-ihr-sevk-auto="${escapeHtml(autoSevk)}" data-ihr-amb-auto="${escapeHtml(autoAmb)}" data-ihr-collapse-section="1" class="ihr-collapse-closed" data-ihr-empty-block="${isEmptyBlock ? '1' : '0'}" style="margin-bottom:20px;${sectionBorder}border-radius:12px;background:#f8fafc;overflow:hidden;">
@@ -1303,6 +1313,8 @@ async function showIhracatDetailsModal() {
           <strong style="font-size:14px;color:#0f172a;flex:1;min-width:160px;">${escapeHtml(sectionTitle)}${planSummary ? ` <span style="font-weight:800;color:#334155;">(${escapeHtml(planSummary)})</span>` : ''}</strong>
           ${emptyBlockBadge}
           ${manualBadge}
+          ${bbtBadge}
+          ${portBadge}
           <span style="font-size:12px;color:#475569;flex-shrink:0;">Plaka: ${realItems.length}${isEmptyBlock ? '' : ` • Yazdırıldı: ${counts.printed} • Bekleniyor: ${counts.pending} • Kayıt yok: ${counts.missing}`}</span>
         </button>
         <div class="ihr-collapse-body" style="display:none;padding:0 14px 14px;">

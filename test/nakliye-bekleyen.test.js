@@ -186,6 +186,7 @@ test('applyLiveDepartedMarks — print report marks row departed', () => {
     {
       blockKey: 'B1',
       headerText: 'YD82 / 4 BBT',
+      ydKey: 'YD82',
       plaka: '64BE703',
       bbt: '4',
       gidenTonaj: '',
@@ -195,7 +196,7 @@ test('applyLiveDepartedMarks — print report marks row departed', () => {
     {
       type: 'PRINT',
       ts: new Date('2026-07-15T10:00:00.000Z').getTime(),
-      data: { plaka: '64BE703' },
+      data: { plaka: '64BE703', firma: 'YD82' },
     },
   ];
   const out = core.applyLiveDepartedMarks(rows, meta, reports);
@@ -206,14 +207,14 @@ test('applyLiveDepartedMarks — print report marks row departed', () => {
 test('applyLiveDepartedMarks — çift kantar consumes one row at a time', () => {
   const meta = { importedAt: '2026-07-15T08:00:00.000Z' };
   const rows = [
-    { blockKey: 'B1', headerText: 'YD82 / 4 BBT', plaka: '64BE703', bbt: '4', gidenTonaj: '' },
-    { blockKey: 'B2', headerText: 'YD82 / 16 BBT', plaka: '64BE703', bbt: '16', gidenTonaj: '' },
+    { blockKey: 'B1', headerText: 'YD82 / 4 BBT', ydKey: 'YD82', plaka: '64BE703', bbt: '4', gidenTonaj: '' },
+    { blockKey: 'B2', headerText: 'YD82 / 16 BBT', ydKey: 'YD82', plaka: '64BE703', bbt: '16', gidenTonaj: '' },
   ];
   const reports = [
     {
       type: 'PRINT',
       ts: new Date('2026-07-15T10:00:00.000Z').getTime(),
-      data: { plaka: '64BE703' },
+      data: { plaka: '64BE703', firma: 'YD82' },
     },
   ];
   const out = core.applyLiveDepartedMarks(rows, meta, reports);
@@ -222,6 +223,203 @@ test('applyLiveDepartedMarks — çift kantar consumes one row at a time', () =>
   const pending = core.analyzeNakliyePending(out);
   assert.equal(pending.length, 1);
   assert.equal(pending[0].planBbt, 16);
+});
+
+test('applyLiveDepartedMarks — other YD print does not hide gelmeyen plate', () => {
+  const meta = { importedAt: '2026-08-18T08:00:00.000Z' };
+  const rows = [
+    {
+      blockKey: 'YD40',
+      headerText: 'YD40(G) / 200 BBT',
+      ydKey: 'YD40',
+      plaka: '03DH540',
+      bbt: '24',
+      gidenTonaj: '',
+    },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-18T10:00:00.000Z').getTime(),
+      data: { plaka: '03DH540', firma: 'YD173(G) / LOT NO 26 07 41' },
+    },
+  ];
+  const out = core.applyLiveDepartedMarks(rows, meta, reports);
+  assert.equal(core.isRowDeparted(out[0]), false);
+  const pending = core.analyzeNakliyePending(out);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].waitingPlates[0].plaka, '03DH540');
+});
+
+test('applyLiveDepartedMarks — print without YD does not hide ihracat gelmeyen', () => {
+  const meta = { importedAt: '2026-08-18T08:00:00.000Z' };
+  const rows = [
+    {
+      blockKey: 'YD385',
+      headerText: 'YD385(M) / 120 BBT',
+      ydKey: 'YD385',
+      plaka: '43SE883',
+      bbt: '22',
+      gidenTonaj: '',
+    },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-18T10:00:00.000Z').getTime(),
+      data: { plaka: '43SE883' },
+    },
+  ];
+  const out = core.applyLiveDepartedMarks(rows, meta, reports);
+  assert.equal(core.isRowDeparted(out[0]), false);
+});
+
+test('clearLiveDepartedMark restores Excel GELMEDİ plate that was print-marked', () => {
+  const cleaned = core.clearLiveDepartedMark({
+    blockKey: 'YD385',
+    headerText: 'YD385(M) / 120 BBT',
+    plaka: '43SE883',
+    bbt: '22',
+    gidenTonaj: '22',
+    _nbLiveDeparted: true,
+  });
+  assert.equal(core.isRowDeparted(cleaned), false);
+  assert.equal(cleaned.gidenTonaj, '');
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'YD385',
+      blockHeaderRow: 10,
+      headerText: 'YD385(M) / 120 BBT',
+      plaka: '43ADB640',
+      bbt: '22',
+      gidenTonaj: '27740',
+    },
+    Object.assign({ blockHeaderRow: 10 }, cleaned),
+  ]);
+  assert.equal(pending[0].waitingPlates.map((p) => p.plaka).join(','), '43SE883');
+});
+
+test('applyLiveDepartedMarks — same YD print still hides plate', () => {
+  const meta = { importedAt: '2026-08-18T08:00:00.000Z' };
+  const rows = [
+    {
+      blockKey: 'YD40',
+      headerText: 'YD40(G) / 200 BBT',
+      ydKey: 'YD40',
+      plaka: '03DH540',
+      bbt: '24',
+      gidenTonaj: '',
+    },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-18T10:00:00.000Z').getTime(),
+      data: { plaka: '03DH540', firmaKodu: 'YD40(G) / LOT NO 26 08 08' },
+    },
+  ];
+  const out = core.applyLiveDepartedMarks(rows, meta, reports);
+  assert.ok(core.isRowDeparted(out[0]));
+});
+
+test('applyLiveDepartedMarks — strips persisted live mark then re-applies by YD', () => {
+  const meta = { importedAt: '2026-08-18T08:00:00.000Z' };
+  const rows = [
+    {
+      blockKey: 'YD385',
+      headerText: 'YD385(M) / 120 BBT',
+      ydKey: 'YD385',
+      plaka: '43SE883',
+      bbt: '22',
+      gidenTonaj: '22',
+      _nbLiveDeparted: true,
+    },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-18T10:00:00.000Z').getTime(),
+      data: { plaka: '43SE883', firma: 'YD173' },
+    },
+  ];
+  const out = core.applyLiveDepartedMarks(rows, meta, reports);
+  assert.equal(core.isRowDeparted(out[0]), false);
+  assert.equal(out[0]._nbLiveDeparted, undefined);
+});
+
+test('analyzeNakliyePending — YD385 gelmeyen plates stay visible when remaining is 0', () => {
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'BLK_10',
+      blockHeaderRow: 10,
+      headerText: 'YD385(M) / LOT NO 26 07 24 / 120 BBT',
+      ydKey: 'YD385',
+      plaka: '43ADB640',
+      bbt: '22',
+      gidenTonaj: '27740',
+    },
+    {
+      blockKey: 'BLK_10',
+      blockHeaderRow: 10,
+      headerText: 'YD385(M) / LOT NO 26 07 24 / 120 BBT',
+      ydKey: 'YD385',
+      plaka: '43SE883',
+      bbt: '22',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_10',
+      blockHeaderRow: 10,
+      headerText: 'YD385(M) / LOT NO 26 07 24 / 120 BBT',
+      ydKey: 'YD385',
+      plaka: '43AAZ480',
+      bbt: '26',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_10',
+      blockHeaderRow: 10,
+      headerText: 'YD385(M) / LOT NO 26 07 24 / 120 BBT',
+      ydKey: 'YD385',
+      plaka: '43ABR539',
+      bbt: '26',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_10',
+      blockHeaderRow: 10,
+      headerText: 'YD385(M) / LOT NO 26 07 24 / 120 BBT',
+      ydKey: 'YD385',
+      plaka: '43AK877',
+      bbt: '24',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(pending.length, 1);
+  assert.match(String(pending[0].ydKey), /^YD385/);
+  assert.equal(pending[0].remainingBbt, 0);
+  assert.equal(pending[0].waitingPlates.length, 4);
+  assert.equal(core.hasNakliyeBlockContent(pending[0]), true);
+});
+
+test('analyzeNakliyePending — YD40 lists all gelmeyen plates and remaining 27 BBT', () => {
+  const pending = core.analyzeNakliyePending([
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03AIT034', sira: '1', bbt: '26', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03ADB390', sira: '2', bbt: '26', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '41BFL699', sira: '3', bbt: '21', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03DH540', sira: '4', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03BN929', sira: '5', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03VR929', sira: '6', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '16RCU18', sira: '7', bbt: '28', gidenTonaj: '' },
+  ]);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].waitingPlates.length, 7);
+  assert.equal(pending[0].remainingBbt, 27);
+  const sheet = core.buildExcelBlockRows(pending[0]).filter((r) => r.kind === 'plate');
+  assert.deepEqual(
+    sheet.map((r) => r.a),
+    ['03AIT034', '03ADB390', '41BFL699', '03DH540', '03BN929', '03VR929', '16RCU18']
+  );
 });
 
 test('shouldUseDualColumnLayout — long list uses two columns', () => {

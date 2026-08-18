@@ -38,74 +38,14 @@
     }
   }
 
-  function fetchWithTimeout(url, options, ms) {
-    const timeoutMs = Number(ms) > 0 ? Number(ms) : 12000;
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller
-      ? setTimeout(() => {
-          try {
-            controller.abort();
-          } catch (e) {}
-        }, timeoutMs)
-      : null;
-    const opts = Object.assign({}, options || {});
-    if (controller) opts.signal = controller.signal;
-    return fetch(url, opts).finally(() => {
-      if (timer) clearTimeout(timer);
-    });
-  }
-
-  async function fetchPrintReports(force) {
-    if (!force && typeof window._ihracatFetchRemotePrintReports === 'function') {
-      try {
-        const cached = await window._ihracatFetchRemotePrintReports(false);
-        if (Array.isArray(cached) && cached.length) return cached;
-      } catch (e) {}
-    }
-
-    try {
-      const r = await fetchWithTimeout('/api/reports?limit=2000&_=' + Date.now(), {
-        method: 'GET',
-        credentials: 'same-origin',
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-      }, 12000);
-      if (r.ok) {
-        const data = await r.json();
-        if (Array.isArray(data) && data.length) return data;
-      }
-    } catch (e) {
-      console.warn('Nakliye: /api/reports alınamadı', e);
-    }
-
-    try {
-      const local = JSON.parse(localStorage.getItem('report_events_v1') || '[]');
-      if (Array.isArray(local) && local.length) {
-        return local.filter((x) => String(x?.type || '').toUpperCase() === 'PRINT');
-      }
-    } catch (e) {}
-
-    return window.__ihracatRemotePrintCache?.reports || [];
-  }
-
-  async function loadRowsWithLiveDeparted(forceReports) {
-    const meta = loadMeta();
-    let rows = loadRows();
+  async function loadRowsWithLiveDeparted() {
+    const rows = loadRows();
     if (!rows.length || !core) return rows;
-
-    const reports = await fetchPrintReports(!!forceReports);
-    const enriched = core.applyLiveDepartedMarks(rows, meta, reports);
-    if (core.departedRowsChanged(rows, enriched)) {
-      if (window.DailyStore && typeof DailyStore.set === 'function') {
-        DailyStore.set(enriched, meta);
-      } else {
-        try {
-          localStorage.setItem('daily_shipments_current', JSON.stringify(enriched));
-        } catch (e) {}
-      }
-      rows = enriched;
+    const cleaned = rows.map((r) => core.clearLiveDepartedMark(r));
+    if (typeof core.departedRowsChanged === 'function' && core.departedRowsChanged(rows, cleaned)) {
+      persistRows(cleaned, loadMeta());
     }
-    return rows;
+    return cleaned;
   }
 
   function loadMeta() {
@@ -784,11 +724,17 @@
     return shareOrDownloadImage(blob, fileName);
   }
 
-  async function copySheetImage() {
+  function sheetDownloadFileName() {
+    const dateEl = document.querySelector('#nbSheetCarrier .nb-sheet-date');
+    const date = sanitizeFilePart(dateEl ? dateEl.textContent : '');
+    return date && date !== 'blok' ? 'nakliye-bekleyenleri-' + date + '.png' : 'nakliye-bekleyenleri.png';
+  }
+
+  async function captureFullSheetBlob() {
     const visible = filterItems(_allItems);
     if (!visible.length || !core) {
       toast('Kopyalanacak liste yok');
-      return;
+      return null;
     }
 
     const hasCarrier =
@@ -796,15 +742,24 @@
       (core.buildExcelSheetParts(visible).nakliyeRows || []).length > 0;
     if (!hasCarrier) {
       toast('Kopyalanacak nakliyeci listesi yok');
-      return;
+      return null;
     }
 
     const target = sheetCaptureTarget();
     if (!target) {
       toast('Tablo bulunamadı');
-      return;
+      return null;
     }
 
+    target.classList.add('nb-sheet-capture--carrier-only');
+    try {
+      return await captureElementToBlob(target);
+    } finally {
+      target.classList.remove('nb-sheet-capture--carrier-only');
+    }
+  }
+
+  async function copySheetImage() {
     const btn = document.getElementById('nbCopyAllBtn');
     const prevHtml = btn ? btn.innerHTML : '';
     if (btn) {
@@ -813,14 +768,13 @@
     }
 
     try {
-      target.classList.add('nb-sheet-capture--carrier-only');
-      const blob = await captureElementToBlob(target);
-      await deliverImageBlob(blob, 'nakliye-bekleyenleri.png', true);
+      const blob = await captureFullSheetBlob();
+      if (!blob) return;
+      await deliverImageBlob(blob, sheetDownloadFileName(), true);
     } catch (e) {
       console.error('copySheetImage', e);
       toast('Görsel kopyalanamadı');
     } finally {
-      target.classList.remove('nb-sheet-capture--carrier-only');
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = prevHtml;
@@ -849,20 +803,7 @@
     }
   }
 
-  async function copyAllBlocksAsFiles() {
-    const blocks = Array.from(document.querySelectorAll('#nbSheetCarrier .nb-sheet-block'));
-    if (!blocks.length) {
-      toast('Kopyalanacak blok yok');
-      return;
-    }
-
-    try {
-      await ensureHtml2Canvas();
-    } catch (e) {
-      toast('Görsel aracı yüklenemedi');
-      return;
-    }
-
+  async function downloadSheetImage() {
     const btn = document.getElementById('nbCopyBlocksBtn');
     const prevHtml = btn ? btn.innerHTML : '';
     if (btn) {
@@ -870,28 +811,13 @@
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> İndiriliyor…';
     }
 
-    let ok = 0;
     try {
-      for (let i = 0; i < blocks.length; i++) {
-        if (btn) {
-          btn.innerHTML =
-            '<i class="fas fa-spinner fa-spin"></i> ' + (i + 1) + '/' + blocks.length;
-        }
-        const blockEl = blocks[i];
-        const body = blockEl.querySelector('.nb-sheet-block-body') || blockEl;
-        const grid = body.querySelector('.nb-sheet-grid') || body;
-        const label = blockEl.getAttribute('data-nb-block-label') || 'blok-' + (i + 1);
-        const fileName =
-          'nakliye-' + String(i + 1).padStart(2, '0') + '-' + sanitizeFilePart(label) + '.png';
-        const blob = await captureElementToBlob(grid);
-        await shareOrDownloadImage(blob, fileName, { forceDownload: true, silent: true });
-        ok += 1;
-        await new Promise((r) => setTimeout(r, 280));
-      }
-      toast(ok + ' blok PNG indirildi');
+      const blob = await captureFullSheetBlob();
+      if (!blob) return;
+      await shareOrDownloadImage(blob, sheetDownloadFileName(), { forceDownload: true });
     } catch (e) {
-      console.error('copyAllBlocksAsFiles', e);
-      toast('Bloklar indirilemedi');
+      console.error('downloadSheetImage', e);
+      toast('Ekran görüntüsü indirilemedi');
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -1101,7 +1027,7 @@
     const stats = document.getElementById('nbStats');
 
     try {
-      const rows = await loadRowsWithLiveDeparted(!!forceReports);
+      const rows = await loadRowsWithLiveDeparted();
 
       if (!rows.length) {
         empty?.classList.add('hidden');
@@ -1163,7 +1089,7 @@
 
     document.getElementById('nbCopyAllBtn')?.addEventListener('click', copySheetImage);
     document.getElementById('nbCopyBlocksBtn')?.addEventListener('click', () => {
-      void copyAllBlocksAsFiles();
+      void downloadSheetImage();
     });
     document.getElementById('nbEditBtn')?.addEventListener('click', () => {
       const on = document.body.classList.toggle('nb-edit-on');

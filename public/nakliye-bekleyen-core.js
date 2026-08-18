@@ -5,7 +5,7 @@
  * Kurallar:
  * - Giden tonajı dolu satır = çıkmış araç → listede gösterilmez
  * - Plaka var, giden tonaj boş = gelmeyen araç → plaka + BBT yan sütunda
- * - Takip/yazdırma kaydı varsa satıra giden tonaj işlenir (çift kantar: plaka başına sırayla)
+ * - Yazdırma kaydı Excel'deki GELMEDİ satırını kapatmaz (kaynak Excel giden tonaj)
  * - Kalan BBT = plan − çıkan BBT − atanmış ama gelmeyen BBT
  */
 (function (root, factory) {
@@ -186,6 +186,31 @@
     return normTr(compactPlate(plaka));
   }
 
+  function ydBaseKey(text) {
+    const m = String(text || '').match(/\b(YD\d{1,4})\b/i);
+    return m ? m[1].toUpperCase() : '';
+  }
+
+  function printReportYdKey(report) {
+    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
+    return ydBaseKey(
+      [report?.firma, d.firma, d.firmaKodu, d.firmaSelect, d.ydKey, d.headerText]
+        .filter(Boolean)
+        .join(' ')
+    );
+  }
+
+  function rowYdBase(row) {
+    return ydBaseKey([row?.ydKey, row?.firma, row?.headerText].filter(Boolean).join(' '));
+  }
+
+  function clearLiveDepartedMark(row) {
+    if (!row || !row._nbLiveDeparted) return row;
+    const next = Object.assign({}, row, { gidenTonaj: '' });
+    delete next._nbLiveDeparted;
+    return next;
+  }
+
   function reportTimestamp(report) {
     if (!report) return 0;
     const d = report.data || {};
@@ -230,6 +255,7 @@
           type: 'PRINT',
           ts,
           plaka: r.plaka || d.plaka || d.plate || '',
+          firma: r.firma || d.firma || d.firmaKodu || d.firmaSelect || '',
           data: d,
         };
       })
@@ -238,39 +264,53 @@
 
   function collectPrintCountByPlate(reports, meta) {
     const map = new Map();
-    normalizePrintReports(reports).forEach((r) => {
-      if (!printReportValidForMeta(r.ts, meta)) return;
-      const d = r.data || {};
-      const keys = new Set();
-      [r.plaka, d.plaka, d.plate, d.cekiciPlaka, d.dorsePlaka].forEach((raw) => {
-        const pk = plateKey(raw);
-        if (pk) keys.add(pk);
-      });
-      keys.forEach((pk) => {
-        map.set(pk, (map.get(pk) || 0) + 1);
-      });
+    collectPrintSlots(reports, meta).forEach((slot) => {
+      map.set(slot.pk, (map.get(slot.pk) || 0) + 1);
     });
     return map;
   }
 
-  /** Yazdırılmış / çıkış yapmış plakaları satırlara giden tonaj olarak işler (sırayla, çift kantar uyumlu). */
+  function collectPrintSlots(reports, meta) {
+    const slots = [];
+    normalizePrintReports(reports).forEach((r) => {
+      if (!printReportValidForMeta(r.ts, meta)) return;
+      const d = r.data || {};
+      const yd = printReportYdKey(r);
+      const seen = new Set();
+      [r.plaka, d.plaka, d.plate, d.cekiciPlaka, d.dorsePlaka].forEach((raw) => {
+        const pk = plateKey(raw);
+        if (!pk || seen.has(pk)) return;
+        seen.add(pk);
+        slots.push({ pk, yd, used: false });
+      });
+    });
+    return slots;
+  }
+
+  function printSlotMatchesRow(slot, row) {
+    if (!slot || slot.used || !row) return false;
+    const pk = plateKey(row.plaka);
+    if (!pk || slot.pk !== pk) return false;
+    const rowYd = rowYdBase(row);
+    if (slot.yd) return slot.yd === rowYd;
+    // Baskıda YD yoksa ihracat satırını kapatma (başka iş / piyasa baskısı)
+    return !rowYd;
+  }
+
+  /** Yazdırılmış / çıkış yapmış plakaları satırlara giden tonaj olarak işler (sırayla, aynı YD, çift kantar uyumlu). */
   function applyLiveDepartedMarks(rows, meta, reports) {
-    const printCounts = collectPrintCountByPlate(reports, meta);
-    const assigned = new Map();
+    const slots = collectPrintSlots(reports, meta);
     return (rows || []).map((row) => {
       if (!row || row._ihracatEmptyBlock) return row;
-      if (parseNum(row.gidenTonaj) > 0) return row;
-      const plaka = String(row.plaka || '').trim();
-      if (!isValidPlateCell(plaka)) return row;
-      const pk = plateKey(plaka);
-      const allowed = printCounts.get(pk) || 0;
-      const used = assigned.get(pk) || 0;
-      if (allowed > used) {
-        assigned.set(pk, used + 1);
-        const gt = parseNum(row.tonajKg) || parseNum(row.netTonaj) || parseNum(row.bbt) || 1;
-        return Object.assign({}, row, { gidenTonaj: String(gt), _nbLiveDeparted: true });
-      }
-      return row;
+      const working = clearLiveDepartedMark(row);
+      if (parseNum(working.gidenTonaj) > 0) return working;
+      const plaka = String(working.plaka || '').trim();
+      if (!isValidPlateCell(plaka)) return working;
+      const slot = slots.find((s) => printSlotMatchesRow(s, working));
+      if (!slot) return working;
+      slot.used = true;
+      const gt = parseNum(working.tonajKg) || parseNum(working.netTonaj) || parseNum(working.bbt) || 1;
+      return Object.assign({}, working, { gidenTonaj: String(gt), _nbLiveDeparted: true });
     });
   }
 
@@ -832,8 +872,12 @@
     isRowDeparted,
     applyLiveDepartedMarks,
     printReportValidForMeta,
+    printReportYdKey,
     normalizePrintReports,
     collectPrintCountByPlate,
+    collectPrintSlots,
+    clearLiveDepartedMark,
+    ydBaseKey,
     departedRowsChanged,
     plateKey,
     parsePendingNote,

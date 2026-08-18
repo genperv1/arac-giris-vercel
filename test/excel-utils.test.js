@@ -4,10 +4,11 @@ const test = require('node:test');
 const assert = require('node:assert');
 const eu = require('../lib/excel-utils');
 
-test('filterPiyasaRow rejects empty miktar', () => {
-  const r = eu.filterPiyasaRow({ firma: 'HP1', malzeme: 'X', miktar: '0' }, 1);
-  assert.strictEqual(r.ok, false);
-  assert.strictEqual(r.reason, 'miktar_geçersiz');
+test('filterPiyasaRow keeps row when miktar is empty or zero', () => {
+  const r0 = eu.filterPiyasaRow({ firma: 'HP1', malzeme: 'X', miktar: '0' }, 1);
+  assert.strictEqual(r0.ok, true);
+  const rEmpty = eu.filterPiyasaRow({ firma: 'Y43', malzeme: 'P2(PE230-13)', miktar: 'KG' }, 26);
+  assert.strictEqual(rEmpty.ok, true);
 });
 
 test('filterPiyasaRow accepts valid row', () => {

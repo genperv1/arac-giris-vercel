@@ -174,6 +174,7 @@
             ''
           ).slice(0, 30);
           slim.firma = (baseData.firma || baseData.firmaKodu || baseData.firmaSelect || '').slice(0, 30);
+          slim.firmaAdi = String(baseData.firmaAdi || '').slice(0, 80);
           slim.sofor = (baseData.sofor || [baseData.soforAdi, baseData.soforSoyadi].filter(Boolean).join(' ') || '').slice(0, 80);
           slim.soforAdi = (baseData.soforAdi || '').slice(0, 40);
           slim.soforSoyadi = (baseData.soforSoyadi || '').slice(0, 40);

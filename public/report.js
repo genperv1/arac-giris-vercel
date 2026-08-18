@@ -280,6 +280,85 @@
   let _eventsLoadPromise = null;
   let _eventsLoaded = false;
   const _vehicleLookupCache = new Map();
+  const _firmaNameByCode = new Map();
+
+  function escapeRpHtml(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function normFirmaCodeKey(s) {
+    return String(s || '').trim().toUpperCase().replace(/\s+/g, '');
+  }
+
+  function splitFirmaCodeAndName(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return { code: '', name: '' };
+    const cut = s.indexOf('/');
+    if (cut < 0) return { code: s, name: '' };
+    return { code: s.slice(0, cut).trim(), name: s.slice(cut + 1).trim() };
+  }
+
+  function ingestFirmaCustomers(list) {
+    if (!Array.isArray(list)) return 0;
+    let added = 0;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      const kod = String((c && (c.kod || c.code)) || '').trim();
+      const ad = String((c && (c.ad || c.name || c.unvan)) || '').trim();
+      if (!kod || !ad) continue;
+      const k = normFirmaCodeKey(kod);
+      if (!k || _firmaNameByCode.has(k)) continue;
+      _firmaNameByCode.set(k, ad);
+      added += 1;
+    }
+    return added;
+  }
+
+  function lookupFirmaName(code) {
+    const parsed = splitFirmaCodeAndName(code);
+    const k = normFirmaCodeKey(parsed.code || code);
+    if (!k) return parsed.name || '';
+    return _firmaNameByCode.get(k) || parsed.name || '';
+  }
+
+  function resolveReportFirma(d, fallbackCode) {
+    const src = d && typeof d === 'object' ? d : {};
+    const raw = String(
+      src.firma || src.firmaKodu || src.firmaSelect || fallbackCode || ''
+    ).trim();
+    const parsed = splitFirmaCodeAndName(raw);
+    const code = parsed.code;
+    let name = String(src.firmaAdi || src.musteriAdi || src.customerName || '').trim() || parsed.name;
+    if (!name && code) name = lookupFirmaName(code);
+    if (!name && code) name = code;
+    return { code, name };
+  }
+
+  async function loadFirmaNameMap() {
+    let added = 0;
+    try {
+      const raw = localStorage.getItem('piyasa_customer_list_cache_v2');
+      if (raw) {
+        const payload = JSON.parse(raw);
+        added += ingestFirmaCustomers(payload && payload.customers);
+      }
+    } catch (e) {}
+    try {
+      const r = await fetch('/api/piyasa/customers?_=' + Date.now(), {
+        credentials: 'include',
+        headers: { 'Cache-Control': 'no-store' }
+      });
+      if (r.ok) {
+        const payload = await r.json();
+        added += ingestFirmaCustomers(payload && payload.customers);
+      }
+    } catch (e) {}
+    return added;
+  }
 
   function eventsToVehicles(events) {
     const printEvents = (events || []).filter(ev => ev && ev.type === 'PRINT');
@@ -306,6 +385,7 @@
         d.firma,
         d.firmaKodu,
         d.firmaSelect,
+        d.firmaAdi,
         ev.firma
       ].map((x) => normMaterial(x)).filter(Boolean);
       // Prefer API-provided tarih/saat (already formatted server-side)
@@ -580,6 +660,7 @@
       d.firma,
       d.firmaKodu,
       d.firmaSelect,
+      d.firmaAdi,
       ev.firma,
       d.malzeme,
       d.malzemeSelect,
@@ -676,6 +757,38 @@
     return String(y) + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
   }
 
+  function isoWeekFromParts(y, m1, d) {
+    const date = new Date(Date.UTC(Number(y), Number(m1) - 1, Number(d)));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  }
+
+  function weekNoFromTarih(dateStr, ts) {
+    const tr = String(dateStr || '').match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (tr) return isoWeekFromParts(Number(tr[3]), Number(tr[2]), Number(tr[1]));
+    const iso = ts ? istanbulIsoDateFromMs(ts) : '';
+    const parts = parseIsoParts(iso);
+    if (parts) return isoWeekFromParts(parts.y, parts.m, parts.d);
+    return 0;
+  }
+
+  function formatMonthWeekRange(y, m0) {
+    const daysInMonth = new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+    const weeks = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const w = isoWeekFromParts(y, m0 + 1, d);
+      if (weeks[weeks.length - 1] !== w) weeks.push(w);
+    }
+    if (!weeks.length) return '';
+    if (weeks.length === 1) return weeks[0] + '. hafta';
+    const first = weeks[0];
+    const last = weeks[weeks.length - 1];
+    if (last >= first) return first + '–' + last + '. hafta';
+    return first + ' · ' + weeks.slice(1)[0] + '–' + last + '. hafta';
+  }
+
   function syncDateRangeTrigger() {
     const valueEl = document.getElementById('dateRangeTriggerValue');
     if (!valueEl) return;
@@ -766,18 +879,27 @@
     ensureCalViewMonth();
     const y = __calState.viewYear;
     const m = __calState.viewMonth;
-    if (monthLabel) monthLabel.textContent = (TR_MONTHS[m] || '') + ' ' + y;
+    const weekRange = formatMonthWeekRange(y, m);
+    if (monthLabel) {
+      monthLabel.innerHTML =
+        '<span>' + (TR_MONTHS[m] || '') + ' ' + y + '</span>' +
+        (weekRange ? '<span class="rp-cal-weeks">· ' + weekRange + '</span>' : '');
+    }
 
     const todayIso = getIstanbulTodayIso();
+    const todayParts = parseIsoParts(todayIso);
+    const todayWeek = todayParts ? isoWeekFromParts(todayParts.y, todayParts.m, todayParts.d) : 0;
     const from = __calState.draftFrom;
     const to = __calState.draftTo;
     const firstDow = new Date(Date.UTC(y, m, 1)).getUTCDay(); // 0 Sun
     const mondayFirst = (firstDow + 6) % 7;
     const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
     const prevDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const weekCount = Math.ceil((mondayFirst + daysInMonth) / 7);
+    const cellCount = weekCount * 7;
 
     let html = '';
-    for (let i = 0; i < 42; i++) {
+    for (let i = 0; i < cellCount; i++) {
       let cellY = y;
       let cellM = m;
       let cellD;
@@ -794,6 +916,13 @@
         outside = true;
       } else {
         cellD = i - mondayFirst + 1;
+      }
+
+      if (i % 7 === 0) {
+        const weekNo = isoWeekFromParts(cellY, cellM + 1, cellD);
+        const isCurrentWeek = weekNo === todayWeek;
+        html += '<span class="rp-cal-weeknum' + (isCurrentWeek ? ' is-current' : '') +
+          '" title="' + weekNo + '. hafta">' + weekNo + '</span>';
       }
 
       const iso = isoFromParts(cellY, cellM + 1, cellD);
@@ -824,89 +953,24 @@
     syncCalHint();
   }
 
-  function positionDateRangePanel() {
-    const panel = document.getElementById('dateRangePanel');
-    const trigger = document.getElementById('dateRangeTrigger');
-    if (!panel || !trigger || panel.hidden) return;
-
-    const rect = trigger.getBoundingClientRect();
-    const gap = 8;
-    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-    const isMobile = vw <= 768;
-
-    if (isMobile) {
-      panel.style.left = '0.75rem';
-      panel.style.right = '0.75rem';
-      panel.style.width = 'auto';
-      panel.style.top = 'auto';
-      panel.style.bottom = '0.75rem';
-      return;
-    }
-
-    panel.style.right = 'auto';
-    panel.style.bottom = 'auto';
-    panel.style.width = '';
-
-    // Ölçüm için görünür olmalı
-    const panelWidth = panel.offsetWidth || Math.min(360, vw - 24);
-    const panelHeight = panel.offsetHeight || 360;
-
-    let left = rect.left;
-    if (left + panelWidth > vw - 12) left = Math.max(12, vw - panelWidth - 12);
-    if (left < 12) left = 12;
-
-    let top = rect.bottom + gap;
-    if (top + panelHeight > vh - 12) {
-      const above = rect.top - gap - panelHeight;
-      if (above >= 12) top = above;
-      else top = Math.max(12, vh - panelHeight - 12);
-    }
-
-    panel.style.left = left + 'px';
-    panel.style.top = top + 'px';
-  }
+  function positionDateRangePanel() {}
 
   function openDateRangePanel() {
-    const picker = document.getElementById('dateRangePicker');
-    const panel = document.getElementById('dateRangePanel');
-    const backdrop = document.getElementById('dateRangeBackdrop');
-    const trigger = document.getElementById('dateRangeTrigger');
-    if (!panel || !picker) return;
     __calState.draftFrom = String(window.__reportsDateFrom || '').trim();
     __calState.draftTo = String(window.__reportsDateTo || '').trim();
     __calState.picking = __calState.draftFrom && !__calState.draftTo ? 'to' : 'from';
-    __calState.viewYear = 0;
-    ensureCalViewMonth();
+    if (!__calState.viewYear) {
+      ensureCalViewMonth();
+    }
     renderCalendarGrid();
-
-    // overflow/transform kesmesin diye body'ye taşı
-    if (backdrop && backdrop.parentNode !== document.body) {
-      document.body.appendChild(backdrop);
-    }
-    if (panel.parentNode !== document.body) {
-      document.body.appendChild(panel);
-    }
-
-    if (backdrop) backdrop.hidden = false;
-    panel.hidden = false;
-    picker.classList.add('is-open');
     __calState.open = true;
-    if (trigger) trigger.setAttribute('aria-expanded', 'true');
-    positionDateRangePanel();
-    window.requestAnimationFrame(positionDateRangePanel);
   }
 
   function closeDateRangePanel() {
-    const picker = document.getElementById('dateRangePicker');
-    const panel = document.getElementById('dateRangePanel');
-    const backdrop = document.getElementById('dateRangeBackdrop');
-    const trigger = document.getElementById('dateRangeTrigger');
-    if (panel) panel.hidden = true;
-    if (backdrop) backdrop.hidden = true;
-    if (picker) picker.classList.remove('is-open');
-    __calState.open = false;
-    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    __calState.open = true;
+    __calState.draftFrom = String(window.__reportsDateFrom || '').trim();
+    __calState.draftTo = String(window.__reportsDateTo || '').trim();
+    renderCalendarGrid();
   }
 
   function commitDraftRange() {
@@ -941,7 +1005,6 @@
     __calState.picking = 'from';
     renderCalendarGrid();
     commitDraftRange();
-    closeDateRangePanel();
   }
 
   function syncDateInputs() {
@@ -960,11 +1023,9 @@
 
     syncDateRangeTrigger();
 
-    if (__calState.open) {
-      __calState.draftFrom = from;
-      __calState.draftTo = to;
-      renderCalendarGrid();
-    }
+    __calState.draftFrom = from;
+    __calState.draftTo = to;
+    renderCalendarGrid();
   }
 
   function bindDateRangePicker(applyDateRange) {
@@ -975,34 +1036,10 @@
     __calState.bound = true;
     __calState.applyFn = applyDateRange;
 
-    const trigger = document.getElementById('dateRangeTrigger');
-    const panel = document.getElementById('dateRangePanel');
-    const backdrop = document.getElementById('dateRangeBackdrop');
     const prevBtn = document.getElementById('calPrevBtn');
     const nextBtn = document.getElementById('calNextBtn');
     const clearBtn = document.getElementById('calClearBtn');
-    const closeBtn = document.getElementById('calCloseBtn');
     const grid = document.getElementById('calDayGrid');
-
-    if (trigger) {
-      trigger.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (__calState.open) closeDateRangePanel();
-        else openDateRangePanel();
-      });
-    }
-    if (backdrop) {
-      backdrop.addEventListener('click', (e) => {
-        e.preventDefault();
-        closeDateRangePanel();
-      });
-    }
-    if (panel) {
-      panel.addEventListener('click', (e) => {
-        e.stopPropagation();
-      });
-    }
     if (prevBtn) {
       prevBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -1014,7 +1051,6 @@
           __calState.viewYear -= 1;
         }
         renderCalendarGrid();
-        positionDateRangePanel();
       });
     }
     if (nextBtn) {
@@ -1033,7 +1069,6 @@
           __calState.viewMonth = today.m - 1;
         }
         renderCalendarGrid();
-        positionDateRangePanel();
       });
     }
     if (grid) {
@@ -1057,28 +1092,8 @@
         renderCalendarGrid();
       });
     }
-    if (closeBtn) {
-      closeBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (__calState.draftFrom && !__calState.draftTo) {
-          __calState.draftTo = __calState.draftFrom;
-        }
-        commitDraftRange();
-        closeDateRangePanel();
-      });
-    }
 
-    window.addEventListener('resize', () => {
-      if (__calState.open) positionDateRangePanel();
-    });
-    window.addEventListener('scroll', () => {
-      if (__calState.open) positionDateRangePanel();
-    }, true);
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && __calState.open) closeDateRangePanel();
-    });
+    openDateRangePanel();
   }
 
   function syncActiveFiltersBar() {
@@ -1524,26 +1539,37 @@
 
       const basim = (d && (d.basimYeri || d.basimYeri === '')) ? (d.basimYeri || '') : ((v && v.lastPrintSnapshot && v.lastPrintSnapshot.basimYeri) || '');
 
-      const firmaCode = (lastEv && lastEv.data && (lastEv.data.firma || lastEv.data.firmaKodu || lastEv.data.firmaSelect))
-        || v.defaultFirma || '';
+      const resolvedFirma = resolveReportFirma(
+        Object.assign({}, (v.lastPrintSnapshot || {}), d || {}),
+        v.defaultFirma || ''
+      );
+      const firmaCode = resolvedFirma.code;
+      const firmaName = resolvedFirma.name;
       const soforName = (lastEv && lastEv.data && (lastEv.data.sofor
         || [lastEv.data.soforAdi, lastEv.data.soforSoyadi].filter(Boolean).join(' ').trim()))
         || '';
       const plateCellHtml = plate
-        ? `${plate}${soforName ? `<div class="rp-sofor-line">${soforName}</div>` : ''}`
-        : (soforName || '-');
-      // Uzun firma/sürücü adları alt satıra kırılsın (yatay kaydırma olmasın)
-      const firmaCellHtml = firmaCode
-        ? `<span class="rp-firma-text">${firmaCode}</span>`
-        : '-';
+        ? `${escapeRpHtml(plate)}${soforName ? `<div class="rp-sofor-line">${escapeRpHtml(soforName)}</div>` : ''}`
+        : (soforName ? escapeRpHtml(soforName) : '-');
+      let firmaCellHtml = '-';
+      if (firmaCode) {
+        const nameLine = firmaName
+          ? `<span class="rp-firma-name">${escapeRpHtml(firmaName)}</span>`
+          : '';
+        firmaCellHtml = `<span class="rp-firma-text">${escapeRpHtml(firmaCode)}</span>${nameLine}`;
+      }
 
       const dateStr = v._displayTarih || (ts ? ((trDateTimeFromMs(ts) || {}).tarih) : '') || ((d && d.tarih) ? (d.tarih || '-') : '-') || '-';
       const timeStr = saat || (((d && d.saat) ? d.saat : (lastEv && lastEv.saat)) || '');
+      const weekNo = weekNoFromTarih(dateStr, ts);
+      const dateLine = (dateStr && dateStr !== '-')
+        ? (escapeRpHtml(dateStr) + (weekNo ? ' <span class="rp-week-label">(' + weekNo + '. hafta)</span>' : ''))
+        : '-';
 
       tr.innerHTML = `
-        <td class="col-plate font-semibold" data-label="Plaka">${plateCellHtml}</td>
-        <td class="col-firma" data-label="Firma / Sürücü">${firmaCellHtml}</td>
-        <td class="col-tarih" data-label="Tarih">${'<div style="font-weight:700">' + (dateStr || '-') + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + timeStr + '</div>') : '')}</td>
+        <td class="col-plate font-semibold" data-label="Plaka / Sürücü">${plateCellHtml}</td>
+        <td class="col-firma" data-label="Firma">${firmaCellHtml}</td>
+        <td class="col-tarih" data-label="Tarih">${'<div style="font-weight:700">' + dateLine + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + escapeRpHtml(timeStr) + '</div>') : '')}</td>
         <td class="col-basim" data-label="Basım Yeri">${basim || '-'}</td>
         <td class="col-malzeme" data-label="Malzeme">${lastPrintHtml}</td>
         <td class="col-islem rp-table-actions" data-label="İşlem">
@@ -1978,6 +2004,7 @@
       firma: d.firma || d.firmaKodu || d.firmaSelect || '',
       firmaKodu: d.firmaKodu || d.firma || '',
       firmaSelect: d.firmaSelect || '',
+      firmaAdi: d.firmaAdi || '',
       malzeme: d.malzeme || '',
       sevkYeri: d.sevkYeri || '',
       tonaj: d.tonaj || '',
@@ -2216,6 +2243,9 @@
 
     bind();
     render();
+    loadFirmaNameMap().then((added) => {
+      if (added) render();
+    });
     
     // 🔄 UNIFIED CROSS-TAB SYNCHRONIZATION
     function initReportSync() {

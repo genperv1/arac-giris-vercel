@@ -63,6 +63,10 @@
     return list;
   }
 
+  function _clearCustomerListLocalCache() {
+    try { localStorage.removeItem(CUSTOMER_LIST_LS_KEY); } catch (_) {}
+  }
+
   function _loadCustomersFromLocalCache() {
     try {
       const raw = localStorage.getItem(CUSTOMER_LIST_LS_KEY);
@@ -89,7 +93,7 @@
       });
       if (resp.ok) {
         const payload = await resp.json().catch(() => null);
-        if (payload && Array.isArray(payload.customers) && payload.customers.length) {
+        if (payload && Array.isArray(payload.customers)) {
           const rebuilt = _rebuildCustomerStore(payload.customers, payload.updatedAt, payload.source);
           if (!force && payload.customers.length > rebuilt.length) {
             console.warn('Piyasa müşteri listesi sunucuda daha fazla satır içeriyor, tam liste yüklendi.');
@@ -106,15 +110,18 @@
     return _customerStore.customers;
   }
 
-  async function savePiyasaCustomers(customers, source) {
+  async function savePiyasaCustomers(customers, source, opts) {
+    const allowEmpty = !!(opts && opts.allowEmpty);
     const list = _rebuildCustomerStore(customers, Date.now(), source || _customerStore.source || 'manual');
+    const isClear = allowEmpty && !list.length;
     const resp = await fetch('/api/piyasa/customers', {
-      method: 'POST',
+      method: isClear ? 'DELETE' : 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: isClear ? { 'Cache-Control': 'no-cache' } : { 'Content-Type': 'application/json' },
+      body: isClear ? undefined : JSON.stringify({
         source: source || _customerStore.source || 'manual',
         customers: list,
+        allowEmpty,
       }),
     });
     if (!resp.ok) {
@@ -122,6 +129,236 @@
       throw new Error(err.error || 'Müşteri listesi kaydedilemedi');
     }
     return list;
+  }
+
+  function _normCustomerHeaderCell(v) {
+    return String(v == null ? '' : v).trim().toUpperCase()
+      .replace(/\u0130/g, 'I').replace(/İ/g, 'I')
+      .replace(/Ş/g, 'S').replace(/Ğ/g, 'G')
+      .replace(/Ü/g, 'U').replace(/Ö/g, 'O').replace(/Ç/g, 'C')
+      .replace(/[^A-Z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function _isHaftaSheetName(name) {
+    return /(\d{1,2})[^\d]*HAFTA/i.test(String(name || ''));
+  }
+
+  function _isCustomerSheetName(name) {
+    const s = _normCustomerHeaderCell(name);
+    return /(BAYI|MUSTERI|CARI)/.test(s);
+  }
+
+  function _looksLikeFixedBayiLayout(rows) {
+    if (!rows || rows.length < 3) return false;
+    let hits = 0;
+    const end = Math.min(rows.length, 12);
+    for (let i = 1; i < end; i++) {
+      const r = rows[i] || [];
+      const kod = String(r[2] == null ? '' : r[2]).trim();
+      const ad = String(r[3] == null ? '' : r[3]).trim();
+      if (!kod || !ad) continue;
+      if (_isHeaderLikeCustomer({ kod, ad })) continue;
+      if (kod.length >= 2 && ad.length >= 2) hits++;
+    }
+    return hits >= 2;
+  }
+
+  function _findCustomerHeaderMap(rows) {
+    const maxScan = Math.min((rows || []).length, 25);
+    for (let i = 0; i < maxScan; i++) {
+      const cells = (rows[i] || []).map(_normCustomerHeaderCell);
+      const findExact = (names) => {
+        for (let c = 0; c < cells.length; c++) {
+          if (names.includes(cells[c])) return c;
+        }
+        return -1;
+      };
+      const kod = findExact(['KOD', 'MUSTERI KODU', 'MUSTERI KOD', 'CARI KOD', 'CARI KODU', 'FIRMA KODU']);
+      const ad = findExact(['AD', 'UNVAN', 'CARI UNVAN', 'FIRMA ADI', 'FIRMA', 'MUSTERI ADI', 'MUSTERI']);
+      if (kod >= 0 && ad >= 0) {
+        return {
+          headerRow: i,
+          kod,
+          ad,
+          urunTipi: findExact(['URUN TIPI', 'URUN', 'MALZEME TIPI']),
+          sektor: findExact(['SEKTOR']),
+          il: findExact(['IL', 'SEHIR']),
+          adres: findExact(['ADRES']),
+          ambalaj: findExact(['AMBALAJ']),
+        };
+      }
+    }
+    return null;
+  }
+
+  function _parseCustomerSheetRows(ws, sheetName, sheetIndex) {
+    if (!ws || !window.XLSX) return { customers: [], map: null };
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    if (!rows.length) return { customers: [], map: null };
+    let map = _findCustomerHeaderMap(rows);
+    if (!map && (_isCustomerSheetName(sheetName) || _looksLikeFixedBayiLayout(rows))) {
+      map = { headerRow: 0, urunTipi: 0, sektor: 1, kod: 2, ad: 3, il: 4, adres: 5, ambalaj: 6 };
+    }
+    if (!map) return { customers: [], map: null };
+    const customers = [];
+    const col = (row, idx) => (idx >= 0 ? String(row[idx] == null ? '' : row[idx]).trim() : '');
+    for (let i = map.headerRow + 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const entry = _normalizeCustomerEntry({
+        id: `excel-${sheetIndex + 1}-${i + 1}`,
+        kod: col(r, map.kod),
+        ad: col(r, map.ad),
+        urunTipi: col(r, map.urunTipi),
+        sektor: col(r, map.sektor),
+        il: col(r, map.il),
+        adres: col(r, map.adres),
+        ambalaj: col(r, map.ambalaj),
+      }, i);
+      if (entry) customers.push(entry);
+    }
+    return { customers, map };
+  }
+
+  function parsePiyasaCustomersWorkbook(wb) {
+    const names = (wb && wb.SheetNames) || [];
+    const sheets = [];
+    const customers = [];
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      if (typeof isPiyasaAutoDataSheet === 'function' && isPiyasaAutoDataSheet(name)) continue;
+      if (_isHaftaSheetName(name) && !_isCustomerSheetName(name)) continue;
+      const parsed = _parseCustomerSheetRows(wb.Sheets[name], name, i);
+      if (!parsed.customers.length) continue;
+      sheets.push({ name, count: parsed.customers.length });
+      for (const c of parsed.customers) customers.push(c);
+    }
+    return { sheets, customers };
+  }
+
+  async function pickPiyasaCustomerExcelFile() {
+    const inp = (typeof ensureHiddenFileInput === 'function')
+      ? ensureHiddenFileInput('piyasaCustomerExcelFile')
+      : (() => {
+          let el = document.getElementById('piyasaCustomerExcelFile');
+          if (el) return el;
+          el = document.createElement('input');
+          el.type = 'file';
+          el.id = 'piyasaCustomerExcelFile';
+          el.accept = '.xlsx,.xls,.xlsm,.xlsb';
+          el.style.display = 'none';
+          document.body.appendChild(el);
+          return el;
+        })();
+    inp.value = '';
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (file) => {
+        if (done) return;
+        done = true;
+        inp.removeEventListener('change', onChange);
+        window.removeEventListener('focus', onFocus);
+        resolve(file || null);
+      };
+      const onChange = () => finish(inp.files && inp.files[0] ? inp.files[0] : null);
+      const onFocus = () => setTimeout(() => {
+        if (!inp.files || !inp.files.length) finish(null);
+      }, 500);
+      inp.addEventListener('change', onChange);
+      window.addEventListener('focus', onFocus, { once: true });
+      inp.click();
+    });
+  }
+
+  function showPiyasaCustomerExcelPreview(parsed, onSaved) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_TOP);
+    markPiyasaModalLayer(overlay);
+    const sheetRows = (parsed.sheets || []).map((s) =>
+      `<tr>
+        <td style="padding:7px 8px;border:1px solid #eee;">${escapeHtml(s.name)}</td>
+        <td style="padding:7px 8px;border:1px solid #eee;text-align:right;font-weight:700;">${s.count}</td>
+      </tr>`
+    ).join('');
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:min(96vw,560px);width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden;">
+        <div style="padding:14px 16px;border-bottom:1px solid #eee;">
+          <div style="font-weight:900;font-size:16px;">Excel'den müşteri listesi</div>
+          <div style="font-size:12px;color:#666;margin-top:4px;">${escapeHtml(parsed.fileName || 'Excel')} · tüm kitaplar tek liste olarak kaydedilir</div>
+        </div>
+        <div style="padding:14px 16px;">
+          <p style="margin:0 0 10px;font-size:13px;color:#334155;">Haftalık sipariş kitapları atlanır. Bayi / müşteri sayfaları birleştirilip mevcut listenin yerine yazılır.</p>
+          <div style="max-height:220px;overflow:auto;border:1px solid #eee;border-radius:10px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:#f8fafc;">
+                  <th style="text-align:left;padding:8px;border:1px solid #eee;">Kitap</th>
+                  <th style="text-align:right;padding:8px;border:1px solid #eee;">Kayıt</th>
+                </tr>
+              </thead>
+              <tbody>${sheetRows || '<tr><td colspan="2" style="padding:12px;text-align:center;color:#666;">Sayfa bulunamadı</td></tr>'}</tbody>
+            </table>
+          </div>
+          <div style="margin-top:12px;font-size:14px;font-weight:800;">Toplam ${parsed.customers.length} kayıt</div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #eee;">
+          <button type="button" id="piyasaCustExcelCancel" style="border:0;background:#eee;border-radius:8px;padding:9px 14px;cursor:pointer;">İptal</button>
+          <button type="button" id="piyasaCustExcelSave" style="border:0;background:#0f766e;color:#fff;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:800;">Kaydet</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('#piyasaCustExcelCancel').onclick = close;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    bindPiyasaOverlayEsc(overlay, close);
+    overlay.querySelector('#piyasaCustExcelSave').onclick = async () => {
+      const btn = overlay.querySelector('#piyasaCustExcelSave');
+      const pwdOk = await verifyCustomerListPassword('Excel kaydetme şifresini giriniz:');
+      if (!pwdOk) return;
+      btn.disabled = true;
+      try {
+        await savePiyasaCustomers(parsed.customers, parsed.fileName || 'excel', { allowEmpty: false });
+        toast(`✅ Müşteri listesi kaydedildi (${parsed.customers.length} kayıt)`, 'success');
+        close();
+        if (typeof onSaved === 'function') onSaved();
+      } catch (err) {
+        alert('❌ ' + (err.message || 'Kaydedilemedi'));
+        btn.disabled = false;
+      }
+    };
+  }
+
+  async function importPiyasaCustomersFromExcel(onSaved) {
+    let loading = null;
+    try {
+      const file = await pickPiyasaCustomerExcelFile();
+      if (!file) return;
+      if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
+      if (!window.XLSX) {
+        alert('❌ XLSX kütüphanesi yüklenemedi.');
+        return;
+      }
+      if (typeof showPiyasaExcelLoading === 'function') {
+        loading = showPiyasaExcelLoading('Müşteri Excel okunuyor…');
+      }
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type: 'array' });
+      const parsed = parsePiyasaCustomersWorkbook(wb);
+      parsed.fileName = String(file.name || 'piyasa-musteri.xlsx');
+      if (loading && typeof hidePiyasaExcelLoading === 'function') hidePiyasaExcelLoading();
+      loading = null;
+      if (!parsed.customers.length) {
+        alert('❌ Bu Excel’de müşteri / bayi listesi bulunamadı.\n\nBeklenen: BAYİ / MÜŞTERİ kitabı veya KOD + AD (Cari unvan) sütunları.\nHaftalık sipariş kitapları (ör. 21.HAFTA) atlanır.');
+        return;
+      }
+      showPiyasaCustomerExcelPreview(parsed, onSaved);
+    } catch (e) {
+      console.error('Piyasa müşteri Excel yükleme hatası:', e);
+      alert('❌ Excel dosyası okunamadı.');
+    } finally {
+      if (loading && typeof hidePiyasaExcelLoading === 'function') hidePiyasaExcelLoading();
+    }
   }
 
   function normFirmaKodKey(kod) {
@@ -208,6 +445,8 @@
         <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #eee;flex-wrap:wrap;">
           <input id="piyasaCustSearch" placeholder="Kod, ad, il, sektör ara…" style="flex:1;min-width:220px;padding:10px;border:1px solid #ddd;border-radius:10px;outline:none;box-shadow:none;">
           <button type="button" id="piyasaCustAddBtn" style="border:0;background:#111827;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;">+ Ekle</button>
+          <button type="button" id="piyasaCustExcelBtn" title="Excel’den tüm kitapları tek liste olarak yükle" style="border:0;background:#0f766e;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">📥 Excel yükle</button>
+          <button type="button" id="piyasaCustClearBtn" title="Listedeki tüm kayıtları sil" style="border:0;background:#fee2e2;color:#b91c1c;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">🗑 Listeyi sil</button>
         </div>
         <div id="piyasaCustAddForm" style="display:none;padding:10px 14px;border-bottom:1px solid #eee;background:#f8fafc;">
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;">
@@ -261,6 +500,8 @@
     const addBtn = overlay.querySelector('#piyasaCustAddBtn');
     const addCancel = overlay.querySelector('#piyasaCustAddCancel');
     const addSave = overlay.querySelector('#piyasaCustAddSave');
+    const excelBtn = overlay.querySelector('#piyasaCustExcelBtn');
+    const clearBtn = overlay.querySelector('#piyasaCustClearBtn');
 
     const CUST_ROW_H = 38;
     const CUST_ROW_BUFFER = 10;
@@ -289,9 +530,11 @@
     function updateCustMeta(filter, matchCount) {
       const total = _customerStore.customers.length;
       const f = String(filter || '').trim();
+      const src = String(_customerStore.source || '').trim();
+      const srcBit = src && src !== 'manual' && src !== 'cleared' ? ` · ${src}` : (src === 'cleared' ? ' · liste boş' : '');
       metaEl.textContent = f
-        ? `${matchCount} eşleşme · toplam ${total} kayıt`
-        : `${total} kayıt · kaydırarak gezin`;
+        ? `${matchCount} eşleşme · toplam ${total} kayıt${srcBit}`
+        : `${total} kayıt${srcBit} · kaydırarak gezin`;
     }
 
     function renderCustomersVirtual(filter, scrollTop) {
@@ -369,6 +612,35 @@
         btn.disabled = false;
       }
     });
+
+    excelBtn.onclick = () => {
+      importPiyasaCustomersFromExcel(() => scheduleCustRender(true));
+    };
+
+    clearBtn.onclick = async () => {
+      const total = _customerStore.customers.length;
+      const ui = window.rpUi || {};
+      const msg = total
+        ? `Piyasa müşteri / bayi listesindeki ${total} kayıt silinsin mi?\n\nBu işlem veritabanından da siler. Sonra Excel ile geri yükleyebilirsiniz.`
+        : 'Liste zaten boş. Yine de sunucudaki kaydı temizlemek istiyor musunuz?';
+      let ok = false;
+      if (typeof ui.confirm === 'function') ok = await ui.confirm(msg, { okLabel: 'Listeyi sil' });
+      else ok = window.confirm(msg);
+      if (!ok) return;
+      const pwdOk = await verifyCustomerListPassword('Listeyi silme şifresini giriniz:');
+      if (!pwdOk) return;
+      clearBtn.disabled = true;
+      try {
+        await savePiyasaCustomers([], 'cleared', { allowEmpty: true });
+        _clearCustomerListLocalCache();
+        scheduleCustRender(true);
+        toast('Müşteri listesi silindi. Excel ile geri yükleyebilirsiniz.', 'success');
+      } catch (err) {
+        alert('❌ ' + (err.message || 'Liste silinemedi'));
+      } finally {
+        clearBtn.disabled = false;
+      }
+    };
 
     addBtn.onclick = () => { addForm.style.display = 'block'; overlay.querySelector('#piyasaCustNewKod')?.focus(); };
     addCancel.onclick = () => { addForm.style.display = 'none'; };

@@ -70,7 +70,7 @@ api.post('/piyasa/reset-durum', auth.verifyToken, async (req, res) => {
 });
 api.get('/piyasa/customers', async (req, res) => {
   try {
-    res.setHeader('Cache-Control', 'private, max-age=120');
+    res.setHeader('Cache-Control', 'no-store');
     const r = await q('SELECT value FROM kv_store WHERE key = $1', [piyasaServer.PIYASA_CUSTOMERS_KV]);
     if (!r.rows[0]) return res.json({ version: 1, customers: [], updatedAt: 0 });
     try { return res.json(JSON.parse(r.rows[0].value)); } catch { return res.json({ version: 1, customers: [], updatedAt: 0 }); }
@@ -82,14 +82,43 @@ api.get('/piyasa/customers', async (req, res) => {
 api.post('/piyasa/customers', auth.verifyToken, async (req, res) => {
   try {
     const normalized = piyasaServer.normalizePiyasaCustomersPayload(req.body || {});
-    if (!normalized) return res.status(400).json({ ok: false, error: 'GeÃ§ersiz mÃ¼ÅŸteri listesi' });
+    if (!normalized) return res.status(400).json({ ok: false, error: 'Geçersiz müşteri listesi' });
     const raw = JSON.stringify(normalized);
     await q(
       `INSERT INTO kv_store(key, value) VALUES($1,$2)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [piyasaServer.PIYASA_CUSTOMERS_KV, raw]
     );
-    res.json({ ok: true, count: normalized.customers.length, updatedAt: normalized.updatedAt });
+    broadcastEvent('piyasa_customers_updated', {
+      updatedAt: normalized.updatedAt,
+      count: normalized.customers.length,
+      source: normalized.source,
+    });
+    res.json({ ok: true, count: normalized.customers.length, updatedAt: normalized.updatedAt, source: normalized.source });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+api.delete('/piyasa/customers', auth.verifyToken, async (req, res) => {
+  try {
+    const normalized = piyasaServer.normalizePiyasaCustomersPayload({
+      customers: [],
+      source: 'cleared',
+      allowEmpty: true,
+    });
+    const raw = JSON.stringify(normalized);
+    await q(
+      `INSERT INTO kv_store(key, value) VALUES($1,$2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [piyasaServer.PIYASA_CUSTOMERS_KV, raw]
+    );
+    broadcastEvent('piyasa_customers_updated', {
+      updatedAt: normalized.updatedAt,
+      count: 0,
+      source: 'cleared',
+    });
+    res.json({ ok: true, count: 0, updatedAt: normalized.updatedAt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
