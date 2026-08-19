@@ -683,10 +683,11 @@
     // Değerleri bas
     // Firma/Müşteri Kodu: hem input'u doldur hem de select içinde eşleşen varsa seç.
     const firmaVal = (snapshot.firma || '').trim();
+    const firmaKey = normFirmaKey(firmaVal);
     if (firmaKodu) firmaKodu.value = firmaVal;
     let firmaOptMatched = false;
-    if (firmaSelect) {
-      const opt = Array.from(firmaSelect.options || []).find(x => (x.value||'').trim() === firmaVal);
+    if (firmaSelect && firmaKey) {
+      const opt = Array.from(firmaSelect.options || []).find((x) => normFirmaKey(x.value) === firmaKey);
       if (opt) {
         firmaSelect.value = opt.value;
         firmaOptMatched = true;
@@ -757,9 +758,19 @@
     }
 
     // Takip formundaki eşleştirme listener'ları alanı geri boşaltırsa tekrar bas.
-    setTimeout(writeOrderValues, 0);
-    setTimeout(writeOrderValues, 40);
-    setTimeout(writeOrderValues, 120);
+    const settleOrderOnForm = () => {
+      writeOrderValues();
+      try {
+        if (typeof window.__takipRefreshFirmaHint === 'function') window.__takipRefreshFirmaHint();
+        const w = document.getElementById('takipFormWarn');
+        if (w) { w.classList.add('hidden'); w.textContent = ''; }
+        document.getElementById('firmaKodu')?.classList.remove('input-error');
+        document.getElementById('firmaSelect')?.classList.remove('input-error');
+      } catch (e) {}
+    };
+    setTimeout(settleOrderOnForm, 0);
+    setTimeout(settleOrderOnForm, 40);
+    setTimeout(settleOrderOnForm, 120);
     setTimeout(() => { window.__piyasaApplyingOrder = false; }, 200);
   }
 

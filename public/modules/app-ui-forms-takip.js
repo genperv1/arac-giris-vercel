@@ -386,9 +386,9 @@ function showTakipFormu(vehicle) {
                                   <input type="text" class="form-input" id="firmaKodu" placeholder="HP87 — Bul ile seçin" autocomplete="off" value="${vehicle.defaultFirma || ''}" aria-required="true">
                                   <button type="button" id="firmaAraBtn" class="takip-form__search-btn"><i class="fas fa-search"></i> Bul</button>
                                 </div>
-                                <p class="takip-form__field-hint takip-form__field-hint--warn" id="firmaFieldHint">
-                                  <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
-                                  Zorunlu alan. İhracattan gelen firma bilgisi geçerlidir; piyasa sevkiyatlarında listeden veya <strong>Bul</strong> ile müşteri kodu seçin.
+                                <p class="takip-form__field-hint" id="firmaFieldHint">
+                                  <i class="fas fa-info-circle" aria-hidden="true"></i>
+                                  Firma kodunu yazın veya <strong>Bul</strong> ile sipariş seçin.
                                 </p>
                             </td>
                         </tr>
@@ -1408,9 +1408,10 @@ try {
             const k = getFirmaKodOnly(raw);
             if (!k) return '';
             try {
-                const cust = window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function'
-                    ? window.piyasa.resolveCustomerByKod(k)
-                    : null;
+                const lookup = window.piyasa && (
+                    window.piyasa.getCustomerByKod || window.piyasa.resolveCustomerByKod
+                );
+                const cust = typeof lookup === 'function' ? lookup(k) : null;
                 if (cust && cust.kod) return String(cust.kod).trim();
             } catch (e) { /* ignore */ }
             const list = (typeof firmaListesi !== 'undefined' ? firmaListesi : window.firmaListesi) || [];
@@ -1419,23 +1420,6 @@ try {
                 if (code && code.toUpperCase() === k.toUpperCase()) return code;
             }
             return ihrToken || k;
-        }
-
-        function isValidFirmaKoduForReport(kod) {
-            const raw = String(kod || '').trim();
-            if (!raw) return false;
-            if (isIhracatFirmaValue(raw)) return true;
-            const k = getFirmaKodOnly(raw);
-            if (!k) return false;
-            if (/^YD\d{1,4}(\([A-Za-z]+\))?$/i.test(k)) return true;
-            try {
-                const cust = window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function'
-                    ? window.piyasa.resolveCustomerByKod(k)
-                    : null;
-                if (cust && cust.kod) return true;
-            } catch (e) { /* ignore */ }
-            const list = (typeof firmaListesi !== 'undefined' ? firmaListesi : window.firmaListesi) || [];
-            return list.some((f) => getFirmaKodOnly(f).toUpperCase() === k.toUpperCase());
         }
 
         function applyCanonicalFirmaKodu(kod) {
@@ -1461,18 +1445,12 @@ try {
             const hint = document.getElementById('firmaFieldHint');
             if (!hint) return;
             const raw = getTakipFirmaKoduRaw();
+            hint.classList.remove('is-invalid', 'takip-form__field-hint--warn');
             if (!raw) {
                 hint.style.display = '';
-                hint.classList.add('is-invalid');
                 return;
             }
-            if (!isValidFirmaKoduForReport(raw)) {
-                hint.style.display = '';
-                hint.classList.add('is-invalid');
-                return;
-            }
-            hint.classList.remove('is-invalid');
-            hint.style.display = isIhracatFirmaValue(raw) ? 'none' : '';
+            hint.style.display = 'none';
         }
 
         function validateTakipForm(opts = {}){
@@ -1484,15 +1462,9 @@ try {
             if (opts.requireFirma !== false) {
                 const firmaRaw = getTakipFirmaKoduRaw();
                 const firmaEl = document.getElementById('firmaKodu');
-                const firmaSel = document.getElementById('firmaSelect');
-                const ihracatFirma = isIhracatFirmaValue(firmaRaw);
                 if (!firmaRaw) {
                     issues.push('Firma/Müşteri Kodu');
                     if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
-                } else if (!isValidFirmaKoduForReport(firmaRaw)) {
-                    issues.push('Firma/Müşteri Kodu (listeden veya Bul ile seçin)');
-                    if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
-                    if (firmaSel && !ihracatFirma) firmaSel.classList.add('input-error');
                 } else {
                     applyCanonicalFirmaKodu(firmaRaw);
                 }
@@ -1519,9 +1491,7 @@ try {
 
             if (issues.length) {
                 const w = document.getElementById('takipFormWarn');
-                const msg = issues.some((x) => String(x).includes('Bul'))
-                    ? '⚠️ Yazdırmadan önce zorunlu alanları doldurun. Piyasa sevkiyatlarında firma kodu listeden veya Bul ile seçilmeli; ihracat kayıtlarında alttaki firma satırı yeterlidir.'
-                    : ('⚠️ Zorunlu alanlar eksik: ' + issues.join(', '));
+                const msg = '⚠️ Zorunlu alanlar eksik: ' + issues.join(', ');
                 if (w) {
                     w.textContent = msg;
                     w.classList.remove('hidden');
@@ -1607,6 +1577,7 @@ try {
 
         // ✅ Make validateTakipForm available to global button handlers
         window.__takipFormValidate = validateTakipForm;
+        window.__takipRefreshFirmaHint = refreshFirmaFieldHint;
 
         // ✅ Takip Formu'nda kullanıcı manuel düzeltme yapınca
         //    aynı Firma+Malzeme için eşleştirmeyi otomatik günceller (Ambalaj/Not/SevkYeri).

@@ -1012,6 +1012,7 @@ function slimIhracatRowsForStorage(rows) {
         footerLine: bm.footerLine || '',
         bbtPaletLine: bm.bbtPaletLine || '',
         noteLine: bm.noteLine || '',
+        yuklemeYeri: bm.yuklemeYeri || '',
       };
       if (Array.isArray(bm.subLines) && bm.subLines.length) {
         out.blockMeta.subLines = bm.subLines.slice(0, 8);
@@ -2133,6 +2134,7 @@ function findColumnIndices(headerRow) {
     { key: 'sirano', names: ['SIRANO'] },
     { key: 'plaka', names: ['PLAKA'] },
     { key: 'aciklama', names: ['AÇIKLAMA','ACIKLAMA','NOT','YÜKLEME NOTU','YUKLEME NOTU'] },
+    { key: 'yuklemeYeri', names: ['YÜKLEME YERİ','YUKLEME YERI','YÜKLEME YERI','YUKLEME YERİ'] },
     { key: 'firma', names: ['FİRMA / MÜŞTERİ KODU','FIRMA / MÜŞTERİ KODU','FİRMA / MÜŞTERİ','MÜŞTERİ KODU','MUSTERI KODU'] },
     { key: 'irsaliyeNo', names: ['İRSALİYE NO', 'IRSALIYE NO', 'İRSALİYE','IRSALIYE'] },
     { key: 'malzeme', names: ['MALIN CİNSİ','MALIN CINSI','MALZEME'] },
@@ -2294,6 +2296,32 @@ function _splitMainHeaderBlackLines(mainHeader) {
   return _splitHeaderBlackLines(s);
 }
 
+function _normalizeYuklemeYeri(raw) {
+  const n = String(raw || '')
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!n) return '';
+  if (/(^|[^A-Z0-9])1\s*\.?\s*OSB([^A-Z0-9]|$)/.test(n)) return '1.OSB';
+  if (/(^|[^A-Z0-9])2\s*\.?\s*OSB([^A-Z0-9]|$)/.test(n)) return '2.OSB';
+  if (/(^|[^A-Z0-9])AVDAN([^A-Z0-9]|$)/.test(n)) return 'AVDAN';
+  return '';
+}
+
+function _pickYuklemeYeriFromRow(row) {
+  for (const v of row || []) {
+    const hit = _normalizeYuklemeYeri(v);
+    if (hit) return hit;
+  }
+  return '';
+}
+
 function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
   const out = {
     mainHeader: '',
@@ -2306,6 +2334,7 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
     bbtPaletLine: '',
     noteLine: '',
     subLines: [],
+    yuklemeYeri: '',
   };
 
   const above = [];
@@ -2372,6 +2401,17 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
   }
 
   out.borusanLine = out.portLine;
+
+  const headerRow = grid[tableHeaderRowIdx] || [];
+  const scanRows = above.map((item) => item.row).concat([headerRow]);
+  for (const row of scanRows) {
+    const hit = _pickYuklemeYeriFromRow(row);
+    if (hit) {
+      out.yuklemeYeri = hit;
+      break;
+    }
+  }
+
   return out;
 }
 
@@ -2602,6 +2642,7 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     const sevkYeri = extractPrimaryPortFromShipment({ headerText, blockMeta }) || '';
     const ambalaj = extractPrimaryAmbalajFromHeader(headerText) || '';
     const noteColumnIndex = (cols.aciklama !== undefined ? cols.aciklama : 1);
+    let yuklemeYeri = blockMeta.yuklemeYeri || _normalizeYuklemeYeri(sheetName) || '';
     let blockYuklemeNotu = '';
     let blockTotals = null;
     const ydFromHeader = ((headerText || '').match(/\b(YD\d{1,4})\b/i) || [])[1]?.toUpperCase() || '';
@@ -2633,6 +2674,13 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         continue;
       }
       if (!plakaRaw) continue;
+
+      if (!yuklemeYeri) {
+        if (cols.yuklemeYeri !== undefined) {
+          yuklemeYeri = _normalizeYuklemeYeri(d[cols.yuklemeYeri]) || yuklemeYeri;
+        }
+        if (!yuklemeYeri) yuklemeYeri = _pickYuklemeYeriFromRow(d) || '';
+      }
 
       if (isIhracatPendingPlakaCell(plakaRaw)) {
         blockPendingPlakaNotes.push({
@@ -2681,6 +2729,8 @@ firma: (firma || '').slice(0, 40),
   firma,
   sevkYeri,
   ambalaj,
+  yuklemeYeri,
+  sheetName,
   blockPendingPlakaNotes,
 });
     }
@@ -2688,7 +2738,12 @@ firma: (firma || '').slice(0, 40),
     blockRows.forEach((br) => {
       br.blockPendingPlakaNotes = blockPendingPlakaNotes;
       if (blockTotals) br.blockTotals = blockTotals;
+      if (yuklemeYeri) {
+        br.yuklemeYeri = yuklemeYeri;
+        if (br.blockMeta && typeof br.blockMeta === 'object') br.blockMeta.yuklemeYeri = yuklemeYeri;
+      }
     });
+    if (yuklemeYeri && blockMeta) blockMeta.yuklemeYeri = yuklemeYeri;
 
     if (!blockRows.length) {
       rowsOut.push({
@@ -2709,6 +2764,8 @@ firma: (firma || '').slice(0, 40),
         malzeme: blockMalzeme,
         sevkYeri,
         ambalaj,
+        yuklemeYeri,
+        sheetName,
         tonajKg: '',
         bbt: '',
         cuval: '',

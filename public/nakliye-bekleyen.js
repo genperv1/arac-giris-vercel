@@ -467,6 +467,7 @@
         it.headerText,
         it.malzeme,
         it.lotLabel,
+        it.yuklemeYeri,
         String(it.planBbt),
         String(it.remainingBbt),
         ...(it.waitingPlates || []).map((p) => p.plaka),

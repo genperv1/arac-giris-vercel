@@ -33,6 +33,7 @@
   window.piyasa.loadCustomers = loadPiyasaCustomers;
   window.piyasa.openCustomerList = openPiyasaCustomerListModal;
   window.piyasa.getCustomerByKod = getPiyasaCustomerByKod;
+  window.piyasa.resolveCustomerByKod = resolvePiyasaCustomerByKod;
   window.piyasa.getFirmaFullName = getFirmaFullName;
   window.piyasa.findClosestCustomerByKod = findClosestPiyasaCustomerByKod;
   window.piyasa.inferSevkiyatTipiFromCustomer = inferSevkiyatTipiFromCustomer;

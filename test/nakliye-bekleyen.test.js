@@ -586,6 +586,48 @@ test('buildExcelBlockRows — LOT no appears in yellow header per product', () =
   assert.equal(rows[0].lotLabel, 'LOT 26 07 20');
 });
 
+test('extractYuklemeYeri — AVDAN and 1.OSB from Excel field or header', () => {
+  assert.equal(core.normalizeYuklemeYeri('AVDAN'), 'AVDAN');
+  assert.equal(core.normalizeYuklemeYeri('avdan tesisi'), 'AVDAN');
+  assert.equal(core.normalizeYuklemeYeri('1.OSB'), '1.OSB');
+  assert.equal(core.normalizeYuklemeYeri('1 OSB'), '1.OSB');
+  assert.equal(core.normalizeYuklemeYeri('1. OSB'), '1.OSB');
+  assert.equal(core.extractYuklemeYeri({ yuklemeYeri: 'AVDAN' }), 'AVDAN');
+  assert.equal(core.extractYuklemeYeri({ headerText: 'YD40(G) / 200 BBT / 1.OSB' }), '1.OSB');
+  assert.equal(core.extractYuklemeYeri({ blockMeta: { yuklemeYeri: 'AVDAN' } }), 'AVDAN');
+  assert.equal(core.extractYuklemeYeri({ sheetName: '1.OSB' }), '1.OSB');
+  assert.equal(core.extractYuklemeYeri({ headerText: 'YD40 / 200 BBT' }), '');
+});
+
+test('buildExcelBlockRows — yükleme yeri AVDAN or 1.OSB is added to yellow header', () => {
+  const avdan = core.analyzeBlock([
+    {
+      blockKey: 'A1',
+      headerText: 'YD331 / 120 BBT / LOT NO 26 07 20 / HP 0,74-0,40',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43AGK142',
+      bbt: '28',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(avdan.yuklemeYeri, 'AVDAN');
+  assert.equal(
+    core.buildExcelBlockRows(avdan)[0].a,
+    'YD331 120 BBT · AVDAN · LOT 26 07 20 (HP 0,74-0,40)'
+  );
+
+  const osb = core.analyzeBlock([
+    {
+      blockKey: 'O1',
+      headerText: 'YD40(G) / 200 BBT',
+      yuklemeYeri: '1.OSB',
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  assert.equal(osb.yuklemeYeri, '1.OSB');
+  assert.equal(core.buildExcelBlockRows(osb)[0].a, 'YD40(G) 200 BBT · 1.OSB');
+});
+
 test('buildBlockPlateRows — sorts by Excel sira within block', () => {
   const item = core.analyzeBlock([
     {

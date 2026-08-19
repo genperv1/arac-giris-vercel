@@ -379,6 +379,39 @@
     return digits ? `LOT ${digits}` : '';
   }
 
+  /** Excel'deki yükleme yeri: AVDAN / 1.OSB / 2.OSB */
+  function normalizeYuklemeYeri(raw) {
+    const n = normTr(raw).replace(/\s+/g, ' ').trim();
+    if (!n) return '';
+    if (/(^|[^A-Z0-9])1\s*\.?\s*OSB([^A-Z0-9]|$)/.test(n)) return '1.OSB';
+    if (/(^|[^A-Z0-9])2\s*\.?\s*OSB([^A-Z0-9]|$)/.test(n)) return '2.OSB';
+    if (/(^|[^A-Z0-9])AVDAN([^A-Z0-9]|$)/.test(n)) return 'AVDAN';
+    return '';
+  }
+
+  function extractYuklemeYeri(sample) {
+    if (!sample) return '';
+    const meta = sample.blockMeta || {};
+    const chunks = [
+      sample.yuklemeYeri,
+      meta.yuklemeYeri,
+      sample.headerText,
+      meta.mainHeader,
+      meta.blackLine1,
+      meta.blackLine2,
+      meta.footerLine,
+      meta.noteLine,
+      meta.exportLine,
+      sample.sheetName,
+      sample.fileName,
+    ].concat(Array.isArray(meta.subLines) ? meta.subLines : []);
+    for (const t of chunks) {
+      const hit = normalizeYuklemeYeri(t);
+      if (hit) return hit;
+    }
+    return '';
+  }
+
   const WAITING_VEHICLE_LABEL = 'GELMEYEN ARAÇ';
   const OZMAL_VEHICLE_LABEL = 'ÖZMAL';
 
@@ -562,8 +595,10 @@
     return files.size;
   }
 
-  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix, lotLabel) {
+  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix, lotLabel, yuklemeYeri) {
     let s = `${String(ydKey || 'GENEL').trim()} ${planBbt} BBT`;
+    const yer = String(yuklemeYeri || '').trim();
+    if (yer) s += ` · ${yer}`;
     const lot = String(lotLabel || '').trim();
     if (lot) s += ` · ${lot}`;
     const m = String(malzeme || '').trim();
@@ -589,7 +624,8 @@
         item.planBbt,
         item.malzemeLabel,
         sourcePrefix,
-        item.lotLabel
+        item.lotLabel,
+        item.yuklemeYeri
       ),
       lotLabel: item.lotLabel || '',
       blockKey: String(item.blockKey || '').trim(),
@@ -786,6 +822,7 @@
     const port = extractPort(sample);
     const malzemeLabel = extractMalzemeLabel(sample);
     const lotLabel = extractLotLabel(sample);
+    const yuklemeYeri = extractYuklemeYeri(sample);
     const status =
       waitingPlates.length === 0 && ozmalPlates.length > 0
         ? 'ozmal'
@@ -807,6 +844,7 @@
       malzeme: String(sample.malzeme || '').trim(),
       malzemeLabel,
       lotLabel,
+      yuklemeYeri,
       waitingPlates,
       ozmalPlates,
       explicitNotes,
@@ -866,6 +904,8 @@
     sumWaitingBbt,
     extractMalzemeLabel,
     extractLotLabel,
+    extractYuklemeYeri,
+    normalizeYuklemeYeri,
     extractPlanBbt,
     extractYdLabel,
     isValidPlateCell,
