@@ -1346,6 +1346,13 @@ try {
             }
 
             try { refreshFirmaFieldHint(); } catch (e) {}
+            try {
+              if (window.piyasa && typeof window.piyasa.loadCustomers === 'function') {
+                Promise.resolve(window.piyasa.loadCustomers(false)).then(() => {
+                  try { refreshFirmaFieldHint(); } catch (err) {}
+                }).catch(() => {});
+              }
+            } catch (e) {}
 
 }
 
@@ -1445,12 +1452,74 @@ try {
             const hint = document.getElementById('firmaFieldHint');
             if (!hint) return;
             const raw = getTakipFirmaKoduRaw();
-            hint.classList.remove('is-invalid', 'takip-form__field-hint--warn');
+            hint.classList.remove('is-invalid', 'is-ok', 'is-yd', 'takip-form__field-hint--warn');
             if (!raw) {
                 hint.style.display = '';
+                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Firma kodunu yazın veya <strong>Bul</strong> ile sipariş seçin.';
                 return;
             }
-            hint.style.display = 'none';
+            hint.style.display = '';
+            if (isIhracatFirmaValue(raw)) {
+                hint.classList.add('is-yd');
+                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> İhracat (YD) — Piyasa çıkanlar listesine girmez.';
+                return;
+            }
+            let customer = null;
+            try {
+                if (window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function') {
+                    customer = window.piyasa.resolveCustomerByKod(raw);
+                }
+            } catch (e) { customer = null; }
+            let orderCount = 0;
+            try {
+                if (window.piyasa && typeof window.piyasa.countOrdersForFirma === 'function') {
+                    orderCount = window.piyasa.countOrdersForFirma(raw) || 0;
+                }
+            } catch (e) { orderCount = 0; }
+            let picked = false;
+            let pickInfo = null;
+            try {
+                picked = !!(window.piyasa && typeof window.piyasa.isOrderLockedForFirma === 'function'
+                    && window.piyasa.isOrderLockedForFirma(raw));
+                if (picked && typeof window.piyasa.getLockedPickInfo === 'function') {
+                    pickInfo = window.piyasa.getLockedPickInfo();
+                }
+            } catch (e) { picked = false; }
+
+            const custBits = [];
+            if (customer) {
+                custBits.push(escapeHtml(customer.kod || raw));
+                if (customer.ad) custBits.push(escapeHtml(customer.ad));
+                if (customer.il) custBits.push(escapeHtml(customer.il));
+            }
+            if (picked && pickInfo) {
+                const sel = [
+                    pickInfo.firma,
+                    pickInfo.sehir,
+                    pickInfo.sipNo ? ('sip ' + pickInfo.sipNo) : '',
+                    pickInfo.malzeme,
+                ].filter(Boolean).join(' — ');
+                hint.classList.add('is-ok');
+                hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> Seçildi: <strong>' + escapeHtml(sel || raw) + '</strong>';
+                return;
+            }
+            if (customer) {
+                hint.classList.add('is-ok');
+                let msg = 'Piyasa müşteri listesinde var: <strong>' + custBits.join(' / ') + '</strong>';
+                if (orderCount > 0) {
+                    hint.classList.remove('is-ok');
+                    hint.classList.add('takip-form__field-hint--warn');
+                    msg += ' — Excel’de ' + orderCount + ' sipariş. <strong>Bul</strong> ile seçin.';
+                }
+                hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> ' + msg;
+                return;
+            }
+            if (orderCount > 0) {
+                hint.classList.add('takip-form__field-hint--warn');
+                hint.innerHTML = '<i class="fas fa-exclamation-circle" aria-hidden="true"></i> Piyasa Excel’de <strong>' + orderCount + '</strong> sipariş var. Listeden seçin.';
+                return;
+            }
+            hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Müşteri listesinde bulunamadı — Piyasa olarak basılır, çıkanlar listesine yazılır.';
         }
 
         function validateTakipForm(opts = {}){
@@ -1467,6 +1536,33 @@ try {
                     if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
                 } else {
                     applyCanonicalFirmaKodu(firmaRaw);
+                    if (!isIhracatFirmaValue(firmaRaw)) {
+                        let needPick = false;
+                        try {
+                            needPick = !!(window.piyasa
+                                && typeof window.piyasa.hasOrdersForFirma === 'function'
+                                && window.piyasa.hasOrdersForFirma(firmaRaw)
+                                && typeof window.piyasa.isOrderLockedForFirma === 'function'
+                                && !window.piyasa.isOrderLockedForFirma(firmaRaw));
+                        } catch (e) { needPick = false; }
+                        if (needPick) {
+                            const w = document.getElementById('takipFormWarn');
+                            const msg = 'Bu kod Piyasa Excel’de var. Listeden sipariş seçmeden yazdırılamaz.';
+                            if (w) {
+                                w.textContent = '⚠️ ' + msg;
+                                w.classList.remove('hidden');
+                            }
+                            if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
+                            const hint = document.getElementById('firmaFieldHint');
+                            if (hint) hint.classList.add('is-invalid');
+                            try { firstEl && firstEl.focus(); } catch (e) {}
+                            try {
+                                const q = (typeof getFirmaKodOnly === 'function' ? getFirmaKodOnly(firmaRaw) : firmaRaw) || firmaRaw;
+                                window.piyasa.openOrderPicker({ searchAllSheets: true, initialQuery: q });
+                            } catch (e) {}
+                            return false;
+                        }
+                    }
                 }
             }
 
@@ -1752,17 +1848,9 @@ try {
                               try{
                                 window.Report?.addEvent('PRINT', printEv);
 
-                                // Print history'ye ekle (raporlar — DURUM dondurmasından bağımsız)
+                                // Print history + Piyasa çıkanlar (YD hariç)
                                 try {
-                                  const phRes = await fetch('/api/print_history', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
-                                  });
-                                  if (phRes && phRes.ok) {
-                                    try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
-                                    try { if (typeof window._ihracatOnReportsChanged === 'function') window._ihracatOnReportsChanged(); } catch (e) {}
-                                  }
+                                  await persistPrintHistoryAndPiyasaCikanlar(printEv, pending, commitTs);
                                 } catch(e) { console.warn('Print history save failed:', e); }
                               } catch(e) { }
                             } catch(e) {}
@@ -1779,17 +1867,9 @@ try {
                             try{
                               window.Report?.addEvent('PRINT', printEv);
 
-                              // Print history'ye ekle (manual için)
+                              // Print history + Piyasa çıkanlar (manual, YD hariç)
                               try {
-                                const phRes = await fetch('/api/print_history', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
-                                });
-                                if (phRes && phRes.ok) {
-                                  try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
-                                  try { if (typeof window._ihracatOnReportsChanged === 'function') window._ihracatOnReportsChanged(); } catch (e) {}
-                                }
+                                await persistPrintHistoryAndPiyasaCikanlar(printEv, pending, commitTs);
                               } catch(e) { console.warn('Print history save failed:', e); }
                             } catch(e) { }
                         } catch(e) {}
@@ -2446,6 +2526,8 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             <div class="my-1 border-t"></div>
             <button type="button" id="exportVehiclesExcelBtn" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Tüm araç kayıtlarını Excel olarak indir">📊 Araç Listesi Excel</button>
             <button type="button" id="vardiyaTakvimButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Vardiya takvimi — gece / gündüz döngüsü">🗓️ Vardiya Takvimi</button>
+            <div class="my-1 border-t"></div>
+            <button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>
           </div>
         </details>
         <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>

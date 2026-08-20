@@ -29,6 +29,7 @@ test('app modular bundles exist', () => {
     'piyasa-globals.js',
     'piyasa-core.js',
     'piyasa-api.js',
+    'piyasa-orders.js',
     'print-main.js',
   ]) {
     assert.ok(fs.existsSync(path.join(dir, name)), `missing ${name}`);
@@ -42,4 +43,12 @@ test('tailwind build output exists', () => {
   assert.ok(fs.existsSync(p), 'Run npm run build:css to generate public/tailwind-built.css');
   const st = fs.statSync(p);
   assert.ok(st.size > 5000, 'tailwind-built.css looks too small');
+});
+
+test('piyasa cikanlar page files exist', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const root = path.join(__dirname, '..', 'public');
+  assert.ok(fs.existsSync(path.join(root, 'piyasa-cikanlar.html')));
+  assert.ok(fs.existsSync(path.join(root, 'piyasa-cikanlar.js')));
 });

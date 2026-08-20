@@ -7,6 +7,10 @@
   /** @type {{ snapshot: object, blockKey: string, bbt: number, noteBump: number }[]} */
   let _undoStack = [];
   const UNDO_MAX = 25;
+  const SITE_STORAGE_KEY = 'nb_yukleme_yeri';
+  const SITE_OPTIONS = ['AVDAN', '1.OSB'];
+  let _autoTimer = 0;
+  let _renderBusy = false;
 
   function esc(s) {
     return String(s || '')
@@ -25,6 +29,43 @@
     toast._t = setTimeout(() => el.classList.remove('is-visible'), 2200);
   }
 
+  function authHeaders() {
+    const h = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' };
+    try {
+      const token = localStorage.getItem('authToken') || '';
+      if (token) h.Authorization = 'Bearer ' + token;
+    } catch (e) { /* ignore */ }
+    return h;
+  }
+
+  async function reloadStore() {
+    try {
+      if (window.DailyStore && typeof DailyStore.reload === 'function') {
+        await DailyStore.reload();
+        return;
+      }
+      if (window.DailyStore && typeof DailyStore.init === 'function') {
+        await DailyStore.init();
+      }
+    } catch (e) {}
+  }
+
+  async function fetchPrintReports() {
+    try {
+      const r = await fetch('/api/reports?limit=8000&_=' + Date.now(), {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: authHeaders(),
+      });
+      if (!r.ok) return [];
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   function loadRows() {
     try {
       if (window.DailyStore && typeof DailyStore.getRows === 'function') {
@@ -41,11 +82,13 @@
   async function loadRowsWithLiveDeparted() {
     const rows = loadRows();
     if (!rows.length || !core) return rows;
-    const cleaned = rows.map((r) => core.clearLiveDepartedMark(r));
+    const cleaned = rows.map((r) => (core.clearLiveDepartedMark ? core.clearLiveDepartedMark(r) : r));
     if (typeof core.departedRowsChanged === 'function' && core.departedRowsChanged(rows, cleaned)) {
       persistRows(cleaned, loadMeta());
     }
-    return cleaned;
+    const reports = await fetchPrintReports();
+    if (!reports.length || !core.applyLiveDepartedMarks) return cleaned;
+    return core.applyLiveDepartedMarks(cleaned, loadMeta(), reports, { forBalance: true });
   }
 
   function loadMeta() {
@@ -97,6 +140,63 @@
       if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) return `${yyyy}-${mm}-${dd}`;
     }
     return '';
+  }
+
+  function loadSelectedSite() {
+    try {
+      const v = String(localStorage.getItem(SITE_STORAGE_KEY) || '').trim();
+      return SITE_OPTIONS.indexOf(v) >= 0 ? v : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function saveSelectedSite(site) {
+    try {
+      if (SITE_OPTIONS.indexOf(site) >= 0) {
+        localStorage.setItem(SITE_STORAGE_KEY, site);
+      } else {
+        localStorage.removeItem(SITE_STORAGE_KEY);
+      }
+    } catch (e) {}
+  }
+
+  function syncSiteButtons() {
+    const current = loadSelectedSite();
+    document.querySelectorAll('[data-nb-site]').forEach((btn) => {
+      const on = btn.getAttribute('data-nb-site') === current;
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  function buildSheetHeadHtml(dateLabel, siteLabel) {
+    const site = String(siteLabel || '').trim();
+    const date = String(dateLabel || '').trim();
+    if (!site && !date) return '';
+    let html = '<div class="nb-sheet-head">';
+    if (site) html += '<div class="nb-sheet-site">' + esc(site) + '</div>';
+    if (date) html += '<div class="nb-sheet-date">' + esc(date) + '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function applySheetSiteLabel() {
+    const wrap = document.getElementById('nbSheetCarrier');
+    if (!wrap) return;
+    const dateEl = wrap.querySelector('.nb-sheet-date');
+    const dateLabel = dateEl ? String(dateEl.textContent || '').trim() : '';
+    const next = buildSheetHeadHtml(dateLabel, loadSelectedSite());
+    const head = wrap.querySelector('.nb-sheet-head');
+    if (!next) {
+      if (head) head.remove();
+      return;
+    }
+    if (head) {
+      head.outerHTML = next;
+    } else {
+      wrap.insertAdjacentHTML('afterbegin', next);
+    }
   }
 
   function resolveSheetDateLabel(meta) {
@@ -455,12 +555,18 @@
   }
 
   function filterItems(items) {
-    const q = String(_searchNeedle || '')
-      .trim()
-      .toUpperCase()
-      .replace(/İ/g, 'I');
-    if (!q) return items;
+    const raw = String(_searchNeedle || '').trim();
+    if (!raw) return items;
+    const q = raw.toUpperCase().replace(/İ/g, 'I');
+    const ydQ = core && typeof core.normalizeYdKey === 'function' ? core.normalizeYdKey(raw) : '';
     return items.filter((it) => {
+      if (ydQ) {
+        const ydItem =
+          typeof core.normalizeYdKey === 'function'
+            ? core.normalizeYdKey(it.ydKey || it.headerText || '')
+            : '';
+        if (ydItem && ydItem === ydQ) return true;
+      }
       const hay = [
         it.ydKey,
         it.port,
@@ -895,6 +1001,26 @@
     return hdr && hdr.a ? String(hdr.a) : 'blok';
   }
 
+  function siteButtonHtml(site, iconClass) {
+    const on = loadSelectedSite() === site;
+    return (
+      '<button type="button" class="nb-btn nb-btn--site' +
+      (on ? ' is-on' : '') +
+      '" data-nb-site="' +
+      esc(site) +
+      '" aria-pressed="' +
+      (on ? 'true' : 'false') +
+      '" title="Tarihin üstüne ' +
+      esc(site) +
+      ' yaz">' +
+      '<i class="fas ' +
+      iconClass +
+      '" aria-hidden="true"></i> ' +
+      esc(site) +
+      '</button>'
+    );
+  }
+
   function buildBlockUnitHtml(blockRows, blockIdx) {
     const label = blockLabelFromRows(blockRows);
     const blockKey =
@@ -910,15 +1036,20 @@
       '<div class="nb-sheet-block-main">' +
       '<div class="nb-sheet-block-body">' +
       buildSheetTableHtml(blockRows) +
+      '</div></div>' +
+      '<div class="nb-block-bar nb-no-capture">' +
+      '<div class="nb-site-group" role="group" aria-label="Yükleme yeri">' +
+      siteButtonHtml('AVDAN', 'fa-map-marker-alt') +
+      siteButtonHtml('1.OSB', 'fa-industry') +
       '</div>' +
-      '<div class="nb-block-side nb-no-capture">' +
+      '<span class="nb-block-bar-sep" aria-hidden="true"></span>' +
       '<button type="button" class="nb-btn nb-btn--block-copy" data-nb-copy-block title="Bu bloğu görsel kopyala">' +
       '<i class="fas fa-image" aria-hidden="true"></i> Kopyala' +
       '</button>' +
       '<button type="button" class="nb-btn nb-btn--block-add" data-nb-add-plate title="Plaka + BBT ekle, alttan düş">' +
       '<i class="fas fa-plus" aria-hidden="true"></i> Plaka' +
       '</button>' +
-      '</div></div></div>'
+      '</div></div>'
     );
   }
 
@@ -971,9 +1102,7 @@
         : '';
 
     let html = '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
-    if (dateLabel) {
-      html += '<div class="nb-sheet-date">' + esc(dateLabel) + '</div>';
-    }
+    html += buildSheetHeadHtml(dateLabel, loadSelectedSite());
     if (useSideBySide) {
       html += '<div class="nb-sheet-columns nb-sheet-columns--side">';
       let idx = 0;
@@ -1020,7 +1149,9 @@
     }, 120);
   }
 
-  async function renderList(forceReports) {
+  async function renderList() {
+    if (_renderBusy) return;
+    _renderBusy = true;
     const loading = document.getElementById('nbListLoading');
     const empty = document.getElementById('nbListEmpty');
     const noExcel = document.getElementById('nbNoExcel');
@@ -1071,7 +1202,44 @@
       toast('Liste hazırlanırken hata oluştu');
     } finally {
       loading?.classList.add('hidden');
+      _renderBusy = false;
     }
+  }
+
+  async function refreshFromStore() {
+    await reloadStore();
+    refreshExcelStatus();
+    await renderList();
+  }
+
+  function bindExcelLiveReload() {
+    window.addEventListener('nakliye-excel-changed', () => {
+      void refreshFromStore();
+    });
+    window.addEventListener('storage', (e) => {
+      if (
+        e.key === 'daily_shipments_current' ||
+        e.key === 'daily_shipments_meta' ||
+        e.key === 'ihracat_excel_ping'
+      ) {
+        void refreshFromStore();
+      }
+    });
+    try {
+      const bc = new BroadcastChannel('ihracat-excel');
+      bc.onmessage = () => {
+        void refreshFromStore();
+      };
+    } catch (e) {}
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void refreshFromStore();
+    });
+    if (_autoTimer) clearInterval(_autoTimer);
+    _autoTimer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (document.body.classList.contains('nb-edit-on')) return;
+      void refreshFromStore();
+    }, 60000);
   }
 
   function bindUiHandlers() {
@@ -1084,8 +1252,7 @@
     });
 
     document.getElementById('nbRefreshBtn')?.addEventListener('click', () => {
-      refreshExcelStatus();
-      renderList(true);
+      void refreshFromStore();
     });
 
     document.getElementById('nbCopyAllBtn')?.addEventListener('click', copySheetImage);
@@ -1113,6 +1280,18 @@
 
     const outer = document.getElementById('nbSheetOuter');
     outer?.addEventListener('click', (e) => {
+      const siteBtn = e.target.closest('[data-nb-site]');
+      if (siteBtn && outer.contains(siteBtn)) {
+        e.preventDefault();
+        const site = siteBtn.getAttribute('data-nb-site') || '';
+        const current = loadSelectedSite();
+        saveSelectedSite(current === site ? '' : site);
+        syncSiteButtons();
+        applySheetSiteLabel();
+        const selected = loadSelectedSite();
+        toast(selected ? selected + ' — tarihin üstüne yazıldı' : 'Yükleme yeri kaldırıldı');
+        return;
+      }
       const copyBtn = e.target.closest('[data-nb-copy-block]');
       if (copyBtn && outer.contains(copyBtn)) {
         e.preventDefault();
@@ -1156,23 +1335,12 @@
       }
     });
 
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'daily_shipments_current' || e.key === 'daily_shipments_meta') {
-        refreshExcelStatus();
-        renderList();
-      }
-    });
-    window.addEventListener('nakliye-excel-changed', () => {
-      refreshExcelStatus();
-      renderList(true);
-    });
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') renderList();
-    });
+    bindExcelLiveReload();
   }
 
   async function init() {
     bindUiHandlers();
+    syncSiteButtons();
 
     try {
       if (window.SessionManager && typeof SessionManager.requireValidSession === 'function') {
@@ -1189,9 +1357,7 @@
         }
       }
 
-      if (window.DailyStore && typeof DailyStore.init === 'function') {
-        await DailyStore.init().catch(() => {});
-      }
+      await reloadStore();
 
       refreshExcelStatus();
       updateUndoButton();

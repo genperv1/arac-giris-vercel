@@ -1,7 +1,7 @@
 'use strict';
 
 function registerDailyRoutes(api, ctx) {
-  const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs } = ctx;
+  const { q, pool, auth, parsePagination, sendApiError, requireValidSession, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs } = ctx;
 // Daily rows
 api.get("/daily_rows", async (req, res) => {
   try {

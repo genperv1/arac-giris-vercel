@@ -534,7 +534,11 @@ function setupTakipFormButtons() {
                 } catch (e) { return null; }
             })();
 
-            const fromIhracat = _isIhracatPrintContext(null);
+            const firmaForKind = String(get('firmaKodu') || get('firmaSelect') || '').trim();
+            const isYdPrint = typeof _isYdFirmaValue === 'function'
+              ? _isYdFirmaValue(firmaForKind)
+              : /\bYD\d{1,4}(?:\([A-Za-z]+\))?/i.test(firmaForKind);
+            const fromIhracat = isYdPrint || (!!_isIhracatPrintContext(null) && isYdPrint);
             const printPayload = captureTakipPrintPayloadForReport(get);
             printPayload.basimYeri = basimYeriValue;
             printPayload.yuklemeSirasi = get('yuklemeSirasi');

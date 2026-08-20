@@ -1,6 +1,6 @@
 // report.js
 (function(){
-  const DELETE_PASSWORD = '2026genper';
+  const DELETE_PASSWORD = '543723';
 
   function uiHelpers() { return window.rpUi || {}; }
 
@@ -277,6 +277,8 @@
   let _allVehicles = [];
   let _cachedTodayStats = null;
   let _cachedTodayShiftStats = null;
+  let _cachedTodayKindStats = null;
+  let _lastDupExtraIds = [];
   let _eventsLoadPromise = null;
   let _eventsLoaded = false;
   const _vehicleLookupCache = new Map();
@@ -378,6 +380,7 @@
       row._isoDate = istanbulIsoDateFromMs(Number(ev.ts || 0) || 0);
       row._basimYeri = String(d.basimYeri || '').trim().toUpperCase();
       row._shiftKey = eventShiftKey(ev);
+      row._kind = reportEventKind(ev);
       row._isOzmal = reportRowIsOzmal(row);
       row._materialHaystack = normMaterial(reportRowMaterialText(row));
       row._firmaCodes = [
@@ -407,6 +410,7 @@
     _allVehicles = eventsToVehicles(_latestEvents);
     _cachedTodayStats = computeTodayBasimStats(_latestEvents);
     _cachedTodayShiftStats = computeTodayShiftStats(_latestEvents);
+    _cachedTodayKindStats = computeTodayKindStats(_latestEvents);
     _eventsLoaded = true;
   }
 
@@ -532,6 +536,8 @@
   if (window.__reportsDateTo == null) window.__reportsDateTo = '';
   if (window.__reportsDatePreset == null) window.__reportsDatePreset = 'all';
   if (window.__reportsShiftFilter == null) window.__reportsShiftFilter = '';
+  if (window.__reportsKindFilter == null) window.__reportsKindFilter = '';
+  if (window.__reportsDupFilter == null) window.__reportsDupFilter = false;
   // Eski "bugün" bayrağını tarih aralığına taşı
   if (window.__reportsTodayFilter) {
     const todayIso = getIstanbulTodayIso();
@@ -621,6 +627,97 @@
       if (stats[shift][site] != null) stats[shift][site] += 1;
     });
     return stats;
+  }
+
+  const YD_FIRMA_RE = /\bYD\d{1,4}(?:\([A-Za-z]+\))?/i;
+
+  function reportEventKind(ev) {
+    const d = (ev && ev.data) || {};
+    const snap = (ev && ev.snapshot) || {};
+    const sid = String(
+      d.sevkiyat_id || d.sevkiyatId || snap.sevkiyat_id || snap.sevkiyatId || ''
+    ).trim().toLowerCase();
+    if (sid.indexOf('ihracat:') === 0) return 'ihracat';
+    if (sid.indexOf('piyasa:') === 0) return 'piyasa';
+    const firmaHaystack = [
+      d.firma, d.firmaKodu, d.firmaSelect, d.firmaAdi,
+      ev && ev.firma, snap.firma, snap.firmaKodu, snap.firmaSelect
+    ].map((x) => String(x || '')).join(' ');
+    if (YD_FIRMA_RE.test(firmaHaystack)) return 'ihracat';
+    const excelKey = String(d.excelShipmentKey || snap.excelShipmentKey || '').trim();
+    if (excelKey) return 'ihracat';
+    const note = String(d.yuklemeNotu || d.baskiNotu || snap.yuklemeNotu || '').trim();
+    if (/SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(note)) return 'ihracat';
+    if (/^İrsaliye\s*No\s*:/im.test(note)) return 'ihracat';
+    return 'piyasa';
+  }
+
+  function reportRowKind(row) {
+    if (!row) return 'piyasa';
+    if (row._kind) return row._kind;
+    if (row.rawEvent) return reportEventKind(row.rawEvent);
+    return 'piyasa';
+  }
+
+  function emptyKindStats() {
+    return { todayKey: getIstanbulTodayKey(), piyasa: 0, ihracat: 0 };
+  }
+
+  function computeTodayKindStats(events) {
+    const stats = emptyKindStats();
+    const todayKey = stats.todayKey;
+    (events || []).forEach((ev) => {
+      if (!ev || ev.type !== 'PRINT') return;
+      const ts = Number(ev.ts || 0);
+      if (!ts || istanbulDateKeyFromMs(ts) !== todayKey) return;
+      const kind = reportEventKind(ev);
+      if (kind === 'ihracat') stats.ihracat += 1;
+      else stats.piyasa += 1;
+    });
+    return stats;
+  }
+
+  /** Aynı işin arka arkaya (10 dk) ikinci baskısı — net sayı için fazla kopya */
+  const DUP_WINDOW_MS = 10 * 60 * 1000;
+
+  function reportDupIdentity(row) {
+    const d = (row && row.rawEvent && row.rawEvent.data) || (row && row.lastPrintSnapshot) || {};
+    const plate = (row && row._plateNorm) || normPlate((row && row.cekiciPlaka) || d.plaka || d.plate || '');
+    if (!plate) return '';
+    const sid = String(d.sevkiyat_id || d.sevkiyatId || '').trim().toLowerCase();
+    if (sid) return plate + '|sid:' + sid;
+    const firma = normMaterial(d.firma || d.firmaKodu || d.firmaSelect || (row && row.defaultFirma) || '');
+    const malzeme = normMaterial(d.malzeme || '');
+    const kind = (row && row._kind) || reportRowKind(row) || 'piyasa';
+    return plate + '|' + kind + '|' + firma + '|' + malzeme;
+  }
+
+  function markConsecutiveDuplicates(rows) {
+    const list = (rows || []).slice().sort((a, b) => reportRowPrintTs(a) - reportRowPrintTs(b));
+    const extraIds = new Set();
+    const groupIds = new Set();
+    const lastByKey = new Map();
+    for (let i = 0; i < list.length; i++) {
+      const row = list[i];
+      const key = reportDupIdentity(row);
+      const ts = reportRowPrintTs(row) || 0;
+      if (!key || !ts) continue;
+      const prev = lastByKey.get(key);
+      if (prev && ts > prev.ts && (ts - prev.ts) <= DUP_WINDOW_MS) {
+        extraIds.add(String(row.id || ''));
+        groupIds.add(String(row.id || ''));
+        groupIds.add(String(prev.row.id || ''));
+      }
+      lastByKey.set(key, { row, ts });
+    }
+    for (let i = 0; i < (rows || []).length; i++) {
+      const row = rows[i];
+      const id = String((row && row.id) || '');
+      row._dupExtra = extraIds.has(id);
+      row._dupGroup = groupIds.has(id);
+    }
+    const extras = Array.from(extraIds).filter(Boolean);
+    return { extraCount: extras.length, extraIds: extras, groupCount: groupIds.size };
   }
 
   function reportRowShiftKey(row) {
@@ -1100,14 +1197,18 @@
     const plateQ = String((document.getElementById('plateSearch') || {}).value || '').trim();
     const materialQ = String((document.getElementById('materialSearch') || {}).value || '').trim();
     const dateLabel = describeDateRange();
+    const kind = String(window.__reportsKindFilter || '').trim();
     const basim = String(window.__reportsBasimYeriFilter || '').trim();
     const shift = String(window.__reportsShiftFilter || '').trim();
     const ozmal = !!window.__reportsOzmalFilter;
+    const dup = !!window.__reportsDupFilter;
 
     const pillDate = document.getElementById('activePillDate');
+    const pillKind = document.getElementById('activePillKind');
     const pillBasim = document.getElementById('activePillBasim');
     const pillShift = document.getElementById('activePillShift');
     const pillOzmal = document.getElementById('activePillOzmal');
+    const pillDup = document.getElementById('activePillDup');
     const pillSearch = document.getElementById('activePillSearch');
     const emptyEl = document.getElementById('activeFiltersEmpty');
     const clearBtn = document.getElementById('clearFiltersBtn');
@@ -1115,6 +1216,11 @@
     if (pillDate) {
       pillDate.hidden = !dateLabel;
       if (dateLabel) pillDate.innerHTML = '<i class="fas fa-calendar-alt" aria-hidden="true"></i> ' + dateLabel;
+    }
+    if (pillKind) {
+      pillKind.hidden = !kind;
+      if (kind === 'piyasa') pillKind.innerHTML = '<i class="fas fa-store" aria-hidden="true"></i> Piyasa';
+      else if (kind === 'ihracat') pillKind.innerHTML = '<i class="fas fa-ship" aria-hidden="true"></i> İhracat';
     }
     if (pillBasim) {
       pillBasim.hidden = !basim;
@@ -1126,6 +1232,7 @@
       else if (shift === 'day') pillShift.innerHTML = '<i class="fas fa-sun" aria-hidden="true"></i> Gündüz';
     }
     if (pillOzmal) pillOzmal.hidden = !ozmal;
+    if (pillDup) pillDup.hidden = !dup;
     if (pillSearch) {
       const parts = [];
       if (plateQ) parts.push('Plaka: ' + plateQ);
@@ -1134,7 +1241,7 @@
       if (parts.length) pillSearch.innerHTML = '<i class="fas fa-search" aria-hidden="true"></i> ' + parts.join(' · ');
     }
 
-    const hasAny = !!(dateLabel || basim || shift || ozmal || plateQ || materialQ);
+    const hasAny = !!(dateLabel || kind || basim || shift || ozmal || dup || plateQ || materialQ);
     if (emptyEl) emptyEl.hidden = hasAny;
     if (clearBtn) clearBtn.disabled = !hasAny;
   }
@@ -1142,6 +1249,8 @@
   function syncFilterBtns() {
     const ozmalBtn = document.getElementById('ozmalFilterBtn');
     if (ozmalBtn) ozmalBtn.classList.toggle('is-active', !!window.__reportsOzmalFilter);
+    const dupBtn = document.getElementById('dupFilterBtn');
+    if (dupBtn) dupBtn.classList.toggle('is-active', !!window.__reportsDupFilter);
 
     syncDateInputs();
 
@@ -1159,6 +1268,12 @@
       btn.classList.toggle('is-active', !!site && basimFilter === site);
     });
 
+    const kindFilter = String(window.__reportsKindFilter || '').trim();
+    const piyasaBtn = document.getElementById('piyasaFilterBtn');
+    if (piyasaBtn) piyasaBtn.classList.toggle('is-active', kindFilter === 'piyasa');
+    const ihracatBtn = document.getElementById('ihracatFilterBtn');
+    if (ihracatBtn) ihracatBtn.classList.toggle('is-active', kindFilter === 'ihracat');
+
     syncActiveFiltersBar();
   }
 
@@ -1168,15 +1283,20 @@
 
   function reportsEmptyMessage(plateQ, materialQ) {
     const ozmal = !!window.__reportsOzmalFilter;
+    const dup = !!window.__reportsDupFilter;
     const dateLabel = describeDateRange();
+    const kind = String(window.__reportsKindFilter || '').trim();
     const basim = String(window.__reportsBasimYeriFilter || '').trim();
     const shift = String(window.__reportsShiftFilter || '').trim();
     const hasSearch = !!(plateQ || materialQ);
     const filterParts = [];
     if (dateLabel) filterParts.push(dateLabel);
+    if (kind === 'piyasa') filterParts.push('piyasa');
+    if (kind === 'ihracat') filterParts.push('ihracat');
     if (shift === 'night') filterParts.push('gece (00–08)');
     if (shift === 'day') filterParts.push('gündüz (08–18)');
     if (ozmal) filterParts.push('özmal');
+    if (dup) filterParts.push('çift baskı');
     if (basim) filterParts.push(basim);
     const filterHint = filterParts.length ? (' (' + filterParts.join(', ') + ')') : '';
 
@@ -1186,14 +1306,19 @@
       if (ozmal && basim) return 'Seçili filtrelere uygun kayıt bulunamadı.';
       if (ozmal) return 'Özmal araçlarda aramanıza uygun kayıt bulunamadı.';
       if (basim) return basim + ' kayıtlarında aramanıza uygun sonuç bulunamadı.';
+      if (kind === 'piyasa') return 'Piyasa kayıtlarında aramanıza uygun sonuç bulunamadı.';
+      if (kind === 'ihracat') return 'İhracat kayıtlarında aramanıza uygun sonuç bulunamadı.';
       if (shift === 'night') return 'Gece vardiyası (00:00–08:00) kayıtlarında aramanıza uygun sonuç bulunamadı.';
       if (shift === 'day') return 'Gündüz vardiyası (08:00–18:00) kayıtlarında aramanıza uygun sonuç bulunamadı.';
       return 'Aramanıza uygun kayıt bulunamadı' + filterHint + '.';
     }
     if (ozmal && basim) return 'Seçili filtrelere uygun kayıt bulunmuyor.';
     if (dateLabel) return dateLabel + ' için yazdırma kaydı bulunmuyor.';
+    if (kind === 'piyasa') return 'Piyasa yazdırma kaydı bulunmuyor.';
+    if (kind === 'ihracat') return 'İhracat yazdırma kaydı bulunmuyor.';
     if (shift === 'night') return 'Gece vardiyası (00:00–08:00) yazdırma kaydı bulunmuyor.';
     if (shift === 'day') return 'Gündüz vardiyası (08:00–18:00) yazdırma kaydı bulunmuyor.';
+    if (dup) return 'Görünen kayıtlarda 10 dakika içinde arka arkaya basılmış çift kayıt yok.';
     if (ozmal) return 'Özmal araç yazdırma kaydı bulunmuyor.';
     if (basim) return basim + ' yazdırma kaydı bulunmuyor.';
     return 'Henüz rapor bulunmuyor.';
@@ -1242,20 +1367,34 @@
     return stats;
   }
 
-  function setFilterButtonCount(btnId, count) {
+  function setFilterButtonCount(btnId, count, ariaLabel) {
     const btn = document.getElementById(btnId);
     if (!btn) return;
     let badge = btn.querySelector('.rp-filter-count');
     if (!badge) {
       badge = document.createElement('span');
       badge.className = 'rp-filter-count';
-      badge.setAttribute('aria-label', 'Bugün basılan');
+      badge.setAttribute('aria-label', ariaLabel || 'Bugün basılan');
       btn.appendChild(badge);
+    } else if (ariaLabel) {
+      badge.setAttribute('aria-label', ariaLabel);
     }
     badge.textContent = String(count);
   }
 
-  function updateFilterButtonCounts(stats, shiftStats) {
+  function syncDupActions(extraCount) {
+    const n = Number(extraCount) || 0;
+    setFilterButtonCount('dupFilterBtn', n, 'Fazla baskı');
+    const btn = document.getElementById('deleteDupExtrasBtn');
+    if (btn) {
+      btn.disabled = n <= 0;
+      btn.title = n > 0
+        ? (n + ' fazla baskıyı sil — her çifte ilk (orijinal) kayıt kalır')
+        : 'Görünen kayıtlarda arka arkaya çift baskı yok';
+    }
+  }
+
+  function updateFilterButtonCounts(stats, shiftStats, kindStats) {
     const avdan = stats.sites.AVDAN || { total: 0 };
     const osb = stats.sites['1.OSB'] || { total: 0 };
     const todayTotal = BASIM_SITES.reduce((sum, site) => sum + ((stats.sites[site] && stats.sites[site].total) || 0), 0);
@@ -1266,6 +1405,9 @@
     const day = (shiftStats && shiftStats.day) || emptyShiftBucket();
     setFilterButtonCount('shiftNightFilterBtn', night.total);
     setFilterButtonCount('shiftDayFilterBtn', day.total);
+    const kind = kindStats || emptyKindStats();
+    setFilterButtonCount('piyasaFilterBtn', kind.piyasa || 0);
+    setFilterButtonCount('ihracatFilterBtn', kind.ihracat || 0);
   }
 
   function normPlate(s){
@@ -1415,13 +1557,16 @@
         if (tbody) {
           tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">Henüz rapor bulunmuyor.</td></tr>';
         }
-        updateFilterButtonCounts(emptyBasimStats(), emptyShiftStats());
+        updateFilterButtonCounts(emptyBasimStats(), emptyShiftStats(), emptyKindStats());
+        syncDupActions(0);
+        _lastDupExtraIds = [];
         syncOzmalFilterBtn();
         return;
       }
 
     const todayStats = _cachedTodayStats || computeTodayBasimStats(_latestEvents);
     const todayShiftStats = _cachedTodayShiftStats || computeTodayShiftStats(_latestEvents);
+    const todayKindStats = _cachedTodayKindStats || computeTodayKindStats(_latestEvents);
     const vehicles = _allVehicles;
 
     // filters
@@ -1453,14 +1598,26 @@
     if (shiftFilter) {
       rows = rows.filter(v => (v._shiftKey != null ? v._shiftKey : reportRowShiftKey(v)) === shiftFilter);
     }
+    const kindFilter = String(window.__reportsKindFilter || '').trim();
+    if (kindFilter) {
+      rows = rows.filter(v => (v._kind != null ? v._kind : reportRowKind(v)) === kindFilter);
+    }
     if (mode === 'printed'){
       rows = rows.filter(v => (parseInt(v.printCount||'0',10)||0) > 0);
     } else if (mode === 'notprinted'){
       rows = rows.filter(v => (parseInt(v.printCount||'0',10)||0) === 0);
     }
 
+    const dupInfo = markConsecutiveDuplicates(rows);
+    _lastDupExtraIds = dupInfo.extraIds || [];
+    const extraCount = dupInfo.extraCount || 0;
+    if (window.__reportsDupFilter) {
+      rows = rows.filter(v => v._dupGroup);
+    }
+    const netCount = Math.max(0, rows.length - extraCount);
+
     // Already sorted by API (tarih DESC); keep stable order, only re-sort if needed
-    if (q || mq || window.__reportsDateFrom || window.__reportsDateTo || window.__reportsOzmalFilter || basimFilter || shiftFilter) {
+    if (q || mq || window.__reportsDateFrom || window.__reportsDateTo || window.__reportsOzmalFilter || basimFilter || shiftFilter || kindFilter || window.__reportsDupFilter) {
       rows = rows.slice().sort((a,b)=>{
         const ap = (a.lastPrintSnapshot && a.lastPrintSnapshot.ts) ? Number(a.lastPrintSnapshot.ts) : 0;
         const bp = (b.lastPrintSnapshot && b.lastPrintSnapshot.ts) ? Number(b.lastPrintSnapshot.ts) : 0;
@@ -1471,7 +1628,8 @@
 
     const tbodyEl = document.getElementById('tbody');
     syncOzmalFilterBtn();
-    updateFilterButtonCounts(todayStats, todayShiftStats);
+    updateFilterButtonCounts(todayStats, todayShiftStats, todayKindStats);
+    syncDupActions(extraCount);
 
     if (!rows.length) {
       const emptyMsg = reportsEmptyMessage(q, mq);
@@ -1505,6 +1663,9 @@
       tr.setAttribute('data-print-event-id', String(v.id || '')); // report event id
       tr.setAttribute('data-vehicle-id', String(v.id || '')); // print_history id (reprint); NETSIS için data-actual-vehicle-id kullan
       tr.setAttribute('data-plate', plate || '');
+      tr.setAttribute('data-kind', v._kind || reportRowKind(v) || 'piyasa');
+      if (v._dupExtra) tr.classList.add('is-dup-extra');
+      else if (v._dupGroup) tr.classList.add('is-dup-keep');
 
       // use row's own print event (no full-list scan)
       const lastEv = v.rawEvent || null;
@@ -1565,12 +1726,19 @@
       const dateLine = (dateStr && dateStr !== '-')
         ? (escapeRpHtml(dateStr) + (weekNo ? ' <span class="rp-week-label">(' + weekNo + '. hafta)</span>' : ''))
         : '-';
+      const kind = v._kind || reportRowKind(v) || 'piyasa';
+      const kindLabel = kind === 'ihracat' ? 'İhracat' : 'Piyasa';
+      const kindTag = '<div class="rp-kind-tag rp-kind-tag--' + kind + '">' + kindLabel + '</div>';
+      const dupTag = v._dupExtra
+        ? '<div class="rp-dup-tag rp-dup-tag--extra">Fazla baskı</div>'
+        : (v._dupGroup ? '<div class="rp-dup-tag rp-dup-tag--keep">Asıl</div>' : '');
+      const basimCellHtml = (basim ? escapeRpHtml(basim) : '-') + kindTag + dupTag;
 
       tr.innerHTML = `
         <td class="col-plate font-semibold" data-label="Plaka / Sürücü">${plateCellHtml}</td>
         <td class="col-firma" data-label="Firma">${firmaCellHtml}</td>
         <td class="col-tarih" data-label="Tarih">${'<div style="font-weight:700">' + dateLine + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + escapeRpHtml(timeStr) + '</div>') : '')}</td>
-        <td class="col-basim" data-label="Basım Yeri">${basim || '-'}</td>
+        <td class="col-basim" data-label="Basım Yeri">${basimCellHtml}</td>
         <td class="col-malzeme" data-label="Malzeme">${lastPrintHtml}</td>
         <td class="col-islem rp-table-actions" data-label="İşlem">
           <div class="rp-table-actions-inner">
@@ -1633,6 +1801,9 @@
           '</nav>',
           '<div class="rp-pager-meta">',
           '<span class="rp-pager-stat"><i class="fas fa-list-ul" aria-hidden="true"></i> Toplam <strong>' + totalItems + '</strong> kayıt</span>',
+          extraCount
+            ? '<span class="rp-pager-stat"><i class="fas fa-clone" aria-hidden="true"></i> Net <strong>' + netCount + '</strong> (' + extraCount + ' çift)</span>'
+            : '',
           '<span class="rp-pager-stat">Sayfa <strong>' + cur + '</strong> / <strong>' + totalPages + '</strong></span>',
           '<span class="rp-pager-size"><label for="pageSizeSel">Satır</label>',
           '<select id="pageSizeSel" class="rp-pager-select" aria-label="Sayfa başına kayıt">',
@@ -1854,6 +2025,8 @@
         window.__reportsOzmalFilter = false;
         window.__reportsBasimYeriFilter = '';
         window.__reportsShiftFilter = '';
+        window.__reportsKindFilter = '';
+        window.__reportsDupFilter = false;
         window.__reportsDateFrom = '';
         window.__reportsDateTo = '';
         window.__reportsDatePreset = 'all';
@@ -1875,6 +2048,62 @@
       });
     }
 
+    const dupBtn = document.getElementById('dupFilterBtn');
+    if (dupBtn) {
+      dupBtn.addEventListener('click', () => {
+        window.__reportsDupFilter = !window.__reportsDupFilter;
+        window.__reportsPage = 1;
+        render();
+      });
+    }
+
+    const deleteDupExtrasBtn = document.getElementById('deleteDupExtrasBtn');
+    if (deleteDupExtrasBtn) {
+      deleteDupExtrasBtn.addEventListener('click', async () => {
+        if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+          const isValidSession = await window.SessionManager.requireValidSession();
+          if (!isValidSession) return;
+        }
+        const ids = (_lastDupExtraIds || []).map((id) => String(id || '').trim()).filter(Boolean);
+        if (!ids.length) {
+          await uiAlert('Görünen kayıtlarda silinecek fazla baskı yok.', 'warning');
+          return;
+        }
+        const okPass = await ensureDeletePassword();
+        if (!okPass) return;
+        const ok = await uiConfirm(
+          ids.length + ' fazla baskı silinecek. Her çifte ilk (orijinal) kayıt kalacak. Devam edilsin mi?'
+        );
+        if (!ok) return;
+        try {
+          const response = await fetch('/api/reports/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids })
+          });
+          if (!response.ok) {
+            await uiAlert('Silme işlemi başarısız: ' + response.status, 'danger');
+            return;
+          }
+          try {
+            if (window.piyasa && typeof window.piyasa.reconcileOrderPrintCountsFromReports === 'function') {
+              await window.piyasa.reconcileOrderPrintCountsFromReports();
+            }
+          } catch (e) {}
+          try {
+            if (typeof window._ihracatOnReportsChanged === 'function') {
+              window._ihracatOnReportsChanged();
+            }
+          } catch (e) {}
+          window.__reportsDupFilter = false;
+          await uiAlert(ids.length + ' fazla baskı silindi. Kalan kayıtlar net sayıdır.', 'success');
+          render({ force: true });
+        } catch (e) {
+          await uiAlert('Silme işlemi başarısız: ' + (e && e.message ? e.message : e), 'danger');
+        }
+      });
+    }
+
     function toggleBasimYeriFilter(site) {
       const next = String(site || '').trim();
       if (!next) return;
@@ -1891,6 +2120,24 @@
     const osb1Btn = document.getElementById('osb1FilterBtn');
     if (osb1Btn) {
       osb1Btn.addEventListener('click', () => toggleBasimYeriFilter('1.OSB'));
+    }
+
+    function toggleKindFilter(kind) {
+      const next = String(kind || '').trim();
+      if (!next) return;
+      window.__reportsKindFilter = (window.__reportsKindFilter === next) ? '' : next;
+      window.__reportsPage = 1;
+      render();
+    }
+
+    const piyasaBtn = document.getElementById('piyasaFilterBtn');
+    if (piyasaBtn) {
+      piyasaBtn.addEventListener('click', () => toggleKindFilter('piyasa'));
+    }
+
+    const ihracatBtn = document.getElementById('ihracatFilterBtn');
+    if (ihracatBtn) {
+      ihracatBtn.addEventListener('click', () => toggleKindFilter('ihracat'));
     }
 
     function toggleShiftFilter(shift) {

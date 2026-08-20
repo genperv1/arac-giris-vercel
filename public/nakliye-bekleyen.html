@@ -56,15 +56,47 @@
       max-width: 560px;
       background: transparent;
     }
+    .nb-sheet-head {
+      text-align: center;
+      border: 1px solid #000;
+      border-bottom: none;
+      background: #fff;
+      color: #000;
+    }
+    .nb-sheet-site {
+      font-weight: 800;
+      font-size: 20px;
+      letter-spacing: 0.08em;
+      padding: 8px 12px 0;
+      text-transform: uppercase;
+    }
+    .nb-sheet-site:only-child {
+      padding-bottom: 8px;
+    }
     .nb-sheet-date {
       text-align: center;
       font-weight: 800;
       font-size: 17px;
       padding: 8px 12px;
-      border: 1px solid #000;
-      border-bottom: none;
       background: #fff;
       color: #000;
+    }
+    .nb-sheet-head .nb-sheet-date {
+      border: none;
+      padding: 4px 12px 8px;
+      background: transparent;
+    }
+    .nb-btn--site.is-on {
+      background: #d97706;
+      border-color: #b45309;
+      color: #fff;
+    }
+    .nb-btn--site.is-on:hover { background: #b45309; }
+    .nb-site-group {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
     }
     .nb-sheet-wrap.nb-sheet-wrap--dual {
       max-width: 1140px;
@@ -72,7 +104,7 @@
     .nb-sheet-wrap.nb-sheet-wrap--side {
       max-width: min(96vw, 1420px);
     }
-    .nb-sheet-wrap.nb-sheet-wrap--side .nb-sheet-date {
+    .nb-sheet-wrap.nb-sheet-wrap--side .nb-sheet-head {
       border-bottom: 1px solid #000;
     }
     .nb-sheet-capture--carrier-only .nb-plate--exclude-copy {
@@ -187,29 +219,32 @@
       transform: scale(0.98);
     }
 
-    /* Excel bloğu: tablo + sağda DIŞARIDA kopyala */
+    /* Excel bloğu: tablo ayrı, Kopyala / Plaka altta */
     .nb-sheet-block {
       position: relative;
       margin-bottom: 12px;
     }
     .nb-sheet-block:last-child { margin-bottom: 0; }
     .nb-sheet-block-main {
-      display: flex;
-      flex-direction: row;
-      align-items: flex-start;
-      gap: 8px;
+      display: block;
+      width: 100%;
     }
     .nb-sheet-block-body {
-      flex: 1 1 auto;
-      min-width: 0;
+      width: 100%;
       background: #fff;
     }
-    .nb-block-side {
-      flex: 0 0 auto;
+    .nb-block-bar {
       display: flex;
-      flex-direction: column;
-      gap: 6px;
-      padding-top: 2px;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .nb-block-bar .nb-btn--site {
+      white-space: nowrap;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.7rem;
     }
     .nb-btn--block-copy {
       background: #fff7ed;
@@ -389,7 +424,7 @@
 
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <div class="nb-toolbar-card">
-      <p class="nb-hint">BBT yazıp Enter / dışarı tıklayın — alttaki <strong>DAHA PLAKA VERİLECEK</strong> otomatik düşer. Yeni araç için sağdaki <strong>+ Plaka</strong>. Silince kalan artar.</p>
+      <p class="nb-hint">Yazdırılan plakalar rapordan düşer; Excel silip yeniden yükleyince liste yenilenir. BBT yazıp Enter — <strong>DAHA PLAKA VERİLECEK</strong> otomatik düşer. Yeni araç için <strong>+ Plaka</strong>. <strong>yd 40</strong> yazınca YD40 bulunur.</p>
       <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
       <div class="flex flex-wrap gap-2 items-center">
         <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD / LOT ara…" />
@@ -416,9 +451,10 @@
 
   <div id="nbToast" class="nb-toast" role="status"></div>
 
-  <script src="dailyStore.js"></script>
+  <script src="idb.js"></script>
+  <script src="dailyStore.js?v=20260821-bakiye-deneme10"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260819-yukleme-yeri"></script>
-  <script src="nakliye-bekleyen.js?v=20260819-yukleme-yeri"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260821-bakiye-deneme10"></script>
+  <script src="nakliye-bekleyen.js?v=20260821-nobakiye"></script>
 </body>
 </html>

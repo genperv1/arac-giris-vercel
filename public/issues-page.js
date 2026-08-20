@@ -193,7 +193,7 @@
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
   }
 
-  const DELETE_PASSWORD = '2026genper';
+  const DELETE_PASSWORD = '543723';
 
   function vehicleToRejectionInfo(vehicle) {
     if (!vehicle) return null;

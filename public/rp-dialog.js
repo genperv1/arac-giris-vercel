@@ -344,11 +344,11 @@
         if (!window.rpDialog) return Promise.resolve('ok');
         return window.rpDialog.actions(message, type, buttons);
       },
-      /** Onay + şifre (varsayılan: 2026genper) */
+      /** Onay + şifre (varsayılan: 543723) */
       confirmSecureDelete: async function (opts) {
         opts = opts || {};
         initRpDialog();
-        const pwd = opts.password || '2026genper';
+        const pwd = opts.password || '543723';
         const msg = opts.message || 'Bu işlem geri alınamaz. Devam edilsin mi?';
         let ok = false;
         ok = await window.rpDialog.confirm(msg, {

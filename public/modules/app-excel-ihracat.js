@@ -738,6 +738,100 @@ function piyasaSevkiyatIdForPrint(pending) {
   }
 }
 
+function _isYdFirmaValue(value) {
+  return /\bYD\d{1,4}(?:\([A-Za-z]+\))?/i.test(String(value || '').trim());
+}
+
+function shouldWritePiyasaCikanlar(pending, printEv) {
+  if (!pending) return false;
+  const firma = (printEv && (printEv.firma || printEv.firmaKodu))
+    || (pending.snapshot && (pending.snapshot.firmaKodu || pending.snapshot.firmaSelect))
+    || '';
+  return !_isYdFirmaValue(firma);
+}
+
+function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId) {
+  const snap = (pending && pending.snapshot) || {};
+  const pp = (pending && pending.printPayload) || {};
+  let order = null;
+  try {
+    if (pending && pending.piyasaOrderIdx != null && window.piyasa && typeof window.piyasa.getOrderByIdx === 'function') {
+      order = window.piyasa.getOrderByIdx(pending.piyasaOrderIdx);
+    }
+  } catch (e) { order = null; }
+  const firma = String(
+    (order && order.firma) || (printEv && (printEv.firma || printEv.firmaKodu)) || snap.firmaKodu || snap.firmaSelect || ''
+  ).trim();
+  const sehir = String((order && (order.il || order.sevkYeri)) || '').trim();
+  return {
+    print_history_id: printHistoryId || '',
+    tarih: commitTs || Date.now(),
+    plaka: String((printEv && printEv.plaka) || pending.plaka || '').trim(),
+    dorse_plaka: String((printEv && printEv.dorsePlaka) || snap.dorsePlaka || pp.dorsePlaka || '').trim(),
+    sofor: String((printEv && printEv.sofor) || snap.sofor || '').trim(),
+    firma,
+    firma_adi: String((order && (order.firmaAdi || order._hSutunValue)) || (printEv && printEv.firmaAdi) || '').trim(),
+    sip_no: String((order && order.sipNo) || '').trim(),
+    malzeme: String((order && order.malzeme) || (printEv && printEv.malzeme) || snap.malzeme || '').trim(),
+    yukleme_turu: String((order && order.yuklemeTuru) || (printEv && (printEv.yuklemeTuru || printEv.ambalajBilgisi)) || snap.ambalajBilgisi || '').trim(),
+    sehir,
+    sevk_yeri: String((printEv && printEv.sevkYeri) || snap.sevkYeri || sehir || '').trim(),
+    miktar: order && order.miktar != null ? String(order.miktar) : '',
+    tonaj: String((printEv && printEv.tonaj) || snap.tonaj || '').trim(),
+    basim_yeri: String((printEv && printEv.basimYeri) || pending.basimYeri || snap.basimYeri || '').trim(),
+    order_key: String((order && (order._pickKey || order.__archiveKey)) || (pending && pending.piyasaOrderIdx) || '').trim(),
+    hafta: order && order._sourceWeek != null ? String(order._sourceWeek) : '',
+    sheet: String((order && order._sourceSheet) || '').trim(),
+    sevkiyat_tipi: String((order && order.sevkiyatTipi) || '').trim(),
+    vehicle_id: String((printEv && printEv.vehicleId) || pending.vehicleId || '').trim(),
+  };
+}
+
+async function persistPrintHistoryAndPiyasaCikanlar(printEv, pending, commitTs) {
+  let phId = '';
+  const token = (() => {
+    try { return localStorage.getItem('authToken') || ''; } catch (e) { return ''; }
+  })();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = 'Bearer ' + token;
+  try {
+    const phRes = await fetch('/api/print_history', {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(buildPrintHistoryPostBody(printEv, pending, commitTs)),
+    });
+    if (phRes && phRes.ok) {
+      try {
+        const j = await phRes.json();
+        phId = String((j && j.id) || '').trim();
+      } catch (e) { phId = ''; }
+      try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
+      try { if (typeof window._ihracatOnReportsChanged === 'function') window._ihracatOnReportsChanged(); } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('Print history save failed:', e);
+  }
+  if (!shouldWritePiyasaCikanlar(pending, printEv)) return phId;
+  try {
+    const body = buildPiyasaCikanlarPostBody(printEv, pending, commitTs, phId);
+    if (!body.plaka) return phId;
+    const cikanRes = await fetch('/api/piyasa/cikanlar', {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!cikanRes.ok) {
+      const t = await cikanRes.text().catch(() => '');
+      console.warn('Piyasa çıkanlar kaydı yazılamadı:', cikanRes.status, t);
+    }
+  } catch (e) {
+    console.warn('Piyasa çıkanlar kaydı yazılamadı:', e);
+  }
+  return phId;
+}
+
 /** İhracat / Excel bağlamından firma (YD…); HP2 gibi rota kodları firma sayılmaz */
 function _takipFirmaFromExcelContext() {
   try {
@@ -1043,11 +1137,27 @@ async function saveDailyShipments(rows, meta) {
     const cached = (window.DailyStore && typeof DailyStore.getRows === 'function')
       ? (DailyStore.getRows() || [])
       : payload;
-    return Array.isArray(cached) && cached.length === payload.length;
+    const saved = Array.isArray(cached) && cached.length === payload.length;
+    if (saved) {
+      notifyIhracatExcelChanged();
+    }
+    return saved;
   } catch (e) {
     return false;
   }
 }
+
+function notifyIhracatExcelChanged() {
+  try { window.dispatchEvent(new CustomEvent('nakliye-excel-changed')); } catch (e) {}
+  try { localStorage.setItem('ihracat_excel_ping', String(Date.now())); } catch (e) {}
+  try {
+    if (!window.__ihracatExcelBC && typeof BroadcastChannel === 'function') {
+      window.__ihracatExcelBC = new BroadcastChannel('ihracat-excel');
+    }
+    if (window.__ihracatExcelBC) window.__ihracatExcelBC.postMessage({ type: 'changed', at: Date.now() });
+  } catch (e) {}
+}
+try { window.notifyIhracatExcelChanged = notifyIhracatExcelChanged; } catch (e) {}
 
 function loadDailyShipments() {
   try {
@@ -1294,12 +1404,16 @@ function loadDailyMeta() {
 
 async function clearDailyShipments() {
   try {
+    let ok = false;
     if (window.DailyStore && typeof DailyStore.clear === 'function') {
-      return await DailyStore.clear();
+      ok = await DailyStore.clear();
+    } else {
+      localStorage.removeItem(DAILY_SHIPMENT_KEY);
+      localStorage.removeItem(DAILY_SHIPMENT_META);
+      ok = true;
     }
-    localStorage.removeItem(DAILY_SHIPMENT_KEY);
-    localStorage.removeItem(DAILY_SHIPMENT_META);
-    return true;
+    if (ok) notifyIhracatExcelChanged();
+    return ok;
   } catch(e){ return false; }
 }
 
@@ -1484,13 +1598,18 @@ async function removeDailyShipmentsBySourceAsync(sourceName) {
   if (!kept.length) {
     try {
       if (window.DailyStore && typeof DailyStore.clear === 'function') {
-        return DailyStore.clear();
+        const ok = await DailyStore.clear();
+        if (ok) notifyIhracatExcelChanged();
+        return ok;
       }
       if (window.DailyStore && typeof DailyStore.setAsync === 'function') {
-        return DailyStore.setAsync([], {});
+        const ok = await DailyStore.setAsync([], {});
+        if (ok) notifyIhracatExcelChanged();
+        return ok;
       }
       localStorage.removeItem(DAILY_SHIPMENT_KEY);
       localStorage.removeItem(DAILY_SHIPMENT_META);
+      notifyIhracatExcelChanged();
       return true;
     } catch (e) {
       return false;
@@ -1539,13 +1658,18 @@ async function removeDailyShipmentsByBlocksAsync(selectedBlocks) {
   if (!kept.length) {
     try {
       if (window.DailyStore && typeof DailyStore.clear === 'function') {
-        return DailyStore.clear();
+        const ok = await DailyStore.clear();
+        if (ok) notifyIhracatExcelChanged();
+        return ok;
       }
       if (window.DailyStore && typeof DailyStore.setAsync === 'function') {
-        return DailyStore.setAsync([], {});
+        const ok = await DailyStore.setAsync([], {});
+        if (ok) notifyIhracatExcelChanged();
+        return ok;
       }
       localStorage.removeItem(DAILY_SHIPMENT_KEY);
       localStorage.removeItem(DAILY_SHIPMENT_META);
+      notifyIhracatExcelChanged();
       return true;
     } catch (e) {
       return false;
@@ -2960,3 +3084,4 @@ async function importDailyExcel(file) {
   const committed = await commitIhracatImport(parsed.rows, { ...parsed.meta, fileFingerprint: fp }, file);
   return committed;
 }
+

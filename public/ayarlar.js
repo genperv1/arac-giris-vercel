@@ -1669,7 +1669,7 @@
     loadPrintFormBgPreviewFromServer();
   }
 
-  const REPORT_DELETE_PASSWORD = '2026genper';
+  const REPORT_DELETE_PASSWORD = '543723';
 
   async function ensureReportDeletePassword() {
     const u = window.rpUi || {};

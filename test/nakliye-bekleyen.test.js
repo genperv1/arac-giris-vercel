@@ -39,6 +39,33 @@ test('analyzeBlock — departed truck is hidden', () => {
   assert.equal(item, null);
 });
 
+test('analyzeIhracatBalance — completed shipment still listed with çıkan = plan', () => {
+  const items = core.analyzeIhracatBalance([
+    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA682', bbt: '20', gidenTonaj: '20' },
+    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA029', bbt: '20', gidenTonaj: '20' },
+  ]);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].planBbt, 40);
+  assert.equal(items[0].departedBbt, 40);
+  assert.equal(items[0].processedBbt, 40);
+  assert.equal(items[0].remainingBbt, 0);
+});
+
+test('analyzeBlock — processedBbt is departed plus assigned waiting', () => {
+  const item = core.analyzeBlock([
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03AIT034', sira: '1', bbt: '26', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03ADB390', sira: '2', bbt: '26', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '41BFL699', sira: '3', bbt: '21', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03DH540', sira: '4', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03BN929', sira: '5', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03VR929', sira: '6', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '16RCU18', sira: '7', bbt: '28', gidenTonaj: '' },
+  ]);
+  assert.equal(item.remainingBbt, 27);
+  assert.equal(item.processedBbt, 173);
+  assert.equal(item.planBbt, 200);
+});
+
 test('analyzeBlock — waiting plate without giden tonaj', () => {
   const item = core.analyzeBlock([
     {
@@ -599,7 +626,7 @@ test('extractYuklemeYeri — AVDAN and 1.OSB from Excel field or header', () => 
   assert.equal(core.extractYuklemeYeri({ headerText: 'YD40 / 200 BBT' }), '');
 });
 
-test('buildExcelBlockRows — yükleme yeri AVDAN or 1.OSB is added to yellow header', () => {
+test('buildExcelBlockRows — yükleme yeri is not added to yellow header', () => {
   const avdan = core.analyzeBlock([
     {
       blockKey: 'A1',
@@ -613,7 +640,7 @@ test('buildExcelBlockRows — yükleme yeri AVDAN or 1.OSB is added to yellow he
   assert.equal(avdan.yuklemeYeri, 'AVDAN');
   assert.equal(
     core.buildExcelBlockRows(avdan)[0].a,
-    'YD331 120 BBT · AVDAN · LOT 26 07 20 (HP 0,74-0,40)'
+    'YD331 120 BBT · LOT 26 07 20 (HP 0,74-0,40)'
   );
 
   const osb = core.analyzeBlock([
@@ -625,7 +652,7 @@ test('buildExcelBlockRows — yükleme yeri AVDAN or 1.OSB is added to yellow he
     },
   ]);
   assert.equal(osb.yuklemeYeri, '1.OSB');
-  assert.equal(core.buildExcelBlockRows(osb)[0].a, 'YD40(G) 200 BBT · 1.OSB');
+  assert.equal(core.buildExcelBlockRows(osb)[0].a, 'YD40(G) 200 BBT');
 });
 
 test('buildBlockPlateRows — sorts by Excel sira within block', () => {
@@ -824,3 +851,411 @@ test('buildExcelBlockRows — özmal / başşoför plates are not listed on shee
   // Özmal BBT plana sayıldığı için kalan düşer; listede plaka yok
   assert.equal(item.remainingBbt, 776);
 });
+
+test('normalizeYdKey — YD 40, yd40, YD40(G) collapse to YD40', () => {
+  assert.equal(core.normalizeYdKey('YD 40'), 'YD40');
+  assert.equal(core.normalizeYdKey('yd40'), 'YD40');
+  assert.equal(core.normalizeYdKey('YD40(G) / LOT NO 26 07 41'), 'YD40');
+  assert.equal(core.normalizeYdKey('YD 40 / 200 BBT'), 'YD40');
+  assert.equal(core.ydBaseKey('firma: YD 40'), 'YD40');
+  assert.equal(core.normalizeYdKey('HP7'), '');
+});
+
+test('remainingVehiclesForBlock — waiting plates + leftover BBT, dual kantar not unique', () => {
+  const item = core.analyzeBlock([
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03AIT034', sira: '1', bbt: '26', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03ADB390', sira: '2', bbt: '26', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '41BFL699', sira: '3', bbt: '21', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03DH540', sira: '4', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03BN929', sira: '5', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '03VR929', sira: '6', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'BLK_36', blockHeaderRow: 36, headerText: 'YD40(G) / 200 BBT', plaka: '16RCU18', sira: '7', bbt: '28', gidenTonaj: '' },
+  ]);
+  assert.equal(item.waitingPlates.length, 7);
+  assert.equal(item.remainingBbt, 27);
+  assert.equal(core.remainingVehiclesForBlock(item), 8);
+});
+
+test('unassignedVehicleCount — leftover under one truck counts as 1', () => {
+  assert.equal(core.unassignedVehicleCount(0, 24), 0);
+  assert.equal(core.unassignedVehicleCount(27, 24), 1);
+  assert.equal(core.unassignedVehicleCount(48, 24), 2);
+  assert.equal(core.unassignedVehicleCount(12, 24), 1);
+});
+
+test('summarizeIhracatBalance totals remaining BBT and vehicles', () => {
+  const a = { remainingBbt: 27, waitingPlates: [{ bbt: 24 }, { bbt: 24 }] };
+  const b = { remainingBbt: 0, waitingPlates: [{ bbt: 22 }, { bbt: 22 }] };
+  const sum = core.summarizeIhracatBalance([a, b]);
+  assert.equal(sum.shipmentCount, 2);
+  assert.equal(sum.remainingBbt, 27);
+  assert.equal(sum.waitingPlates, 4);
+  assert.equal(sum.remainingVehicles, 2 + 1 + 2);
+});
+
+test('printReportValidForBalance accepts today even if Excel imported later', () => {
+  const now = Date.now();
+  const meta = { importedAt: new Date(now + 60 * 60 * 1000).toISOString() };
+  assert.equal(core.printReportValidForBalance(now, meta), true);
+  assert.equal(core.printReportValidForBalance(now - 10 * 24 * 60 * 60 * 1000, meta), false);
+});
+
+test('enrichBalanceItemsWithReports drops remaining from report BBT after Excel reload', () => {
+  const items = [
+    { ydKey: 'YD33', planBbt: 1144, remainingBbt: 1144, processedBbt: 0, waitingPlates: [] },
+  ];
+  const reports = [
+    { type: 'PRINT', ts: Date.now(), data: { firma: 'YD 33', bbt: '24', plaka: '03ABC123' } },
+    { type: 'PRINT', ts: Date.now(), data: { firma: 'YD33(G)', bbt: '18', plaka: '41BFL699' } },
+  ];
+  const out = core.enrichBalanceItemsWithReports(items, reports, {});
+  assert.equal(out[0].reportPrintCount, 2);
+  assert.equal(out[0].processedBbt, 42);
+  assert.equal(out[0].remainingBbt, 1102);
+  assert.equal(out[0].balanceStatus, 'open');
+  assert.ok(out[0].progressPct > 0);
+});
+
+test('analyzeBlock — YD276(M) LOT header uses TOPLAM BBT when header has no BBT', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: 'YD276(M) / LOT NO 26 07 44',
+      ydKey: 'YD276',
+      blockTotals: { bbt: '200' },
+      _ihracatEmptyBlock: true,
+    },
+  ], { includeComplete: true });
+  assert.ok(item);
+  assert.equal(item.ydKey, 'YD276(M)');
+  assert.equal(item.lotLabel, 'LOT 26 07 44');
+  assert.equal(item.planBbt, 200);
+  assert.equal(item.remainingBbt, 200);
+});
+
+test('analyzeIhracatBalance — YD276(M) stays listed without BBT in yellow header', () => {
+  const items = core.analyzeIhracatBalance([
+    {
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: 'YD276(M) / LOT NO 26 07 44',
+      ydKey: 'YD276',
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  assert.equal(items.length, 1);
+  assert.equal(core.normalizeYdKey(items[0].ydKey), 'YD276');
+});
+
+test('enrichBalanceItemsWithReports — Avdan print drops remaining even if plate is not in Excel', () => {
+  const items = core.analyzeIhracatBalance([
+    {
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: 'YD276(M) / LOT NO 26 07 44',
+      ydKey: 'YD276',
+      blockTotals: { bbt: '200' },
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: Date.now(),
+      plaka: '03ABC123',
+      data: { firma: 'YD276(M)', bbt: '24', basimYeri: 'AVDAN', malzeme: 'LOT NO 26 07 44' },
+    },
+  ];
+  const out = core.enrichBalanceItemsWithReports(items, reports, {});
+  assert.equal(out.length, 1);
+  assert.equal(out[0].processedBbt, 24);
+  assert.equal(out[0].remainingBbt, 176);
+  assert.equal(out[0].reportPrintCount, 1);
+  assert.equal(out[0].lastPrintSite, 'AVDAN');
+});
+
+test('enrichBalanceItemsWithReports — new Avdan plate still counts when Excel already has waiting plates', () => {
+  const items = core.analyzeIhracatBalance([
+    {
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: 'YD276(M) / LOT NO 26 07 44 / 200 BBT',
+      ydKey: 'YD276',
+      plaka: '16RCU18',
+      bbt: '28',
+      gidenTonaj: '',
+    },
+  ]);
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: Date.now(),
+      plaka: '03NEW001',
+      data: { firma: 'YD276(M)', bbt: '24', basimYeri: 'AVDAN' },
+    },
+  ];
+  const out = core.enrichBalanceItemsWithReports(items, reports, {});
+  assert.equal(out[0].assignedWaitingBbt, 28);
+  assert.equal(out[0].processedBbt, 52);
+  assert.equal(out[0].remainingBbt, 148);
+});
+
+test('enrichBalanceItemsWithReports — Excel yoksa YD yazdırması yine listelenir', () => {
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: Date.now(),
+      plaka: '03ABC123',
+      data: { firma: 'YD276(M)', bbt: '24', basimYeri: 'AVDAN' },
+    },
+  ];
+  const out = core.enrichBalanceItemsWithReports([], reports, {});
+  assert.equal(out.length, 1);
+  assert.equal(core.normalizeYdKey(out[0].ydKey), 'YD276');
+  assert.equal(out[0].processedBbt, 24);
+  assert.equal(out[0].fromReportsOnly, true);
+  assert.equal(out[0].yuklemeYeri, 'AVDAN');
+});
+
+test('enrichBalanceItemsWithReports — rapordan LOT ve malzeme dolar', () => {
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: Date.now(),
+      plaka: '03ABC123',
+      data: {
+        firma: 'YD276(M)',
+        bbt: '24',
+        basimYeri: 'AVDAN',
+        malzeme: 'HP 0,60-1,20',
+        yuklemeNotu: 'LOT NO 26 07 44',
+      },
+    },
+  ];
+  const out = core.enrichBalanceItemsWithReports([], reports, {});
+  assert.equal(out[0].lotLabel, 'LOT 26 07 44');
+  assert.equal(out[0].malzemeLabel, 'HP 0,60-1,20');
+  assert.equal(out[0].yuklemeYeri, 'AVDAN');
+  assert.equal(out[0].ydKey, 'YD276(M)');
+});
+
+test('mergeLocalAndPoolItems — Excel yokken havuz satırları kalır', () => {
+  const pool = [
+    { ydKey: 'YD276(M)', lotLabel: 'LOT 26 07 44', planBbt: 200, remainingBbt: 200, fileName: 'avdan.xlsx', blockKey: 'BLK_1' },
+  ];
+  const merged = core.mergeLocalAndPoolItems([], pool);
+  assert.equal(merged.length, 1);
+  assert.equal(core.normalizeYdKey(merged[0].ydKey), 'YD276');
+});
+
+test('mergeLocalAndPoolItems — aynı YD+LOT yerel varsa havuz yinelenmez', () => {
+  const local = [
+    { ydKey: 'YD276(M)', lotLabel: 'LOT 26 07 44', planBbt: 200, remainingBbt: 176, fileName: 'local.xlsx', blockKey: 'BLK_L' },
+  ];
+  const pool = [
+    { ydKey: 'YD276(M)', lotLabel: 'LOT 26 07 44', planBbt: 200, remainingBbt: 200, fileName: 'avdan.xlsx', blockKey: 'BLK_1' },
+    { ydKey: 'YD40', lotLabel: 'LOT 1', planBbt: 40, remainingBbt: 40, fileName: 'osb.xlsx', blockKey: 'BLK_2' },
+  ];
+  const merged = core.mergeLocalAndPoolItems(local, pool);
+  assert.equal(merged.length, 2);
+  assert.equal(core.normalizeYdKey(merged[1].ydKey), 'YD40');
+});
+
+test('buildPoolSourcesFromRows — YD276(M) LOT bloğunu sıkıştırır', () => {
+  const sources = core.buildPoolSourcesFromRows([
+    {
+      fileName: '21.08.2026.xlsx',
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: 'YD276(M) / LOT NO 26 07 44',
+      ydKey: 'YD276',
+      blockTotals: { bbt: '200' },
+      _ihracatEmptyBlock: true,
+    },
+  ], { dateKey: '2026-08-21', importedAt: '2026-08-21T10:00:00.000Z' });
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0].blocks.length, 1);
+  assert.equal(sources[0].blocks[0].planBbt, 200);
+  assert.equal(core.normalizeYdKey(sources[0].blocks[0].ydKey), 'YD276');
+});
+
+test('enrichBalanceItemsWithReports marks TAMAMLANDI when remaining is 0', () => {
+  const items = [
+    { ydKey: 'YD82', planBbt: 40, remainingBbt: 0, processedBbt: 40, waitingPlates: [] },
+  ];
+  const out = core.enrichBalanceItemsWithReports(items, [], {});
+  assert.equal(out[0].balanceStatus, 'done');
+  assert.equal(core.balanceRowStatus(out[0]), 'done');
+});
+
+test('overlayPlanFromCatalog fills PLAN/KALAN and Excel name on report-only row', () => {
+  const reportsOnly = [
+    {
+      ydKey: 'YD276(M)',
+      lotLabel: 'LOT 26 07 44',
+      planBbt: 0,
+      processedBbt: 538,
+      remainingBbt: 0,
+      fromReportsOnly: true,
+      fileName: '',
+    },
+  ];
+  const catalog = [
+    {
+      ydKey: 'YD276(M)',
+      lotLabel: 'LOT 26 07 44',
+      planBbt: 600,
+      fileName: '21.08.2026 Avdan.xlsx',
+    },
+  ];
+  const out = core.overlayPlanFromCatalog(reportsOnly, catalog);
+  assert.equal(out[0].planBbt, 600);
+  assert.equal(out[0].processedBbt, 538);
+  assert.equal(out[0].remainingBbt, 62);
+  assert.equal(out[0].fileName, '21.08.2026 Avdan.xlsx');
+  assert.equal(out[0].fromReportsOnly, false);
+  assert.equal(core.excelSourceLabel(out[0]), '21.08.2026 Avdan');
+});
+
+test('buildBalanceRowsFromPlanAndReports — plan Excel, çıkan yazdırma, kalan fark', () => {
+  const planItems = [
+    {
+      ydKey: 'YD276(M)',
+      lotLabel: 'LOT 26 07 44',
+      malzemeLabel: 'HP 0,15-0,40',
+      planBbt: 600,
+      remainingBbt: 600,
+      processedBbt: 0,
+      fileName: '21.08.2026.xlsx',
+      yuklemeYeri: 'AVDAN',
+    },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: Date.now(),
+      plaka: '03ABC123',
+      data: {
+        firma: 'YD276(M)',
+        bbt: '538',
+        basimYeri: 'AVDAN',
+        yuklemeNotu: 'LOT NO 26 07 44',
+      },
+    },
+  ];
+  const out = core.buildBalanceRowsFromPlanAndReports(planItems, reports, {});
+  assert.equal(out.length, 1);
+  assert.equal(out[0].planBbt, 600);
+  assert.equal(out[0].processedBbt, 538);
+  assert.equal(out[0].remainingBbt, 62);
+  assert.equal(out[0].fileName, '21.08.2026.xlsx');
+  assert.equal(core.excelSourceLabel(out[0]), '21.08.2026');
+});
+
+test('buildPoolSourcesFromItems groups by fileName', () => {
+  const sources = core.buildPoolSourcesFromItems([
+    { ydKey: 'YD40', lotLabel: 'LOT 1', planBbt: 40, fileName: 'avdan.xlsx' },
+    { ydKey: 'YD33', lotLabel: 'LOT 2', planBbt: 80, fileName: '1osb.xlsx' },
+  ], { importedAt: '2026-08-21T10:00:00.000Z' });
+  assert.equal(sources.length, 2);
+  const names = sources.map((s) => s.fileName).sort();
+  assert.deepEqual(names, ['1osb.xlsx', 'avdan.xlsx']);
+  assert.equal(sources.find((s) => s.fileName === 'avdan.xlsx').blocks[0].planBbt, 40);
+});
+
+test('excelSourceLabel — Excel yok when report-only', () => {
+  assert.equal(core.excelSourceLabel({ fromReportsOnly: true, fileName: '' }), 'Excel yok');
+});
+
+test('compactPlanRecords keeps YD, LOT, PLAN and file name', () => {
+  const plans = core.compactPlanRecords([
+    {
+      ydKey: 'YD276(M)',
+      lotLabel: 'LOT 26 07 44',
+      planBbt: 600,
+      fileName: '21.08.2026 Avdan.xlsx',
+      yuklemeYeri: 'AVDAN',
+    },
+  ], {});
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0].planBbt, 600);
+  assert.equal(plans[0].fileName, '21.08.2026 Avdan.xlsx');
+  assert.equal(core.normalizeYdKey(plans[0].ydKey), 'YD276');
+});
+
+test('same YD + malzeme with and without LOT is one row, çıkan summed', () => {
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: Date.now(),
+      plaka: '03AAA001',
+      data: { firma: 'YD33(M)', bbt: '297', basimYeri: '1.OSB', malzeme: 'HP 0,074-0,30' },
+    },
+    {
+      type: 'PRINT',
+      ts: Date.now(),
+      plaka: '03AAA002',
+      data: {
+        firma: 'YD33(M)',
+        bbt: '157',
+        basimYeri: '1.OSB',
+        malzeme: 'HP 0,074-0,30',
+        yuklemeNotu: 'LOT NO 26 07 25',
+      },
+    },
+  ];
+  const out = core.buildBalanceRowsFromPlanAndReports([], reports, {});
+  assert.equal(out.length, 1);
+  assert.equal(core.normalizeYdKey(out[0].ydKey), 'YD33');
+  assert.equal(out[0].processedBbt, 454);
+  assert.match(String(out[0].lotLabel || ''), /26\s*07\s*25/);
+});
+
+test('excel reload same YD+malzeme+yer updates plan and file, does not duplicate', () => {
+  const oldFile = {
+    ydKey: 'YD33(M)',
+    malzemeLabel: 'HP 0,074-0,30',
+    yuklemeYeri: '1.OSB',
+    planBbt: 400,
+    fileName: '20.08.2026.xlsx',
+  };
+  const newFile = {
+    ydKey: 'YD33(M)',
+    malzemeLabel: 'HP 0,074-0,30',
+    yuklemeYeri: '1.OSB',
+    lotLabel: 'LOT 26 07 25',
+    planBbt: 500,
+    fileName: '21.08.2026.xlsx',
+  };
+  const merged = core.mergeLocalAndPoolItems([oldFile], [newFile]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].planBbt, 500);
+  assert.equal(merged[0].fileName, '21.08.2026.xlsx');
+});
+
+test('overlay plan matches YD+malzeme even if LOT missing on print row', () => {
+  const out = core.overlayPlanFromCatalog(
+    [{
+      ydKey: 'YD33(M)',
+      malzemeLabel: 'HP 0,074-0,30',
+      yuklemeYeri: '1.OSB',
+      planBbt: 0,
+      processedBbt: 297,
+      fromReportsOnly: true,
+    }],
+    [{
+      ydKey: 'YD33(M)',
+      malzemeLabel: 'HP 0,074-0,30',
+      yuklemeYeri: '1.OSB',
+      lotLabel: 'LOT 26 07 25',
+      planBbt: 500,
+      fileName: '21.08.2026 OSB.xlsx',
+    }]
+  );
+  assert.equal(out[0].planBbt, 500);
+  assert.equal(out[0].remainingBbt, 203);
+  assert.equal(out[0].fileName, '21.08.2026 OSB.xlsx');
+});
+
+

@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const DELETE_PASSWORD = '2026genper';
+  const DELETE_PASSWORD = '543723';
   let _editingId = null;
   const _notesCache = {};
 

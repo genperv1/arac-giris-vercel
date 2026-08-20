@@ -309,6 +309,36 @@ async function prepareSchema() {
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS snapshot TEXT;`);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS piyasa_cikanlar(
+      id TEXT PRIMARY KEY,
+      print_history_id TEXT,
+      tarih BIGINT,
+      plaka TEXT,
+      dorse_plaka TEXT,
+      sofor TEXT,
+      firma TEXT,
+      firma_adi TEXT,
+      sip_no TEXT,
+      malzeme TEXT,
+      yukleme_turu TEXT,
+      sehir TEXT,
+      sevk_yeri TEXT,
+      miktar TEXT,
+      tonaj TEXT,
+      basim_yeri TEXT,
+      order_key TEXT,
+      hafta TEXT,
+      sheet TEXT,
+      sevkiyat_tipi TEXT,
+      vehicle_id TEXT
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_tarih_desc ON piyasa_cikanlar(tarih DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_firma_tarih ON piyasa_cikanlar(firma, tarih DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_plaka_tarih ON piyasa_cikanlar(plaka, tarih DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_order_key ON piyasa_cikanlar(order_key);`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS operation_notes(
       id TEXT PRIMARY KEY,
       body TEXT NOT NULL,
@@ -414,6 +444,11 @@ async function prepareSchema() {
     await pool.query('ANALYZE print_history');
   } catch (e) {
     console.warn('ANALYZE print_history skipped:', e.message || e);
+  }
+  try {
+    await pool.query('ANALYZE piyasa_cikanlar');
+  } catch (e) {
+    console.warn('ANALYZE piyasa_cikanlar skipped:', e.message || e);
   }
   try {
     await pool.query('ANALYZE problems');
@@ -1275,7 +1310,7 @@ api.post("/kv/:key", auth.verifyToken, async (req, res) => {
 });
 
 
-const SHIFT_NOTES_DELETE_PASSWORD = String(process.env.SHIFT_NOTES_DELETE_PASSWORD || '2026genper');
+const SHIFT_NOTES_DELETE_PASSWORD = String(process.env.SHIFT_NOTES_DELETE_PASSWORD || '543723');
 
 function parseOperationNoteRules(raw) {
   try {

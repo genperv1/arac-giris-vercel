@@ -503,7 +503,7 @@
 
     .rp-filter-mid {
       display: grid;
-      grid-template-columns: 1fr 1.2fr 0.9fr;
+      grid-template-columns: 1.05fr 1fr 1.15fr 0.85fr;
       gap: 0;
       border-top: 1px solid var(--rp-border);
       background: #f8fafc;
@@ -633,6 +633,11 @@
       background: #fef2f2;
     }
 
+    .rp-btn-outline:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     .rp-table-wrap {
       background: var(--rp-surface);
       border: 1px solid var(--rp-border);
@@ -689,6 +694,18 @@
 
     .rp-table tbody tr:hover {
       background: #f1f5f9;
+    }
+
+    .rp-table tbody tr.is-dup-keep {
+      background: #f0fdf4;
+    }
+
+    .rp-table tbody tr.is-dup-extra {
+      background: #fff7ed;
+    }
+
+    .rp-table tbody tr.is-dup-extra:hover {
+      background: #ffedd5;
     }
 
     .rp-table .col-plate {
@@ -1038,6 +1055,18 @@
       color: #c2410c;
     }
 
+    body.rp-page .status-chip.chip-piyasa {
+      border-color: #6ee7b7;
+      background: #ecfdf5;
+      color: #047857;
+    }
+
+    body.rp-page .status-chip.chip-ihracat {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
     body.rp-page .app-filter-chip.is-active.chip-avdan {
       background: #16a34a;
       border-color: #15803d;
@@ -1066,6 +1095,72 @@
       background: #0369a1;
       border-color: #075985;
       color: #fff;
+    }
+
+    body.rp-page .app-filter-chip.is-active.chip-piyasa {
+      background: #059669;
+      border-color: #047857;
+      color: #fff;
+    }
+
+    body.rp-page .app-filter-chip.is-active.chip-ihracat {
+      background: #2563eb;
+      border-color: #1d4ed8;
+      color: #fff;
+    }
+
+    .rp-kind-tag {
+      display: block;
+      width: fit-content;
+      margin-top: 0.25rem;
+      padding: 0.08rem 0.4rem;
+      border-radius: 999px;
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .rp-kind-tag--piyasa {
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid #a7f3d0;
+    }
+
+    body.rp-page .status-chip.chip-dup {
+      border-color: #fdba74;
+      background: #fff7ed;
+      color: #c2410c;
+    }
+
+    body.rp-page .app-filter-chip.is-active.chip-dup {
+      background: #ea580c;
+      border-color: #c2410c;
+      color: #fff;
+    }
+
+    .rp-dup-tag {
+      display: block;
+      width: fit-content;
+      margin-top: 0.25rem;
+      padding: 0.08rem 0.4rem;
+      border-radius: 999px;
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .rp-dup-tag--extra {
+      background: #ffedd5;
+      color: #9a3412;
+      border: 1px solid #fdba74;
+    }
+
+    .rp-dup-tag--keep {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
     }
 
     /* Kurumsal dialog */
@@ -1217,6 +1312,20 @@
       background: #f1f5f9;
     }
 
+    @media (max-width: 1100px) {
+      .rp-filter-mid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .rp-filter-group:nth-child(odd) {
+        border-left: none;
+      }
+
+      .rp-filter-group:nth-child(n + 3) {
+        border-top: 1px solid var(--rp-border);
+      }
+    }
+
     @media (max-width: 768px) {
       .rp-header-title,
       .rp-header-sub {
@@ -1272,6 +1381,16 @@
 
       .rp-table--responsive tbody tr:nth-child(even) {
         background: #fff;
+      }
+
+      .rp-table--responsive tbody tr.is-dup-keep {
+        background: #f0fdf4;
+        border-color: #86efac;
+      }
+
+      .rp-table--responsive tbody tr.is-dup-extra {
+        background: #fff7ed;
+        border-color: #fdba74;
       }
 
       .rp-table--responsive td {
@@ -1439,6 +1558,29 @@
 
         <div class="rp-filter-mid">
           <div class="rp-filter-group">
+            <span class="rp-label">Sevkiyat</span>
+            <div class="rp-filter-chips" role="group" aria-label="Sevkiyat türü filtreleri">
+              <button
+                type="button"
+                id="piyasaFilterBtn"
+                class="status-chip app-filter-chip chip-piyasa"
+                data-kind="piyasa"
+                title="Piyasa (iç piyasa) yazdırma kayıtları"
+              >
+                <i class="fas fa-store" aria-hidden="true"></i> Piyasa
+              </button>
+              <button
+                type="button"
+                id="ihracatFilterBtn"
+                class="status-chip app-filter-chip chip-ihracat"
+                data-kind="ihracat"
+                title="İhracat yazdırma kayıtları"
+              >
+                <i class="fas fa-ship" aria-hidden="true"></i> İhracat
+              </button>
+            </div>
+          </div>
+          <div class="rp-filter-group">
             <span class="rp-label">Basım yeri</span>
             <div class="rp-filter-chips" role="group" aria-label="Basım yeri filtreleri">
               <button
@@ -1493,6 +1635,14 @@
               >
                 <i class="fas fa-truck" aria-hidden="true"></i> Özmal araçlar
               </button>
+              <button
+                type="button"
+                id="dupFilterBtn"
+                class="status-chip app-filter-chip chip-dup"
+                title="Aynı plaka / iş 10 dakika içinde arka arkaya basılmış kayıtlar"
+              >
+                <i class="fas fa-clone" aria-hidden="true"></i> Çift baskı
+              </button>
             </div>
           </div>
         </div>
@@ -1502,15 +1652,21 @@
             <span class="rp-active-label">Aktif</span>
             <span class="rp-active-empty" id="activeFiltersEmpty">Filtre seçilmedi — tüm kayıtlar</span>
             <span class="rp-active-pill" id="activePillDate" hidden></span>
+            <span class="rp-active-pill" id="activePillKind" hidden></span>
             <span class="rp-active-pill" id="activePillBasim" hidden></span>
             <span class="rp-active-pill" id="activePillShift" hidden></span>
             <span class="rp-active-pill" id="activePillOzmal" hidden>Özmal</span>
+            <span class="rp-active-pill" id="activePillDup" hidden>Çift baskı</span>
             <span class="rp-active-pill" id="activePillSearch" hidden></span>
           </div>
           <div class="rp-filter-actions">
             <button type="button" id="clearFiltersBtn" class="rp-btn rp-btn-ghost" disabled title="Tüm filtreleri temizle">
               <i class="fas fa-times" aria-hidden="true"></i>
               Temizle
+            </button>
+            <button type="button" id="deleteDupExtrasBtn" class="rp-btn rp-btn-outline" disabled title="Görünen kayıtlarda arka arkaya çift baskı yok">
+              <i class="fas fa-clone" aria-hidden="true"></i>
+              Fazlaları sil
             </button>
             <button type="button" id="deleteSelectedBtn" class="rp-btn rp-btn-danger">
               <i class="fas fa-trash-alt" aria-hidden="true"></i>
@@ -1564,8 +1720,8 @@
   <script src="storage.js"></script>
   <script src="sync-manager.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
-  <script src="report.js?v=20260819-week-col"></script>
+  <script src="rp-dialog.js?v=20260820-pwd"></script>
+  <script src="report.js?v=20260820-pwd"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

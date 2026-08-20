@@ -2201,6 +2201,22 @@ html.allow-ui-motion:not(.reduce-motion-os) .takip-modal__btn {
   border-color: #fecaca;
 }
 
+#takipFormuModal .takip-form__field-hint.is-ok {
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+}
+
+#takipFormuModal .takip-form__field-hint.is-yd {
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+}
+
 /* Şoför bilgileri — sıcak krem ton (modal gövdesinden belirgin farklı) */
 #takipFormuModal .takip-form__section.highlight-section {
   margin-bottom: 0.5rem;

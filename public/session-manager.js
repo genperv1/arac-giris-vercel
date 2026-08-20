@@ -231,6 +231,7 @@
         'rapor.html': 'gpm_page_rapor',
         'vardiya-notlari.html': 'gpm_page_vardiya',
         'nakliye-bekleyen.html': 'gpm_page_nakliye',
+        'piyasa-cikanlar.html': 'gpm_page_piyasa_cikanlar',
         'sorunlar.html': 'gpm_page_sorunlar',
         'ayarlar.html': 'gpm_page_ayarlar',
         'plaka.html': 'gpm_page_plaka',
@@ -663,11 +664,22 @@
     }
 
     // Public API
+    function isAmirUser() {
+        try {
+            const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+            const id = String(localStorage.getItem('currentUserId') || '').trim().toUpperCase();
+            return role === 'admin' || id === 'GENPER';
+        } catch (e) {
+            return false;
+        }
+    }
+
     window.SessionManager = {
         markSessionValid,
         invalidateSession,
         checkSessionValidity,
         requireValidSession,
+        isAmirUser,
         withSessionCheck,
         addSessionCheckToButton,
         addSessionCheckToForm,

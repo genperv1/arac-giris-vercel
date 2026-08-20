@@ -338,6 +338,45 @@
     return pickKey ?? last?.__idx ?? null;
   }
 
+  function countOrdersForFirma(firma) {
+    const key = normFirmaKey(firma);
+    if (!key) return 0;
+    const seen = new Set();
+    let n = 0;
+    const visit = (o) => {
+      if (!o) return;
+      if (normFirmaKey(o.firma) !== key) return;
+      const pk = getOrderPickKey(o) || String(o.__idx);
+      if (seen.has(pk)) return;
+      seen.add(pk);
+      n += 1;
+    };
+    for (const o of state.orders || []) visit(o);
+    for (const block of state.weekArchive || []) {
+      for (const o of block.orders || []) visit(o);
+    }
+    return n;
+  }
+
+  function hasOrdersForFirma(firma) {
+    return countOrdersForFirma(firma) > 0;
+  }
+
+  function getLockedPickInfo() {
+    const lock = state._lockedPiyasaPick;
+    if (!lock || !lock.pickKey) return null;
+    const o = getOrderByIdx(lock.pickKey) || state._lastAppliedOrder || null;
+    return {
+      pickKey: lock.pickKey,
+      firma: lock.firma || (o && o.firma) || '',
+      malzeme: (o && o.malzeme) || lock.malzeme || '',
+      sipNo: (o && o.sipNo) || '',
+      sehir: lock.sehir || (o && (o.il || o.sevkYeri)) || '',
+      firmaAdi: (o && (o.firmaAdi || o._hSutunValue)) || '',
+      yuklemeTuru: lock.yuklemeTuru || (o && o.yuklemeTuru) || '',
+    };
+  }
+
   /** Liste hücresi için hafif sayaç — geçmiş taraması modalda yapılır */
   function getOrderTruckBadgeCount(o) {
     const plateCount = Object.keys(_normalizePrintPlates(o.printPlates)).length;

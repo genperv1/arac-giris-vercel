@@ -95,6 +95,16 @@ if (typeof document !== 'undefined') {
 window.openWhatsAppFromCard = openWhatsAppFromCard;
 window.openWhatsAppInManagedTab = openWhatsAppInManagedTab;
 
+function persistAuthUser(user) {
+  if (!user) return;
+  try {
+    if (user.username) localStorage.setItem('currentUserId', String(user.username).trim());
+  } catch (e) {}
+  try {
+    localStorage.setItem('currentUserRole', String(user.role || '').trim().toLowerCase());
+  } catch (e) {}
+}
+
 function persistClientSiteInfo(payload) {
   if (!payload) return;
   try {
@@ -109,6 +119,11 @@ function persistClientSiteInfo(payload) {
       window.__clientIp = ip;
     }
   } catch (e) { /* ignore */ }
+}
+
+function clearAuthUser() {
+  try { localStorage.removeItem('currentUserId'); } catch (e) {}
+  try { localStorage.removeItem('currentUserRole'); } catch (e) {}
 }
 
 function clearClientSiteInfo() {
@@ -217,6 +232,18 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                     window.SessionManager.openAppPage('nakliye-bekleyen.html');
                 } else {
                     location.href = 'nakliye-bekleyen.html';
+                }
+            });
+
+            document.getElementById('piyasaCikanlarButton')?.addEventListener('click', async () => {
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('piyasa-cikanlar.html');
+                } else {
+                    location.href = 'piyasa-cikanlar.html';
                 }
             });
 
@@ -1151,7 +1178,7 @@ async function login() {
     }
 
     // Server set httpOnly cookie; avoid storing token in localStorage
-    try { localStorage.setItem('currentUserId', id); } catch(e){}
+    try { persistAuthUser(data.user); } catch(e){}
     persistClientSiteInfo(data);
     try { localStorage.setItem('isLoggedIn', 'true'); } catch(e){}
     syncLoginFlag(true);
@@ -1201,9 +1228,7 @@ async function validateToken() {
       state.vehiclesLoading = true;
       try { localStorage.setItem('isLoggedIn', 'true'); } catch(e){}
       try { document.documentElement.classList.add('logged-in'); } catch(e){}
-      if (j && j.user && j.user.username) {
-        try { localStorage.setItem('currentUserId', j.user.username); } catch(e){}
-      }
+      if (j && j.user) persistAuthUser(j.user);
       persistClientSiteInfo(j);
       try { if (typeof startPostLoginTasks === 'function') startPostLoginTasks(); } catch(e){}
       if (window.SessionManager && typeof window.SessionManager.markSessionValid === 'function') {
@@ -1237,7 +1262,7 @@ async function validateToken() {
 
   syncLoginFlag(false);
   try { localStorage.removeItem('isLoggedIn'); } catch(e){}
-  try { localStorage.removeItem('currentUserId'); } catch(e){}
+  clearAuthUser();
   clearClientSiteInfo();
   try { document.documentElement.classList.remove('logged-in'); } catch(e){}
   try {
@@ -1330,7 +1355,7 @@ function startSessionMonitoring() {
           await showSessionExpiredModal();
           syncLoginFlag(false);
           try { localStorage.removeItem('isLoggedIn'); } catch (e) {}
-          try { localStorage.removeItem('currentUserId'); } catch (e) {}
+          clearAuthUser();
           clearClientSiteInfo();
           try { document.documentElement.classList.remove('logged-in'); } catch (e) {}
           const mainApp = document.getElementById('mainApp');
@@ -1390,7 +1415,7 @@ function startSessionMonitoring() {
       
       // Clear localStorage
       localStorage.removeItem('isLoggedIn');
-      localStorage.removeItem('currentUserId');
+      clearAuthUser();
       clearClientSiteInfo();
       
       // Remove logged-in class
@@ -1492,7 +1517,7 @@ function stopSessionMonitoring() {
           
           // 5. Clear localStorage
           localStorage.removeItem('isLoggedIn');
-          localStorage.removeItem('currentUserId');
+          clearAuthUser();
           clearClientSiteInfo();
           console.log('localStorage temizlendi');
           
@@ -1583,5 +1608,5 @@ function stopSessionMonitoring() {
             }
         }
 
-const DELETE_VEHICLE_PASSWORD = '2026genper';
+const DELETE_VEHICLE_PASSWORD = '543723';
 

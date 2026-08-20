@@ -7,6 +7,7 @@ ALTER VIEW public.users_safe SET (security_invoker = true);
 -- 2) Enable RLS on tables that were missing it
 ALTER TABLE public.operation_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.print_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.piyasa_cikanlar ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.signatures ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vehicle_edit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
@@ -29,6 +30,7 @@ REVOKE ALL ON TABLE public.report FROM anon, authenticated;
 REVOKE ALL ON TABLE public.vehicles FROM anon, authenticated;
 REVOKE ALL ON TABLE public.operation_notes FROM anon, authenticated;
 REVOKE ALL ON TABLE public.print_history FROM anon, authenticated;
+REVOKE ALL ON TABLE public.piyasa_cikanlar FROM anon, authenticated;
 REVOKE ALL ON TABLE public.signatures FROM anon, authenticated;
 REVOKE ALL ON TABLE public.vehicle_edit_log FROM anon, authenticated;
 REVOKE ALL ON TABLE public.events FROM anon, authenticated;

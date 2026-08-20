@@ -140,6 +140,7 @@
         return cache;
       }
     }
+    if (cache.rows.length) return cache;
     _applyLocal(ls);
     return cache;
   }
@@ -165,8 +166,12 @@
   }
 
   async function ensureReady(){
-    if (cache.loaded && cache.rows.length) return cache;
-    if (!_hydratePromise) _hydratePromise = _hydrateFromIdbIfNeeded();
+    if (cache.rows.length) {
+      cache.loaded = true;
+      return cache;
+    }
+    cache.loaded = false;
+    _hydratePromise = _hydrateFromIdbIfNeeded();
     try { await _hydratePromise; } catch (e) { /* ignore */ }
     return cache;
   }
@@ -183,6 +188,13 @@
     _pruneLocalStorageForDailySave();
     if (_lsSave(cache.rows, cache.meta)) return true;
     return false;
+  }
+
+  async function reload() {
+    cache.loaded = false;
+    cache.indexByPlate = null;
+    _hydratePromise = null;
+    return ensureReady();
   }
 
   async function setAsync(rows, meta){
@@ -215,7 +227,13 @@
 
   (function boot(){
     try{
-      _applyLocal(_lsLoad());
+      const ls = _lsLoad();
+      if (ls.rows.length) _applyLocal(ls);
+      else {
+        cache.rows = [];
+        cache.meta = {};
+        cache.loaded = false;
+      }
       setTimeout(() => { ensureReady().catch(()=>{}); }, 0);
     }catch(e){}
   })();
@@ -236,6 +254,7 @@
   window.DailyStore = {
     init,
     ensureReady,
+    reload,
     syncFromServer,
     set,
     setAsync,

@@ -60,7 +60,20 @@
     return parseNum(row.gidenTonaj) > 0;
   }
 
-  function extractPlanBbt(sample) {
+  function firstPlanBbtInText(text) {
+    const cleaned = String(text || '').replace(/\d+\s*BBT\s+PLAKA\s*VER[^\n]*/gi, '');
+    const m = cleaned.match(/(\d+)\s*BBT\b/i);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  function extractPlanBbt(sample, items) {
+    const rows = Array.isArray(items) && items.length ? items : sample ? [sample] : [];
+    for (const r of rows) {
+      const t = parseNum(r && r.blockTotals && r.blockTotals.bbt);
+      if (t > 0) return t;
+    }
     if (!sample) return null;
     const meta = sample.blockMeta || {};
     const chunks = [
@@ -71,17 +84,41 @@
       meta.bbtPaletSummary,
       meta.blackLine1,
       meta.blackLine2,
+      sample.blockFooterNote,
     ]
       .filter(Boolean)
       .join(' ');
-    const m = chunks.match(/(\d+)\s*BBT\b/i);
-    if (m) return parseInt(m[1], 10);
+    const fromHeader = firstPlanBbtInText(chunks);
+    if (fromHeader) return fromHeader;
     return null;
+  }
+
+  function normalizeLotKey(text) {
+    const m = String(text || '').match(/LOT\s*(?:NO\s*)?([\d\s]+)/i);
+    if (!m) return '';
+    return String(m[1] || '').replace(/\D+/g, '');
+  }
+
+  function normalizeMalzemeKey(text) {
+    return String(text || '')
+      .toUpperCase()
+      .replace(/İ/g, 'I')
+      .replace(/,/g, '.')
+      .replace(/\s+/g, '')
+      .replace(/[^A-Z0-9.\-]/g, '');
+  }
+
+  function shipmentBalanceKey(item) {
+    const yd = normalizeYdKey(item && (item.ydKey || item.headerText));
+    if (!yd) return '';
+    const mal = normalizeMalzemeKey(item && (item.malzemeLabel || item.malzeme || ''));
+    const site = normalizeYuklemeYeri((item && item.yuklemeYeri) || '') || '';
+    return yd + '|' + mal + '|' + site;
   }
 
   function extractYdLabel(sample) {
     if (!sample) return 'GENEL';
-    const texts = [sample.ydKey, sample.firma, sample.headerText, sample.blockMeta?.mainHeader].filter(Boolean);
+    const texts = [sample.headerText, sample.blockMeta?.mainHeader, sample.ydKey, sample.firma].filter(Boolean);
     for (const t of texts) {
       const m = String(t).match(/\b(YD\d{1,4}(?:\([A-Z]\))?)/i);
       if (m) return m[1].toUpperCase();
@@ -186,18 +223,88 @@
     return normTr(compactPlate(plaka));
   }
 
+  /** YD40 / YD 40 / yd40(G) → YD40 */
+  function normalizeYdKey(text) {
+    const m = String(text || '').match(/\bYD\s*(\d{1,4})\b/i);
+    return m ? ('YD' + m[1]).toUpperCase() : '';
+  }
+
   function ydBaseKey(text) {
-    const m = String(text || '').match(/\b(YD\d{1,4})\b/i);
-    return m ? m[1].toUpperCase() : '';
+    return normalizeYdKey(text);
+  }
+
+  const DEFAULT_AVG_BBT = 24;
+
+  function estimateAvgBbt(item, fallback) {
+    const samples = [];
+    (item && item.waitingPlates ? item.waitingPlates : []).forEach((p) => {
+      const n = parseNum(p && p.bbt);
+      if (n > 0) samples.push(n);
+    });
+    if (!samples.length) return parseNum(fallback) > 0 ? parseNum(fallback) : DEFAULT_AVG_BBT;
+    const avg = samples.reduce((s, n) => s + n, 0) / samples.length;
+    return avg > 0 ? avg : DEFAULT_AVG_BBT;
+  }
+
+  /** Plaka verilmemiş kalan BBT → tahmini yükleme (çift kantar: her satır ayrı). */
+  function unassignedVehicleCount(remainingBbt, avgBbt) {
+    const rem = parseNum(remainingBbt);
+    const avg = parseNum(avgBbt) > 0 ? parseNum(avgBbt) : DEFAULT_AVG_BBT;
+    if (rem <= 0) return 0;
+    return Math.max(1, Math.round(rem / avg));
+  }
+
+  /**
+   * Kalan yükleme = gelmeyen plaka satırları + plaka verilmemiş BBT tahmini.
+   * Aynı plaka iki üründe iki satırsa iki kez sayılır.
+   */
+  function remainingVehiclesForBlock(item, fallbackAvg) {
+    if (!item) return 0;
+    const waiting = Array.isArray(item.waitingPlates) ? item.waitingPlates.length : 0;
+    const extra = unassignedVehicleCount(item.remainingBbt, estimateAvgBbt(item, fallbackAvg));
+    return waiting + extra;
+  }
+
+  function summarizeIhracatBalance(items) {
+    const list = Array.isArray(items) ? items : [];
+    return {
+      shipmentCount: list.length,
+      remainingBbt: sumRemainingBbt(list),
+      remainingVehicles: list.reduce((s, it) => s + remainingVehiclesForBlock(it), 0),
+      waitingPlates: list.reduce((s, it) => s + ((it && it.waitingPlates) ? it.waitingPlates.length : 0), 0),
+    };
+  }
+
+  function printReportBlob(report) {
+    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
+    return [
+      report && report.firma,
+      report && report.malzeme,
+      d.firma,
+      d.firmaKodu,
+      d.firmaSelect,
+      d.ydKey,
+      d.headerText,
+      d.malzeme,
+      d.yuklemeNotu,
+      d.baskiNotu,
+      d.not,
+    ]
+      .filter(Boolean)
+      .join(' ');
   }
 
   function printReportYdKey(report) {
-    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
-    return ydBaseKey(
-      [report?.firma, d.firma, d.firmaKodu, d.firmaSelect, d.ydKey, d.headerText]
-        .filter(Boolean)
-        .join(' ')
-    );
+    return ydBaseKey(printReportBlob(report));
+  }
+
+  function printReportLotKey(report) {
+    return normalizeLotKey(printReportBlob(report));
+  }
+
+  function itemLotKey(item) {
+    if (!item) return '';
+    return normalizeLotKey([item.lotLabel, item.headerText, item.malzeme, item.malzemeLabel].filter(Boolean).join(' '));
   }
 
   function rowYdBase(row) {
@@ -243,6 +350,271 @@
     return false;
   }
 
+  /** Bakiye sayfası: Excel silinip yüklenince de bugün / Excel tarihi / gece vardiyası raporları taransın. */
+  function istanbulDayKey(ts) {
+    try {
+      return new Date(ts).toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function printReportValidForBalance(reportTs, meta) {
+    const ts = Number(reportTs);
+    if (!Number.isFinite(ts) || ts <= 0) return false;
+    if (Date.now() - ts > 7 * 24 * 60 * 60 * 1000) return false;
+    try {
+      const printDay = istanbulDayKey(ts);
+      const today = istanbulDayKey(Date.now());
+      if (printDay && printDay === today) return true;
+      const hour = parseInt(
+        new Date().toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', hour: '2-digit', hour12: false }),
+        10
+      );
+      const yest = istanbulDayKey(Date.now() - 24 * 60 * 60 * 1000);
+      if (hour < 8 && printDay === yest) return true;
+      const dateKey = String(meta?.dateKey || '').trim();
+      if (dateKey && printDay === dateKey) return true;
+      const importTimestamp = Number(new Date(meta?.importedAt || meta?.loadedAt || 0));
+      if (importTimestamp) {
+        const importDay = istanbulDayKey(importTimestamp);
+        if (printDay === importDay) return true;
+      }
+    } catch (e) {}
+    return printReportValidForMeta(reportTs, meta);
+  }
+
+  function reportEventBbt(report) {
+    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
+    const n = parseNum(d.bbt);
+    if (n > 0) return n;
+    const top = parseNum(report && report.bbt);
+    if (top > 0) return top;
+    const tonaj = parseNum(d.tonaj != null ? d.tonaj : report && report.tonaj);
+    if (tonaj >= 8 && tonaj <= 45) return Math.round(tonaj);
+    return DEFAULT_AVG_BBT;
+  }
+
+  function collectYdReportStats(reports, meta) {
+    const map = new Map();
+    normalizePrintReports(reports).forEach((r) => {
+      if (!printReportValidForBalance(r.ts, meta)) return;
+      const yd = printReportYdKey(r);
+      if (!yd) return;
+      const blob = printReportBlob(r);
+      const d = r.data || {};
+      const malRaw = String(d.malzeme || r.malzeme || '').trim();
+      const malzemeLabel = malRaw && !normalizeYdKey(malRaw) && !/^LOT\b/i.test(malRaw) ? malRaw.slice(0, 48) : '';
+      const malKey = normalizeMalzemeKey(malzemeLabel);
+      const site = normalizeYuklemeYeri(d.basimYeri || d.basim_yeri || '') || String(d.basimYeri || d.basim_yeri || '').trim();
+      const lotKey = printReportLotKey(r);
+      const groupKey = yd + '|' + malKey + '|' + site;
+      let rec = map.get(groupKey);
+      if (!rec) {
+        rec = {
+          yd,
+          groupKey,
+          lotKey,
+          printCount: 0,
+          bbt: 0,
+          lastTs: 0,
+          lotLabel: '',
+          malzemeLabel: '',
+          yuklemeYeri: '',
+          ydDisplay: yd,
+          lastSite: '',
+        };
+        map.set(groupKey, rec);
+      }
+      rec.printCount += 1;
+      rec.bbt += reportEventBbt(r);
+      if (lotKey && !rec.lotKey) rec.lotKey = lotKey;
+      if (r.ts >= rec.lastTs) {
+        rec.lastTs = r.ts;
+        if (site) rec.lastSite = site;
+        if (site) rec.yuklemeYeri = site;
+        const lotDisp = extractLotLabel({ headerText: blob, blockMeta: {} });
+        if (lotDisp) rec.lotLabel = lotDisp;
+        if (malzemeLabel) rec.malzemeLabel = malzemeLabel;
+        const disp = extractYdLabel({ headerText: blob, ydKey: yd });
+        if (disp) rec.ydDisplay = disp;
+      } else {
+        if (!rec.malzemeLabel && malzemeLabel) rec.malzemeLabel = malzemeLabel;
+        if (!rec.lotLabel) {
+          const lotDisp = extractLotLabel({ headerText: blob, blockMeta: {} });
+          if (lotDisp) rec.lotLabel = lotDisp;
+        }
+      }
+    });
+    const folded = new Map();
+    map.forEach((rec, key) => {
+      const parts = String(key).split('|');
+      const yd = parts[0] || '';
+      const mal = parts[1] || '';
+      const site = parts[2] || '';
+      if (!mal) {
+        const alt = [];
+        map.forEach((other, ok) => {
+          const op = String(ok).split('|');
+          if (op[0] === yd && op[1] && (op[2] || '') === site) alt.push(other);
+        });
+        if (alt.length === 1) {
+          alt[0].printCount += rec.printCount;
+          alt[0].bbt += rec.bbt;
+          if (rec.lastTs > alt[0].lastTs) {
+            alt[0].lastTs = rec.lastTs;
+            if (rec.ydDisplay) alt[0].ydDisplay = rec.ydDisplay;
+            if (rec.yuklemeYeri) alt[0].yuklemeYeri = rec.yuklemeYeri;
+          }
+          if (rec.lotLabel && !alt[0].lotLabel) alt[0].lotLabel = rec.lotLabel;
+          return;
+        }
+      }
+      folded.set(key, rec);
+    });
+    return folded;
+  }
+
+  function balanceRowStatus(item) {
+    const plan = parseNum(item && item.planBbt);
+    const rem = parseNum(item && item.remainingBbt);
+    const wait = item && item.waitingPlates ? item.waitingPlates.length : 0;
+    if (plan <= 0) return 'open';
+    if (rem <= 0 && wait === 0) return 'done';
+    if (wait > 0 && rem <= 0) return 'waiting';
+    return 'open';
+  }
+
+  function reportPlateKey(report) {
+    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
+    return plateKey(report && report.plaka ? report.plaka : d.plaka || d.plate || d.cekiciPlaka || '');
+  }
+
+  function extraReportBbtForItem(item, reports, meta) {
+    const yd = normalizeYdKey(item && (item.ydKey || item.headerText));
+    if (!yd) return { extra: 0, printCount: 0, bbt: 0, lastTs: 0, lastSite: '' };
+    const known = new Set(Array.isArray(item && item.knownPlateKeys) ? item.knownPlateKeys : []);
+    (item && item.waitingPlates ? item.waitingPlates : []).forEach((p) => {
+      const pk = plateKey(p && p.plaka);
+      if (pk) known.add(pk);
+    });
+    (item && item.ozmalPlates ? item.ozmalPlates : []).forEach((p) => {
+      const pk = plateKey(p && p.plaka);
+      if (pk) known.add(pk);
+    });
+    let extra = 0;
+    let printCount = 0;
+    let bbt = 0;
+    let lastTs = 0;
+    let lastSite = '';
+    normalizePrintReports(reports).forEach((r) => {
+      if (!printReportValidForBalance(r.ts, meta)) return;
+      if (printReportYdKey(r) !== yd) return;
+      const d = r.data || {};
+      const itemMal = normalizeMalzemeKey(item && (item.malzemeLabel || item.malzeme || ''));
+      const reportMal = normalizeMalzemeKey(d.malzeme || r.malzeme || '');
+      if (itemMal && reportMal && itemMal !== reportMal) return;
+      printCount += 1;
+      const ev = reportEventBbt(r);
+      bbt += ev;
+      if (r.ts > lastTs) {
+        lastTs = r.ts;
+        const d = r.data || {};
+        lastSite = String(d.basimYeri || d.basim_yeri || '').trim();
+      }
+      const pk = reportPlateKey(r);
+      if (pk && known.has(pk)) return;
+      extra += ev;
+    });
+    return { extra, printCount, bbt, lastTs, lastSite };
+  }
+
+  function enrichBalanceItemsWithReports(items, reports, meta) {
+    const stats = collectYdReportStats(reports, meta);
+    const matchedYds = new Set();
+    const enriched = (items || []).map((item) => {
+      const yd = normalizeYdKey(item.ydKey || item.headerText);
+      if (yd) matchedYds.add(yd);
+      const st = extraReportBbtForItem(item, reports, meta);
+      const plan = parseNum(item.planBbt);
+      let remainingBbt = parseNum(item.remainingBbt);
+      let processed = parseNum(item.processedBbt);
+      if (processed <= 0) {
+        processed = Math.max(0, plan - remainingBbt);
+      }
+      if (st.extra > 0) {
+        remainingBbt = Math.max(0, remainingBbt - st.extra);
+        processed += st.extra;
+      }
+      const next = Object.assign({}, item, {
+        remainingBbt,
+        processedBbt: processed,
+        reportPrintCount: st.printCount,
+        reportBbt: st.bbt,
+        lastPrintAt: st.lastTs || 0,
+        lastPrintSite: st.lastSite || '',
+      });
+      next.progressPct = plan > 0 ? Math.min(100, Math.round((processed / plan) * 100)) : 0;
+      next.balanceStatus = balanceRowStatus(next);
+      next.remainingVehicles = remainingVehiclesForBlock(next);
+      return next;
+    });
+    const matchedKeys = new Set();
+    enriched.forEach((item) => {
+      const key = shipmentBalanceKey(item);
+      if (key) matchedKeys.add(key);
+      const yd = normalizeYdKey(item && (item.ydKey || item.headerText));
+      if (yd) matchedYds.add(yd);
+    });
+    stats.forEach((st) => {
+      const yd = st && st.yd;
+      if (!yd || st.printCount <= 0) return;
+      const fake = {
+        ydKey: st.ydDisplay || yd,
+        malzemeLabel: st.malzemeLabel || '',
+        yuklemeYeri: st.yuklemeYeri || st.lastSite || '',
+      };
+      const key = shipmentBalanceKey(fake);
+      if (key && matchedKeys.has(key)) return;
+      if (matchedYds.has(yd) && !/\bHP\b/i.test(String(st.malzemeLabel || ''))) return;
+      if (!normalizeMalzemeKey(st.malzemeLabel || '') && matchedYds.has(yd)) return;
+      enriched.push({
+        blockKey: 'REPORT_' + (st.groupKey || yd),
+        ydKey: st.ydDisplay || yd,
+        lotLabel: st.lotLabel || '',
+        malzemeLabel: st.malzemeLabel || '',
+        headerText: [st.ydDisplay || yd, st.lotLabel].filter(Boolean).join(' / '),
+        yuklemeYeri: st.yuklemeYeri || st.lastSite || '',
+        planBbt: 0,
+        departedBbt: st.bbt,
+        assignedWaitingBbt: 0,
+        processedBbt: st.bbt,
+        remainingBbt: 0,
+        waitingPlates: [],
+        ozmalPlates: [],
+        knownPlateKeys: [],
+        reportPrintCount: st.printCount,
+        reportBbt: st.bbt,
+        lastPrintAt: st.lastTs || 0,
+        lastPrintSite: st.lastSite || '',
+        fromReportsOnly: true,
+        progressPct: 0,
+        balanceStatus: 'open',
+        remainingVehicles: 0,
+        fileName: '',
+      });
+    });
+    return collapsePlanItems(overlayPlanFromCatalog(enriched, items));
+  }
+
+  function compareBalanceStatus(a, b) {
+    const rank = { open: 0, waiting: 1, done: 2 };
+    const ra = rank[a && a.balanceStatus] != null ? rank[a.balanceStatus] : 9;
+    const rb = rank[b && b.balanceStatus] != null ? rank[b.balanceStatus] : 9;
+    if (ra !== rb) return ra - rb;
+    return compareBlockExcelOrder(a, b);
+  }
+
   function normalizePrintReports(reports) {
     return (reports || [])
       .map((r) => {
@@ -270,10 +642,11 @@
     return map;
   }
 
-  function collectPrintSlots(reports, meta) {
+  function collectPrintSlots(reports, meta, validFn) {
+    const valid = typeof validFn === 'function' ? validFn : printReportValidForMeta;
     const slots = [];
     normalizePrintReports(reports).forEach((r) => {
-      if (!printReportValidForMeta(r.ts, meta)) return;
+      if (!valid(r.ts, meta)) return;
       const d = r.data || {};
       const yd = printReportYdKey(r);
       const seen = new Set();
@@ -298,8 +671,9 @@
   }
 
   /** Yazdırılmış / çıkış yapmış plakaları satırlara giden tonaj olarak işler (sırayla, aynı YD, çift kantar uyumlu). */
-  function applyLiveDepartedMarks(rows, meta, reports) {
-    const slots = collectPrintSlots(reports, meta);
+  function applyLiveDepartedMarks(rows, meta, reports, opts) {
+    const validFn = opts && opts.forBalance ? printReportValidForBalance : printReportValidForMeta;
+    const slots = collectPrintSlots(reports, meta, validFn);
     return (rows || []).map((row) => {
       if (!row || row._ihracatEmptyBlock) return row;
       const working = clearLiveDepartedMark(row);
@@ -595,10 +969,8 @@
     return files.size;
   }
 
-  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix, lotLabel, yuklemeYeri) {
+  function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix, lotLabel) {
     let s = `${String(ydKey || 'GENEL').trim()} ${planBbt} BBT`;
-    const yer = String(yuklemeYeri || '').trim();
-    if (yer) s += ` · ${yer}`;
     const lot = String(lotLabel || '').trim();
     if (lot) s += ` · ${lot}`;
     const m = String(malzeme || '').trim();
@@ -624,8 +996,7 @@
         item.planBbt,
         item.malzemeLabel,
         sourcePrefix,
-        item.lotLabel,
-        item.yuklemeYeri
+        item.lotLabel
       ),
       lotLabel: item.lotLabel || '',
       blockKey: String(item.blockKey || '').trim(),
@@ -761,7 +1132,7 @@
     return `${ydPart} ${planPart} için plaka verilecek`;
   }
 
-  function analyzeBlock(items) {
+  function analyzeBlock(items, opts) {
     if (!items || !items.length) return null;
 
     const sample =
@@ -769,12 +1140,13 @@
       items.find((x) => !x._ihracatEmptyBlock) ||
       items[0];
 
-    const planBbt = extractPlanBbt(sample);
-    if (planBbt == null || planBbt <= 0) return null;
+    const planFromHeader = extractPlanBbt(sample, items);
+    let planBbt = planFromHeader;
 
     const explicitNotes = collectExplicitPendingNotes(items);
     const waitingPlates = [];
     const ozmalPlates = [];
+    const knownPlateKeys = [];
     let departedBbt = 0;
     let assignedWaitingBbt = 0;
 
@@ -783,6 +1155,8 @@
       if (parsePendingNote(r.plaka)) return;
       const plaka = String(r.plaka || '').trim();
       if (!isValidPlateCell(plaka)) return;
+      const pk = plateKey(plaka);
+      if (pk) knownPlateKeys.push(pk);
 
       const rowBbt = parseNum(r.bbt);
 
@@ -808,6 +1182,23 @@
       if (rowBbt > 0) assignedWaitingBbt += rowBbt;
     });
 
+    const ydKey = extractYdLabel(sample);
+    const hasYd = !!(ydKey && ydKey !== 'GENEL');
+
+    if ((planBbt == null || planBbt <= 0) && (departedBbt + assignedWaitingBbt) > 0) {
+      const noteQty = (explicitNotes.find((n) => n.remainingBbt != null && n.remainingBbt > 0) || {}).remainingBbt || 0;
+      planBbt = departedBbt + assignedWaitingBbt + noteQty;
+    }
+
+    const includeComplete = !!(opts && opts.includeComplete);
+    if ((planBbt == null || planBbt <= 0) && !includeComplete && !waitingPlates.length && !ozmalPlates.length) {
+      return null;
+    }
+    if ((planBbt == null || planBbt <= 0) && includeComplete && !hasYd && !waitingPlates.length && !ozmalPlates.length) {
+      return null;
+    }
+    if (planBbt == null || planBbt <= 0) planBbt = 0;
+
     let remainingBbt = null;
     const noteWithQty = explicitNotes.find((n) => n.remainingBbt != null && n.remainingBbt > 0);
     if (noteWithQty) {
@@ -816,19 +1207,22 @@
       remainingBbt = Math.max(0, planBbt - departedBbt - assignedWaitingBbt);
     }
 
-    if (remainingBbt <= 0 && waitingPlates.length === 0 && ozmalPlates.length === 0) return null;
+    if (remainingBbt <= 0 && waitingPlates.length === 0 && ozmalPlates.length === 0 && !includeComplete) {
+      return null;
+    }
 
-    const ydKey = extractYdLabel(sample);
     const port = extractPort(sample);
     const malzemeLabel = extractMalzemeLabel(sample);
     const lotLabel = extractLotLabel(sample);
     const yuklemeYeri = extractYuklemeYeri(sample);
     const status =
-      waitingPlates.length === 0 && ozmalPlates.length > 0
-        ? 'ozmal'
-        : waitingPlates.length === 0
-          ? 'empty'
-          : 'partial';
+      remainingBbt <= 0 && waitingPlates.length === 0
+        ? 'done'
+        : waitingPlates.length === 0 && ozmalPlates.length > 0
+          ? 'ozmal'
+          : waitingPlates.length === 0
+            ? 'empty'
+            : 'partial';
 
     return {
       blockKey: blockGroupKey(sample),
@@ -838,6 +1232,8 @@
       ydKey,
       planBbt,
       departedBbt,
+      assignedWaitingBbt,
+      processedBbt: departedBbt + assignedWaitingBbt,
       remainingBbt,
       port,
       headerText: String(sample.headerText || sample.blockMeta?.mainHeader || '').trim(),
@@ -847,6 +1243,7 @@
       yuklemeYeri,
       waitingPlates,
       ozmalPlates,
+      knownPlateKeys,
       explicitNotes,
       status,
       message: buildMessage(ydKey, planBbt, remainingBbt, waitingPlates, explicitNotes),
@@ -873,8 +1270,424 @@
     return pending;
   }
 
+  /** Bakiye deneme: Excel’deki her sevkiyat bloğu (bitenler dahil). */
+  function analyzeIhracatBalance(rows) {
+    const groups = groupRowsByBlock(rows);
+    const items = [];
+    groups.forEach((blockRows) => {
+      const item = analyzeBlock(blockRows, { includeComplete: true });
+      if (item) items.push(item);
+    });
+    items.sort(compareBlockExcelOrder);
+    return items;
+  }
+
+  function slimPoolBlock(item) {
+    if (!item) return null;
+    return {
+      blockKey: String(item.blockKey || ''),
+      ydKey: String(item.ydKey || ''),
+      lotLabel: String(item.lotLabel || ''),
+      malzemeLabel: String(item.malzemeLabel || ''),
+      headerText: String(item.headerText || '').slice(0, 160),
+      yuklemeYeri: String(item.yuklemeYeri || ''),
+      planBbt: parseNum(item.planBbt),
+      remainingBbt: parseNum(item.remainingBbt),
+      processedBbt: parseNum(item.processedBbt),
+      departedBbt: parseNum(item.departedBbt),
+      assignedWaitingBbt: parseNum(item.assignedWaitingBbt),
+      fileName: String(item.fileName || ''),
+      waitingPlateCount: Array.isArray(item.waitingPlates)
+        ? item.waitingPlates.length
+        : parseNum(item.waitingPlateCount),
+      fromPool: true,
+    };
+  }
+
+  function excelSourceLabel(item) {
+    const stem = extractFileStemLabel(item && item.fileName);
+    if (stem) return stem;
+    if (item && item.fromReportsOnly) return 'Excel yok';
+    return '';
+  }
+
+  function preferNewerFileName(a, b) {
+    const da = dateKeyFromFileName(a) || '';
+    const db = dateKeyFromFileName(b) || '';
+    if (db && da && db > da) return b;
+    if (db && !da) return b;
+    if (b && !a) return b;
+    return a || b || '';
+  }
+
+  function mergeTwoBalanceRows(a, b) {
+    const planA = parseNum(a && a.planBbt);
+    const planB = parseNum(b && b.planBbt);
+    const newerFile = preferNewerFileName((a && a.fileName) || '', (b && b.fileName) || '');
+    const newerIsB = newerFile && newerFile === String((b && b.fileName) || '');
+    const planBbt = newerIsB && planB > 0 ? planB : (planA > 0 ? planA : planB);
+    const processedA = parseNum(a && a.processedBbt);
+    const processedB = parseNum(b && b.processedBbt);
+    const fromPlanA = !!(a && !a.fromReportsOnly);
+    const fromPlanB = !!(b && !b.fromReportsOnly);
+    let processed = processedA;
+    if (fromPlanA && fromPlanB) processed = Math.max(processedA, processedB);
+    else if (fromPlanA && b && b.fromReportsOnly) processed = processedA > 0 ? processedA : processedB;
+    else if (fromPlanB && a && a.fromReportsOnly) processed = processedB > 0 ? processedB : processedA;
+    else processed = processedA + processedB;
+    const remainingBbt = planBbt > 0 ? Math.max(0, planBbt - processed) : 0;
+    const next = Object.assign({}, planA > 0 || fromPlanA ? a : b, b && fromPlanB && (newerIsB || planA <= 0) ? b : {}, {
+      planBbt,
+      processedBbt: processed,
+      remainingBbt,
+      fileName: newerFile || (a && a.fileName) || (b && b.fileName) || '',
+      lotLabel: (b && b.lotLabel) || (a && a.lotLabel) || '',
+      malzemeLabel: (a && a.malzemeLabel) || (b && b.malzemeLabel) || '',
+      yuklemeYeri: (a && a.yuklemeYeri) || (b && b.yuklemeYeri) || '',
+      ydKey: (a && a.ydKey) || (b && b.ydKey) || '',
+      reportPrintCount: parseNum(a && a.reportPrintCount) + (fromPlanA && fromPlanB ? 0 : parseNum(b && b.reportPrintCount)),
+      fromReportsOnly: !(planBbt > 0 || fromPlanA || fromPlanB),
+    });
+    if (fromPlanA || fromPlanB || planBbt > 0) next.fromReportsOnly = false;
+    next.progressPct = planBbt > 0 ? Math.min(100, Math.round((processed / planBbt) * 100)) : 0;
+    next.balanceStatus = balanceRowStatus(next);
+    return next;
+  }
+
+  function collapsePlanItems(items) {
+    const map = new Map();
+    const orphans = [];
+    (items || []).forEach((it, idx) => {
+      const key = shipmentBalanceKey(it);
+      if (!key) {
+        orphans.push(it);
+        return;
+      }
+      const prev = map.get(key);
+      if (!prev) map.set(key, Object.assign({}, it));
+      else map.set(key, mergeTwoBalanceRows(prev, it));
+    });
+    const list = Array.from(map.values());
+    const byYdSite = new Map();
+    list.forEach((it) => {
+      const yd = normalizeYdKey(it.ydKey || it.headerText);
+      const site = normalizeYuklemeYeri(it.yuklemeYeri || '') || '';
+      const mal = normalizeMalzemeKey(it.malzemeLabel || it.malzeme || '');
+      const k = yd + '||' + site;
+      if (!byYdSite.has(k)) byYdSite.set(k, { withMal: [], noMal: [] });
+      if (mal) byYdSite.get(k).withMal.push(it);
+      else byYdSite.get(k).noMal.push(it);
+    });
+    const drop = new Set();
+    byYdSite.forEach((g) => {
+      if (g.noMal.length && g.withMal.length === 1) {
+        g.noMal.forEach((empty) => {
+          const target = g.withMal[0];
+          const merged = mergeTwoBalanceRows(target, empty);
+          Object.keys(merged).forEach((k) => { target[k] = merged[k]; });
+          drop.add(empty);
+        });
+      }
+    });
+    return list.filter((it) => !drop.has(it)).concat(orphans);
+  }
+
+  function findReportStatsForItem(item, stats) {
+    const yd = normalizeYdKey(item && (item.ydKey || item.headerText));
+    if (!yd || !stats || typeof stats.forEach !== 'function') return null;
+    const mal = normalizeMalzemeKey(item && (item.malzemeLabel || item.malzeme || ''));
+    const site = normalizeYuklemeYeri((item && item.yuklemeYeri) || '') || '';
+    const hits = [];
+    stats.forEach((st) => {
+      if (!st || st.yd !== yd) return;
+      const stMal = normalizeMalzemeKey(st.malzemeLabel || '');
+      const stSite = normalizeYuklemeYeri(st.yuklemeYeri || st.lastSite || '') || '';
+      if (mal && stMal && mal !== stMal) return;
+      if (site && stSite && site !== stSite) return;
+      hits.push(st);
+    });
+    if (!hits.length) return null;
+    if (hits.length === 1) return hits[0];
+    const combined = {
+      groupKey: hits.map((h) => h.groupKey).join('+'),
+      yd,
+      printCount: 0,
+      bbt: 0,
+      lastTs: 0,
+      lastSite: '',
+      yuklemeYeri: site,
+      lotLabel: item.lotLabel || '',
+      malzemeLabel: item.malzemeLabel || '',
+      ydDisplay: item.ydKey || yd,
+    };
+    hits.forEach((h) => {
+      combined.printCount += h.printCount || 0;
+      combined.bbt += h.bbt || 0;
+      if ((h.lastTs || 0) > combined.lastTs) {
+        combined.lastTs = h.lastTs;
+        combined.lastSite = h.lastSite || combined.lastSite;
+        combined.yuklemeYeri = h.yuklemeYeri || combined.yuklemeYeri;
+      }
+      if (h.lotLabel && !combined.lotLabel) combined.lotLabel = h.lotLabel;
+      if (h.malzemeLabel && !combined.malzemeLabel) combined.malzemeLabel = h.malzemeLabel;
+    });
+    return combined;
+  }
+
+  function overlayPlanFromCatalog(items, catalog) {
+    const cat = Array.isArray(catalog) ? catalog : [];
+    const byKey = new Map();
+    const byYdMal = new Map();
+    const byYd = new Map();
+    cat.forEach((p) => {
+      const yd = normalizeYdKey(p && (p.ydKey || p.headerText));
+      if (!yd || parseNum(p && p.planBbt) <= 0) return;
+      const key = shipmentBalanceKey(p);
+      if (key) byKey.set(key, p);
+      const mal = normalizeMalzemeKey(p.malzemeLabel || p.malzeme || '');
+      if (mal) byYdMal.set(yd + '|' + mal, p);
+      if (!byYd.has(yd)) byYd.set(yd, []);
+      byYd.get(yd).push(p);
+    });
+    return (items || []).map((it) => {
+      const yd = normalizeYdKey(it && (it.ydKey || it.headerText));
+      const mal = normalizeMalzemeKey(it && (it.malzemeLabel || it.malzeme || ''));
+      const key = shipmentBalanceKey(it);
+      const hit = (key && byKey.get(key))
+        || (mal && byYdMal.get(yd + '|' + mal))
+        || ((byYd.get(yd) || []).length === 1 ? byYd.get(yd)[0] : null);
+      if (parseNum(it && it.planBbt) > 0) {
+        if (hit && hit.fileName) {
+          return Object.assign({}, it, {
+            fileName: preferNewerFileName(it.fileName, hit.fileName) || it.fileName || hit.fileName,
+            malzemeLabel: it.malzemeLabel || hit.malzemeLabel || '',
+            lotLabel: it.lotLabel || hit.lotLabel || '',
+          });
+        }
+        return it;
+      }
+      if (!hit) return it;
+      const planBbt = parseNum(hit.planBbt);
+      const processed = parseNum(it.processedBbt) || parseNum(it.departedBbt) || parseNum(it.reportBbt);
+      const remainingBbt = Math.max(0, planBbt - processed);
+      const next = Object.assign({}, it, {
+        planBbt,
+        remainingBbt,
+        processedBbt: processed,
+        fileName: it.fileName || hit.fileName || '',
+        malzemeLabel: it.malzemeLabel || hit.malzemeLabel || '',
+        lotLabel: it.lotLabel || hit.lotLabel || '',
+        yuklemeYeri: it.yuklemeYeri || hit.yuklemeYeri || '',
+        fromReportsOnly: false,
+        fromPlanOverlay: true,
+      });
+      next.progressPct = planBbt > 0 ? Math.min(100, Math.round((processed / planBbt) * 100)) : 0;
+      next.balanceStatus = balanceRowStatus(next);
+      return next;
+    });
+  }
+
+  function buildBalanceRowsFromPlanAndReports(planItems, reports, meta) {
+    const collapsedPlans = collapsePlanItems(planItems || []);
+    const stats = collectYdReportStats(reports, meta);
+    const used = new Set();
+    const rows = collapsedPlans.map((item) => {
+      const st = findReportStatsForItem(item, stats);
+      if (st) {
+        String(st.groupKey || '').split('+').forEach((k) => { if (k) used.add(k); });
+        used.add(st.groupKey);
+      }
+      const plan = parseNum(item && item.planBbt);
+      let processedOut;
+      let remaining;
+      if (st) {
+        processedOut = parseNum(st.bbt);
+        remaining = plan > 0 ? Math.max(0, plan - processedOut) : 0;
+      } else {
+        processedOut = parseNum(item && item.processedBbt);
+        if (processedOut <= 0 && plan > 0) processedOut = Math.max(0, plan - parseNum(item && item.remainingBbt));
+        remaining = plan > 0 ? Math.max(0, plan - processedOut) : parseNum(item && item.remainingBbt);
+      }
+      const next = Object.assign({}, item, {
+        processedBbt: processedOut,
+        remainingBbt: remaining,
+        reportPrintCount: st ? st.printCount : item.reportPrintCount || 0,
+        reportBbt: st ? st.bbt : item.reportBbt || 0,
+        lastPrintAt: st ? st.lastTs : item.lastPrintAt || 0,
+        lastPrintSite: st ? st.lastSite : item.lastPrintSite || '',
+        fromReportsOnly: false,
+      });
+      if (st && st.yuklemeYeri && !next.yuklemeYeri) next.yuklemeYeri = st.yuklemeYeri;
+      next.progressPct = plan > 0 ? Math.min(100, Math.round((processedOut / plan) * 100)) : 0;
+      next.balanceStatus = balanceRowStatus(next);
+      next.remainingVehicles = remainingVehiclesForBlock(next);
+      return next;
+    });
+    stats.forEach((st) => {
+      if (!st || used.has(st.groupKey) || st.printCount <= 0) return;
+      rows.push({
+        blockKey: 'REPORT_' + (st.groupKey || st.yd),
+        ydKey: st.ydDisplay || st.yd,
+        lotLabel: st.lotLabel || '',
+        malzemeLabel: st.malzemeLabel || '',
+        headerText: [st.ydDisplay || st.yd, st.lotLabel].filter(Boolean).join(' / '),
+        yuklemeYeri: st.yuklemeYeri || st.lastSite || '',
+        planBbt: 0,
+        departedBbt: st.bbt,
+        assignedWaitingBbt: 0,
+        processedBbt: st.bbt,
+        remainingBbt: 0,
+        waitingPlates: [],
+        ozmalPlates: [],
+        knownPlateKeys: [],
+        reportPrintCount: st.printCount,
+        reportBbt: st.bbt,
+        lastPrintAt: st.lastTs || 0,
+        lastPrintSite: st.lastSite || '',
+        fromReportsOnly: true,
+        progressPct: 0,
+        balanceStatus: 'open',
+        remainingVehicles: 0,
+        fileName: '',
+      });
+    });
+    return collapsePlanItems(overlayPlanFromCatalog(rows, collapsedPlans));
+  }
+
+  function compactPlanRecords(items, meta) {
+    const fallback = String((meta && (meta.fileName || meta.sheetName)) || 'excel').trim() || 'excel';
+    return (items || [])
+      .map((it) => {
+        if (!it) return null;
+        const planBbt = parseNum(it.planBbt);
+        const ydKey = String(it.ydKey || '').trim();
+        if (!ydKey && planBbt <= 0) return null;
+        return {
+          fileName: String(it.fileName || fallback).trim() || fallback,
+          blockKey: String(it.blockKey || ''),
+          ydKey,
+          lotLabel: String(it.lotLabel || ''),
+          malzemeLabel: String(it.malzemeLabel || ''),
+          headerText: String(it.headerText || '').slice(0, 160),
+          yuklemeYeri: String(it.yuklemeYeri || ''),
+          planBbt,
+          remainingBbt: parseNum(it.remainingBbt),
+          processedBbt: parseNum(it.processedBbt),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function buildPoolSourcesFromItems(items, meta) {
+    const groups = new Map();
+    const fallbackName = String((meta && (meta.fileName || meta.sheetName)) || 'excel').trim() || 'excel';
+    (items || []).forEach((it) => {
+      if (!it) return;
+      const fn = String(it.fileName || fallbackName).trim() || fallbackName;
+      if (!groups.has(fn)) groups.set(fn, []);
+      groups.get(fn).push(it);
+    });
+    const importedAt = (meta && (meta.importedAt || meta.loadedAt)) || new Date().toISOString();
+    const dateKey = String((meta && meta.dateKey) || '').trim();
+    const sources = [];
+    groups.forEach((fileItems, fileName) => {
+      const blocks = fileItems.map(slimPoolBlock).filter(Boolean);
+      if (!blocks.length) return;
+      sources.push({
+        fileName,
+        dateKey: dateKey || dateKeyFromFileName(fileName),
+        importedAt,
+        blocks,
+      });
+    });
+    return sources;
+  }
+
+  function buildPoolSourcesFromRows(rows, meta) {
+    const groups = new Map();
+    const fallbackName = String((meta && (meta.fileName || meta.sheetName)) || 'excel').trim() || 'excel';
+    (rows || []).forEach((r) => {
+      if (!r) return;
+      const fn = String(r.fileName || fallbackName).trim() || fallbackName;
+      if (!groups.has(fn)) groups.set(fn, []);
+      groups.get(fn).push(r);
+    });
+    const importedAt = (meta && (meta.importedAt || meta.loadedAt)) || new Date().toISOString();
+    const dateKey = String((meta && meta.dateKey) || '').trim();
+    const sources = [];
+    groups.forEach((fileRows, fileName) => {
+      const items = analyzeIhracatBalance(fileRows) || [];
+      const blocks = items.map(slimPoolBlock).filter(Boolean);
+      if (!blocks.length) return;
+      sources.push({
+        fileName,
+        dateKey: dateKey || dateKeyFromFileName(fileName),
+        importedAt,
+        blocks,
+      });
+    });
+    return sources;
+  }
+
+  function poolItemsFromSources(sources) {
+    const items = [];
+    (sources || []).forEach((src) => {
+      (src && src.blocks ? src.blocks : []).forEach((b) => {
+        if (!b) return;
+        items.push(Object.assign({}, b, {
+          waitingPlates: Array.isArray(b.waitingPlates) ? b.waitingPlates : [],
+          ozmalPlates: [],
+          fromPool: true,
+          fileName: b.fileName || (src && src.fileName) || '',
+        }));
+      });
+    });
+    return items;
+  }
+
+  function mergeLocalAndPoolItems(localItems, poolItems) {
+    const local = collapsePlanItems(Array.isArray(localItems) ? localItems : []);
+    const pool = collapsePlanItems(Array.isArray(poolItems) ? poolItems : []);
+    const seen = new Set();
+    const out = [];
+    local.forEach((it) => {
+      const key = shipmentBalanceKey(it);
+      if (key) seen.add(key);
+      const yd = normalizeYdKey(it && (it.ydKey || it.headerText));
+      if (yd && !normalizeMalzemeKey(it && (it.malzemeLabel || it.malzeme || ''))) seen.add('YD:' + yd);
+      out.push(it);
+    });
+    pool.forEach((it) => {
+      const key = shipmentBalanceKey(it);
+      if (key && seen.has(key)) {
+        const idx = out.findIndex((row) => shipmentBalanceKey(row) === key);
+        if (idx >= 0) out[idx] = mergeTwoBalanceRows(out[idx], it);
+        return;
+      }
+      const yd = normalizeYdKey(it && (it.ydKey || it.headerText));
+      if (yd && !normalizeMalzemeKey(it && (it.malzemeLabel || it.malzeme || '')) && seen.has('YD:' + yd)) return;
+      if (key) seen.add(key);
+      out.push(it);
+    });
+    return collapsePlanItems(out);
+  }
+
   return {
     analyzeNakliyePending,
+    analyzeIhracatBalance,
+    slimPoolBlock,
+    buildPoolSourcesFromRows,
+    buildPoolSourcesFromItems,
+    compactPlanRecords,
+    poolItemsFromSources,
+    mergeLocalAndPoolItems,
+    collapsePlanItems,
+    shipmentBalanceKey,
+    normalizeMalzemeKey,
+    overlayPlanFromCatalog,
+    buildBalanceRowsFromPlanAndReports,
+    excelSourceLabel,
+    findReportStatsForItem,
     analyzeBlock,
     buildExcelBlockRows,
     buildExcelSheetRows,
@@ -912,10 +1725,16 @@
     isRowDeparted,
     applyLiveDepartedMarks,
     printReportValidForMeta,
+    printReportValidForBalance,
     printReportYdKey,
     normalizePrintReports,
     collectPrintCountByPlate,
     collectPrintSlots,
+    collectYdReportStats,
+    enrichBalanceItemsWithReports,
+    extraReportBbtForItem,
+    balanceRowStatus,
+    compareBalanceStatus,
     clearLiveDepartedMark,
     ydBaseKey,
     departedRowsChanged,
@@ -923,6 +1742,13 @@
     parsePendingNote,
     parseNum,
     compactPlate,
+    normalizeYdKey,
+    normalizeLotKey,
+    estimateAvgBbt,
+    unassignedVehicleCount,
+    remainingVehiclesForBlock,
+    summarizeIhracatBalance,
+    DEFAULT_AVG_BBT,
     isOzmalPlate,
     hasNakliyeBlockContent,
     hasBlockSheetContent,
