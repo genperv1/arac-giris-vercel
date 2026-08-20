@@ -15,10 +15,15 @@ test('parsePendingNote detects full and partial plaka messages', () => {
   });
 });
 
-test('isRowDeparted uses giden tonaj', () => {
-  assert.equal(core.isRowDeparted({ gidenTonaj: '5.000' }), true);
+test('isRowDeparted — net tonaj copied into giden column is not departed', () => {
+  assert.equal(core.isRowDeparted({ gidenTonaj: '1250', netTonaj: '1250' }), false);
+  assert.equal(core.isRowDeparted({ gidenTonaj: '25000', tonajKg: '25100' }), true);
+  assert.equal(core.isRowDeparted({ gidenTonaj: '25000' }), true);
   assert.equal(core.isRowDeparted({ gidenTonaj: '' }), false);
   assert.equal(core.isRowDeparted({ gidenTonaj: '0' }), false);
+  assert.equal(core.isRowDeparted({ gidenTonaj: '24', bbt: '24' }), false);
+  assert.equal(core.isRowDeparted({ gidenTonaj: '24000', bbt: '24' }), false);
+  assert.equal(core.isRowDeparted({ gidenTonaj: '24000', tonajKg: '24', bbt: '24' }), false);
 });
 
 test('analyzeBlock — no plate, plan from header', () => {
@@ -33,16 +38,16 @@ test('analyzeBlock — no plate, plan from header', () => {
 
 test('analyzeBlock — departed truck is hidden', () => {
   const item = core.analyzeBlock([
-    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA682', bbt: '20', gidenTonaj: '20' },
-    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA029', bbt: '20', gidenTonaj: '20' },
+    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA682', bbt: '20', gidenTonaj: '20100', tonajKg: '20500' },
+    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA029', bbt: '20', gidenTonaj: '19800', tonajKg: '20400' },
   ]);
   assert.equal(item, null);
 });
 
 test('analyzeIhracatBalance — completed shipment still listed with çıkan = plan', () => {
   const items = core.analyzeIhracatBalance([
-    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA682', bbt: '20', gidenTonaj: '20' },
-    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA029', bbt: '20', gidenTonaj: '20' },
+    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA682', bbt: '20', gidenTonaj: '20100', tonajKg: '20500' },
+    { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA029', bbt: '20', gidenTonaj: '19800', tonajKg: '20400' },
   ]);
   assert.equal(items.length, 1);
   assert.equal(items[0].planBbt, 40);
@@ -525,7 +530,7 @@ test('çift kantar — same plate in two blocks stays pending in both', () => {
 
 test('departed in one block does not hide plate in another block', () => {
   const rows = [
-    { blockKey: 'B1', blockHeaderRow: 10, headerText: 'YD82 / 4 BBT', plaka: '64BE703', bbt: '4', gidenTonaj: '4' },
+    { blockKey: 'B1', blockHeaderRow: 10, headerText: 'YD82 / 4 BBT', plaka: '64BE703', bbt: '4', gidenTonaj: '4100', tonajKg: '4200' },
     { blockKey: 'B2', blockHeaderRow: 50, headerText: 'YD82 / 16 BBT', plaka: '64BE703', bbt: '16', gidenTonaj: '' },
   ];
   const pending = core.analyzeNakliyePending(rows);
@@ -785,7 +790,8 @@ test('buildExcelSheetParts — multi Excel without date uses file name in block 
   assert.equal(headers.length, 3);
   assert.match(headers[0], /20\.07\.2026 · YD331/);
   assert.match(headers[1], /20\.07\.2026 · YD113/);
-  assert.match(headers[2], /YD33 \(1\) · YD33/);
+  assert.match(headers[2], /YD33 2444 BBT/);
+  assert.equal(/YD33 \(1\)/.test(headers[2]), false);
 });
 
 test('groupItemsByExcelFile — same file blocks stay in one group', () => {
@@ -914,6 +920,41 @@ test('enrichBalanceItemsWithReports drops remaining from report BBT after Excel 
   assert.equal(out[0].remainingBbt, 1102);
   assert.equal(out[0].balanceStatus, 'open');
   assert.ok(out[0].progressPct > 0);
+});
+
+test('analyzeBlock — 1144 BBT plan keeps remaining after 50 BBT assigned', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'BLK_20',
+      blockHeaderRow: 20,
+      headerText: 'YD33 / LOT NO 26 07 23 / 1144 BBT',
+      ydKey: 'YD33',
+      blockTotals: { bbt: '50' },
+      blockMeta: { bbtPaletLine: '50 BBT 3 PALET' },
+      plaka: '16 PK 167',
+      bbt: '24',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_20',
+      blockHeaderRow: 20,
+      headerText: 'YD33 / LOT NO 26 07 23 / 1144 BBT',
+      ydKey: 'YD33',
+      blockTotals: { bbt: '50' },
+      plaka: '16 CBL 713',
+      bbt: '26',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.ok(item);
+  assert.equal(item.planBbt, 1144);
+  assert.equal(item.assignedWaitingBbt, 50);
+  assert.equal(item.remainingBbt, 1094);
+  assert.equal(item.waitingPlates.length, 2);
+  const rows = core.buildExcelBlockRows(item);
+  const pending = rows.filter((r) => r.kind === 'pending');
+  assert.equal(pending.length, 1);
+  assert.match(pending[0].a, /1094\s*BBT/i);
 });
 
 test('analyzeBlock — YD276(M) LOT header uses TOPLAM BBT when header has no BBT', () => {
@@ -1256,6 +1297,218 @@ test('overlay plan matches YD+malzeme even if LOT missing on print row', () => {
   assert.equal(out[0].planBbt, 500);
   assert.equal(out[0].remainingBbt, 203);
   assert.equal(out[0].fileName, '21.08.2026 OSB.xlsx');
+});
+
+test('dateKeyFromFileName — combined names do not inherit the other file date', () => {
+  assert.equal(core.dateKeyFromFileName('YD33 LOT NO 26 07 23 1.OSB.xlsx + 20.08.2026.xlsx'), '');
+  assert.equal(core.dateKeyFromFileName('20.08.2026.xlsx'), '2026-08-20');
+});
+
+test('repairRowSourceFiles — YD in filename vs leftover dated file', () => {
+  const combined = 'YD33 LOT NO 26 07 23 1.OSB.xlsx + 20.08.2026.xlsx';
+  const rows = [
+    {
+      blockKey: 'BLK_20',
+      headerText: 'YD33 / LOT NO 26 07 23 / 1144 BBT',
+      fileName: combined,
+      _ihracatEmptyBlock: true,
+    },
+    {
+      blockKey: 'BLK_20',
+      headerText: 'YD276(M) / LOT NO 26 07 44 / 400 BBT',
+      fileName: combined,
+      _ihracatEmptyBlock: true,
+    },
+  ];
+  const out = core.repairRowSourceFiles(rows, {
+    fileName: combined,
+    files: ['YD33 LOT NO 26 07 23 1.OSB.xlsx', '20.08.2026.xlsx'],
+  });
+  assert.equal(out[0].fileName, 'YD33 LOT NO 26 07 23 1.OSB.xlsx');
+  assert.equal(out[1].fileName, '20.08.2026.xlsx');
+});
+
+test('analyzeNakliyePending — combined fileName + same BLK keeps two Excels separate', () => {
+  const combined = 'YD33 LOT NO 26 07 23 1.OSB.xlsx + 20.08.2026.xlsx';
+  const pending = core.analyzeNakliyePending(
+    [
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD33 / LOT NO 26 07 23 / 1144 BBT',
+        fileName: combined,
+        _ihracatEmptyBlock: true,
+      },
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD276(M) / LOT NO 26 07 44 / 400 BBT / HP 0,15-0,40',
+        fileName: combined,
+        _ihracatEmptyBlock: true,
+      },
+    ],
+    {
+      fileName: combined,
+      files: ['YD33 LOT NO 26 07 23 1.OSB.xlsx', '20.08.2026.xlsx'],
+    }
+  );
+  assert.equal(pending.length, 2);
+  const yds = pending.map((p) => core.normalizeYdKey(p.ydKey)).sort();
+  assert.deepEqual(yds, ['YD276', 'YD33']);
+  assert.equal(
+    pending.find((p) => core.normalizeYdKey(p.ydKey) === 'YD33').fileName,
+    'YD33 LOT NO 26 07 23 1.OSB.xlsx'
+  );
+  assert.equal(
+    pending.find((p) => core.normalizeYdKey(p.ydKey) === 'YD276').fileName,
+    '20.08.2026.xlsx'
+  );
+  const parts = core.buildExcelSheetParts(pending);
+  assert.equal(parts.multiFile, true);
+  const headers = parts.nakliyeRows.filter((r) => r.kind === 'header').map((r) => r.a);
+  assert.equal(headers.length, 2);
+});
+
+test('analyzeNakliyePending — YD33 waiting plates stay visible next to empty YD276 file', () => {
+  const combined = 'YD33 LOT NO 26 07 23 1.OSB.xlsx + 20.08.2026.xlsx';
+  const pending = core.analyzeNakliyePending(
+    [
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD33 / LOT NO 26 07 25 / HP 0,074-0,30 / 50 BBT',
+        ydKey: 'YD33',
+        fileName: combined,
+        plaka: '16 PK 167',
+        bbt: '24',
+        gidenTonaj: '',
+      },
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD33 / LOT NO 26 07 25 / HP 0,074-0,30 / 50 BBT',
+        ydKey: 'YD33',
+        fileName: combined,
+        plaka: '16 CBL 713',
+        bbt: '26',
+        gidenTonaj: '',
+      },
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD33 / LOT NO 26 07 25 / HP 0,074-0,30 / 50 BBT',
+        ydKey: 'YD33',
+        fileName: combined,
+        plaka: '43 ADT 553',
+        bbt: '24',
+        gidenTonaj: '24000',
+      },
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40',
+        ydKey: 'YD276',
+        fileName: combined,
+        blockTotals: { bbt: '400' },
+        _ihracatEmptyBlock: true,
+      },
+    ],
+    {
+      fileName: combined,
+      files: ['YD33 LOT NO 26 07 23 1.OSB.xlsx', '20.08.2026.xlsx'],
+    }
+  );
+  assert.equal(pending.length, 2);
+  const yd33 = pending.find((p) => core.normalizeYdKey(p.ydKey) === 'YD33');
+  const yd276 = pending.find((p) => core.normalizeYdKey(p.ydKey) === 'YD276');
+  assert.ok(yd33);
+  assert.ok(yd276);
+  assert.equal(yd33.waitingPlates.length, 2);
+  assert.deepEqual(
+    yd33.waitingPlates.map((p) => core.compactPlate(p.plaka)).sort(),
+    ['16CBL713', '16PK167']
+  );
+  assert.equal(yd276.remainingBbt, 400);
+});
+
+test('analyzeNakliyePending — YD33 stays when waiting plates have false giden stamp', () => {
+  const pending = core.analyzeNakliyePending(
+    [
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD33 / LOT NO 26 07 25 / 50 BBT',
+        ydKey: 'YD33',
+        fileName: 'YD33 LOT NO 26 07 25 1.OSB.xlsx',
+        plaka: '16 PK 167',
+        bbt: '24',
+        gidenTonaj: '24',
+        tonajKg: '24',
+      },
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD33 / LOT NO 26 07 25 / 50 BBT',
+        ydKey: 'YD33',
+        fileName: 'YD33 LOT NO 26 07 25 1.OSB.xlsx',
+        plaka: '16 CBL 713',
+        bbt: '26',
+        gidenTonaj: '26000',
+        tonajKg: '26',
+      },
+      {
+        blockKey: 'BLK_20',
+        blockHeaderRow: 20,
+        headerText: 'YD33 / LOT NO 26 07 25 / 50 BBT',
+        ydKey: 'YD33',
+        fileName: 'YD33 LOT NO 26 07 25 1.OSB.xlsx',
+        plaka: '43 ADT 553',
+        bbt: '24',
+        gidenTonaj: '24100',
+        tonajKg: '24500',
+      },
+      {
+        blockKey: 'BLK_8',
+        blockHeaderRow: 8,
+        headerText: 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40',
+        ydKey: 'YD276',
+        fileName: '20.08.2026.xlsx',
+        blockTotals: { bbt: '400' },
+        _ihracatEmptyBlock: true,
+      },
+    ],
+    {
+      files: ['YD33 LOT NO 26 07 25 1.OSB.xlsx', '20.08.2026.xlsx'],
+    }
+  );
+  assert.equal(pending.length, 2);
+  const yd33 = pending.find((p) => core.normalizeYdKey(p.ydKey) === 'YD33');
+  assert.ok(yd33);
+  assert.equal(yd33.waitingPlates.length, 2);
+  assert.deepEqual(
+    yd33.waitingPlates.map((p) => core.compactPlate(p.plaka)).sort(),
+    ['16CBL713', '16PK167']
+  );
+});
+
+test('analyzeNakliyePending — empty YD LOT block without BBT still listed', () => {
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'BLK_5',
+      blockHeaderRow: 5,
+      headerText: 'YD33 / LOT NO 26 07 23',
+      ydKey: 'YD33',
+      fileName: 'YD33 LOT NO 26 07 23 1.OSB.xlsx',
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  assert.equal(pending.length, 1);
+  assert.equal(core.normalizeYdKey(pending[0].ydKey), 'YD33');
+  assert.equal(core.hasNakliyeBlockContent(pending[0]), true);
+  const rows = core.buildExcelBlockRows(pending[0]);
+  assert.equal(rows[0].kind, 'header');
+  assert.match(rows[0].a, /YD33/);
+  assert.equal(rows[rows.length - 1].kind, 'pending');
 });
 
 

@@ -153,16 +153,42 @@
       vertical-align: middle;
       white-space: nowrap;
       text-align: center;
+      overflow: hidden;
     }
     .nb-sheet-grid .col-no { width: 34px; }
     .nb-sheet-grid .col-plaka { width: 32%; }
     .nb-sheet-grid .col-status { width: 36%; }
     .nb-sheet-grid .col-bbt { width: 22%; }
+    .nb-sheet-grid tr.nb-hdr td,
+    .nb-sheet-grid tr.nb-pending td,
+    .nb-sheet-grid tr.nb-site-hdr td,
+    .nb-sheet-grid tr.nb-date-hdr td {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.3;
+    }
     .nb-sheet-grid tr.nb-hdr td {
       background: #ffff00;
       color: #000;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 13px;
+    }
+    .nb-sheet-grid tr.nb-site-hdr td {
+      background: #fff;
+      color: #000;
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 8px 8px 6px;
+    }
+    .nb-sheet-grid tr.nb-date-hdr td {
+      background: #fff;
+      color: #000;
+      font-weight: 800;
+      font-size: 16px;
+      padding: 4px 8px 8px;
     }
     .nb-sheet-grid tr.nb-ozmal-hdr td {
       background: #81d4fa;
@@ -452,9 +478,9 @@
   <div id="nbToast" class="nb-toast" role="status"></div>
 
   <script src="idb.js"></script>
-  <script src="dailyStore.js?v=20260821-bakiye-deneme10"></script>
+  <script src="dailyStore.js?v=20260821-multiexcel7"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260821-bakiye-deneme10"></script>
-  <script src="nakliye-bekleyen.js?v=20260821-nobakiye"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260821-multiexcel7"></script>
+  <script src="nakliye-bekleyen.js?v=20260821-multiexcel7"></script>
 </body>
 </html>

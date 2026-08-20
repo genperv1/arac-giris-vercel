@@ -67,28 +67,32 @@
   }
 
   function loadRows() {
+    let rows = [];
     try {
       if (window.DailyStore && typeof DailyStore.getRows === 'function') {
-        return DailyStore.getRows() || [];
+        rows = DailyStore.getRows() || [];
       }
     } catch (e) {}
-    try {
-      return JSON.parse(localStorage.getItem('daily_shipments_current') || '[]') || [];
-    } catch (e) {
-      return [];
+    if (!rows.length) {
+      try {
+        rows = JSON.parse(localStorage.getItem('daily_shipments_current') || '[]') || [];
+      } catch (e) {
+        rows = [];
+      }
     }
+    try {
+      if (core && typeof core.repairRowSourceFiles === 'function') {
+        rows = core.repairRowSourceFiles(rows, loadMeta());
+      }
+    } catch (e) {}
+    return rows;
   }
 
   async function loadRowsWithLiveDeparted() {
     const rows = loadRows();
     if (!rows.length || !core) return rows;
     const cleaned = rows.map((r) => (core.clearLiveDepartedMark ? core.clearLiveDepartedMark(r) : r));
-    if (typeof core.departedRowsChanged === 'function' && core.departedRowsChanged(rows, cleaned)) {
-      persistRows(cleaned, loadMeta());
-    }
-    const reports = await fetchPrintReports();
-    if (!reports.length || !core.applyLiveDepartedMarks) return cleaned;
-    return core.applyLiveDepartedMarks(cleaned, loadMeta(), reports, { forBalance: true });
+    return cleaned;
   }
 
   function loadMeta() {
@@ -181,22 +185,38 @@
     return html;
   }
 
+  function blockTitleRows(dateLabel) {
+    const rows = [];
+    const site = loadSelectedSite();
+    if (site) rows.push({ kind: 'site', a: site });
+    const date = String(dateLabel || '').trim();
+    if (date) rows.push({ kind: 'date', a: date });
+    return rows;
+  }
+
   function applySheetSiteLabel() {
     const wrap = document.getElementById('nbSheetCarrier');
     if (!wrap) return;
-    const dateEl = wrap.querySelector('.nb-sheet-date');
-    const dateLabel = dateEl ? String(dateEl.textContent || '').trim() : '';
-    const next = buildSheetHeadHtml(dateLabel, loadSelectedSite());
-    const head = wrap.querySelector('.nb-sheet-head');
-    if (!next) {
-      if (head) head.remove();
-      return;
-    }
-    if (head) {
-      head.outerHTML = next;
-    } else {
-      wrap.insertAdjacentHTML('afterbegin', next);
-    }
+    wrap.querySelector('.nb-sheet-head')?.remove();
+    const site = loadSelectedSite();
+    wrap.querySelectorAll('.nb-sheet-block-body table tbody').forEach((tbody) => {
+      let tr = tbody.querySelector('tr.nb-site-hdr');
+      if (!site) {
+        if (tr) tr.remove();
+        return;
+      }
+      if (!tr) {
+        tr = document.createElement('tr');
+        tr.className = 'nb-site-hdr';
+        tr.setAttribute('data-nb-row-kind', 'site');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        tr.appendChild(td);
+        tbody.insertBefore(tr, tbody.firstChild);
+      }
+      const td = tr.querySelector('td');
+      if (td) td.textContent = site;
+    });
   }
 
   function resolveSheetDateLabel(meta) {
@@ -940,9 +960,17 @@
       '<col class="col-no" /><col class="col-plaka" /><col class="col-status" /><col class="col-bbt" />' +
       '</colgroup><tbody>';
     sheetRows.forEach((row) => {
-      if (row.kind === 'header' || row.kind === 'pending' || row.kind === 'ozmal-header') {
+      if (row.kind === 'header' || row.kind === 'pending' || row.kind === 'ozmal-header' || row.kind === 'site' || row.kind === 'date') {
         const cls =
-          row.kind === 'header' ? 'nb-hdr' : row.kind === 'ozmal-header' ? 'nb-ozmal-hdr' : 'nb-pending';
+          row.kind === 'header'
+            ? 'nb-hdr'
+            : row.kind === 'ozmal-header'
+              ? 'nb-ozmal-hdr'
+              : row.kind === 'site'
+                ? 'nb-site-hdr'
+                : row.kind === 'date'
+                  ? 'nb-date-hdr'
+                  : 'nb-pending';
         html +=
           '<tr class="' +
           cls +
@@ -1010,7 +1038,7 @@
       esc(site) +
       '" aria-pressed="' +
       (on ? 'true' : 'false') +
-      '" title="Tarihin üstüne ' +
+      '" title="Bu bloğun üstüne ' +
       esc(site) +
       ' yaz">' +
       '<i class="fas ' +
@@ -1021,10 +1049,11 @@
     );
   }
 
-  function buildBlockUnitHtml(blockRows, blockIdx) {
+  function buildBlockUnitHtml(blockRows, blockIdx, title) {
     const label = blockLabelFromRows(blockRows);
     const blockKey =
       (blockRows || []).map((r) => r && r.blockKey).find((k) => k) || '';
+    const titled = (title && title.length ? title : []).concat(blockRows || []);
     return (
       '<div class="nb-sheet-block" data-nb-block-idx="' +
       esc(String(blockIdx)) +
@@ -1035,7 +1064,7 @@
       '">' +
       '<div class="nb-sheet-block-main">' +
       '<div class="nb-sheet-block-body">' +
-      buildSheetTableHtml(blockRows) +
+      buildSheetTableHtml(titled) +
       '</div></div>' +
       '<div class="nb-block-bar nb-no-capture">' +
       '<div class="nb-site-group" role="group" aria-label="Yükleme yeri">' +
@@ -1053,11 +1082,11 @@
     );
   }
 
-  function buildBlocksColumnHtml(blockGroups, startIdx) {
+  function buildBlocksColumnHtml(blockGroups, startIdx, titleRows) {
     let idx = startIdx || 0;
     let html = '';
     (blockGroups || []).forEach((block) => {
-      html += buildBlockUnitHtml(block, idx);
+      html += buildBlockUnitHtml(block, idx, titleRows);
       idx += 1;
     });
     return { html, nextIdx: idx };
@@ -1072,13 +1101,18 @@
       return;
     }
 
+    const meta = loadMeta();
+    const knownFiles =
+      typeof core.listKnownExcelFiles === 'function'
+        ? core.listKnownExcelFiles(items, meta)
+        : [];
     const parts = core.buildExcelSheetParts(items);
     const blocks = core.groupSheetRowsByBlock(parts.nakliyeRows);
-    const multiFile = !!parts.multiFile;
     const fileGroups =
-      multiFile && typeof core.groupItemsByExcelFile === 'function'
-        ? core.groupItemsByExcelFile(items)
+      typeof core.groupItemsByExcelFile === 'function'
+        ? core.groupItemsByExcelFile(items, knownFiles)
         : [];
+    const multiFile = !!parts.multiFile || fileGroups.length > 1 || knownFiles.length > 1;
     const useSideBySide = multiFile && fileGroups.length > 1;
     const usePackedDual =
       !useSideBySide && core.shouldUseDualColumnLayout(parts.nakliyeRows, blocks, { multiFile });
@@ -1102,14 +1136,14 @@
         : '';
 
     let html = '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
-    html += buildSheetHeadHtml(dateLabel, loadSelectedSite());
+    const titleRows = blockTitleRows(dateLabel);
     if (useSideBySide) {
       html += '<div class="nb-sheet-columns nb-sheet-columns--side">';
       let idx = 0;
       fileGroups.forEach((fileItems) => {
         const fileParts = core.buildExcelSheetParts(fileItems, { multiFile: true });
         const fileBlocks = core.groupSheetRowsByBlock(fileParts.nakliyeRows);
-        const built = buildBlocksColumnHtml(fileBlocks, idx);
+        const built = buildBlocksColumnHtml(fileBlocks, idx, titleRows);
         idx = built.nextIdx;
         html += '<div class="nb-sheet-col">' + built.html + '</div>';
       });
@@ -1119,13 +1153,13 @@
       html += '<div class="nb-sheet-columns">';
       let idx = 0;
       cols.forEach((colBlocks) => {
-        const built = buildBlocksColumnHtml(colBlocks, idx);
+        const built = buildBlocksColumnHtml(colBlocks, idx, titleRows);
         idx = built.nextIdx;
         html += '<div class="nb-sheet-col">' + built.html + '</div>';
       });
       html += '</div>';
     } else {
-      html += buildBlocksColumnHtml(blocks, 0).html;
+      html += buildBlocksColumnHtml(blocks, 0, titleRows).html;
     }
     html += '</div>';
     outer.innerHTML = html;
@@ -1170,11 +1204,25 @@
       }
       noExcel?.classList.add('hidden');
 
-      _allItems = core ? core.analyzeNakliyePending(rows) : [];
+      _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
       const visible = filterItems(_allItems);
 
       const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);
       const waitingCount = visible.reduce((s, x) => s + (x.waitingPlates || []).length, 0);
+      const fileCount =
+        typeof core.listKnownExcelFiles === 'function'
+          ? core.listKnownExcelFiles(rows, loadMeta()).length
+          : 0;
+      const rawYds = [];
+      const seenYd = new Set();
+      (rows || []).forEach((r) => {
+        const yd = core && core.normalizeYdKey
+          ? core.normalizeYdKey([r && r.ydKey, r && r.firma, r && r.headerText].filter(Boolean).join(' '))
+          : '';
+        if (!yd || seenYd.has(yd)) return;
+        seenYd.add(yd);
+        rawYds.push(yd);
+      });
       if (stats) {
         stats.textContent =
           visible.length +
@@ -1182,6 +1230,8 @@
           totalRemaining +
           ' BBT plaka bekliyor' +
           (waitingCount ? ' · ' + waitingCount + ' gelmeyen plaka' : '') +
+          (fileCount > 1 ? ' · ' + fileCount + ' Excel' : '') +
+          (rawYds.length ? ' · ' + rawYds.join(', ') : '') +
           (_searchNeedle ? ' (filtreli)' : '');
       }
 
@@ -1289,7 +1339,7 @@
         syncSiteButtons();
         applySheetSiteLabel();
         const selected = loadSelectedSite();
-        toast(selected ? selected + ' — tarihin üstüne yazıldı' : 'Yükleme yeri kaldırıldı');
+        toast(selected ? selected + ' — her bloğun üstüne yazıldı' : 'Yükleme yeri kaldırıldı');
         return;
       }
       const copyBtn = e.target.closest('[data-nb-copy-block]');

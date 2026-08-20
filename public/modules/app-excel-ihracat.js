@@ -975,9 +975,10 @@ function _todayKeyTR() {
 }
 
 function findShipmentHeaderText(grid, rowIdx) {
-  // ✅ En yakın header'ı al (yanlış sevkiyat bloğundan seçim yapmayı engeller)
-  // Header satırı genelde '/' içerir ve NET ... KG veya BOOKING/GEMİ gibi işaretler taşır.
+  // En yakın BOOKING/NET başlığı; yoksa YD + en büyük BBT satırı (LOT planı)
   const start = Math.max(0, rowIdx - 25);
+  let bestYdBbt = '';
+  let bestYdBbtN = 0;
 
   for (let r = rowIdx; r >= start; r--) {
     const row = grid[r] || [];
@@ -997,9 +998,23 @@ function findShipmentHeaderText(grid, rowIdx) {
       ) {
         return s;
       }
+
+      if (/\bYD\d{1,4}/i.test(s) && /\d+\s*BBT\b/i.test(s)) {
+        let mx = 0;
+        const re = /(\d+)\s*BBT\b/gi;
+        let m;
+        while ((m = re.exec(s))) {
+          const n = parseInt(m[1], 10);
+          if (Number.isFinite(n) && n > mx) mx = n;
+        }
+        if (mx > bestYdBbtN || (mx === bestYdBbtN && s.length > bestYdBbt.length)) {
+          bestYdBbtN = mx;
+          bestYdBbt = s;
+        }
+      }
     }
   }
-  return '';
+  return bestYdBbt;
 }
 
 function colIndexToLetter(idx) {
@@ -2290,20 +2305,29 @@ function findColumnIndices(headerRow) {
   return indices;
 }
 
-/** İhracat bloğu: sol taraftaki ilk PLAKA sütunundan sabit kolon düzeni */
+/** İhracat bloğu: isimli başlıklar öncelikli; GİDEN TONAJ yoksa o alan boş kalır */
 function resolveIhracatBlockCols(headerRow) {
   const row = headerRow || [];
-  let plakaCol = -1;
-  for (let c = 0; c < row.length; c++) {
-    if (String(row[c] || '').toUpperCase().trim() === 'PLAKA') {
-      plakaCol = c;
-      break;
+  const named = findColumnIndices(row);
+  let plakaCol = named.plaka;
+  if (plakaCol == null) {
+    for (let c = 0; c < row.length; c++) {
+      if (String(row[c] || '').toUpperCase().trim() === 'PLAKA') {
+        plakaCol = c;
+        break;
+      }
     }
   }
+  const headerAt = (idx) =>
+    String(row[idx] || '')
+      .toUpperCase()
+      .replace(/İ/g, 'I')
+      .trim();
+  const out = Object.assign({}, named);
   if (plakaCol >= 0) {
-    return {
-      plaka: plakaCol,
-      sirano: plakaCol > 0 ? plakaCol - 1 : 0,
+    out.plaka = plakaCol;
+    if (out.sirano === undefined) out.sirano = plakaCol > 0 ? plakaCol - 1 : 0;
+    const pos = {
       bbt: plakaCol + 1,
       cuval: plakaCol + 2,
       palet: plakaCol + 3,
@@ -2314,34 +2338,71 @@ function resolveIhracatBlockCols(headerRow) {
       gidenTonaj: plakaCol + 8,
       fark: plakaCol + 9,
     };
+    Object.keys(pos).forEach((key) => {
+      if (out[key] !== undefined) return;
+      const h = headerAt(pos[key]);
+      if (key === 'gidenTonaj') {
+        if (/GIDEN/.test(h)) out.gidenTonaj = pos[key];
+        return;
+      }
+      if (key === 'netTonaj') {
+        if ((h.includes('NET') && h.includes('TONAJ')) || !h) out.netTonaj = pos[key];
+        return;
+      }
+      out[key] = pos[key];
+    });
   }
-  const merged = findColumnIndices(row);
-  for (let c = 0; c < row.length; c++) {
-    const cell = String(row[c] || '').toUpperCase().trim();
-    if (merged.netTonaj === undefined && cell.includes('NET TONAJ')) merged.netTonaj = c;
-    if (merged.ogrTonaj === undefined && cell.includes('O.GR') && cell.includes('TONAJ')) merged.ogrTonaj = c;
-    if (merged.gidenTonaj === undefined && (cell.includes('GİDEN') || cell.includes('GIDEN'))) merged.gidenTonaj = c;
-    if (merged.fark === undefined && cell === 'FARK') merged.fark = c;
+  if (out.gidenTonaj === undefined) {
+    for (let c = 0; c < row.length; c++) {
+      const cell = headerAt(c);
+      if (cell.includes('GIDEN')) {
+        out.gidenTonaj = c;
+        break;
+      }
+    }
   }
-  return merged;
+  if (out.netTonaj === undefined) {
+    for (let c = 0; c < row.length; c++) {
+      const cell = headerAt(c);
+      if (cell.includes('NET') && cell.includes('TONAJ')) {
+        out.netTonaj = c;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 function isIhracatBlockHeaderRow(row) {
   const rowText = _rowToText(row).toUpperCase();
-  if (!rowText.includes('PLAKA') || !rowText.includes('BBT')) return false;
+  if (!rowText.includes('PLAKA')) return false;
   const c0 = String(row[0] || '').toUpperCase().trim();
   if (/^YD\d{1,4}$/.test(c0)) return true;
-  return rowText.includes('SIRANO') && rowText.includes('PLAKA');
+  if (rowText.includes('SIRANO') && rowText.includes('PLAKA')) return true;
+  return rowText.includes('SIRANO') && rowText.includes('BBT');
 }
 
 /** Excel blok üst satırları: uzun YD başlığı hücresi (birleştirilmiş satır değil) */
 function _pickIhracatMainHeaderCell(row) {
   let best = '';
+  let bestScore = -1;
   for (const v of row || []) {
     const s = String(v ?? '').trim();
     if (!s || !/\bYD\d{1,4}/i.test(s) || !s.includes('/')) continue;
-    if (!/BOOKING\s*NO/i.test(s) && !/NET\s*\d+\s*KG/i.test(s)) continue;
-    if (s.length > best.length) best = s;
+    const isBooking = /BOOKING\s*NO/i.test(s) || /NET\s*\d+\s*KG/i.test(s);
+    let maxBbt = 0;
+    const re = /(\d+)\s*BBT\b/gi;
+    let m;
+    while ((m = re.exec(s))) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > maxBbt) maxBbt = n;
+    }
+    if (!isBooking && maxBbt <= 0) continue;
+    const score = (isBooking ? 100000 : 0) + maxBbt;
+    if (score > bestScore || (score === bestScore && s.length > best.length)) {
+      bestScore = score;
+      best = s;
+    }
   }
   return best;
 }
@@ -2470,11 +2531,22 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
   }
 
   let mainItem = null;
+  let bestMainScore = -1;
   for (const item of above) {
     const main = _pickIhracatMainHeaderCell(item.row);
-    if (main) {
+    if (!main) continue;
+    const isBooking = /BOOKING\s*NO/i.test(main) || /NET\s*\d+\s*KG/i.test(main);
+    let maxBbt = 0;
+    const re = /(\d+)\s*BBT\b/gi;
+    let m;
+    while ((m = re.exec(main))) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > maxBbt) maxBbt = n;
+    }
+    const score = (isBooking ? 100000 : 0) + maxBbt;
+    if (score > bestMainScore) {
+      bestMainScore = score;
       mainItem = { ...item, main };
-      break;
     }
   }
 
@@ -2841,6 +2913,7 @@ firma: (firma || '').slice(0, 40),
   irsaliyeNo,
   malzeme: cols.malzeme !== undefined ? (d[cols.malzeme] != null ? String(d[cols.malzeme]).trim() : '') : '',
   tonajKg: blockCols.netTonaj !== undefined ? _nz(d[blockCols.netTonaj]) : (cols.tonajKg !== undefined ? _nz(d[cols.tonajKg]) : ''),
+  netTonaj: blockCols.netTonaj !== undefined ? _nz(d[blockCols.netTonaj]) : '',
   bbt: blockCols.bbt !== undefined ? _nz(d[blockCols.bbt]) : '',
   cuval: blockCols.cuval !== undefined ? _nz(d[blockCols.cuval]) : '',
   palet: blockCols.palet !== undefined ? _nz(d[blockCols.palet]) : '',
@@ -2964,18 +3037,48 @@ async function commitIhracatImport(uniq2, meta, file) {
       );
 
       if (doAppend) {
-        rowsToSave = existing.concat(uniq2);
+        if (!uniq2.length) {
+          return {
+            ok: false,
+            msg: 'Yeni Excel’de sevkiyat bloğu bulunamadı. Mevcut liste değiştirilmedi.',
+          };
+        }
+        const newFileName = String((file && file.name) || meta.fileName || '').trim();
+        const existingTagged = existing.map((r) => {
+          if (!r) return r;
+          const parts = splitIhracatFileNames(r.fileName);
+          if (parts.length === 1) return r;
+          const prevFiles = normalizeIhracatMetaFiles(existingMeta);
+          const fallback = prevFiles[0] || parts[0] || '';
+          if (!fallback) return r;
+          return { ...r, fileName: fallback };
+        });
+        const incoming = uniq2.map((r) => {
+          if (!r) return r;
+          if (newFileName && String(r.fileName || '').trim() !== newFileName) {
+            return { ...r, fileName: newFileName };
+          }
+          return r;
+        });
+        rowsToSave = existingTagged.concat(incoming);
+        if (typeof repairIhracatRowFileNames === 'function') {
+          const repaired = repairIhracatRowFileNames(rowsToSave, {
+            ...existingMeta,
+            ...meta,
+            files: normalizeIhracatMetaFiles(existingMeta).concat(newFileName),
+          });
+          rowsToSave = repaired.rows;
+        }
         const files = []
           .concat(normalizeIhracatMetaFiles(existingMeta))
-          .concat((file && file.name) || meta.fileName || '');
+          .concat(newFileName);
         const seenF = new Set();
         const uniqFiles = [];
         files.forEach((f) => {
           splitIhracatFileNames(f).forEach((part) => {
-            if (!seenF.has(part)) {
-              seenF.add(part);
-              uniqFiles.push(part);
-            }
+            if (!part || seenF.has(part)) return;
+            seenF.add(part);
+            uniqFiles.push(part);
           });
         });
         metaToSave = {

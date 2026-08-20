@@ -124,23 +124,72 @@
     cache.indexByPlate = null;
   }
 
+  function _rowFingerprint(r) {
+    if (!r) return '';
+    return [
+      String(r.fileName || '').trim(),
+      String(r.blockKey || ''),
+      r.blockHeaderRow != null ? String(r.blockHeaderRow) : '',
+      String(r.plaka || '').replace(/\s+/g, '').toUpperCase(),
+      String(r.id || ''),
+      String(r.sira || ''),
+      r._ihracatEmptyBlock ? 'E' : 'P',
+      String(r.headerText || '').slice(0, 80),
+    ].join('\0');
+  }
+
+  function _mergeMeta(a, b) {
+    const out = Object.assign({}, a || {}, b || {});
+    const files = [];
+    const seen = new Set();
+    const add = (raw) => {
+      String(raw || '')
+        .split(/\s*\+\s*/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((n) => {
+          if (seen.has(n)) return;
+          seen.add(n);
+          files.push(n);
+        });
+    };
+    [a, b].forEach((m) => {
+      if (!m) return;
+      if (Array.isArray(m.files)) m.files.forEach(add);
+      add(m.fileName);
+    });
+    if (files.length) {
+      out.files = files;
+      out.fileName = files.join(' + ');
+    }
+    return out;
+  }
+
+  function _mergeStores(a, b) {
+    const map = new Map();
+    const addRows = (rows) => {
+      (Array.isArray(rows) ? rows : []).forEach((r) => {
+        const k = _rowFingerprint(r);
+        if (!k || map.has(k)) return;
+        map.set(k, r);
+      });
+    };
+    addRows(a && a.rows);
+    addRows(b && b.rows);
+    return {
+      rows: Array.from(map.values()),
+      meta: _mergeMeta(a && a.meta, b && b.meta),
+    };
+  }
+
   async function _hydrateFromIdbIfNeeded(){
     const ls = _lsLoad();
-    if (ls.rows.length) {
-      _applyLocal(ls);
+    const idb = await _idbLoad();
+    const merged = _mergeStores(ls, idb);
+    if (merged.rows.length) {
+      _applyLocal(merged);
       return cache;
     }
-    const backend = (() => {
-      try { return localStorage.getItem(LS_BACKEND_KEY) || ''; } catch (e) { return ''; }
-    })();
-    if (backend === 'idb' || !ls.rows.length) {
-      const idb = await _idbLoad();
-      if (idb && idb.rows.length) {
-        _applyLocal(idb);
-        return cache;
-      }
-    }
-    if (cache.rows.length) return cache;
     _applyLocal(ls);
     return cache;
   }
@@ -191,6 +240,8 @@
   }
 
   async function reload() {
+    cache.rows = [];
+    cache.meta = {};
     cache.loaded = false;
     cache.indexByPlate = null;
     _hydratePromise = null;

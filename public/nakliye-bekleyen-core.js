@@ -54,43 +54,87 @@
     return /^(\d{2}[A-Z]{1,3}\d{2,5}|[A-Z0-9]{5,12})$/.test(compact);
   }
 
-  /** Giden tonaj dolu = araç çıkmış / yüklenmiş */
+  function weightKg(row) {
+    const net = parseNum(row && row.netTonaj);
+    if (net > 1000) return net;
+    const kg = parseNum(row && row.tonajKg);
+    return kg > 1000 ? kg : 0;
+  }
+
+  /**
+   * Giden tonaj dolu = araç çıkmış.
+   * Excel'de NET/BBT yanlış kolona yazılmışsa veya eski yazdırma damgası
+   * (giden = BBT) kalmışsa GELMEDİ plaka kapanmaz.
+   */
   function isRowDeparted(row) {
     if (!row) return false;
-    return parseNum(row.gidenTonaj) > 0;
+    if (row._nbLiveDeparted && parseNum(row.gidenTonaj) > 0) return true;
+    const g = parseNum(row.gidenTonaj);
+    if (g <= 0) return false;
+    const bbt = parseNum(row.bbt);
+    const net = parseNum(row.netTonaj);
+    const kg = parseNum(row.tonajKg);
+    if (bbt > 0 && Math.abs(g - bbt) < 0.05) return false;
+    if (net > 0 && Math.abs(g - net) < 0.05) return false;
+    if (kg > 0 && Math.abs(g - kg) < 0.05) return false;
+    if (g < 100) return false;
+    if (kg > 0 && kg < 100 && g >= 1000) return false;
+    if (net > 0 && net < 100 && g >= 1000) return false;
+    if (bbt > 0 && bbt < 100 && g >= 1000) {
+      const expected = bbt * 1000;
+      if (expected > 0 && Math.abs(g - expected) / expected <= 0.2) {
+        const realNet = weightKg(row);
+        if (realNet <= 0) return false;
+      }
+    }
+    return g >= 1000;
+  }
+
+  function collectPlanBbtCandidates(text) {
+    const cleaned = String(text || '').replace(/\d+\s*BBT\s+PLAKA\s*VER[^\n]*/gi, '');
+    const out = [];
+    const re = /(\d+)\s*BBT\b/gi;
+    let m;
+    while ((m = re.exec(cleaned))) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0) out.push(n);
+    }
+    return out;
   }
 
   function firstPlanBbtInText(text) {
-    const cleaned = String(text || '').replace(/\d+\s*BBT\s+PLAKA\s*VER[^\n]*/gi, '');
-    const m = cleaned.match(/(\d+)\s*BBT\b/i);
-    if (!m) return null;
-    const n = parseInt(m[1], 10);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    const nums = collectPlanBbtCandidates(text);
+    if (!nums.length) return null;
+    return Math.max.apply(null, nums);
   }
 
   function extractPlanBbt(sample, items) {
     const rows = Array.isArray(items) && items.length ? items : sample ? [sample] : [];
+    let fromTotals = 0;
     for (const r of rows) {
       const t = parseNum(r && r.blockTotals && r.blockTotals.bbt);
-      if (t > 0) return t;
+      if (t > fromTotals) fromTotals = t;
     }
-    if (!sample) return null;
-    const meta = sample.blockMeta || {};
-    const chunks = [
-      sample.headerText,
-      meta.mainHeader,
-      meta.footerLine,
-      meta.bbtPaletLine,
-      meta.bbtPaletSummary,
-      meta.blackLine1,
-      meta.blackLine2,
-      sample.blockFooterNote,
-    ]
-      .filter(Boolean)
-      .join(' ');
-    const fromHeader = firstPlanBbtInText(chunks);
-    if (fromHeader) return fromHeader;
-    return null;
+    const chunks = [];
+    const pushMeta = (r) => {
+      if (!r) return;
+      const meta = r.blockMeta || {};
+      chunks.push(
+        r.headerText,
+        meta.mainHeader,
+        meta.footerLine,
+        meta.bbtPaletLine,
+        meta.bbtPaletSummary,
+        meta.blackLine1,
+        meta.blackLine2,
+        r.blockFooterNote
+      );
+    };
+    rows.forEach(pushMeta);
+    if (sample && rows.indexOf(sample) < 0) pushMeta(sample);
+    const fromHeader = firstPlanBbtInText(chunks.filter(Boolean).join(' ')) || 0;
+    const plan = Math.max(fromHeader, fromTotals);
+    return plan > 0 ? plan : null;
   }
 
   function normalizeLotKey(text) {
@@ -116,6 +160,15 @@
     return yd + '|' + mal + '|' + site;
   }
 
+  function rowYdKey(row) {
+    if (!row) return '';
+    return normalizeYdKey(
+      [row.ydKey, row.firma, row.headerText, row.blockMeta && row.blockMeta.mainHeader]
+        .filter(Boolean)
+        .join(' ')
+    );
+  }
+
   function extractYdLabel(sample) {
     if (!sample) return 'GENEL';
     const texts = [sample.headerText, sample.blockMeta?.mainHeader, sample.ydKey, sample.firma].filter(Boolean);
@@ -123,6 +176,8 @@
       const m = String(t).match(/\b(YD\d{1,4}(?:\([A-Z]\))?)/i);
       if (m) return m[1].toUpperCase();
     }
+    const yd = normalizeYdKey(texts.join(' '));
+    if (yd) return yd;
     return String(sample.ydKey || sample.firma || 'GENEL').trim().toUpperCase() || 'GENEL';
   }
 
@@ -135,7 +190,45 @@
     return String(row?.fileName || '').trim();
   }
 
-  function dateKeyFromFileName(fileName) {
+  function splitExcelFileNames(raw) {
+    return String(raw || '')
+      .split(/\s*\+\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  function isCombinedExcelFileName(fileName) {
+    return splitExcelFileNames(fileName).length > 1;
+  }
+
+  function filenameMentionsYd(fileName, yd) {
+    const key = String(yd || '').trim().toUpperCase();
+    if (!key || !/^YD\d{1,4}$/.test(key)) return false;
+    const stem = String(fileName || '');
+    const fromName = normalizeYdKey(stem);
+    if (fromName && fromName === key) return true;
+    const re = new RegExp('(?:^|[^A-Z0-9])' + key + '(?:[^A-Z0-9]|$)', 'i');
+    return re.test(stem);
+  }
+
+  function listKnownExcelFiles(rows, meta) {
+    const seen = new Set();
+    const out = [];
+    const add = (raw) => {
+      splitExcelFileNames(raw).forEach((n) => {
+        if (!n || seen.has(n)) return;
+        seen.add(n);
+        out.push(n);
+      });
+    };
+    const m = meta || {};
+    if (Array.isArray(m.files)) m.files.forEach(add);
+    if (m.fileName) add(m.fileName);
+    (rows || []).forEach((r) => add(r && r.fileName));
+    return out;
+  }
+
+  function dateKeyFromSingleFileName(fileName) {
     const s = String(fileName || '').trim();
     if (!s) return '';
     let m = s.match(/(?:^|[^0-9])(\d{2})[.\-_](\d{2})[.\-_](\d{4})(?:[^0-9]|$)/);
@@ -155,6 +248,56 @@
     return '';
   }
 
+  function dateKeyFromFileName(fileName) {
+    const parts = splitExcelFileNames(fileName);
+    if (parts.length > 1) return '';
+    return dateKeyFromSingleFileName(fileName);
+  }
+
+  function repairRowSourceFiles(rows, meta) {
+    const list = Array.isArray(rows) ? rows : [];
+    const known = listKnownExcelFiles(list, meta);
+    if (!list.length) return list;
+
+    if (known.length <= 1) {
+      const only = known[0] || '';
+      if (!only) return list;
+      return list.map((r) => {
+        if (!r) return r;
+        const parts = splitExcelFileNames(r.fileName);
+        if (parts.length === 1 && parts[0] === only) return r;
+        if (!String(r.fileName || '').trim() || parts.length !== 1) {
+          return Object.assign({}, r, { fileName: only });
+        }
+        return r;
+      });
+    }
+
+    const assigned = list.map((r) => {
+      if (!r) return { row: r, file: '' };
+      const parts = splitExcelFileNames(r.fileName);
+      if (parts.length === 1 && known.indexOf(parts[0]) >= 0) {
+        return { row: r, file: parts[0] };
+      }
+      const yd = normalizeYdKey([r.ydKey, r.firma, r.headerText].filter(Boolean).join(' '));
+      const ydHits = yd ? known.filter((f) => filenameMentionsYd(f, yd)) : [];
+      if (ydHits.length === 1) return { row: r, file: ydHits[0] };
+      return { row: r, file: '' };
+    });
+
+    const used = new Set(assigned.map((a) => a.file).filter(Boolean));
+    const leftover = known.filter((f) => !used.has(f));
+
+    return assigned.map((a) => {
+      if (!a.row) return a.row;
+      let file = a.file;
+      if (!file && leftover.length === 1) file = leftover[0];
+      if (!file) file = splitExcelFileNames(a.row.fileName)[0] || '';
+      if (!file || String(a.row.fileName || '').trim() === file) return a.row;
+      return Object.assign({}, a.row, { fileName: file });
+    });
+  }
+
   function formatDateKeyTR(dateKey) {
     const s = String(dateKey || '').trim();
     const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -169,13 +312,16 @@
 
   function blockGroupKey(row) {
     if (!row) return '';
-    const fileName = rowSourceFile(row);
+    const rawFile = rowSourceFile(row);
+    const fileName = isCombinedExcelFileName(rawFile) ? '' : rawFile;
+    const yd = rowYdKey(row);
     let blockId = '';
     if (row.blockKey) blockId = String(row.blockKey);
     else if (row.blockHeaderRow != null) blockId = `HDR_${row.blockHeaderRow}`;
     else blockId = String(row.headerText || row.id || '').slice(0, 80);
-    if (!blockId) return '';
-    return fileName ? `${fileName}::${blockId}` : blockId;
+    const header = String(row.headerText || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const key = [fileName, yd, blockId || header].filter(Boolean).join('::');
+    return key;
   }
 
   function groupRowsByBlock(rows) {
@@ -839,7 +985,9 @@
 
   function hasNakliyeBlockContent(item) {
     if (!item) return false;
-    return parseNum(item.remainingBbt) > 0 || (item.waitingPlates || []).length > 0;
+    if (parseNum(item.remainingBbt) > 0) return true;
+    if ((item.waitingPlates || []).length > 0) return true;
+    return !!item._emptyYdPending;
   }
 
   function hasBlockSheetContent(item) {
@@ -950,12 +1098,14 @@
       .trim();
   }
 
-  /** Blok başlığı ön eki: dosya adından tarih, yoksa Excel dosya adı (YD33 gibi) */
+  /** Blok başlığı ön eki: dosya adından tarih; YD dosya adı sarı satırda tekrarlanmaz */
   function formatBlockSourceLabel(item) {
     if (!item) return '';
     const date = String(item.sourceDateLabel || '').trim();
     if (date) return date;
     const stem = extractFileStemLabel(item.fileName);
+    const yd = normalizeYdKey(item && (item.ydKey || item.headerText || stem));
+    if (yd && filenameMentionsYd(stem, yd)) return '';
     if (stem) return stem;
     return String(item.ydKey || '').trim();
   }
@@ -963,14 +1113,15 @@
   function countDistinctExcelFiles(items) {
     const files = new Set();
     (items || []).forEach((it) => {
-      const fn = String(it?.fileName || '').trim();
-      if (fn) files.add(fn);
+      splitExcelFileNames(it?.fileName).forEach((fn) => files.add(fn));
     });
     return files.size;
   }
 
   function formatHeaderExcelText(ydKey, planBbt, malzeme, sourcePrefix, lotLabel) {
-    let s = `${String(ydKey || 'GENEL').trim()} ${planBbt} BBT`;
+    const yd = String(ydKey || 'GENEL').trim();
+    const plan = parseNum(planBbt);
+    let s = plan > 0 ? `${yd} ${plan} BBT` : yd;
     const lot = String(lotLabel || '').trim();
     if (lot) s += ` · ${lot}`;
     const m = String(malzeme || '').trim();
@@ -1004,7 +1155,7 @@
     });
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
-    if (rem > 0) {
+    if (rem > 0 || item._emptyYdPending) {
       rows.push({
         kind: 'pending',
         a: formatFooterRemainingText(rem),
@@ -1046,11 +1197,12 @@
   }
 
   /** Aynı Excel dosyasındaki blokları birlikte tut (sütun içinde alt alta) */
-  function groupItemsByExcelFile(items) {
+  function groupItemsByExcelFile(items, knownFiles) {
+    const repaired = repairRowSourceFiles(items, knownFiles ? { files: knownFiles } : {});
     const map = new Map();
     const order = [];
-    (items || []).forEach((it) => {
-      const key = String(it?.fileName || '').trim() || '__unknown__';
+    (repaired || []).forEach((it) => {
+      const key = splitExcelFileNames(it?.fileName)[0] || String(it?.fileName || '').trim() || '__unknown__';
       if (!map.has(key)) {
         map.set(key, []);
         order.push(key);
@@ -1158,9 +1310,10 @@
       const pk = plateKey(plaka);
       if (pk) knownPlateKeys.push(pk);
 
+      const keepExcelPlates = !!(opts && opts.keepExcelPlates);
       const rowBbt = parseNum(r.bbt);
 
-      if (isRowDeparted(r)) {
+      if (!keepExcelPlates && isRowDeparted(r)) {
         departedBbt += rowBbt > 0 ? rowBbt : 0;
         return;
       }
@@ -1191,8 +1344,14 @@
     }
 
     const includeComplete = !!(opts && opts.includeComplete);
+    const emptyYdUnknownPlan =
+      hasYd &&
+      items.some((x) => x && x._ihracatEmptyBlock) &&
+      (planBbt == null || planBbt <= 0) &&
+      !waitingPlates.length &&
+      !ozmalPlates.length;
     if ((planBbt == null || planBbt <= 0) && !includeComplete && !waitingPlates.length && !ozmalPlates.length) {
-      return null;
+      if (!emptyYdUnknownPlan) return null;
     }
     if ((planBbt == null || planBbt <= 0) && includeComplete && !hasYd && !waitingPlates.length && !ozmalPlates.length) {
       return null;
@@ -1208,7 +1367,7 @@
     }
 
     if (remainingBbt <= 0 && waitingPlates.length === 0 && ozmalPlates.length === 0 && !includeComplete) {
-      return null;
+      if (!emptyYdUnknownPlan) return null;
     }
 
     const port = extractPort(sample);
@@ -1246,6 +1405,7 @@
       knownPlateKeys,
       explicitNotes,
       status,
+      _emptyYdPending: !!emptyYdUnknownPlan,
       message: buildMessage(ydKey, planBbt, remainingBbt, waitingPlates, explicitNotes),
     };
   }
@@ -1259,20 +1419,86 @@
     return String(a?.headerText || '').localeCompare(String(b?.headerText || ''), 'tr');
   }
 
-  function analyzeNakliyePending(rows) {
-    const groups = groupRowsByBlock(rows);
+  function rowHasValidPlate(r) {
+    if (!r || r._ihracatEmptyBlock) return false;
+    return isValidPlateCell(String(r.plaka || '').trim());
+  }
+
+  function rowHasCarrierPlate(r) {
+    if (!rowHasValidPlate(r)) return false;
+    return !isOzmalPlate(String(r.plaka || '').trim());
+  }
+
+  function rowHasRealKgDeparture(r) {
+    if (!rowHasValidPlate(r)) return false;
+    const g = parseNum(r.gidenTonaj);
+    const kg = weightKg(r);
+    return g >= 1000 && kg >= 1000 && Math.abs(g - kg) >= 1;
+  }
+
+  function analyzeBlockGroups(groupMap) {
     const pending = [];
-    groups.forEach((items) => {
-      const item = analyzeBlock(items);
+    groupMap.forEach((items) => {
+      let item = analyzeBlock(items);
+      if (!item) {
+        const hasOpenPlate = items.some((r) => rowHasValidPlate(r) && !isRowDeparted(r));
+        if (hasOpenPlate) item = analyzeBlock(items, { keepExcelPlates: true });
+      }
       if (item) pending.push(item);
     });
+    return pending;
+  }
+
+  function analyzeNakliyePending(rows, meta) {
+    const repaired = repairRowSourceFiles(rows, meta);
+    const pending = analyzeBlockGroups(groupRowsByBlock(repaired));
+    const seen = new Set(pending.map((p) => normalizeYdKey(p.ydKey)).filter(Boolean));
+
+    const orphans = repaired.filter((r) => {
+      const yd = rowYdKey(r);
+      return yd && !seen.has(yd);
+    });
+    if (orphans.length) {
+      analyzeBlockGroups(groupRowsByBlock(orphans)).forEach((item) => {
+        const yd = normalizeYdKey(item.ydKey);
+        if (yd && seen.has(yd)) return;
+        pending.push(item);
+        if (yd) seen.add(yd);
+      });
+    }
+
+    const still = repaired.filter((r) => {
+      const yd = rowYdKey(r);
+      return yd && !seen.has(yd);
+    });
+    if (still.length) {
+      const byYd = new Map();
+      still.forEach((r) => {
+        const yd = rowYdKey(r);
+        if (!byYd.has(yd)) byYd.set(yd, []);
+        byYd.get(yd).push(r);
+      });
+      byYd.forEach((items, yd) => {
+        const hasCarrier = items.some(rowHasCarrierPlate);
+        const hasEmpty = items.some((r) => r && r._ihracatEmptyBlock);
+        if (!hasCarrier && !hasEmpty) return;
+        const reallyGone = hasCarrier && items.filter(rowHasCarrierPlate).every(rowHasRealKgDeparture);
+        if (reallyGone) return;
+        const item = analyzeBlock(items, hasCarrier ? { keepExcelPlates: true } : {});
+        if (!item) return;
+        pending.push(item);
+        seen.add(yd);
+      });
+    }
+
     pending.sort(compareBlockExcelOrder);
     return pending;
   }
 
   /** Bakiye deneme: Excel’deki her sevkiyat bloğu (bitenler dahil). */
-  function analyzeIhracatBalance(rows) {
-    const groups = groupRowsByBlock(rows);
+  function analyzeIhracatBalance(rows, meta) {
+    const repaired = repairRowSourceFiles(rows, meta);
+    const groups = groupRowsByBlock(repaired);
     const items = [];
     groups.forEach((blockRows) => {
       const item = analyzeBlock(blockRows, { includeComplete: true });
@@ -1688,6 +1914,7 @@
     buildBalanceRowsFromPlanAndReports,
     excelSourceLabel,
     findReportStatsForItem,
+    rowYdKey,
     analyzeBlock,
     buildExcelBlockRows,
     buildExcelSheetRows,
@@ -1703,6 +1930,10 @@
     flattenSheetBlocks,
     blockGroupKey,
     rowSourceFile,
+    splitExcelFileNames,
+    repairRowSourceFiles,
+    listKnownExcelFiles,
+    filenameMentionsYd,
     sourceDateLabelFromRow,
     dateKeyFromFileName,
     compareBlockExcelOrder,
