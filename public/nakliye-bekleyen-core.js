@@ -5,7 +5,8 @@
  * Kurallar:
  * - Giden tonajı dolu satır = çıkmış araç → listede gösterilmez
  * - Plaka var, giden tonaj boş = gelmeyen araç → plaka + BBT yan sütunda
- * - Yazdırma kaydı Excel'deki GELMEDİ satırını kapatmaz (kaynak Excel giden tonaj)
+ * - Aynı YD yazdırması gelmeyen plakayı kapatır; Excel'de olmayan çıkan BBT kalandan düşer
+ * - 0PLAKA0 / EU gibi sahte plaka gelmeyene yazılmaz, BBT'si plaka verilecek kalır
  * - Kalan BBT = plan − çıkan BBT − atanmış ama gelmeyen BBT
  */
 (function (root, factory) {
@@ -35,6 +36,21 @@
     return Number.isFinite(n) ? n : 0;
   }
 
+  /** 33.000 / 32.400 gibi TR binlik ayracı → kg */
+  function parseKg(v) {
+    const raw = String(v ?? '').trim();
+    if (!raw) return 0;
+    if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
+      const n = parseInt(raw.replace(/\./g, ''), 10);
+      return Number.isFinite(n) ? n : 0;
+    }
+    if (/^\d{1,3}(\.\d{3})+,\d+$/.test(raw)) {
+      const n = parseFloat(raw.replace(/\./g, '').replace(',', '.'));
+      return Number.isFinite(n) ? n : 0;
+    }
+    return parseNum(v);
+  }
+
   function parsePendingNote(raw) {
     const norm = normTr(raw);
     if (!norm || !/PLAKA\s*VER/.test(norm)) return null;
@@ -43,21 +59,33 @@
     return { remainingBbt: null, text: String(raw || '').trim() };
   }
 
+  function isPlaceholderPlate(raw) {
+    const compact = String(raw || '')
+      .replace(/[\s\-./]+/g, '')
+      .toUpperCase()
+      .replace(/İ/g, 'I');
+    if (!compact) return true;
+    if (/PLAKA/.test(compact)) return true;
+    if (/^(YOK|BOS|BEKLE|BEKLIYOR|EU|NA|YOKTUR|BELIRSIZ)$/.test(compact)) return true;
+    return false;
+  }
+
   function isValidPlateCell(raw) {
     const s = String(raw || '').trim();
     if (!s) return false;
     if (parsePendingNote(s)) return false;
+    if (isPlaceholderPlate(s)) return false;
     const compact = s.replace(/[\s\-]+/g, '').toUpperCase();
     if (compact.length < 5) return false;
     if (/^\d+$/.test(compact)) return false;
-    if (/^(SIRANO|PLAKA|TOPLAM|KALAN|BBT|TON|CUVAL|ÇUVAL|PALET)$/.test(compact)) return false;
+    if (/^(SIRANO|TOPLAM|KALAN|BBT|TON|CUVAL|ÇUVAL|PALET)$/.test(compact)) return false;
     return /^(\d{2}[A-Z]{1,3}\d{2,5}|[A-Z0-9]{5,12})$/.test(compact);
   }
 
   function weightKg(row) {
-    const net = parseNum(row && row.netTonaj);
+    const net = parseKg(row && row.netTonaj);
     if (net > 1000) return net;
-    const kg = parseNum(row && row.tonajKg);
+    const kg = parseKg(row && row.tonajKg);
     return kg > 1000 ? kg : 0;
   }
 
@@ -68,12 +96,12 @@
    */
   function isRowDeparted(row) {
     if (!row) return false;
-    if (row._nbLiveDeparted && parseNum(row.gidenTonaj) > 0) return true;
-    const g = parseNum(row.gidenTonaj);
+    if (row._nbLiveDeparted && parseKg(row.gidenTonaj) > 0) return true;
+    const g = parseKg(row.gidenTonaj);
     if (g <= 0) return false;
     const bbt = parseNum(row.bbt);
-    const net = parseNum(row.netTonaj);
-    const kg = parseNum(row.tonajKg);
+    const net = parseKg(row.netTonaj);
+    const kg = parseKg(row.tonajKg);
     if (bbt > 0 && Math.abs(g - bbt) < 0.05) return false;
     if (net > 0 && Math.abs(g - net) < 0.05) return false;
     if (kg > 0 && Math.abs(g - kg) < 0.05) return false;
@@ -660,6 +688,9 @@
       const itemMal = normalizeMalzemeKey(item && (item.malzemeLabel || item.malzeme || ''));
       const reportMal = normalizeMalzemeKey(d.malzeme || r.malzeme || '');
       if (itemMal && reportMal && itemMal !== reportMal) return;
+      const itemLot = itemLotKey(item);
+      const reportLot = printReportLotKey(r);
+      if (itemLot && reportLot && itemLot !== reportLot) return;
       printCount += 1;
       const ev = reportEventBbt(r);
       bbt += ev;
@@ -673,6 +704,80 @@
       extra += ev;
     });
     return { extra, printCount, bbt, lastTs, lastSite };
+  }
+
+  function pendingItemKnownPlates(item) {
+    const known = new Set(Array.isArray(item && item.knownPlateKeys) ? item.knownPlateKeys : []);
+    (item && item.waitingPlates ? item.waitingPlates : []).forEach((p) => {
+      const pk = plateKey(p && p.plaka);
+      if (pk) known.add(pk);
+    });
+    (item && item.ozmalPlates ? item.ozmalPlates : []).forEach((p) => {
+      const pk = plateKey(p && p.plaka);
+      if (pk) known.add(pk);
+    });
+    return known;
+  }
+
+  function scorePendingPrintTarget(item, reportLot, reportMal) {
+    const itemLot = itemLotKey(item);
+    const itemMal = normalizeMalzemeKey(item && (item.malzemeLabel || item.malzeme || ''));
+    if (reportLot && itemLot && reportLot !== itemLot) return -1;
+    if (reportMal && itemMal && reportMal !== itemMal) return -1;
+    let score = 1;
+    if (reportLot && itemLot && reportLot === itemLot) score += 100;
+    if (reportMal && itemMal && reportMal === itemMal) score += 50;
+    const rem = parseNum(item && item.remainingBbt);
+    const plan = parseNum(item && item.planBbt);
+    if (rem > 0) score += 10;
+    if (plan > 0 && rem > 0 && rem < plan) score += 20;
+    if ((item && item.waitingPlates ? item.waitingPlates : []).length) score += 5;
+    return score;
+  }
+
+  /** Excel'de olmayan çıkan plaka BBT'sini ilgili YD/LOT kalanından düşer. */
+  function applyExtraPrintsToPendingItems(items, reports, meta) {
+    const list = (items || []).map((it) =>
+      Object.assign({}, it, {
+        remainingBbt: parseNum(it && it.remainingBbt),
+        processedBbt: parseNum(it && it.processedBbt),
+        departedBbt: parseNum(it && it.departedBbt),
+        waitingPlates: Array.isArray(it && it.waitingPlates) ? it.waitingPlates.slice() : [],
+        ozmalPlates: Array.isArray(it && it.ozmalPlates) ? it.ozmalPlates.slice() : [],
+        knownPlateKeys: Array.isArray(it && it.knownPlateKeys) ? it.knownPlateKeys.slice() : [],
+      })
+    );
+    normalizePrintReports(reports).forEach((r) => {
+      if (!printReportValidForBalance(r.ts, meta)) return;
+      const yd = printReportYdKey(r);
+      if (!yd) return;
+      const pk = reportPlateKey(r);
+      const lot = printReportLotKey(r);
+      const d = r.data || {};
+      const reportMal = normalizeMalzemeKey(d.malzeme || r.malzeme || '');
+      const sameYd = list.filter((it) => normalizeYdKey(it.ydKey || it.headerText) === yd);
+      if (!sameYd.length) return;
+      if (pk && sameYd.some((it) => pendingItemKnownPlates(it).has(pk))) return;
+      let best = null;
+      let bestScore = 0;
+      sameYd.forEach((it) => {
+        const s = scorePendingPrintTarget(it, lot, reportMal);
+        if (s > bestScore) {
+          bestScore = s;
+          best = it;
+        }
+      });
+      if (!best || parseNum(best.remainingBbt) <= 0) return;
+      const ev = reportEventBbt(r);
+      if (ev <= 0) return;
+      best.remainingBbt = Math.max(0, parseNum(best.remainingBbt) - ev);
+      best.processedBbt = parseNum(best.processedBbt) + ev;
+      best.departedBbt = parseNum(best.departedBbt) + ev;
+    });
+    return list.map((it) => {
+      it.message = buildMessage(it.ydKey, it.planBbt, it.remainingBbt, it.waitingPlates, it.explicitNotes);
+      return it;
+    });
   }
 
   function enrichBalanceItemsWithReports(items, reports, meta) {
@@ -823,13 +928,13 @@
     return (rows || []).map((row) => {
       if (!row || row._ihracatEmptyBlock) return row;
       const working = clearLiveDepartedMark(row);
-      if (parseNum(working.gidenTonaj) > 0) return working;
+      if (isRowDeparted(working)) return working;
       const plaka = String(working.plaka || '').trim();
       if (!isValidPlateCell(plaka)) return working;
       const slot = slots.find((s) => printSlotMatchesRow(s, working));
       if (!slot) return working;
       slot.used = true;
-      const gt = parseNum(working.tonajKg) || parseNum(working.netTonaj) || parseNum(working.bbt) || 1;
+      const gt = parseKg(working.tonajKg) || parseKg(working.netTonaj) || parseNum(working.bbt) || 1;
       return Object.assign({}, working, { gidenTonaj: String(gt), _nbLiveDeparted: true });
     });
   }
@@ -1964,6 +2069,9 @@
     collectYdReportStats,
     enrichBalanceItemsWithReports,
     extraReportBbtForItem,
+    applyExtraPrintsToPendingItems,
+    isPlaceholderPlate,
+    parseKg,
     balanceRowStatus,
     compareBalanceStatus,
     clearLiveDepartedMark,

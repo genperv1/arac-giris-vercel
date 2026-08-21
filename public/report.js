@@ -1547,7 +1547,7 @@
     const tbody = document.getElementById('tbody');
     const showLoading = forceReload || !_eventsLoaded;
     if (showLoading && tbody) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">Yükleniyor...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">Yükleniyor...</td></tr>';
     }
     
     try {
@@ -1555,7 +1555,7 @@
 
       if (!_latestEvents || !_latestEvents.length) {
         if (tbody) {
-          tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">Henüz rapor bulunmuyor.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">Henüz rapor bulunmuyor.</td></tr>';
         }
         updateFilterButtonCounts(emptyBasimStats(), emptyShiftStats(), emptyKindStats());
         syncDupActions(0);
@@ -1633,7 +1633,7 @@
 
     if (!rows.length) {
       const emptyMsg = reportsEmptyMessage(q, mq);
-      tbodyEl.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">' + emptyMsg + '</td></tr>';
+      tbodyEl.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">' + emptyMsg + '</td></tr>';
       try {
         const pc = document.getElementById('paginationControls');
         if (pc) pc.innerHTML = '';
@@ -1733,13 +1733,23 @@
         ? '<div class="rp-dup-tag rp-dup-tag--extra">Fazla baskı</div>'
         : (v._dupGroup ? '<div class="rp-dup-tag rp-dup-tag--keep">Asıl</div>' : '');
       const basimCellHtml = (basim ? escapeRpHtml(basim) : '-') + kindTag + dupTag;
+      const snap = v.lastPrintSnapshot || {};
+      const kantarName = String(
+        (d && (d.kantar || d.imzaKantarAd))
+        || (lastEv && lastEv.kantar)
+        || snap.kantar
+        || snap.imzaKantarAd
+        || ''
+      ).trim();
+      const kantarCellHtml = kantarName ? escapeRpHtml(kantarName) : '-';
 
       tr.innerHTML = `
         <td class="col-plate font-semibold" data-label="Plaka / Sürücü">${plateCellHtml}</td>
         <td class="col-firma" data-label="Firma">${firmaCellHtml}</td>
-        <td class="col-tarih" data-label="Tarih">${'<div style="font-weight:700">' + dateLine + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + escapeRpHtml(timeStr) + '</div>') : '')}</td>
+        <td class="col-malzeme" data-label="Malzeme Bilgisi">${lastPrintHtml}</td>
         <td class="col-basim" data-label="Basım Yeri">${basimCellHtml}</td>
-        <td class="col-malzeme" data-label="Malzeme">${lastPrintHtml}</td>
+        <td class="col-kantar" data-label="Kantar Personeli">${kantarCellHtml}</td>
+        <td class="col-tarih" data-label="Tarih">${'<div style="font-weight:700">' + dateLine + '</div>' + (timeStr ? ('<div style="font-size:12px;opacity:.85">' + escapeRpHtml(timeStr) + '</div>') : '')}</td>
         <td class="col-islem rp-table-actions" data-label="İşlem">
           <div class="rp-table-actions-inner">
             <button class="report-action-btn netsisBtn"
@@ -1845,7 +1855,7 @@
       console.error('Render error:', error);
       const tbodyErr = document.getElementById('tbody');
       if (tbodyErr) {
-        tbodyErr.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-red-500">Yüklenirken hata oluştu. Lütfen sayfayı yenileyin.</td></tr>';
+        tbodyErr.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-red-500">Yüklenirken hata oluştu. Lütfen sayfayı yenileyin.</td></tr>';
       }
     }
   }

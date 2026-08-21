@@ -44,16 +44,117 @@
     .nb-excel-ok { color: #15803d; font-weight: 600; }
     .nb-excel-no { color: #94a3b8; font-weight: 600; }
 
+    .nb-excel-window {
+      width: max-content;
+      max-width: 100%;
+      margin: 0 auto;
+      background: #e6e6e6;
+      border: 1px solid #b8b8b8;
+      border-radius: 6px;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+    }
+    .nb-excel-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #217346;
+      color: #fff;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: 'Segoe UI', Calibri, Arial, sans-serif;
+    }
+    .nb-excel-titlebar i { opacity: 0.95; }
+    .nb-excel-titlebar span { flex: 1; }
+    .nb-excel-winbtns { display: flex; gap: 8px; opacity: 0.9; font-size: 11px; letter-spacing: 0.2em; }
+    .nb-excel-menu {
+      display: flex;
+      gap: 16px;
+      padding: 6px 14px;
+      background: #f3f3f3;
+      border-bottom: 1px solid #d0d0d0;
+      font-size: 12px;
+      color: #1f1f1f;
+      font-family: 'Segoe UI', Calibri, Arial, sans-serif;
+    }
+    .nb-excel-menu b { color: #217346; font-weight: 700; }
+    .nb-excel-formula {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px;
+      background: #fff;
+      border-bottom: 1px solid #d0d0d0;
+      font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+      font-size: 13px;
+    }
+    .nb-excel-namebox {
+      min-width: 64px;
+      padding: 2px 8px;
+      border: 1px solid #c8c8c8;
+      background: #fff;
+      color: #333;
+      font-size: 12px;
+    }
+    .nb-excel-fx {
+      color: #217346;
+      font-weight: 800;
+      font-style: italic;
+      width: 22px;
+      text-align: center;
+    }
+    .nb-excel-fxbar {
+      flex: 1;
+      border: 1px solid #c8c8c8;
+      padding: 3px 8px;
+      background: #fff;
+      color: #444;
+      min-height: 22px;
+    }
+    .nb-excel-workspace {
+      background: #ececec;
+      padding: 12px;
+    }
+    .nb-excel-tabs {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      padding: 0 10px 0;
+      background: #217346;
+      min-height: 28px;
+    }
+    .nb-excel-tab {
+      background: #9fd5b3;
+      color: #0f3d24;
+      border: 1px solid #1b5e3b;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      padding: 5px 16px 4px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: 'Segoe UI', Calibri, Arial, sans-serif;
+    }
+    .nb-excel-tab.is-on {
+      background: #fff;
+      color: #217346;
+    }
+
     /* Excel görünümü — tek liste, ekran görüntüsü için */
     .nb-sheet-outer {
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 8px 4px 24px;
+      padding: 0 0 24px;
     }
     .nb-sheet-wrap {
-      width: 100%;
-      max-width: 560px;
+      display: grid;
+      grid-template-columns: repeat(2, 360px);
+      justify-content: center;
+      gap: 12px;
+      width: max-content;
+      max-width: 100%;
+      margin: 0 auto;
       background: transparent;
     }
     .nb-sheet-head {
@@ -98,67 +199,72 @@
       gap: 6px;
       align-items: center;
     }
-    .nb-sheet-wrap.nb-sheet-wrap--dual {
-      max-width: 1140px;
-    }
+    .nb-sheet-wrap.nb-sheet-wrap--dual,
     .nb-sheet-wrap.nb-sheet-wrap--side {
-      max-width: min(96vw, 1420px);
+      display: grid;
+      grid-template-columns: repeat(2, 360px);
     }
-    .nb-sheet-wrap.nb-sheet-wrap--side .nb-sheet-head {
-      border-bottom: 1px solid #000;
+    .nb-sheet-columns,
+    .nb-sheet-columns--side {
+      display: contents;
+    }
+    .nb-sheet-col {
+      display: contents;
     }
     .nb-sheet-capture--carrier-only .nb-plate--exclude-copy {
       display: none;
-    }
-    .nb-sheet-columns {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-    }
-    .nb-sheet-columns--side {
-      flex-wrap: nowrap;
-      justify-content: center;
-      overflow-x: auto;
-      padding-bottom: 4px;
-    }
-    .nb-sheet-col {
-      flex: 1 1 0;
-      min-width: 0;
-      max-width: 560px;
-    }
-    .nb-sheet-columns--side .nb-sheet-col {
-      flex: 0 0 auto;
-      width: min(520px, 36vw);
-      min-width: 280px;
-      max-width: 560px;
     }
     .nb-sheet-footer {
       margin-top: 0;
     }
     .nb-sheet-footer .nb-sheet-grid {
-      max-width: 450px;
-      margin: 0 auto;
+      max-width: none;
+      margin: 0;
     }
     .nb-sheet-grid {
       width: 100%;
+    }
+    .nb-excel-col-letters {
+      width: 100%;
+      background: #f2f2f2;
+    }
+    .nb-excel-col-letters table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 100%;
+    }
+    .nb-excel-col-letters th {
+      border: 1px solid #c5c5c5;
+      background: linear-gradient(#fafafa, #ececec);
+      color: #6b6b6b;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      padding: 3px 4px;
+      font-family: Calibri, 'Segoe UI', Arial, sans-serif;
     }
     .nb-sheet-grid table {
       border-collapse: collapse;
       table-layout: fixed;
       width: 100%;
+      font-family: Calibri, 'Segoe UI', Arial, sans-serif;
     }
     .nb-sheet-grid td {
-      border: 1px solid #000;
-      padding: 5px 10px;
+      border: 1px solid #c5c5c5;
+      padding: 4px 6px;
       vertical-align: middle;
       white-space: nowrap;
       text-align: center;
       overflow: hidden;
     }
-    .nb-sheet-grid .col-no { width: 34px; }
-    .nb-sheet-grid .col-plaka { width: 32%; }
-    .nb-sheet-grid .col-status { width: 36%; }
-    .nb-sheet-grid .col-bbt { width: 22%; }
+    .nb-sheet-grid .col-no,
+    .nb-excel-col-letters .col-no { width: 32px; }
+    .nb-sheet-grid .col-plaka,
+    .nb-excel-col-letters .col-plaka { width: 30%; }
+    .nb-sheet-grid .col-status,
+    .nb-excel-col-letters .col-status { width: 38%; }
+    .nb-sheet-grid .col-bbt,
+    .nb-excel-col-letters .col-bbt { width: 22%; }
     .nb-sheet-grid tr.nb-hdr td,
     .nb-sheet-grid tr.nb-pending td,
     .nb-sheet-grid tr.nb-site-hdr td,
@@ -248,15 +354,20 @@
     /* Excel bloğu: tablo ayrı, Kopyala / Plaka altta */
     .nb-sheet-block {
       position: relative;
-      margin-bottom: 12px;
+      width: 360px;
+      margin-bottom: 0;
+      background: #fff;
+      border: 1px solid #d4d4d4;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
-    .nb-sheet-block:last-child { margin-bottom: 0; }
     .nb-sheet-block-main {
       display: block;
       width: 100%;
     }
     .nb-sheet-block-body {
-      width: 100%;
+      width: 360px;
+      height: auto;
+      overflow: visible;
       background: #fff;
     }
     .nb-block-bar {
@@ -354,7 +465,12 @@
       border-color: #0f172a;
       color: #fff;
     }
-    /* Görsel kopyada asla görünmesin */
+    body.nb-is-capturing .nb-excel-chrome,
+    body.nb-is-capturing .nb-excel-col-letters { display: none !important; }
+    body.nb-is-capturing .nb-sheet-block-body {
+      height: auto !important;
+      overflow: visible !important;
+    }
     .nb-capture-host,
     .nb-capture-host * {
       pointer-events: none !important;
@@ -430,6 +546,14 @@
     }
     .nb-toast.is-visible { opacity: 1; }
 
+    @media (max-width: 800px) {
+      .nb-sheet-wrap,
+      .nb-sheet-wrap.nb-sheet-wrap--dual,
+      .nb-sheet-wrap.nb-sheet-wrap--side {
+        grid-template-columns: 360px;
+      }
+    }
+
     @media print {
       .nb-header, .nb-toolbar-card { display: none !important; }
       body.nb-page { background: #fff; }
@@ -439,7 +563,7 @@
 </head>
 <body class="nb-page text-gray-700">
   <header class="nb-header">
-    <div class="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between gap-4 flex-wrap">
+    <div class="max-w-[96rem] mx-auto px-4 py-4 flex items-center justify-between gap-4 flex-wrap">
       <div>
         <div class="text-lg font-bold">Nakliye Bekleyenleri</div>
         <div class="text-xs text-amber-100">Temiz Excel · sağdan kopyala · Düzenle ile sil</div>
@@ -480,7 +604,7 @@
   <script src="idb.js"></script>
   <script src="dailyStore.js?v=20260821-multiexcel7"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260821-multiexcel7"></script>
-  <script src="nakliye-bekleyen.js?v=20260821-multiexcel7"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260822-printfix1"></script>
+  <script src="nakliye-bekleyen.js?v=20260822-excel-sq"></script>
 </body>
 </html>

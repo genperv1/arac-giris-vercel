@@ -90,9 +90,12 @@
 
   async function loadRowsWithLiveDeparted() {
     const rows = loadRows();
-    if (!rows.length || !core) return rows;
+    if (!rows.length || !core) return { rows, reports: [] };
     const cleaned = rows.map((r) => (core.clearLiveDepartedMark ? core.clearLiveDepartedMark(r) : r));
-    return cleaned;
+    const reports = await fetchPrintReports();
+    const marked =
+      core.applyLiveDepartedMarks ? core.applyLiveDepartedMarks(cleaned, loadMeta(), reports) : cleaned;
+    return { rows: marked, reports };
   }
 
   function loadMeta() {
@@ -956,6 +959,9 @@
   function buildSheetTableHtml(sheetRows) {
     if (!sheetRows.length) return '';
     let html =
+      '<div class="nb-excel-col-letters nb-no-capture" aria-hidden="true"><table>' +
+      '<colgroup><col class="col-no" /><col class="col-plaka" /><col class="col-status" /><col class="col-bbt" /></colgroup>' +
+      '<tr><th>A</th><th>B</th><th>C</th><th>D</th></tr></table></div>' +
       '<div class="nb-sheet-grid"><table role="grid"><colgroup>' +
       '<col class="col-no" /><col class="col-plaka" /><col class="col-status" /><col class="col-bbt" />' +
       '</colgroup><tbody>';
@@ -1113,9 +1119,8 @@
         ? core.groupItemsByExcelFile(items, knownFiles)
         : [];
     const multiFile = !!parts.multiFile || fileGroups.length > 1 || knownFiles.length > 1;
-    const useSideBySide = multiFile && fileGroups.length > 1;
-    const usePackedDual =
-      !useSideBySide && core.shouldUseDualColumnLayout(parts.nakliyeRows, blocks, { multiFile });
+    const useSideBySide = false;
+    const usePackedDual = false;
     const sourceDates = new Set(items.map((it) => it.sourceDateLabel).filter(Boolean));
     const dateLabel =
       multiFile || sourceDates.size > 1
@@ -1135,7 +1140,23 @@
         ? ' nb-sheet-wrap--dual'
         : '';
 
-    let html = '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
+    let html =
+      '<div class="nb-excel-window">' +
+      '<div class="nb-excel-chrome nb-excel-titlebar nb-no-capture">' +
+      '<i class="fas fa-file-excel" aria-hidden="true"></i>' +
+      '<span>Nakliye Bekleyenleri.xlsx</span>' +
+      '<span class="nb-excel-winbtns" aria-hidden="true">— □ ×</span>' +
+      '</div>' +
+      '<div class="nb-excel-chrome nb-excel-menu nb-no-capture">' +
+      '<b>Dosya</b><span>Giriş</span><span>Ekle</span><span>Sayfa Düzeni</span><span>Formüller</span><span>Veri</span><span>Görünüm</span>' +
+      '</div>' +
+      '<div class="nb-excel-chrome nb-excel-formula nb-no-capture">' +
+      '<span class="nb-excel-namebox">A1</span>' +
+      '<span class="nb-excel-fx">fx</span>' +
+      '<span class="nb-excel-fxbar">' + esc(dateLabel || 'Nakliye bekleyenleri') + '</span>' +
+      '</div>' +
+      '<div class="nb-excel-workspace">' +
+      '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
     const titleRows = blockTitleRows(dateLabel);
     if (useSideBySide) {
       html += '<div class="nb-sheet-columns nb-sheet-columns--side">';
@@ -1161,7 +1182,11 @@
     } else {
       html += buildBlocksColumnHtml(blocks, 0, titleRows).html;
     }
-    html += '</div>';
+    html += '</div></div>';
+    html +=
+      '<div class="nb-excel-chrome nb-excel-tabs nb-no-capture">' +
+      '<span class="nb-excel-tab is-on">' + esc(dateLabel || 'Nakliye') + '</span>' +
+      '</div></div>';
     outer.innerHTML = html;
   }
 
@@ -1193,7 +1218,9 @@
     const stats = document.getElementById('nbStats');
 
     try {
-      const rows = await loadRowsWithLiveDeparted();
+      const loaded = await loadRowsWithLiveDeparted();
+      const rows = loaded && loaded.rows ? loaded.rows : loaded || [];
+      const reports = loaded && loaded.reports ? loaded.reports : [];
 
       if (!rows.length) {
         empty?.classList.add('hidden');
@@ -1205,6 +1232,9 @@
       noExcel?.classList.add('hidden');
 
       _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
+      if (core && typeof core.applyExtraPrintsToPendingItems === 'function') {
+        _allItems = core.applyExtraPrintsToPendingItems(_allItems, reports, loadMeta());
+      }
       const visible = filterItems(_allItems);
 
       const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);

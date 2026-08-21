@@ -644,56 +644,57 @@
       border-radius: 12px;
       box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
       overflow: hidden;
-      width: 100%;
-      max-width: 100%;
+      width: auto;
+      max-width: none;
+      margin-left: 2.25rem;
+      margin-right: 2.25rem;
     }
 
     .rp-table-scroll {
       width: 100%;
-      max-width: 100%;
-      overflow-x: hidden;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 0;
     }
 
     .rp-table {
       width: 100%;
-      max-width: 100%;
-      table-layout: fixed;
+      min-width: 100%;
+      table-layout: auto;
       border-collapse: collapse;
-      font-size: 0.875rem;
+      font-size: 12px;
+      font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+      line-height: 1.25;
     }
 
     .rp-table thead {
-      background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
-      border-bottom: 2px solid var(--rp-border);
+      background: #eef2ff;
+    }
+
+    .rp-table th,
+    .rp-table td {
+      border: 1px solid #c5c5c5;
+      padding: 4px 8px;
+      white-space: nowrap;
+      vertical-align: middle;
     }
 
     .rp-table th {
-      padding: 0.65rem 0.6rem;
       text-align: left;
-      font-size: 0.6875rem;
+      background: #eef2ff;
+      color: #3730a3;
+      font-size: 11px;
       font-weight: 700;
-      color: var(--rp-muted);
+      letter-spacing: 0.02em;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      white-space: normal;
-      word-break: break-word;
-    }
-
-    .rp-table td {
-      padding: 0.65rem 0.6rem;
-      vertical-align: middle;
-      border-top: 1px solid #f1f5f9;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      white-space: normal;
     }
 
     .rp-table tbody tr:nth-child(even) {
-      background: #fafbfc;
+      background: #f8fafc;
     }
 
     .rp-table tbody tr:hover {
-      background: #f1f5f9;
+      background: #eef2ff;
     }
 
     .rp-table tbody tr.is-dup-keep {
@@ -709,95 +710,67 @@
     }
 
     .rp-table .col-plate {
-      width: 12%;
       font-weight: 600;
       color: #0f172a;
       font-family: ui-monospace, Consolas, monospace;
       letter-spacing: 0.02em;
-      white-space: normal;
-      word-break: break-word;
     }
 
     .rp-table .col-plate .rp-sofor-line {
-      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-      font-size: 0.75rem;
+      font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+      font-size: 11px;
       font-weight: 600;
       color: #334155;
-      margin-top: 2px;
-      line-height: 1.25;
-      white-space: normal;
-      word-break: break-word;
+      margin-top: 1px;
+      line-height: 1.2;
     }
 
     .rp-table .col-firma {
-      width: 14%;
-      white-space: normal;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      line-height: 1.3;
+      line-height: 1.25;
       font-weight: 600;
       color: #0f172a;
     }
 
     .rp-table .col-firma .rp-firma-text {
       display: block;
-      max-width: 100%;
-      white-space: normal;
-      word-break: break-word;
-      overflow-wrap: anywhere;
     }
 
     .rp-table .col-firma .rp-firma-name {
       display: block;
-      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-      font-size: 0.75rem;
+      font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+      font-size: 11px;
       font-weight: 600;
       color: #475569;
-      margin-top: 2px;
-      line-height: 1.25;
-      white-space: normal;
-      word-break: break-word;
-    }
-
-    .rp-table .col-tarih {
-      width: 13%;
+      margin-top: 1px;
+      line-height: 1.2;
     }
 
     .rp-table .col-tarih .rp-week-label {
       font-weight: 600;
-      font-size: 0.75rem;
+      font-size: 11px;
       color: #64748b;
-      white-space: nowrap;
     }
 
-    .rp-table .col-basim {
-      width: 9%;
+    .rp-table .col-kantar {
+      font-weight: 600;
+      color: #0f172a;
     }
 
     .rp-table .col-malzeme {
-      width: 28%;
-      white-space: normal;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      line-height: 1.35;
-    }
-
-    .rp-table .col-islem,
-    .rp-table .rp-table-actions {
-      width: 27%;
+      line-height: 1.25;
     }
 
     .rp-table-actions-inner {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       align-items: center;
-      gap: 0.35rem;
-      white-space: normal;
-      max-width: 100%;
+      gap: 0.3rem;
     }
 
     .rp-footer {
       margin-top: 1.25rem;
+      margin-left: 2.25rem;
+      margin-right: 2.25rem;
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
@@ -1312,7 +1285,21 @@
       background: #f1f5f9;
     }
 
+    @media (min-width: 1600px) {
+      .rp-table-wrap,
+      .rp-footer {
+        margin-left: 3.5rem;
+        margin-right: 3.5rem;
+      }
+    }
+
     @media (max-width: 1100px) {
+      .rp-table-wrap,
+      .rp-footer {
+        margin-left: 1.25rem;
+        margin-right: 1.25rem;
+      }
+
       .rp-filter-mid {
         grid-template-columns: 1fr 1fr;
       }
@@ -1366,6 +1353,21 @@
         min-height: 2.75rem;
       }
 
+      .rp-table-wrap,
+      .rp-footer {
+        margin-left: 0;
+        margin-right: 0;
+      }
+
+      .rp-table-scroll {
+        padding: 0.5rem 0;
+        overflow-x: visible;
+      }
+
+      .rp-table--responsive {
+        width: 100%;
+      }
+
       .rp-table--responsive thead {
         display: none;
       }
@@ -1399,7 +1401,10 @@
         justify-content: space-between;
         gap: 0.75rem;
         padding: 0.45rem 0;
+        border: none;
         border-top: none;
+        white-space: normal;
+        word-break: break-word;
       }
 
       .rp-table--responsive td::before {
@@ -1684,9 +1689,10 @@
             <tr>
               <th class="col-plate">Plaka / Sürücü</th>
               <th class="col-firma">Firma</th>
-              <th class="col-tarih">Tarih</th>
-              <th class="col-basim">Basım Yeri</th>
               <th class="col-malzeme">Malzeme Bilgisi</th>
+              <th class="col-basim">Basım Yeri</th>
+              <th class="col-kantar">Kantar Personeli</th>
+              <th class="col-tarih">Tarih</th>
               <th class="col-islem">İşlem</th>
             </tr>
           </thead>
@@ -1721,7 +1727,7 @@
   <script src="sync-manager.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260820-pwd"></script>
-  <script src="report.js?v=20260820-pwd"></script>
+  <script src="report.js?v=20260822-kantarci"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

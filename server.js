@@ -326,6 +326,7 @@ async function prepareSchema() {
       miktar TEXT,
       tonaj TEXT,
       basim_yeri TEXT,
+      kantarci TEXT,
       order_key TEXT,
       hafta TEXT,
       sheet TEXT,
@@ -337,6 +338,7 @@ async function prepareSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_firma_tarih ON piyasa_cikanlar(firma, tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_plaka_tarih ON piyasa_cikanlar(plaka, tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_order_key ON piyasa_cikanlar(order_key);`);
+  await pool.query(`ALTER TABLE piyasa_cikanlar ADD COLUMN IF NOT EXISTS kantarci TEXT;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS operation_notes(

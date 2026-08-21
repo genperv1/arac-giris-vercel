@@ -2,6 +2,7 @@
   'use strict';
 
   let _rows = [];
+  let _weeks = [];
 
   function esc(s) {
     return String(s || '')
@@ -36,6 +37,16 @@
     return s;
   }
 
+  function queryParams() {
+    const p = new URLSearchParams();
+    const firma = (document.getElementById('pcFirma')?.value || '').trim();
+    const plaka = (document.getElementById('pcPlaka')?.value || '').trim();
+    if (firma) p.set('firma', firma);
+    if (plaka) p.set('plaka', plaka);
+    p.set('limit', '2000');
+    return p;
+  }
+
   function isoWeekFromYmd(ymd) {
     const m = String(ymd || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) return null;
@@ -47,76 +58,61 @@
     return Number.isFinite(weekNo) && weekNo > 0 ? weekNo : null;
   }
 
-  function setDateWeekHints() {
-    const from = (document.getElementById('pcFrom')?.value || '').trim();
-    const to = (document.getElementById('pcTo')?.value || '').trim();
-    const fromHint = document.getElementById('pcFromWeek');
-    const toHint = document.getElementById('pcToWeek');
-    const fw = isoWeekFromYmd(from);
-    const tw = isoWeekFromYmd(to);
-    if (fromHint) fromHint.textContent = fw ? (fw + '. hafta') : '';
-    if (toHint) toHint.textContent = tw ? (tw + '. hafta') : '';
-  }
-
-  function setToday() {
-    const ymd = todayYmd();
-    const fromEl = document.getElementById('pcFrom');
-    const toEl = document.getElementById('pcTo');
-    if (fromEl) fromEl.value = ymd;
-    if (toEl) toEl.value = ymd;
-    setDateWeekHints();
-  }
-
-  function queryParams() {
-    const p = new URLSearchParams();
-    const from = (document.getElementById('pcFrom')?.value || '').trim();
-    const to = (document.getElementById('pcTo')?.value || '').trim();
-    const firma = (document.getElementById('pcFirma')?.value || '').trim();
-    const plaka = (document.getElementById('pcPlaka')?.value || '').trim();
-    if (from) p.set('from', from);
-    if (to) p.set('to', to);
-    if (firma) p.set('firma', firma);
-    if (plaka) p.set('plaka', plaka);
-    p.set('limit', '2000');
-    return p;
-  }
-
-  async function loadRows() {
-    const tbody = document.getElementById('pcTbody');
-    const countEl = document.getElementById('pcCount');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="13" class="pc-empty">Yükleniyor…</td></tr>';
+  function istanbulYmdFromMs(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n <= 0) return '';
     try {
-      const res = await fetch('/api/piyasa/cikanlar?' + queryParams().toString() + '&_=' + Date.now(), {
-        credentials: 'include',
-        cache: 'no-store',
-        headers: authHeaders(false),
-      });
-      if (res.status === 401) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="13" class="pc-empty">Oturum gerekli. Ana sayfadan giriş yapın.</td></tr>';
-        return;
-      }
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      _rows = Array.isArray(data.rows) ? data.rows : [];
-      const total = Number(data.total || _rows.length);
-      if (countEl) countEl.textContent = total ? (total + ' kayıt') : 'Kayıt yok';
-      renderTable();
+      return new Date(n).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
     } catch (e) {
-      console.warn('Piyasa çıkanlar yüklenemedi:', e);
-      _rows = [];
-      if (tbody) tbody.innerHTML = '<tr><td colspan="13" class="pc-empty">Liste alınamadı.</td></tr>';
-      if (countEl) countEl.textContent = '';
+      return '';
     }
   }
 
-  function renderTable() {
-    const tbody = document.getElementById('pcTbody');
-    if (!tbody) return;
-    if (!_rows.length) {
-      tbody.innerHTML = '<tr><td colspan="13" class="pc-empty">Bu filtrede çıkan piyasa yok.</td></tr>';
-      return;
+  function groupRowsLocally(rows) {
+    const currentWeek = isoWeekFromYmd(todayYmd());
+    const map = new Map();
+    (rows || []).forEach((row) => {
+      const week = parseInt(String(row.hafta || '').replace(/[^\d]/g, ''), 10)
+        || isoWeekFromYmd(istanbulYmdFromMs(row.tarih))
+        || 0;
+      const key = String(week || 'x');
+      if (!map.has(key)) {
+        const isCurrent = week === currentWeek;
+        map.set(key, {
+          key: key,
+          week: week,
+          isCurrent: isCurrent,
+          title: isCurrent ? 'Bu hafta' : (week ? (week + '. hafta') : 'Diğer'),
+          subtitle: isCurrent && week ? (week + '. hafta') : '',
+          count: 0,
+          rows: [],
+        });
+      }
+      const g = map.get(key);
+      g.rows.push(row);
+      g.count = g.rows.length;
+    });
+    const groups = Array.from(map.values());
+    if (currentWeek && !groups.some((g) => g.isCurrent)) {
+      groups.push({
+        key: String(currentWeek),
+        week: currentWeek,
+        isCurrent: true,
+        title: 'Bu hafta',
+        subtitle: currentWeek + '. hafta',
+        count: 0,
+        rows: [],
+      });
     }
-    tbody.innerHTML = _rows.map((r) => (
+    groups.sort((a, b) => {
+      if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+      return (b.week || 0) - (a.week || 0);
+    });
+    return groups;
+  }
+
+  function rowHtml(r) {
+    return (
       '<tr>' +
         '<td class="pc-mono">' + esc(r.tarihLabel) +
           (r.haftaLabel ? '<div class="pc-week">' + esc(r.haftaLabel) + '</div>' : '') +
@@ -130,13 +126,111 @@
         '<td class="pc-mono">' + esc(r.sip_no) + '</td>' +
         '<td>' + esc(r.malzeme) + '</td>' +
         '<td>' + esc(r.yukleme_turu) + '</td>' +
-        '<td>' + esc(r.sehir) + '</td>' +
         '<td>' + esc(r.sevk_yeri) + '</td>' +
         '<td class="pc-mono">' + esc(r.tonaj || r.miktar) + '</td>' +
         '<td>' + esc(r.sofor) + '</td>' +
         '<td>' + esc(r.basim_yeri) + '</td>' +
       '</tr>'
-    )).join('');
+    );
+  }
+
+  function tableHtml(rows) {
+    if (!rows || !rows.length) {
+      return '<div class="pc-empty">Bu haftada kayıt yok.</div>';
+    }
+    return (
+      '<div class="pc-table-wrap">' +
+        '<table class="pc-table">' +
+          '<thead><tr>' +
+            '<th>Tarih</th><th>Saat</th><th>Plaka</th><th>Firma</th><th>Firma adı</th><th>Sip no</th>' +
+            '<th>Malzeme</th><th>Yükleme türü</th><th>Sevk yeri</th><th>Tonaj</th><th>Şoför</th><th>Basım</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows.map(rowHtml).join('') + '</tbody>' +
+        '</table>' +
+      '</div>'
+    );
+  }
+
+  function summaryHtml(title, subtitle, count) {
+    return (
+      '<summary>' +
+        '<span>' +
+          '<span class="pc-acc-title">' + esc(title) + '</span>' +
+          (subtitle ? '<div class="pc-acc-sub">' + esc(subtitle) + '</div>' : '') +
+        '</span>' +
+        '<span class="pc-acc-count">' + esc(String(count)) + ' kayıt</span>' +
+      '</summary>'
+    );
+  }
+
+  function weekDetailsHtml(week, extraClass, open) {
+    const cls = 'pc-acc' + (extraClass ? ' ' + extraClass : '');
+    return (
+      '<details class="' + cls + '"' + (open ? ' open' : '') + '>' +
+        summaryHtml(week.title, week.subtitle, week.count) +
+        '<div class="pc-acc-body">' + tableHtml(week.rows) + '</div>' +
+      '</details>'
+    );
+  }
+
+  async function loadRows() {
+    const host = document.getElementById('pcWeeks');
+    const countEl = document.getElementById('pcCount');
+    if (host) host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Yükleniyor…</div>';
+    try {
+      const res = await fetch('/api/piyasa/cikanlar?' + queryParams().toString() + '&_=' + Date.now(), {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: authHeaders(false),
+      });
+      if (res.status === 401) {
+        if (host) host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Oturum gerekli. Ana sayfadan giriş yapın.</div>';
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      _rows = Array.isArray(data.rows) ? data.rows : [];
+      _weeks = Array.isArray(data.weeks) && data.weeks.length
+        ? data.weeks
+        : groupRowsLocally(_rows);
+      const total = Number(data.total || _rows.length);
+      if (countEl) countEl.textContent = total ? (total + ' kayıt — haftaya tıklayınca açılır') : 'Kayıt yok';
+      renderWeeks();
+    } catch (e) {
+      console.warn('Piyasa çıkanlar yüklenemedi:', e);
+      _rows = [];
+      _weeks = [];
+      if (host) host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Liste alınamadı.</div>';
+      if (countEl) countEl.textContent = '';
+    }
+  }
+
+  function renderWeeks() {
+    const host = document.getElementById('pcWeeks');
+    if (!host) return;
+    const current = _weeks.find((w) => w.isCurrent) || _weeks[0] || null;
+    const past = _weeks.filter((w) => current && w.key !== current.key);
+    if (!current) {
+      if (_rows.length) {
+        host.innerHTML = tableHtml(_rows);
+        return;
+      }
+      host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Bu filtrede çıkan piyasa yok.</div>';
+      return;
+    }
+    let html = weekDetailsHtml(current, 'pc-acc--current', true);
+    if (past.length) {
+      const pastCount = past.reduce((n, w) => n + Number(w.count || 0), 0);
+      html += (
+        '<details class="pc-acc pc-acc--past">' +
+          summaryHtml('Geçmiş kayıtlar', past.length + ' hafta', pastCount) +
+          '<div class="pc-acc-body" style="padding:2px 0 8px;">' +
+            past.map((w) => weekDetailsHtml(w, 'pc-acc--nested', false)).join('') +
+          '</div>' +
+        '</details>'
+      );
+    }
+    host.innerHTML = html;
   }
 
   function exportExcel() {
@@ -146,20 +240,19 @@
     }
     const headers = [
       'Tarih', 'Hafta', 'Saat', 'Plaka', 'Dorse', 'Firma', 'Firma adı', 'Sip no',
-      'Malzeme', 'Yükleme türü', 'Şehir', 'Sevk yeri', 'Miktar', 'Tonaj', 'Şoför', 'Basım yeri',
+      'Malzeme', 'Yükleme türü', 'Sevk yeri', 'Miktar', 'Tonaj', 'Şoför', 'Basım yeri',
     ];
     const lines = [headers.map(csvCell).join(';')];
     for (const r of _rows) {
       lines.push([
         r.tarihLabel, r.haftaLabel || r.hafta, r.saatLabel, r.plaka, r.dorse_plaka, r.firma, r.firma_adi, r.sip_no,
-        r.malzeme, r.yukleme_turu, r.sehir, r.sevk_yeri, r.miktar, r.tonaj, r.sofor, r.basim_yeri,
+        r.malzeme, r.yukleme_turu, r.sevk_yeri, r.miktar, r.tonaj, r.sofor, r.basim_yeri,
       ].map(csvCell).join(';'));
     }
     const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
-    const from = (document.getElementById('pcFrom')?.value || todayYmd());
     a.href = URL.createObjectURL(blob);
-    a.download = 'piyasa-cikanlar-' + from + '.csv';
+    a.download = 'piyasa-cikanlar-' + todayYmd() + '.csv';
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
@@ -169,16 +262,8 @@
   }
 
   function bind() {
-    setToday();
-    document.getElementById('pcTodayBtn')?.addEventListener('click', () => { setToday(); loadRows(); });
     document.getElementById('pcRefreshBtn')?.addEventListener('click', () => loadRows());
     document.getElementById('pcExportBtn')?.addEventListener('click', () => exportExcel());
-    ['pcFrom', 'pcTo'].forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', () => {
-        setDateWeekHints();
-        loadRows();
-      });
-    });
     ['pcFirma', 'pcPlaka'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;

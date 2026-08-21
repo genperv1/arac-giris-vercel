@@ -1511,4 +1511,146 @@ test('analyzeNakliyePending — empty YD LOT block without BBT still listed', ()
   assert.equal(rows[rows.length - 1].kind, 'pending');
 });
 
+test('isValidPlateCell — dummy EU / 0PLAKA0 are not real plates', () => {
+  assert.equal(core.isValidPlateCell('EU'), false);
+  assert.equal(core.isValidPlateCell('0PLAKA0'), false);
+  assert.equal(core.isValidPlateCell('PLAKA0'), false);
+  assert.equal(core.isValidPlateCell('03VR929'), true);
+  assert.equal(core.isValidPlateCell('43ACM276'), true);
+  assert.equal(core.isValidPlateCell('16RCU18'), true);
+});
+
+test('parseKg — Turkish thousand separators', () => {
+  assert.equal(core.parseKg('33.000'), 33000);
+  assert.equal(core.parseKg('32.400'), 32400);
+  assert.equal(core.parseKg('26.160'), 26160);
+  assert.equal(core.parseKg('33000'), 33000);
+});
+
+test('isRowDeparted — Excel 33.000 giden is departed', () => {
+  assert.equal(
+    core.isRowDeparted({
+      plaka: '03VR929',
+      bbt: '24',
+      netTonaj: '32.400',
+      gidenTonaj: '33.000',
+    }),
+    true
+  );
+});
+
+test('analyzeBlock — 0PLAKA0 / EU BBT goes to remaining, not gelmeyen', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'Y50',
+      headerText: 'YD50(G) / LOT NO 26 08 07 / 40 BBT',
+      plaka: '0PLAKA0',
+      bbt: '20',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'Y50',
+      headerText: 'YD50(G) / LOT NO 26 08 07 / 40 BBT',
+      plaka: 'EU',
+      bbt: '20',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.ok(item);
+  assert.equal(item.waitingPlates.length, 0);
+  assert.equal(item.remainingBbt, 40);
+});
+
+test('applyLiveDepartedMarks — printed VR929 hides even with false giden stamp', () => {
+  const meta = { importedAt: '2026-08-21T12:26:00.000Z' };
+  const rows = [
+    {
+      blockKey: 'YD154',
+      headerText: 'YD154(G) / LOT NO 26 08 03 / 200 BBT',
+      ydKey: 'YD154',
+      plaka: '03VR929',
+      bbt: '24',
+      gidenTonaj: '24',
+    },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-21T18:00:00.000Z').getTime(),
+      data: { plaka: '03VR929', firma: 'YD154(G) / LOT NO 26 08 03', bbt: '24' },
+    },
+  ];
+  const out = core.applyLiveDepartedMarks(rows, meta, reports);
+  assert.ok(core.isRowDeparted(out[0]));
+  const pending = core.analyzeNakliyePending(out);
+  assert.equal(pending[0].waitingPlates.length, 0);
+});
+
+test('YD154 — çıkan VR929 kapanır, EU 26 BBT kalır, Excel dışı EA029 kalandan düşer', () => {
+  const meta = { importedAt: '2026-08-21T12:26:00.000Z', dateKey: '2026-08-21' };
+  const header = 'YD154(G) / LOT NO 26 08 03 / HP 1,20-2,80 / 200 BBT';
+  const rows = [
+    { blockKey: 'B154', blockHeaderRow: 10, headerText: header, ydKey: 'YD154', plaka: '03DH540', bbt: '26', gidenTonaj: '35840', tonajKg: '35300' },
+    { blockKey: 'B154', blockHeaderRow: 10, headerText: header, ydKey: 'YD154', plaka: '03BN929', bbt: '26', gidenTonaj: '36100', tonajKg: '35300' },
+    { blockKey: 'B154', blockHeaderRow: 10, headerText: header, ydKey: 'YD154', plaka: '03VR929', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'B154', blockHeaderRow: 10, headerText: header, ydKey: 'YD154', plaka: '03AIA133', bbt: '24', gidenTonaj: '33000', tonajKg: '32600' },
+    { blockKey: 'B154', blockHeaderRow: 10, headerText: header, ydKey: 'YD154', plaka: '03AHP318', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'B154', blockHeaderRow: 10, headerText: header, ydKey: 'YD154', plaka: '03AIU484', bbt: '24', gidenTonaj: '' },
+    { blockKey: 'B154', blockHeaderRow: 10, headerText: header, ydKey: 'YD154', plaka: 'EU', bbt: '26', gidenTonaj: '' },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-21T20:00:00.000Z').getTime(),
+      data: { plaka: '03VR929', firma: 'YD154(G) / LOT NO 26 08 03', bbt: '24', malzeme: 'HP 1,20-2,80' },
+    },
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-21T21:00:00.000Z').getTime(),
+      data: { plaka: '03EA029', firma: 'YD154(G) / LOT NO 26 08 03', bbt: '26', malzeme: 'HP 1,20-2,80' },
+    },
+  ];
+  const marked = core.applyLiveDepartedMarks(rows, meta, reports);
+  let pending = core.analyzeNakliyePending(marked);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].remainingBbt, 52);
+  assert.deepEqual(
+    pending[0].waitingPlates.map((p) => core.compactPlate(p.plaka)).sort(),
+    ['03AHP318', '03AIU484']
+  );
+  pending = core.applyExtraPrintsToPendingItems(pending, reports, meta);
+  assert.equal(pending[0].remainingBbt, 26);
+  assert.equal(
+    pending[0].waitingPlates.some((p) => core.compactPlate(p.plaka) === '03VR929'),
+    false
+  );
+  const sheet = core.buildExcelBlockRows(pending[0]);
+  const pendingRow = sheet.find((r) => r.kind === 'pending');
+  assert.match(pendingRow.a, /26\s*BBT/i);
+});
+
+test('YD50 — ACM çıktıysa 0PLAKA0 gelmeyene yazılmaz, kalan 20 BBT', () => {
+  const meta = { importedAt: '2026-08-21T12:26:00.000Z', dateKey: '2026-08-21' };
+  const header = 'YD50(G) / LOT NO 26 08 07 / HP 0,15-0,60 / 40 BBT';
+  const rows = [
+    { blockKey: 'B50', blockHeaderRow: 40, headerText: header, ydKey: 'YD50', plaka: '0PLAKA0', bbt: '20', gidenTonaj: '' },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-21T19:00:00.000Z').getTime(),
+      data: { plaka: '43ACM276', firma: 'YD50(G) / LOT NO 26 08 07', bbt: '20', malzeme: 'HP 0,15-0,60' },
+    },
+  ];
+  const marked = core.applyLiveDepartedMarks(rows, meta, reports);
+  let pending = core.analyzeNakliyePending(marked);
+  pending = core.applyExtraPrintsToPendingItems(pending, reports, meta);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].waitingPlates.length, 0);
+  assert.equal(pending[0].remainingBbt, 20);
+  const sheet = core.buildExcelBlockRows(pending[0]);
+  assert.equal(sheet.some((r) => /0PLAKA0/i.test(String(r.a))), false);
+  assert.match(sheet.find((r) => r.kind === 'pending').a, /20\s*BBT/i);
+});
+
 

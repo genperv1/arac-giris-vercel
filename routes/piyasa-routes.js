@@ -9,6 +9,8 @@ function registerPiyasaRoutes(api, ctx) {
     normalizeCikanlarInsert,
     resolveHafta,
     haftaLabel,
+    isoWeekInfoFromMs,
+    groupCikanlarByHafta,
   } = require('../lib/piyasa-cikanlar');
 // Piyasa state
 api.get("/piyasa", async (req, res) => {
@@ -138,7 +140,7 @@ api.get('/piyasa/cikanlar', async (req, res) => {
       await q(`
         INSERT INTO piyasa_cikanlar (
           id, print_history_id, tarih, plaka, dorse_plaka, sofor, firma, firma_adi, sip_no,
-          malzeme, yukleme_turu, sehir, sevk_yeri, miktar, tonaj, basim_yeri,
+          malzeme, yukleme_turu, sehir, sevk_yeri, miktar, tonaj, basim_yeri, kantarci,
           order_key, hafta, sheet, sevkiyat_tipi, vehicle_id
         )
         SELECT
@@ -158,6 +160,7 @@ api.get('/piyasa/cikanlar', async (req, res) => {
           '',
           COALESCE(ph.tonaj, ''),
           COALESCE(ph.basim_yeri, ''),
+          COALESCE(NULLIF(s.snap->>'kantar', ''), NULLIF(s.snap->>'imzaKantarAd', ''), ''),
           CASE WHEN ph.sevkiyat_id LIKE 'piyasa:%' THEN substr(ph.sevkiyat_id, 8) ELSE '' END,
           '',
           '',
@@ -178,6 +181,21 @@ api.get('/piyasa/cikanlar', async (req, res) => {
             SELECT 1 FROM piyasa_cikanlar c WHERE c.print_history_id = ph.id
           )
         ON CONFLICT (id) DO NOTHING
+      `);
+      await q(`
+        UPDATE piyasa_cikanlar c
+        SET kantarci = COALESCE(NULLIF(s.snap->>'kantar', ''), NULLIF(s.snap->>'imzaKantarAd', ''), '')
+        FROM print_history ph
+        CROSS JOIN LATERAL (
+          SELECT CASE
+            WHEN ph.snapshot IS NULL OR btrim(ph.snapshot) = '' OR left(btrim(ph.snapshot), 1) <> '{'
+              THEN '{}'::jsonb
+            ELSE ph.snapshot::jsonb
+          END AS snap
+        ) s
+        WHERE c.print_history_id = ph.id
+          AND (c.kantarci IS NULL OR btrim(c.kantarci) = '')
+          AND COALESCE(NULLIF(s.snap->>'kantar', ''), NULLIF(s.snap->>'imzaKantarAd', ''), '') <> ''
       `);
     } catch (bfErr) {
       console.warn('piyasa_cikanlar backfill skipped:', bfErr.message || bfErr);
@@ -211,7 +229,7 @@ api.get('/piyasa/cikanlar', async (req, res) => {
     params.push(offset);
     const r = await q(
       `SELECT id, print_history_id, tarih, plaka, dorse_plaka, sofor, firma, firma_adi, sip_no,
-              malzeme, yukleme_turu, sehir, sevk_yeri, miktar, tonaj, basim_yeri,
+              malzeme, yukleme_turu, sehir, sevk_yeri, miktar, tonaj, basim_yeri, kantarci,
               order_key, hafta, sheet, sevkiyat_tipi, vehicle_id
        FROM piyasa_cikanlar${whereSql}
        ORDER BY tarih DESC
@@ -227,14 +245,17 @@ api.get('/piyasa/cikanlar', async (req, res) => {
     const rows = (r.rows || []).map((row) => {
       const inst = fmt(row.tarih);
       const week = resolveHafta(row.hafta, row.tarih);
+      const info = isoWeekInfoFromMs(row.tarih);
       return Object.assign({}, row, {
         tarihLabel: inst.tarih || '',
         saatLabel: inst.saat || '',
         hafta: week != null ? String(week) : (row.hafta || ''),
         haftaLabel: haftaLabel(week),
+        haftaYear: info ? info.year : null,
       });
     });
-    res.json({ ok: true, total: Number(countR.rows[0]?.c || 0), rows });
+    const weeks = groupCikanlarByHafta(rows, Date.now());
+    res.json({ ok: true, total: Number(countR.rows[0]?.c || 0), rows, weeks });
   } catch (err) {
     sendApiError(res, err, 500, 'PIYASA_CIKANLAR_LIST_FAILED');
   }
@@ -255,10 +276,10 @@ api.post('/piyasa/cikanlar', auth.verifyToken, async (req, res) => {
     await q(
       `INSERT INTO piyasa_cikanlar(
          id, print_history_id, tarih, plaka, dorse_plaka, sofor, firma, firma_adi, sip_no,
-         malzeme, yukleme_turu, sehir, sevk_yeri, miktar, tonaj, basim_yeri,
+         malzeme, yukleme_turu, sehir, sevk_yeri, miktar, tonaj, basim_yeri, kantarci,
          order_key, hafta, sheet, sevkiyat_tipi, vehicle_id
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
        )
        ON CONFLICT (id) DO UPDATE SET
          print_history_id = COALESCE(EXCLUDED.print_history_id, piyasa_cikanlar.print_history_id),
@@ -267,7 +288,9 @@ api.post('/piyasa/cikanlar', auth.verifyToken, async (req, res) => {
          firma_adi = EXCLUDED.firma_adi,
          sip_no = EXCLUDED.sip_no,
          malzeme = EXCLUDED.malzeme,
-         tarih = EXCLUDED.tarih`,
+         tarih = EXCLUDED.tarih,
+         kantarci = COALESCE(NULLIF(EXCLUDED.kantarci, ''), piyasa_cikanlar.kantarci),
+         basim_yeri = COALESCE(NULLIF(EXCLUDED.basim_yeri, ''), piyasa_cikanlar.basim_yeri)`,
       [
         normalized.id,
         normalized.print_history_id,
@@ -285,6 +308,7 @@ api.post('/piyasa/cikanlar', auth.verifyToken, async (req, res) => {
         normalized.miktar,
         normalized.tonaj,
         normalized.basim_yeri,
+        normalized.kantarci,
         normalized.order_key,
         normalized.hafta,
         normalized.sheet,

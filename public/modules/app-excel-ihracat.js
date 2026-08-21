@@ -779,6 +779,12 @@ function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId)
     miktar: order && order.miktar != null ? String(order.miktar) : '',
     tonaj: String((printEv && printEv.tonaj) || snap.tonaj || '').trim(),
     basim_yeri: String((printEv && printEv.basimYeri) || pending.basimYeri || snap.basimYeri || '').trim(),
+    kantarci: String(
+      (printEv && (printEv.kantar || printEv.imzaKantarAd))
+      || snap.kantar
+      || snap.imzaKantarAd
+      || ''
+    ).trim(),
     order_key: String((order && (order._pickKey || order.__archiveKey)) || (pending && pending.piyasaOrderIdx) || '').trim(),
     hafta: order && order._sourceWeek != null ? String(order._sourceWeek) : '',
     sheet: String((order && order._sourceSheet) || '').trim(),
