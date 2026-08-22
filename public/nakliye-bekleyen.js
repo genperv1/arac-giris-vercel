@@ -94,7 +94,9 @@
     const cleaned = rows.map((r) => (core.clearLiveDepartedMark ? core.clearLiveDepartedMark(r) : r));
     const reports = await fetchPrintReports();
     const marked =
-      core.applyLiveDepartedMarks ? core.applyLiveDepartedMarks(cleaned, loadMeta(), reports) : cleaned;
+      core.applyLiveDepartedMarks
+        ? core.applyLiveDepartedMarks(cleaned, loadMeta(), reports, { forExcelDay: true })
+        : cleaned;
     return { rows: marked, reports };
   }
 
@@ -568,13 +570,14 @@
     const when = fmtLoadedAt(meta.importedAt || meta.loadedAt);
     if (!rows.length) {
       el.innerHTML =
-        '<span class="nb-excel-no">İHRACAT Excel yüklü değil</span> — ana sayfadan Excel yükleyin.';
+        '<span class="nb-excel-no">İHRACAT Excel yüklü değil</span> — plan için yükleyin; biten sevkiyat çıkan rapordan anlaşılır.';
       return;
     }
     el.innerHTML =
       '<span class="nb-excel-ok">İHRACAT Excel yüklü</span>' +
       (files.length ? ' · ' + esc(files[0]) : '') +
-      (when ? ' · ' + esc(when) : '');
+      (when ? ' · ' + esc(when) : '') +
+      ' · çıkan raporlara göre bitenler düşer';
   }
 
   function filterItems(items) {
@@ -966,7 +969,7 @@
       '<col class="col-no" /><col class="col-plaka" /><col class="col-status" /><col class="col-bbt" />' +
       '</colgroup><tbody>';
     sheetRows.forEach((row) => {
-      if (row.kind === 'header' || row.kind === 'pending' || row.kind === 'ozmal-header' || row.kind === 'site' || row.kind === 'date') {
+      if (row.kind === 'header' || row.kind === 'pending' || row.kind === 'done' || row.kind === 'ozmal-header' || row.kind === 'site' || row.kind === 'date') {
         const cls =
           row.kind === 'header'
             ? 'nb-hdr'
@@ -976,7 +979,9 @@
                 ? 'nb-site-hdr'
                 : row.kind === 'date'
                   ? 'nb-date-hdr'
-                  : 'nb-pending';
+                  : row.kind === 'done'
+                    ? 'nb-done'
+                    : 'nb-pending';
         html +=
           '<tr class="' +
           cls +
@@ -1231,13 +1236,15 @@
       }
       noExcel?.classList.add('hidden');
 
-      _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
+      _allItems = core ? core.analyzeNakliyePending(rows, loadMeta(), { includeComplete: true }) : [];
       if (core && typeof core.applyExtraPrintsToPendingItems === 'function') {
         _allItems = core.applyExtraPrintsToPendingItems(_allItems, reports, loadMeta());
       }
       const visible = filterItems(_allItems);
 
       const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);
+      const totalPlan = visible.reduce((s, x) => s + (x.planBbt || 0), 0);
+      const totalCikan = visible.reduce((s, x) => s + (x.reportBbt || 0), 0);
       const waitingCount = visible.reduce((s, x) => s + (x.waitingPlates || []).length, 0);
       const fileCount =
         typeof core.listKnownExcelFiles === 'function'
@@ -1256,9 +1263,13 @@
       if (stats) {
         stats.textContent =
           visible.length +
-          ' sevkiyat · ' +
+          ' sevkiyat · Excel ' +
+          totalPlan +
+          ' BBT · rapor çıkan ' +
+          totalCikan +
+          ' BBT · kalan ' +
           totalRemaining +
-          ' BBT plaka bekliyor' +
+          ' BBT' +
           (waitingCount ? ' · ' + waitingCount + ' gelmeyen plaka' : '') +
           (fileCount > 1 ? ' · ' + fileCount + ' Excel' : '') +
           (rawYds.length ? ' · ' + rawYds.join(', ') : '') +
@@ -1268,6 +1279,11 @@
       const hasSheet = core && visible.some((x) => core.hasBlockSheetContent(x));
       if (!hasSheet) {
         empty?.classList.remove('hidden');
+        if (empty) {
+          empty.textContent = _allItems.length
+            ? 'Bekleyen sevkiyat yok.'
+            : 'Bekleyen sevkiyat yok — çıkan raporlara göre bu plan bitmiş.';
+        }
         outer?.classList.add('hidden');
         return;
       }

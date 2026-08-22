@@ -267,6 +267,7 @@
     .nb-excel-col-letters .col-bbt { width: 22%; }
     .nb-sheet-grid tr.nb-hdr td,
     .nb-sheet-grid tr.nb-pending td,
+    .nb-sheet-grid tr.nb-done td,
     .nb-sheet-grid tr.nb-site-hdr td,
     .nb-sheet-grid tr.nb-date-hdr td {
       white-space: normal;
@@ -475,6 +476,17 @@
     .nb-capture-host * {
       pointer-events: none !important;
     }
+    .nb-sheet-grid tr.nb-done td {
+      background: #2e7d32;
+      color: #fff;
+      font-weight: 800;
+      font-size: 16px;
+      letter-spacing: 0.02em;
+      padding: 10px 12px;
+      text-transform: uppercase;
+      border: 2px solid #000;
+      position: relative;
+    }
     .nb-sheet-grid tr.nb-pending td {
       background: #ff5722;
       color: #000;
@@ -574,7 +586,7 @@
 
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <div class="nb-toolbar-card">
-      <p class="nb-hint">Yazdırılan plakalar rapordan düşer; Excel silip yeniden yükleyince liste yenilenir. BBT yazıp Enter — <strong>DAHA PLAKA VERİLECEK</strong> otomatik düşer. Yeni araç için <strong>+ Plaka</strong>. <strong>yd 40</strong> yazınca YD40 bulunur.</p>
+      <p class="nb-hint">Her blok kendi <strong>Excel / tarih / LOT</strong> kimliğiyle sayılır. Başka dosya veya eski tarih karışmaz. Çıkan ≥ plan ise <strong>TAMAMLANDI</strong>. <strong>yd 40</strong> yazınca YD40 bulunur.</p>
       <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
       <div class="flex flex-wrap gap-2 items-center">
         <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD / LOT ara…" />
@@ -594,7 +606,7 @@
 
     <div id="nbListLoading" class="nb-empty-msg">Liste hazırlanıyor…</div>
     <div id="nbListEmpty" class="nb-empty-msg hidden">Bekleyen sevkiyat yok.</div>
-    <div id="nbNoExcel" class="nb-empty-msg hidden">İhracat Excel yüklü değil. Ana sayfadan Excel yükleyin.</div>
+    <div id="nbNoExcel" class="nb-empty-msg hidden">İhracat Excel yüklü değil. Yeni plan için ana sayfadan Excel yükleyin; biten sevkiyatlar rapordan düşer.</div>
 
     <div id="nbSheetOuter" class="nb-sheet-outer hidden" aria-label="Nakliye bekleyenleri Excel özeti"></div>
   </main>
@@ -604,7 +616,7 @@
   <script src="idb.js"></script>
   <script src="dailyStore.js?v=20260821-multiexcel7"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260822-printfix1"></script>
-  <script src="nakliye-bekleyen.js?v=20260822-excel-sq"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260823-sameday10"></script>
+  <script src="nakliye-bekleyen.js?v=20260823-sameday10"></script>
 </body>
 </html>

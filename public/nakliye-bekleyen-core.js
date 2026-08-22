@@ -463,6 +463,9 @@
       d.yuklemeNotu,
       d.baskiNotu,
       d.not,
+      d.lotNo,
+      d.excelFileName,
+      d.excelDateKey,
     ]
       .filter(Boolean)
       .join(' ');
@@ -556,6 +559,16 @@
       }
     } catch (e) {}
     return printReportValidForMeta(reportTs, meta);
+  }
+
+  /** Nakliye bekleyen: eski Excel yüklü kalsa da son 21 gün çıkan raporları say. */
+  const PENDING_REPORT_WINDOW_MS = 21 * 24 * 60 * 60 * 1000;
+
+  function printReportValidForPending(reportTs, meta) {
+    const ts = Number(reportTs);
+    if (!Number.isFinite(ts) || ts <= 0) return false;
+    if (printReportValidForBalance(ts, meta)) return true;
+    return Date.now() - ts <= PENDING_REPORT_WINDOW_MS;
   }
 
   function reportEventBbt(report) {
@@ -719,14 +732,118 @@
     return known;
   }
 
-  function scorePendingPrintTarget(item, reportLot, reportMal) {
+  function metaExcelDateKey(meta) {
+    const m = meta || {};
+    const files = [];
+    splitExcelFileNames(m.fileName).forEach((n) => files.push(n));
+    if (Array.isArray(m.files)) m.files.forEach((n) => splitExcelFileNames(n).forEach((p) => files.push(p)));
+    for (let i = 0; i < files.length; i++) {
+      const dk = dateKeyFromFileName(files[i]);
+      if (dk) return dk;
+    }
+    return String(m.dateKey || '').trim();
+  }
+
+  function itemExcelDateKey(item, meta) {
+    const fromFile = dateKeyFromFileName(item && item.fileName);
+    if (fromFile) return fromFile;
+    const label = String((item && item.sourceDateLabel) || '').trim();
+    const m = label.match(/^(\d{2})[.](\d{2})[.](\d{4})$/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    return metaExcelDateKey(meta);
+  }
+
+  function reportExcelFileName(report) {
+    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
+    return splitExcelFileNames(d.excelFileName || d.fileName || '')[0] || '';
+  }
+
+  function reportExcelDateKey(report) {
+    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
+    const stamped = String(d.excelDateKey || '').trim();
+    if (stamped) return stamped;
+    return dateKeyFromFileName(d.excelFileName || d.fileName || '');
+  }
+
+  function addDaysToDateKey(dateKey, days) {
+    const m = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + Number(days || 0)));
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const da = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${mo}-${da}`;
+  }
+
+  function istanbulHour(ts) {
+    try {
+      return parseInt(
+        new Date(ts).toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', hour: '2-digit', hour12: false }),
+        10
+      );
+    } catch (e) {
+      return -1;
+    }
+  }
+
+  /** Bu Excel günü + gece vardiyası (önceki gün ≥18:00, ertesi gün <08:00). */
+  function printDayMatchesExcelDate(ts, dateKey) {
+    if (!dateKey) return true;
+    const printDay = istanbulDayKey(ts);
+    if (!printDay) return false;
+    if (printDay === dateKey) return true;
+    const hour = istanbulHour(ts);
+    if (printDay === addDaysToDateKey(dateKey, -1) && hour >= 18) return true;
+    if (printDay === addDaysToDateKey(dateKey, 1) && hour < 8) return true;
+    return false;
+  }
+
+  function printReportValidForExcelDay(reportTs, meta) {
+    if (!printReportValidForPending(reportTs, meta)) return false;
+    const start = metaExcelDateKey(meta);
+    if (!start) return true;
+    return printDayMatchesExcelDate(reportTs, start);
+  }
+
+  /** Bu Excel günü + gece vardiyası. Ertesi gün aynı LOT başka dalga sayılmaz. */
+  function printReportValidForItem(ts, item, meta) {
+    if (!printReportValidForPending(ts, meta)) return false;
+    const start = itemExcelDateKey(item, meta);
+    if (!start) return true;
+    return printDayMatchesExcelDate(ts, start);
+  }
+
+  /** Rapor BBT: uydurma 24 yok. Plaka Excel'deyse o BBT, yoksa rapordaki gerçek BBT. */
+  function reportEventBbtForPending(report, knownBbt) {
+    const d = report && report.data && typeof report.data === 'object' ? report.data : {};
+    const n = parseNum(d.bbt);
+    if (n > 0 && n < 100) return Math.round(n);
+    const top = parseNum(report && report.bbt);
+    if (top > 0 && top < 100) return Math.round(top);
+    const tonaj = parseNum(d.tonaj != null ? d.tonaj : report && report.tonaj);
+    if (tonaj >= 8 && tonaj <= 45) return Math.round(tonaj);
+    const known = parseNum(knownBbt);
+    if (known > 0 && known < 100) return Math.round(known);
+    return 0;
+  }
+
+  function scorePendingPrintTarget(item, reportLot, reportMal, report, meta) {
     const itemLot = itemLotKey(item);
     const itemMal = normalizeMalzemeKey(item && (item.malzemeLabel || item.malzeme || ''));
+    if (itemLot && (!reportLot || reportLot !== itemLot)) return -1;
     if (reportLot && itemLot && reportLot !== itemLot) return -1;
     if (reportMal && itemMal && reportMal !== itemMal) return -1;
+    const reportFile = reportExcelFileName(report);
+    const itemFile = splitExcelFileNames(item && item.fileName)[0] || '';
+    if (reportFile && itemFile && reportFile !== itemFile) return -1;
+    const reportDk = reportExcelDateKey(report);
+    const itemDk = itemExcelDateKey(item, meta);
+    if (reportDk && itemDk && reportDk !== itemDk) return -1;
     let score = 1;
     if (reportLot && itemLot && reportLot === itemLot) score += 100;
     if (reportMal && itemMal && reportMal === itemMal) score += 50;
+    if (reportFile && itemFile && reportFile === itemFile) score += 80;
+    if (reportDk && itemDk && reportDk === itemDk) score += 40;
     const rem = parseNum(item && item.remainingBbt);
     const plan = parseNum(item && item.planBbt);
     if (rem > 0) score += 10;
@@ -735,20 +852,32 @@
     return score;
   }
 
-  /** Excel'de olmayan çıkan plaka BBT'sini ilgili YD/LOT kalanından düşer. */
+  /**
+   * Çıkan raporlar asıl kaynak: plan − yazdırılan BBT.
+   * Eski Excel'deki "1114 BBT PLAKA VERİLECEK" notu, bitmiş sevkiyatı açık tutmaz.
+   */
   function applyExtraPrintsToPendingItems(items, reports, meta) {
     const list = (items || []).map((it) =>
       Object.assign({}, it, {
         remainingBbt: parseNum(it && it.remainingBbt),
         processedBbt: parseNum(it && it.processedBbt),
         departedBbt: parseNum(it && it.departedBbt),
+        excelDepartedBbt: parseNum(it && it.departedBbt),
         waitingPlates: Array.isArray(it && it.waitingPlates) ? it.waitingPlates.slice() : [],
         ozmalPlates: Array.isArray(it && it.ozmalPlates) ? it.ozmalPlates.slice() : [],
         knownPlateKeys: Array.isArray(it && it.knownPlateKeys) ? it.knownPlateKeys.slice() : [],
       })
     );
+    const plateBbtFromItem = (item, pk) => {
+      if (!pk || !item) return 0;
+      const pools = [].concat(item.waitingPlates || [], item.ozmalPlates || []);
+      for (let i = 0; i < pools.length; i++) {
+        if (plateKey(pools[i] && pools[i].plaka) === pk) return parseNum(pools[i].bbt);
+      }
+      return 0;
+    };
+    const byItem = new Map();
     normalizePrintReports(reports).forEach((r) => {
-      if (!printReportValidForBalance(r.ts, meta)) return;
       const yd = printReportYdKey(r);
       if (!yd) return;
       const pk = reportPlateKey(r);
@@ -757,27 +886,103 @@
       const reportMal = normalizeMalzemeKey(d.malzeme || r.malzeme || '');
       const sameYd = list.filter((it) => normalizeYdKey(it.ydKey || it.headerText) === yd);
       if (!sameYd.length) return;
-      if (pk && sameYd.some((it) => pendingItemKnownPlates(it).has(pk))) return;
       let best = null;
       let bestScore = 0;
       sameYd.forEach((it) => {
-        const s = scorePendingPrintTarget(it, lot, reportMal);
+        if (!printReportValidForItem(r.ts, it, meta)) return;
+        const s = scorePendingPrintTarget(it, lot, reportMal, r, meta);
         if (s > bestScore) {
           bestScore = s;
           best = it;
         }
       });
-      if (!best || parseNum(best.remainingBbt) <= 0) return;
-      const ev = reportEventBbt(r);
+      if (!best) return;
+      const ev = reportEventBbtForPending(r, plateBbtFromItem(best, pk));
       if (ev <= 0) return;
-      best.remainingBbt = Math.max(0, parseNum(best.remainingBbt) - ev);
-      best.processedBbt = parseNum(best.processedBbt) + ev;
-      best.departedBbt = parseNum(best.departedBbt) + ev;
+      let rec = byItem.get(best);
+      if (!rec) {
+        rec = { bbt: 0, extraBbt: 0, plates: new Set(), details: [] };
+        byItem.set(best, rec);
+      }
+      if (pk && rec.plates.has(pk)) return;
+      rec.bbt += ev;
+      if (pk) rec.plates.add(pk);
+      rec.details.push({
+        plaka: String((d.plaka || r.plaka || pk || '').trim() || '—'),
+        bbt: ev,
+        ts: Number(r.ts) || 0,
+      });
+      const known = pendingItemKnownPlates(best);
+      if (!(pk && known.has(pk))) rec.extraBbt += ev;
     });
-    return list.map((it) => {
-      it.message = buildMessage(it.ydKey, it.planBbt, it.remainingBbt, it.waitingPlates, it.explicitNotes);
-      return it;
-    });
+    return list
+      .map((it) => {
+        const rec = byItem.get(it) || { bbt: 0, extraBbt: 0, plates: new Set(), details: [] };
+        let removedWaitingBbt = 0;
+        const kept = [];
+        (it.waitingPlates || []).forEach((p) => {
+          const pk = plateKey(p && p.plaka);
+          if (pk && rec.plates.has(pk)) {
+            removedWaitingBbt += parseNum(p && p.bbt);
+            return;
+          }
+          kept.push(p);
+        });
+        it.waitingPlates = kept;
+
+        const plan = parseNum(it.planBbt);
+        const waitBbt = sumWaitingBbt(kept);
+        const excelDeparted = parseNum(it.excelDepartedBbt);
+        const accounted = excelDeparted + waitBbt + rec.extraBbt + removedWaitingBbt;
+        const reportsCoverPlan = plan > 0 && rec.bbt >= plan;
+        it.reportBbt = rec.bbt;
+        it.reportPrintCount = rec.plates.size;
+        it.reportPlates = (rec.details || [])
+          .slice()
+          .sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.plaka).localeCompare(String(b.plaka), 'tr'));
+        it.excelDateKey = itemExcelDateKey(it, meta);
+        if (!it.sourceDateLabel && it.excelDateKey) {
+          it.sourceDateLabel = formatDateKeyTR(it.excelDateKey);
+        }
+
+        if (reportsCoverPlan) {
+          it.remainingBbt = 0;
+          it.waitingPlates = [];
+          it._emptyYdPending = false;
+        } else if (plan > 0) {
+          it.remainingBbt = Math.max(0, plan - accounted);
+        } else if (rec.bbt > 0 && kept.length === 0) {
+          it.remainingBbt = 0;
+          it._emptyYdPending = false;
+        }
+
+        if (reportsCoverPlan) {
+          it.shipmentDone = true;
+        } else if (plan > 0 && rec.bbt > 0 && rec.bbt < plan) {
+          // Aynı gün çıkan planın altındaysa TAMAMLANDI yazılmaz.
+          // 21 günlük live-mark Excel gideni kalanı 0 yapsa bile sarı satırdaki çıkan geçerlidir.
+          it.shipmentDone = false;
+          if (parseNum(it.remainingBbt) <= 0) {
+            it.remainingBbt = Math.max(0, plan - rec.bbt - waitBbt);
+          }
+        } else if (plan > 0 && parseNum(it.remainingBbt) <= 0 && it.waitingPlates.length === 0) {
+          it.shipmentDone = true;
+          if (it.reportBbt <= 0) it.reportBbt = excelDeparted + rec.extraBbt + removedWaitingBbt;
+        } else {
+          it.shipmentDone = false;
+        }
+
+        it.departedBbt = excelDeparted + rec.extraBbt + removedWaitingBbt;
+        it.assignedWaitingBbt = it.shipmentDone ? 0 : waitBbt;
+        it.processedBbt = it.departedBbt + it.assignedWaitingBbt;
+        if (plan > 0 && parseNum(it.reportBbt) > plan) it.reportBbt = plan;
+        if (it.remainingBbt <= 0 && it.waitingPlates.length === 0 && rec.bbt <= 0) {
+          it._emptyYdPending = false;
+        }
+        it.message = buildMessage(it.ydKey, it.planBbt, it.remainingBbt, it.waitingPlates, it.explicitNotes);
+        delete it.excelDepartedBbt;
+        return it;
+      });
   }
 
   function enrichBalanceItemsWithReports(items, reports, meta) {
@@ -923,7 +1128,14 @@
 
   /** Yazdırılmış / çıkış yapmış plakaları satırlara giden tonaj olarak işler (sırayla, aynı YD, çift kantar uyumlu). */
   function applyLiveDepartedMarks(rows, meta, reports, opts) {
-    const validFn = opts && opts.forBalance ? printReportValidForBalance : printReportValidForMeta;
+    const validFn =
+      opts && opts.forExcelDay
+        ? printReportValidForExcelDay
+        : opts && opts.forPending
+          ? printReportValidForPending
+          : opts && opts.forBalance
+            ? printReportValidForBalance
+            : printReportValidForMeta;
     const slots = collectPrintSlots(reports, meta, validFn);
     return (rows || []).map((row) => {
       if (!row || row._ihracatEmptyBlock) return row;
@@ -1090,6 +1302,7 @@
 
   function hasNakliyeBlockContent(item) {
     if (!item) return false;
+    if (item.shipmentDone) return true;
     if (parseNum(item.remainingBbt) > 0) return true;
     if ((item.waitingPlates || []).length > 0) return true;
     return !!item._emptyYdPending;
@@ -1192,6 +1405,34 @@
     return 'PLAKA VERİLECEK';
   }
 
+  function formatCikanSuffix(item) {
+    const bits = [];
+    const date = String((item && item.sourceDateLabel) || '').trim()
+      || (item && item.excelDateKey ? formatDateKeyTR(item.excelDateKey) : '');
+    if (date) bits.push(date);
+    const stem = extractFileStemLabel(item && item.fileName);
+    const yd = normalizeYdKey(item && (item.ydKey || item.headerText || stem));
+    if (stem && !dateKeyFromFileName(item && item.fileName) && !(yd && filenameMentionsYd(stem, yd))) {
+      bits.push(stem);
+    }
+    const plan = parseNum(item && item.planBbt);
+    const cikan = parseNum(item && item.reportBbt);
+    const nPrint = Array.isArray(item && item.reportPlates)
+      ? item.reportPlates.length
+      : parseNum(item && item.reportPrintCount);
+    if (cikan > 0 || (item && item.shipmentDone)) {
+      bits.push(plan > 0 ? `çıkan ${cikan}/${plan}` : `çıkan ${cikan}`);
+      if (nPrint > 0) bits.push(`${nPrint} yazdırma`);
+    }
+    return bits.length ? ' · ' + bits.join(' · ') : '';
+  }
+
+  function formatFooterStatusText(item) {
+    if (!item) return formatFooterRemainingText(0);
+    if (item.shipmentDone) return 'TAMAMLANDI';
+    return formatFooterRemainingText(item.remainingBbt);
+  }
+
   function sumRemainingBbt(items) {
     return (items || []).reduce((s, item) => s + (parseNum(item?.remainingBbt) > 0 ? parseNum(item.remainingBbt) : 0), 0);
   }
@@ -1253,17 +1494,25 @@
         item.malzemeLabel,
         sourcePrefix,
         item.lotLabel
-      ),
+      ) + formatCikanSuffix(item),
       lotLabel: item.lotLabel || '',
       blockKey: String(item.blockKey || '').trim(),
       fileName: String(item.fileName || '').trim(),
     });
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
-    if (rem > 0 || item._emptyYdPending) {
+    if (item.shipmentDone) {
+      rows.push({
+        kind: 'done',
+        a: formatFooterStatusText(item),
+        b: '',
+        blockKey: String(item.blockKey || '').trim(),
+        fileName: String(item.fileName || '').trim(),
+      });
+    } else if (rem > 0 || item._emptyYdPending) {
       rows.push({
         kind: 'pending',
-        a: formatFooterRemainingText(rem),
+        a: formatFooterStatusText(item),
         b: '',
         blockKey: String(item.blockKey || '').trim(),
         fileName: String(item.fileName || '').trim(),
@@ -1541,22 +1790,23 @@
     return g >= 1000 && kg >= 1000 && Math.abs(g - kg) >= 1;
   }
 
-  function analyzeBlockGroups(groupMap) {
+  function analyzeBlockGroups(groupMap, opts) {
     const pending = [];
     groupMap.forEach((items) => {
-      let item = analyzeBlock(items);
+      let item = analyzeBlock(items, opts);
       if (!item) {
         const hasOpenPlate = items.some((r) => rowHasValidPlate(r) && !isRowDeparted(r));
-        if (hasOpenPlate) item = analyzeBlock(items, { keepExcelPlates: true });
+        if (hasOpenPlate) item = analyzeBlock(items, Object.assign({}, opts, { keepExcelPlates: true }));
       }
       if (item) pending.push(item);
     });
     return pending;
   }
 
-  function analyzeNakliyePending(rows, meta) {
+  function analyzeNakliyePending(rows, meta, opts) {
+    const blockOpts = opts && opts.includeComplete ? { includeComplete: true } : {};
     const repaired = repairRowSourceFiles(rows, meta);
-    const pending = analyzeBlockGroups(groupRowsByBlock(repaired));
+    const pending = analyzeBlockGroups(groupRowsByBlock(repaired), blockOpts);
     const seen = new Set(pending.map((p) => normalizeYdKey(p.ydKey)).filter(Boolean));
 
     const orphans = repaired.filter((r) => {
@@ -1564,7 +1814,7 @@
       return yd && !seen.has(yd);
     });
     if (orphans.length) {
-      analyzeBlockGroups(groupRowsByBlock(orphans)).forEach((item) => {
+      analyzeBlockGroups(groupRowsByBlock(orphans), blockOpts).forEach((item) => {
         const yd = normalizeYdKey(item.ydKey);
         if (yd && seen.has(yd)) return;
         pending.push(item);
@@ -1588,8 +1838,8 @@
         const hasEmpty = items.some((r) => r && r._ihracatEmptyBlock);
         if (!hasCarrier && !hasEmpty) return;
         const reallyGone = hasCarrier && items.filter(rowHasCarrierPlate).every(rowHasRealKgDeparture);
-        if (reallyGone) return;
-        const item = analyzeBlock(items, hasCarrier ? { keepExcelPlates: true } : {});
+        if (reallyGone && !blockOpts.includeComplete) return;
+        const item = analyzeBlock(items, Object.assign({}, blockOpts, hasCarrier ? { keepExcelPlates: true } : {}));
         if (!item) return;
         pending.push(item);
         seen.add(yd);
@@ -2041,6 +2291,8 @@
     filenameMentionsYd,
     sourceDateLabelFromRow,
     dateKeyFromFileName,
+    itemExcelDateKey,
+    metaExcelDateKey,
     compareBlockExcelOrder,
     formatHeaderExcelText,
     formatBlockSourceLabel,
@@ -2048,6 +2300,8 @@
     countDistinctExcelFiles,
     formatPendingExcelText,
     formatFooterRemainingText,
+    formatFooterStatusText,
+    formatCikanSuffix,
     sumRemainingBbt,
     formatWaitingPlateBbtText,
     sumWaitingBbt,
@@ -2062,6 +2316,8 @@
     applyLiveDepartedMarks,
     printReportValidForMeta,
     printReportValidForBalance,
+    printReportValidForPending,
+    printReportValidForExcelDay,
     printReportYdKey,
     normalizePrintReports,
     collectPrintCountByPlate,

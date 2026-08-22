@@ -691,6 +691,32 @@ function buildPrintHistoryPostBody(printEv, pending, commitTs) {
     vehicleId: vehicleId && vehicleId !== 'manual' ? vehicleId : '',
     ts: commitTs || Date.now(),
   };
+  try {
+    const sh = (pending && pending.printPayload && pending.printPayload.shipment)
+      || window.__ihracatActivePrintShipment
+      || window.__activeExcelShipment
+      || {};
+    const meta = (typeof loadDailyMeta === 'function' ? loadDailyMeta() : {}) || {};
+    const core = window.NakliyeBekleyenCore;
+    const fileName = String(sh.fileName || printEv.excelFileName || '').trim();
+    let dateKey = '';
+    if (core && typeof core.dateKeyFromFileName === 'function') {
+      dateKey = core.dateKeyFromFileName(fileName) || core.dateKeyFromFileName(meta.fileName) || '';
+    }
+    if (!dateKey && typeof _resolveIhracatDateKey === 'function') {
+      dateKey = _resolveIhracatDateKey(meta) || '';
+    }
+    dateKey = dateKey || String(meta.dateKey || '').trim();
+    const lotBlob = [sh.headerText, sh.lotLabel, printEv.yuklemeNotu, printEv.firma].filter(Boolean).join(' ');
+    let lotNo = String(sh.lotLabel || printEv.lotNo || '').trim();
+    if (!lotNo && core && typeof core.extractLotLabel === 'function') {
+      lotNo = core.extractLotLabel({ headerText: lotBlob, blockMeta: {} }) || '';
+    }
+    snapshot.excelFileName = fileName;
+    snapshot.excelDateKey = dateKey;
+    snapshot.lotNo = lotNo;
+    snapshot.ydKey = String(sh.ydKey || (core && core.normalizeYdKey ? core.normalizeYdKey(printEv.firma || '') : '') || '').trim();
+  } catch (e) { /* ignore */ }
   return {
     plaka: printEv.plaka,
     firma: printEv.firma || printEv.firmaKodu || '',

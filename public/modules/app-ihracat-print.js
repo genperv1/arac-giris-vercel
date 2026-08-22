@@ -410,7 +410,7 @@ async function _ihracatFetchRemotePrintReports(force) {
   }
   cache.loading = (async () => {
     try {
-      const r = await fetch('/api/reports?limit=2000&_=' + now, {
+      const r = await fetch('/api/reports?limit=8000&_=' + now, {
         method: 'GET',
         credentials: 'same-origin',
         cache: 'no-store',
@@ -511,11 +511,17 @@ function _ihracatCollectReportPrintCountsByPlate(meta, excelFirmalar) {
   const map = new Map();
   const pk = (value) => _ihracatPlateKey(value);
   const firmalar = excelFirmalar instanceof Set ? excelFirmalar : new Set();
-  const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const pendingValid = (ts) => {
+    if (window.NakliyeBekleyenCore && typeof NakliyeBekleyenCore.printReportValidForPending === 'function') {
+      return NakliyeBekleyenCore.printReportValidForPending(ts, meta);
+    }
+    const twentyOneDaysAgo = Date.now() - 21 * 24 * 60 * 60 * 1000;
+    return !(Number.isFinite(ts) && ts > 0 && ts < twentyOneDaysAgo);
+  };
 
   _ihracatGetPrintReports().forEach((r) => {
     const ts = Number(r.ts || (r.data && r.data.ts) || 0);
-    if (Number.isFinite(ts) && ts > 0 && ts < twoDaysAgo) return;
+    if (Number.isFinite(ts) && ts > 0 && !pendingValid(ts)) return;
     if (!_ihracatReportMatchesExcelFirmalar(r, firmalar)) return;
 
     const data = r.data || {};
