@@ -426,6 +426,13 @@ function setupTakipFormButtons() {
             }
 
             try {
+                if (typeof window.ensureIhracatExcelPickBeforePrint === 'function') {
+                    const okIhr = await window.ensureIhracatExcelPickBeforePrint();
+                    if (!okIhr) return;
+                }
+            } catch (e) {}
+
+            try {
                 const validateFunc = window.__takipFormValidate;
                 if (typeof validateFunc === 'function') {
                     const valid = validateFunc();

@@ -1843,13 +1843,20 @@ test('rapordaki excelFileName başka dosyaysa bu bloğa yazılmaz', () => {
   assert.equal(out[0].reportBbt, 0);
 });
 
-test('YD276 — ertesi gün aynı LOT başka dalga bu Excel gününe yazılmaz', () => {
+test('YD276 — iki Excel varsa sonraki gün yazdırma yeni karta gider', () => {
   const pending = core.analyzeNakliyePending([
     {
-      blockKey: 'BLK_276',
+      blockKey: 'BLK_276A',
       headerText: 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT',
       ydKey: 'YD276',
       fileName: '19.08.2026.xlsx',
+      _ihracatEmptyBlock: true,
+    },
+    {
+      blockKey: 'BLK_276B',
+      headerText: 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT',
+      ydKey: 'YD276',
+      fileName: '20.08.2026.xlsx',
       _ihracatEmptyBlock: true,
     },
   ]);
@@ -1862,21 +1869,23 @@ test('YD276 — ertesi gün aynı LOT başka dalga bu Excel gününe yazılmaz',
     {
       type: 'PRINT',
       ts: new Date('2026-08-20T12:00:00+03:00').getTime(),
-      data: { plaka: '03DAY200', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '358', malzeme: 'HP 0,15-0,40' },
+      data: { plaka: '03DAY200', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
     },
     {
       type: 'PRINT',
       ts: new Date('2026-08-21T10:00:00+03:00').getTime(),
-      data: { plaka: '03DAY210', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '376', malzeme: 'HP 0,15-0,40' },
+      data: { plaka: '03DAY210', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
     },
   ];
   const out = core.applyExtraPrintsToPendingItems(pending, reports, {
-    dateKey: '2026-08-19',
-    fileName: '19.08.2026.xlsx',
+    dateKey: '2026-08-20',
+    fileName: '19.08.2026.xlsx + 20.08.2026.xlsx',
   });
-  assert.equal(out[0].reportBbt, 24);
-  assert.equal(out[0].shipmentDone, false);
-  assert.equal(out[0].remainingBbt, 376);
+  const oldCard = out.find((it) => /19\.08/.test(String(it.fileName || '')));
+  const newCard = out.find((it) => /20\.08/.test(String(it.fileName || '')));
+  assert.ok(oldCard && newCard);
+  assert.equal(oldCard.reportBbt, 24);
+  assert.equal(newCard.reportBbt, 50);
 });
 
 test('YD276 — çıkan 288/400 iken TAMAMLANDI yazılmaz', () => {
@@ -1904,13 +1913,6 @@ test('YD276 — çıkan 288/400 iken TAMAMLANDI yazılmaz', () => {
       type: 'PRINT',
       ts: new Date('2026-08-19T12:00:00+03:00').getTime() + i * 60000,
       data: { plaka: '03SAM' + String(100 + i), firma: 'YD276(M) / LOT NO 26 07 44', bbt: '24', malzeme: 'HP 0,15-0,40' },
-    });
-  }
-  for (let i = 0; i < 20; i++) {
-    reports.push({
-      type: 'PRINT',
-      ts: new Date('2026-08-20T12:00:00+03:00').getTime() + i * 60000,
-      data: { plaka: '03NXT' + String(100 + i), firma: 'YD276(M) / LOT NO 26 07 44', bbt: '24', malzeme: 'HP 0,15-0,40' },
     });
   }
   const out = core.applyExtraPrintsToPendingItems(pending, reports, {
@@ -2039,6 +2041,190 @@ test('YD276 — eski tarihli / başka dalga yazdırma 400 plana eklenmez', () =>
   assert.equal(out[0].reportBbt, 24);
   assert.equal(out[0].shipmentDone, false);
   assert.equal(out[0].remainingBbt, 376);
+});
+
+test('printDayMatchesExcelDate — aynı günün tamamı + ertesi gece, önceki akşam değil', () => {
+  const d20 = '2026-08-20';
+  assert.equal(core.printDayMatchesExcelDate(new Date('2026-08-20T02:00:00+03:00').getTime(), d20), true);
+  assert.equal(core.printDayMatchesExcelDate(new Date('2026-08-20T10:00:00+03:00').getTime(), d20), true);
+  assert.equal(core.printDayMatchesExcelDate(new Date('2026-08-20T19:00:00+03:00').getTime(), d20), true);
+  assert.equal(core.printDayMatchesExcelDate(new Date('2026-08-21T02:00:00+03:00').getTime(), d20), true);
+  assert.equal(core.printDayMatchesExcelDate(new Date('2026-08-19T19:00:00+03:00').getTime(), d20), false);
+  assert.equal(core.printDayMatchesExcelDate(new Date('2026-08-21T10:00:00+03:00').getTime(), d20), false);
+});
+
+test('YD276 — Excel 14 yazdırıldı 2 bekliyor, önceki akşam 25 yazdırma olmaz', () => {
+  const header = 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT';
+  const rows = [];
+  for (let i = 0; i < 16; i++) {
+    rows.push({
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: header,
+      ydKey: 'YD276',
+      fileName: '20.08.2026.xlsx',
+      plaka: '03EXL' + String(100 + i),
+      bbt: '25',
+      gidenTonaj: '',
+    });
+  }
+  const pending = core.analyzeNakliyePending(rows, { dateKey: '2026-08-20', fileName: '20.08.2026.xlsx' });
+  assert.equal(pending[0].waitingPlates.length, 16);
+  const reports = [];
+  for (let i = 0; i < 14; i++) {
+    reports.push({
+      type: 'PRINT',
+      ts: new Date('2026-08-20T10:00:00+03:00').getTime() + i * 60000,
+      data: { plaka: '03EXL' + String(100 + i), firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
+    });
+  }
+  for (let i = 0; i < 11; i++) {
+    reports.push({
+      type: 'PRINT',
+      ts: new Date('2026-08-19T19:00:00+03:00').getTime() + i * 60000,
+      data: { plaka: '03OLD' + String(200 + i), firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
+    });
+  }
+  const out = core.applyExtraPrintsToPendingItems(pending, reports, {
+    dateKey: '2026-08-20',
+    fileName: '20.08.2026.xlsx',
+  });
+  assert.equal(out[0].excelPrintedCount, 14);
+  assert.equal(out[0].excelWaitingCount, 2);
+  assert.equal(out[0].reportPrintCount, 14);
+  assert.equal(out[0].reportBbt, 350);
+  assert.equal(out[0].shipmentDone, false);
+  assert.equal(out[0].waitingPlates.length, 2);
+  const suffix = core.formatCikanSuffix(out[0]);
+  assert.match(suffix, /14 yazdırıldı/);
+  assert.match(suffix, /2 bekliyor/);
+  assert.equal(/25 yazdırma/.test(suffix), false);
+  assert.notEqual(core.formatFooterStatusText(out[0]), 'TAMAMLANDI');
+});
+
+test('YD276 — Excel plakası sonraki gün yazdırıldıysa modal gibi yazdırıldı sayılır', () => {
+  const header = 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT';
+  const rows = [];
+  for (let i = 0; i < 16; i++) {
+    rows.push({
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: header,
+      ydKey: 'YD276',
+      fileName: '20.08.2026.xlsx',
+      plaka: '03EXL' + String(100 + i),
+      bbt: '25',
+      gidenTonaj: '',
+    });
+  }
+  const pending = core.analyzeNakliyePending(rows, { dateKey: '2026-08-20', fileName: '20.08.2026.xlsx' });
+  const reports = [];
+  for (let i = 0; i < 8; i++) {
+    reports.push({
+      type: 'PRINT',
+      ts: new Date('2026-08-20T10:00:00+03:00').getTime() + i * 60000,
+      data: { plaka: '03EXL' + String(100 + i), firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
+    });
+  }
+  for (let i = 8; i < 14; i++) {
+    reports.push({
+      type: 'PRINT',
+      ts: new Date('2026-08-22T11:00:00+03:00').getTime() + i * 60000,
+      data: { plaka: '03EXL' + String(100 + i), firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
+    });
+  }
+  reports.push({
+    type: 'PRINT',
+    ts: new Date('2026-08-19T19:00:00+03:00').getTime(),
+    data: { plaka: '03OLD999', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '76', malzeme: 'HP 0,15-0,40' },
+  });
+  const out = core.applyExtraPrintsToPendingItems(pending, reports, {
+    dateKey: '2026-08-20',
+    fileName: '20.08.2026.xlsx',
+  });
+  assert.equal(out[0].excelPrintedCount, 14);
+  assert.equal(out[0].excelWaitingCount, 2);
+  assert.equal(out[0].reportBbt, 350);
+  assert.equal(out[0].shipmentDone, false);
+  const suffix = core.formatCikanSuffix(out[0]);
+  assert.match(suffix, /14 yazdırıldı/);
+  assert.match(suffix, /2 bekliyor/);
+  assert.equal(/8 yazdırıldı/.test(suffix), false);
+});
+
+test('Excel günü 00:00-08:00 ek plaka önceki dalgadır, 20.08 kartına yazılmaz', () => {
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'BLK_276',
+      headerText: 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT',
+      ydKey: 'YD276',
+      fileName: '20.08.2026.xlsx',
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-19T21:24:00.000Z').getTime(),
+      data: { plaka: '03NIGHT1', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '26', malzeme: 'HP 0,15-0,40' },
+    },
+    {
+      type: 'PRINT',
+      ts: new Date('2026-08-20T11:23:00+03:00').getTime(),
+      data: { plaka: '43AFH436', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '22', malzeme: 'HP 0,15-0,40' },
+    },
+  ];
+  const out = core.applyExtraPrintsToPendingItems(pending, reports, {
+    dateKey: '2026-08-20',
+    fileName: '20.08.2026.xlsx',
+  });
+  assert.equal(out[0].reportBbt, 22);
+  assert.equal(out[0].extraPlateCount, 1);
+  assert.match(core.formatCikanSuffix(out[0]), /1 yazdırma/);
+});
+
+test('eski Excel + çıkışta yeni plaka kalandan düşer', () => {
+  const header = 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT';
+  const rows = [];
+  for (let i = 0; i < 16; i++) {
+    rows.push({
+      blockKey: 'BLK_276',
+      blockHeaderRow: 40,
+      headerText: header,
+      ydKey: 'YD276',
+      fileName: '20.08.2026.xlsx',
+      plaka: '03EXL' + String(100 + i),
+      bbt: '25',
+      gidenTonaj: '',
+    });
+  }
+  const pending = core.analyzeNakliyePending(rows, { dateKey: '2026-08-20', fileName: '20.08.2026.xlsx' });
+  const reports = [];
+  for (let i = 0; i < 14; i++) {
+    reports.push({
+      type: 'PRINT',
+      ts: new Date('2026-08-20T10:00:00+03:00').getTime() + i * 60000,
+      data: { plaka: '03EXL' + String(100 + i), firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
+    });
+  }
+  reports.push({
+    type: 'PRINT',
+    ts: new Date('2026-08-22T15:00:00+03:00').getTime(),
+    data: { plaka: '03YENI01', firma: 'YD276(M) / LOT NO 26 07 44', bbt: '25', malzeme: 'HP 0,15-0,40' },
+  });
+  const out = core.applyExtraPrintsToPendingItems(pending, reports, {
+    dateKey: '2026-08-20',
+    fileName: '20.08.2026.xlsx',
+  });
+  assert.equal(out[0].excelPrintedCount, 14);
+  assert.equal(out[0].excelWaitingCount, 2);
+  assert.equal(out[0].extraPlateCount, 1);
+  assert.equal(out[0].reportBbt, 375);
+  assert.equal(out[0].remainingBbt, 0);
+  const suffix = core.formatCikanSuffix(out[0]);
+  assert.match(suffix, /14 yazdırıldı/);
+  assert.match(suffix, /2 bekliyor/);
+  assert.match(suffix, /\+1 ek plaka/);
 });
 
 test('aynı plaka ikinci yazdırma BBT yi iki kez saymaz', () => {

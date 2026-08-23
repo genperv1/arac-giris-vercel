@@ -72,8 +72,8 @@
     const currentWeek = isoWeekFromYmd(todayYmd());
     const map = new Map();
     (rows || []).forEach((row) => {
-      const week = parseInt(String(row.hafta || '').replace(/[^\d]/g, ''), 10)
-        || isoWeekFromYmd(istanbulYmdFromMs(row.tarih))
+      const week = isoWeekFromYmd(istanbulYmdFromMs(row.tarih))
+        || parseInt(String(row.hafta || '').replace(/[^\d]/g, ''), 10)
         || 0;
       const key = String(week || 'x');
       if (!map.has(key)) {

@@ -209,19 +209,6 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 }
             });
 
-            document.getElementById('vardiyaTakvimButton')?.addEventListener('click', async () => {
-                closeAppToolsMenu();
-                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
-                    const isValidSession = await window.SessionManager.requireValidSession();
-                    if (!isValidSession) return;
-                }
-                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
-                    window.SessionManager.openAppPage('vardiya-takvim.html');
-                } else {
-                    location.href = 'vardiya-takvim.html';
-                }
-            });
-
             // Nakliye bekleyenleri (plaka verilecek BBT özeti)
             document.getElementById('nakliyeBekleyenButton')?.addEventListener('click', async () => {
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
@@ -763,10 +750,6 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
   window.addEventListener('ozmal-plates-changed', () => {
     window.__filterCache = { term: null, incomplete: null, issues: null, recent: null, ozmal: null, ver: 0, out: null };
     try { render(); } catch (e) { try { updateVehicleList(); } catch (_) {} }
-  });
-
-  addOnce(document.getElementById('exportVehiclesExcelBtn'), 'click', () => {
-    try { exportVehiclesExcel(); } catch (e) { console.error(e); }
   });
 
   if (window.SessionManager && typeof window.SessionManager.bindAppPageNavigation === 'function') {

@@ -786,16 +786,42 @@
     }
   }
 
-  /** Bu Excel günü + gece vardiyası (önceki gün ≥18:00, ertesi gün <08:00). */
+  /**
+   * Excel günü: o takvim gününün tamamı + ertesi gece 00:00–08:00.
+   * Önceki akşam (D−1) önceki Excel’e aittir — 19.08 yazdırması 20.08 kartına karışmaz.
+   */
   function printDayMatchesExcelDate(ts, dateKey) {
     if (!dateKey) return true;
     const printDay = istanbulDayKey(ts);
     if (!printDay) return false;
     if (printDay === dateKey) return true;
     const hour = istanbulHour(ts);
-    if (printDay === addDaysToDateKey(dateKey, -1) && hour >= 18) return true;
-    if (printDay === addDaysToDateKey(dateKey, 1) && hour < 8) return true;
+    if (printDay === addDaysToDateKey(dateKey, 1) && hour >= 0 && hour < 8) return true;
     return false;
+  }
+
+  /**
+   * Excel dışı yeni plaka: bu Excel günü 08:00’den sonra + sonraki günler.
+   * Excel günü 00:00–08:00 önceki dalganın gece vardiyasıdır (20.08 kartına 19.08 gecesi yazılmaz).
+   */
+  function printReportValidForExtraPlate(ts, item, meta) {
+    if (!printReportValidForPending(ts, meta)) return false;
+    const start = itemExcelDateKey(item, meta);
+    if (!start) return true;
+    const printDay = istanbulDayKey(ts);
+    if (!printDay) return false;
+    if (printDay > start) return true;
+    if (printDay !== start) return false;
+    const hour = istanbulHour(ts);
+    return hour < 0 || hour >= 8;
+  }
+
+  function preferNewerExcelItem(a, b, meta) {
+    const da = itemExcelDateKey(a, meta) || '';
+    const db = itemExcelDateKey(b, meta) || '';
+    if (db && da && db > da) return b;
+    if (db && !da) return b;
+    return a;
   }
 
   function printReportValidForExcelDay(reportTs, meta) {
@@ -889,11 +915,18 @@
       let best = null;
       let bestScore = 0;
       sameYd.forEach((it) => {
-        if (!printReportValidForItem(r.ts, it, meta)) return;
+        if (!printReportValidForPending(r.ts, meta)) return;
+        const known = pendingItemKnownPlates(it);
+        const isExcelPlate = !!(pk && known.has(pk));
+        // Excel satırı: 21 gün. Excel dışı yeni plaka: bu Excel tarihi ve sonrası (dosya güncellenmese de düşer).
+        if (!isExcelPlate && !printReportValidForExtraPlate(r.ts, it, meta)) return;
         const s = scorePendingPrintTarget(it, lot, reportMal, r, meta);
+        if (s < 0) return;
         if (s > bestScore) {
           bestScore = s;
           best = it;
+        } else if (s === bestScore && best) {
+          best = preferNewerExcelItem(best, it, meta);
         }
       });
       if (!best) return;
@@ -935,11 +968,16 @@
         const excelDeparted = parseNum(it.excelDepartedBbt);
         const accounted = excelDeparted + waitBbt + rec.extraBbt + removedWaitingBbt;
         const reportsCoverPlan = plan > 0 && rec.bbt >= plan;
+        const knownSet = pendingItemKnownPlates(it);
         it.reportBbt = rec.bbt;
         it.reportPrintCount = rec.plates.size;
         it.reportPlates = (rec.details || [])
           .slice()
           .sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.plaka).localeCompare(String(b.plaka), 'tr'));
+        it.excelPlateCount = knownSet.size;
+        it.excelPrintedCount = [...knownSet].filter((pk) => rec.plates.has(pk)).length;
+        it.excelWaitingCount = kept.length;
+        it.extraPlateCount = Math.max(0, rec.plates.size - it.excelPrintedCount);
         it.excelDateKey = itemExcelDateKey(it, meta);
         if (!it.sourceDateLabel && it.excelDateKey) {
           it.sourceDateLabel = formatDateKeyTR(it.excelDateKey);
@@ -947,8 +985,8 @@
 
         if (reportsCoverPlan) {
           it.remainingBbt = 0;
-          it.waitingPlates = [];
           it._emptyYdPending = false;
+          it.waitingPlates = kept;
         } else if (plan > 0) {
           it.remainingBbt = Math.max(0, plan - accounted);
         } else if (rec.bbt > 0 && kept.length === 0) {
@@ -956,7 +994,7 @@
           it._emptyYdPending = false;
         }
 
-        if (reportsCoverPlan) {
+        if (reportsCoverPlan && kept.length === 0) {
           it.shipmentDone = true;
         } else if (plan > 0 && rec.bbt > 0 && rec.bbt < plan) {
           // Aynı gün çıkan planın altındaysa TAMAMLANDI yazılmaz.
@@ -1417,12 +1455,24 @@
     }
     const plan = parseNum(item && item.planBbt);
     const cikan = parseNum(item && item.reportBbt);
+    const excelPrinted = parseNum(item && item.excelPrintedCount);
+    const excelWaiting = parseNum(item && item.excelWaitingCount);
+    const excelTotal = parseNum(item && item.excelPlateCount);
     const nPrint = Array.isArray(item && item.reportPlates)
       ? item.reportPlates.length
       : parseNum(item && item.reportPrintCount);
-    if (cikan > 0 || (item && item.shipmentDone)) {
-      bits.push(plan > 0 ? `çıkan ${cikan}/${plan}` : `çıkan ${cikan}`);
-      if (nPrint > 0) bits.push(`${nPrint} yazdırma`);
+    if (cikan > 0 || (item && item.shipmentDone) || excelPrinted > 0 || excelWaiting > 0) {
+      if (cikan > 0 || (item && item.shipmentDone)) {
+        bits.push(plan > 0 ? `çıkan ${cikan}/${plan}` : `çıkan ${cikan}`);
+      }
+      const extraPlates = parseNum(item && item.extraPlateCount);
+      if (excelTotal > 0 || excelPrinted > 0 || excelWaiting > 0) {
+        if (excelPrinted > 0) bits.push(`${excelPrinted} yazdırıldı`);
+        if (excelWaiting > 0) bits.push(`${excelWaiting} bekliyor`);
+        if (extraPlates > 0) bits.push(`+${extraPlates} ek plaka`);
+      } else if (nPrint > 0) {
+        bits.push(`${nPrint} yazdırma`);
+      }
     }
     return bits.length ? ' · ' + bits.join(' · ') : '';
   }
@@ -2318,6 +2368,8 @@
     printReportValidForBalance,
     printReportValidForPending,
     printReportValidForExcelDay,
+    printDayMatchesExcelDate,
+    printReportValidForExtraPlate,
     printReportYdKey,
     normalizePrintReports,
     collectPrintCountByPlate,

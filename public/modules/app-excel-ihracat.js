@@ -812,7 +812,7 @@ function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId)
       || ''
     ).trim(),
     order_key: String((order && (order._pickKey || order.__archiveKey)) || (pending && pending.piyasaOrderIdx) || '').trim(),
-    hafta: order && order._sourceWeek != null ? String(order._sourceWeek) : '',
+    hafta: '',
     sheet: String((order && order._sourceSheet) || '').trim(),
     sevkiyat_tipi: String((order && order.sevkiyatTipi) || '').trim(),
     vehicle_id: String((printEv && printEv.vehicleId) || pending.vehicleId || '').trim(),
@@ -3155,12 +3155,344 @@ async function commitIhracatImport(uniq2, meta, file) {
   return { ok: true, msg: `✅ Excel yüklendi: ${uniq2.length} satır`, meta: metaToSave };
 }
 
+function hasIhracatExcelPlan() {
+  try {
+    const rows = loadDailyShipments() || [];
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+function listIhracatExcelBlocksForPicker() {
+  const rows = loadDailyShipments() || [];
+  const meta = (typeof loadDailyMeta === 'function' ? loadDailyMeta() : {}) || {};
+  const core = typeof window !== 'undefined' ? window.NakliyeBekleyenCore : null;
+  if (core && typeof core.analyzeNakliyePending === 'function') {
+    return core.analyzeNakliyePending(rows, meta, { includeComplete: true }) || [];
+  }
+  return [];
+}
+
+function _escIhrPick(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _istanbulDayKeyLocal(ts) {
+  try {
+    return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+  } catch (e) {
+    return '';
+  }
+}
+
+function _addDaysKeyLocal(dateKey, days) {
+  const m = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + Number(days || 0)));
+  return d.toISOString().slice(0, 10);
+}
+
+function _isTodayIhracatPrint(ts) {
+  const day = _istanbulDayKeyLocal(ts);
+  const today = _istanbulDayKeyLocal(Date.now());
+  if (!day || !today) return false;
+  if (day === today) return true;
+  let hour = -1;
+  try {
+    hour = parseInt(
+      new Date(ts).toLocaleString('en-GB', { timeZone: 'Europe/Istanbul', hour: '2-digit', hour12: false }),
+      10
+    );
+  } catch (e) {}
+  if (day === _addDaysKeyLocal(today, -1) && hour >= 18) return true;
+  if (day === _addDaysKeyLocal(today, 1) && hour < 8) return true;
+  return false;
+}
+
+function _ihracatPickDedupeKey(item) {
+  const core = typeof window !== 'undefined' ? window.NakliyeBekleyenCore : null;
+  const yd = core && core.normalizeYdKey
+    ? core.normalizeYdKey((item && (item.ydKey || item.headerText)) || '')
+    : String((item && item.ydKey) || '').toUpperCase();
+  const lot = String((item && item.lotLabel) || '').replace(/\s+/g, '').toUpperCase();
+  return yd + '|' + lot;
+}
+
+function _ihracatPickLabel(item) {
+  const yd = String((item && (item.ydKey || item.headerText)) || 'YD').trim();
+  const plan = item && item.planBbt ? `${item.planBbt} BBT plan` : '';
+  const lot = String((item && item.lotLabel) || '').trim();
+  const mal = String((item && (item.malzemeLabel || item.malzeme)) || '').trim();
+  const date = String((item && item.sourceDateLabel) || '').trim();
+  const src = item && item._fromReport ? 'bugün yazdırıldı' : 'Excel';
+  return [yd, plan, lot, mal, date, src].filter(Boolean).join(' · ');
+}
+
+async function listTodayIhracatReportBlocks() {
+  const core = typeof window !== 'undefined' ? window.NakliyeBekleyenCore : null;
+  let reports = [];
+  try {
+    if (typeof window._ihracatFetchRemotePrintReports === 'function') {
+      reports = await window._ihracatFetchRemotePrintReports(false);
+    }
+  } catch (e) {
+    reports = [];
+  }
+  if (core && typeof core.normalizePrintReports === 'function') {
+    reports = core.normalizePrintReports(reports);
+  }
+  const map = new Map();
+  (reports || []).forEach((r) => {
+    if (!_isTodayIhracatPrint(r && r.ts)) return;
+    const yd = core && core.printReportYdKey ? core.printReportYdKey(r) : '';
+    if (!yd) return;
+    const d = (r && r.data && typeof r.data === 'object') ? r.data : {};
+    const blob = [d.firma, d.malzeme, d.lotNo, r.firma, r.malzeme].filter(Boolean).join(' ');
+    const lot = core && core.extractLotLabel
+      ? (core.extractLotLabel({ headerText: blob, blockMeta: {} }) || '')
+      : '';
+    const mal = String(d.malzeme || r.malzeme || '').trim();
+    const key = yd + '|' + String(lot || '').replace(/\s+/g, '').toUpperCase();
+    if (!map.has(key)) {
+      const todayTr = (() => {
+        try {
+          return new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+        } catch (e) {
+          return '';
+        }
+      })();
+      map.set(key, {
+        ydKey: yd,
+        lotLabel: lot,
+        malzemeLabel: mal,
+        malzeme: mal,
+        headerText: [yd, lot, mal].filter(Boolean).join(' / '),
+        fileName: String(d.excelFileName || '').trim(),
+        sourceDateLabel: todayTr,
+        planBbt: 0,
+        _fromReport: true,
+      });
+    }
+  });
+  return Array.from(map.values());
+}
+
+async function collectIhracatPickRows() {
+  const excel = listIhracatExcelBlocksForPicker();
+  const seen = new Set(excel.map(_ihracatPickDedupeKey).filter((k) => k && k !== '|'));
+  const extra = [];
+  (await listTodayIhracatReportBlocks()).forEach((it) => {
+    const k = _ihracatPickDedupeKey(it);
+    if (!k || k === '|' || seen.has(k)) return;
+    seen.add(k);
+    extra.push(it);
+  });
+  const rows = excel.concat(extra);
+  window.__ihracatPickRows = rows;
+  return rows;
+}
+
+function applyIhracatExcelBlockPick(item) {
+  if (!item) return false;
+  const chosen = {
+    firma: item.ydKey || '',
+    ydKey: item.ydKey || '',
+    headerText: item.headerText || '',
+    malzeme: item.malzemeLabel || item.malzeme || '',
+    lotLabel: item.lotLabel || '',
+    fileName: item.fileName || '',
+    blockKey: item.blockKey || '',
+    sevkYeri: item.yuklemeYeri || item.sevkYeri || '',
+    yuklemeNotu: item.lotLabel || '',
+    bbt: '',
+  };
+  try {
+    window.__ihracatActivePrintShipment = chosen;
+    window.__activeExcelShipment = chosen;
+    window.__lastChosenShipment = chosen;
+    window.__skipIhracatExcelPick = false;
+  } catch (e) {}
+  fillTakipFormFromExcelRow(chosen);
+  const bbtEl = document.getElementById('bbt');
+  if (bbtEl) bbtEl.value = '';
+  const ask = document.getElementById('ihrPickBbtInput');
+  if (ask) ask.value = '';
+  try {
+    if (typeof refreshFirmaFieldHint === 'function') refreshFirmaFieldHint();
+  } catch (e) {}
+  return true;
+}
+
+function _firmaLooksPiyasaNotYd(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  if (typeof _isYdFirmaValue === 'function' ? _isYdFirmaValue(s) : /\bYD\d{1,4}/i.test(s)) return false;
+  return true;
+}
+
+function _ihracatPickBbtValue() {
+  const a = String(document.getElementById('ihrPickBbtInput')?.value || '').trim();
+  const b = String(document.getElementById('bbt')?.value || '').trim();
+  const n = parseFloat(String(a || b).replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function _syncIhracatPickBbt(raw) {
+  const v = String(raw || '').trim();
+  const ask = document.getElementById('ihrPickBbtInput');
+  const form = document.getElementById('bbt');
+  if (ask && ask.value !== v) ask.value = v;
+  if (form && form.value !== v) form.value = v;
+  try {
+    const sh = window.__ihracatActivePrintShipment;
+    if (sh) sh.bbt = v;
+    if (window.__activeExcelShipment) window.__activeExcelShipment.bbt = v;
+    if (window.__lastChosenShipment) window.__lastChosenShipment.bbt = v;
+  } catch (e) {}
+}
+
+function _setIhracatPickHint(text, isErr) {
+  const el = document.getElementById('ihrPickHint');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('is-err', !!isErr);
+}
+
+function renderIhracatPickPanelSync(rows) {
+  const panel = document.getElementById('ihracatPickPanel');
+  if (!panel) return;
+  document.getElementById('ihracatBlockPickerOverlay')?.remove();
+  if (window.__skipIhracatExcelPick) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+  if (!rows || !rows.length) {
+    panel.classList.remove('hidden');
+    panel.innerHTML =
+      `<div class="ihr-pick-title">İhracat sevkiyatı</div>` +
+      `<div class="ihr-pick-sub">Bugün yazdırılmış YD / LOT veya yüklü Excel yok. Yine de firma kutusuna YD yazabilirsiniz.</div>`;
+    return;
+  }
+  panel.classList.remove('hidden');
+  const picked = window.__ihracatActivePrintShipment || window.__activeExcelShipment;
+  const pickedKey = picked ? _ihracatPickDedupeKey(picked) : '';
+  const rowsHtml = rows.map((it, i) => {
+    const on = pickedKey && _ihracatPickDedupeKey(it) === pickedKey;
+    return (
+      `<div class="ihr-pick-row${on ? ' is-on' : ''}">` +
+        `<div class="ihr-pick-text">${_escIhrPick(_ihracatPickLabel(it))}</div>` +
+        `<button type="button" class="ihr-pick-sec" data-ihr-inline-pick="${i}">Seç</button>` +
+      `</div>`
+    );
+  }).join('');
+  const selectedLabel = picked && picked.ydKey
+    ? [picked.ydKey, picked.lotLabel, picked.malzeme].filter(Boolean).join(' · ')
+    : '';
+  panel.innerHTML =
+    `<div class="ihr-pick-title">İhracat sevkiyatı</div>` +
+    `<div class="ihr-pick-sub">Excel güncellenmese de bugün basılan YD / LOT burada. Seç, sonra bu araç kaç BBT yaz.</div>` +
+    rowsHtml +
+    `<div class="ihr-pick-bbt-ask${picked && picked.ydKey ? '' : ' hidden'}" id="ihrPickBbtAsk">` +
+      `<div class="ihr-pick-selected">Seçildi: ${_escIhrPick(selectedLabel)}</div>` +
+      `<label class="ihr-pick-bbt-label" for="ihrPickBbtInput">Bu araç kaç BBT?</label>` +
+      `<input type="text" id="ihrPickBbtInput" class="form-input ihr-pick-bbt-input" inputmode="numeric" placeholder="Örn. 21">` +
+      `<div class="ihr-pick-bbt-note">Bu sayı yazdırma raporuna gider.</div>` +
+    `</div>` +
+    `<p class="ihr-pick-hint" id="ihrPickHint"></p>`;
+
+  panel.querySelectorAll('[data-ihr-inline-pick]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = rows[Number(btn.getAttribute('data-ihr-inline-pick'))];
+      applyIhracatExcelBlockPick(item);
+      renderIhracatPickPanelSync(rows);
+      const ask = document.getElementById('ihrPickBbtInput');
+      if (ask) {
+        ask.focus();
+        ask.select();
+      }
+      _setIhracatPickHint('BBT yazın, sonra Yazdır.', false);
+    });
+  });
+  const ask = document.getElementById('ihrPickBbtInput');
+  if (ask) {
+    const current = String(document.getElementById('bbt')?.value || '').trim();
+    if (current) ask.value = current;
+    ask.addEventListener('input', () => _syncIhracatPickBbt(ask.value));
+  }
+}
+
+async function renderIhracatPickPanel() {
+  const rows = await collectIhracatPickRows();
+  renderIhracatPickPanelSync(rows);
+  return rows;
+}
+
+function openIhracatExcelBlockPicker() {
+  document.getElementById('ihracatBlockPickerOverlay')?.remove();
+  return renderIhracatPickPanel().then((rows) => {
+    const panel = document.getElementById('ihracatPickPanel');
+    if (panel && rows && rows.length) {
+      panel.classList.remove('hidden');
+      try { panel.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+    }
+    return true;
+  });
+}
+
+async function ensureIhracatExcelPickBeforePrint() {
+  try {
+    if (window.__takipJobKind === 'piyasa' || window.__skipIhracatExcelPick) return true;
+    if (window.piyasa && typeof window.piyasa.getLockedPickInfo === 'function' && window.piyasa.getLockedPickInfo()) {
+      return true;
+    }
+    const firma = String(document.getElementById('firmaKodu')?.value || '').trim();
+    if (_firmaLooksPiyasaNotYd(firma)) return true;
+    if (window.__takipJobKind !== 'ihracat' && !/\bYD\d{1,4}/i.test(firma)) return true;
+    const rows = await renderIhracatPickPanel();
+    if (!rows.length) return true;
+    const picked = window.__ihracatActivePrintShipment || window.__activeExcelShipment;
+    const panel = document.getElementById('ihracatPickPanel');
+    if (!picked || !String(picked.ydKey || picked.firma || '').trim()) {
+      _setIhracatPickHint('Önce listedeki sevkiyattan Seç deyin.', true);
+      try { panel && panel.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+      return false;
+    }
+    const bbt = _ihracatPickBbtValue();
+    if (!(bbt > 0)) {
+      _setIhracatPickHint('BBT sayısı yazın. Rapora bu sayı gider.', true);
+      const ask = document.getElementById('ihrPickBbtInput') || document.getElementById('bbt');
+      try { ask && ask.focus(); } catch (e) {}
+      return false;
+    }
+    _syncIhracatPickBbt(String(bbt));
+    return true;
+  } catch (e) {
+    return true;
+  }
+}
+
+async function maybeOfferIhracatExcelPickOnOpen() {
+  return;
+}
+
 window.parseIhracatRowsFromWorkbook = parseIhracatRowsFromWorkbook;
 window.normPlate = normPlate;
 window.fillTakipFormFromExcelRow = fillTakipFormFromExcelRow;
 window.findDailyShipmentsByPlate = findDailyShipmentsByPlate;
 window.findShipmentForPlate = findShipmentForPlate;
 window.hasDailyExcelLoaded = hasDailyExcelLoaded;
+window.hasIhracatExcelPlan = hasIhracatExcelPlan;
+window.openIhracatExcelBlockPicker = openIhracatExcelBlockPicker;
+window.renderIhracatPickPanel = renderIhracatPickPanel;
+window.ensureIhracatExcelPickBeforePrint = ensureIhracatExcelPickBeforePrint;
+window.maybeOfferIhracatExcelPickOnOpen = maybeOfferIhracatExcelPickOnOpen;
+window.applyIhracatExcelBlockPick = applyIhracatExcelBlockPick;
 window.commitIhracatImport = commitIhracatImport;
 window.applyReprintSnapshotToTakipForm = applyReprintSnapshotToTakipForm;
 window.mergeReprintPreferFilled = mergeReprintPreferFilled;

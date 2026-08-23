@@ -142,6 +142,8 @@ function showTakipFormu(vehicle) {
                 window.__lastChosenShipment = null;
                 window.__activeExcelShipment = null;
                 window.__ihracatActivePrintShipment = null;
+                window.__skipIhracatExcelPick = false;
+                window.__takipJobKind = '';
               } catch (e) {}
             }
 
@@ -374,21 +376,24 @@ function showTakipFormu(vehicle) {
                   </div>
                 </section>
 
+                <div id="ihracatPickPanel" class="ihr-pick-panel hidden"></div>
+
                 <table class="takip-form__table">
                         <tr>
                             <td class="takip-form__table-label">Firma / müşteri kodu <span class="takip-form__req" aria-hidden="true">*</span></td>
                             <td class="takip-form__table-cell">
-                                <select class="firma-select" id="firmaSelect" aria-required="true">
-                                    <option value="">Listeden seçin</option>
+                                <select class="firma-select hidden" id="firmaSelect" hidden aria-hidden="true" tabindex="-1">
+                                    <option value=""></option>
                                     ${firmaListesi.map(firma => `<option value="${getFirmaKodOnly(firma)}">${getFirmaKodOnly(firma)}</option>`).join('')}
                                 </select>
                                 <div class="takip-form__inline-row">
-                                  <input type="text" class="form-input" id="firmaKodu" placeholder="HP87 — Bul ile seçin" autocomplete="off" value="${vehicle.defaultFirma || ''}" aria-required="true">
-                                  <button type="button" id="firmaAraBtn" class="takip-form__search-btn"><i class="fas fa-search"></i> Bul</button>
+                                  <input type="text" class="form-input" id="firmaKodu" placeholder="Kodu elle yazın" autocomplete="off" value="${vehicle.defaultFirma || ''}" aria-required="true">
+                                  <button type="button" id="firmaPiyasaBtn" class="takip-form__kind-btn takip-form__kind-btn--piyasa">Piyasa</button>
+                                  <button type="button" id="firmaIhracatBtn" class="takip-form__kind-btn takip-form__kind-btn--ihracat">İhracat</button>
                                 </div>
                                 <p class="takip-form__field-hint" id="firmaFieldHint">
                                   <i class="fas fa-info-circle" aria-hidden="true"></i>
-                                  Firma kodunu yazın veya <strong>Bul</strong> ile sipariş seçin.
+                                  Kodu yazın. <strong>Piyasa</strong> sipariş seçer, <strong>İhracat</strong> YD seçer.
                                 </p>
                             </td>
                         </tr>
@@ -400,8 +405,7 @@ function showTakipFormu(vehicle) {
                                     ${malzemeListesi.map(malzeme => `<option value="${malzeme}">${malzeme}</option>`).join('')}
                                 </select>
                                 <div class="takip-form__inline-row">
-                                  <input type="text" class="form-input" id="malzeme" placeholder="Veya malzeme bilgisi giriniz" autocomplete="off" value="${vehicle.defaultMalzeme || ''}">
-                                  <button type="button" id="malzemeAraBtn" class="takip-form__search-btn"><i class="fas fa-search"></i> Bul</button>
+                                  <input type="text" class="form-input" id="malzeme" placeholder="Malzeme yazın" autocomplete="off" value="${vehicle.defaultMalzeme || ''}">
                                 </div>
                             </td>
                         </tr>
@@ -1126,21 +1130,21 @@ const handleFirma = (firma) => {
   }
 };
 
-if (firmaSelect && firmaInput) {
+if (firmaSelect) {
   firmaSelect.addEventListener('change', function () {
     const val = this.value || '';
-    firmaInput.value = val;
+    if (firmaInput) firmaInput.value = val;
     handleFirma(val);
     try { applyCanonicalFirmaKodu(val); refreshFirmaFieldHint(); } catch (e) {}
   });
-
+}
+if (firmaInput) {
   firmaInput.addEventListener('input', function () {
     const val = (this.value || '').trim();
-    firmaSelect.value = '';
+    if (firmaSelect) firmaSelect.value = '';
     handleFirma(val);
     try { refreshFirmaFieldHint(); } catch (e) {}
   });
-
   firmaInput.addEventListener('blur', function () {
     try { refreshFirmaFieldHint(); } catch (e) {}
   });
@@ -1164,64 +1168,35 @@ if (malzemeSelect2) {
 
 
 try {
-  const firmaAraBtn = document.getElementById('firmaAraBtn');
-  const malzemeAraBtn = document.getElementById('malzemeAraBtn');
-
   const firmaKoduEl = document.getElementById('firmaKodu');
   const malzemeEl = document.getElementById('malzeme');
 
-  if (firmaAraBtn) addOnce(firmaAraBtn, 'click', ()=>{
-    // PİYASA yüklüyse: firma seçmek yerine sipariş listesi aç
+  const firmaPiyasaBtn = document.getElementById('firmaPiyasaBtn');
+  const firmaIhracatBtn = document.getElementById('firmaIhracatBtn');
+  if (firmaPiyasaBtn) addOnce(firmaPiyasaBtn, 'click', () => {
+    try { window.__takipJobKind = 'piyasa'; window.__skipIhracatExcelPick = true; } catch (e) {}
     try {
-      if (window.piyasa && typeof window.piyasa.hasOrders === 'function' && window.piyasa.hasOrders()) {
-        const q = (document.getElementById('firmaKodu')?.value || '').trim();
-        window.piyasa.openOrderPicker({ searchAllSheets: true, initialQuery: q });
-        return;
-      }
-    } catch(_) {}
+      const panel = document.getElementById('ihracatPickPanel');
+      if (panel) { panel.classList.add('hidden'); panel.innerHTML = ''; }
+    } catch (e) {}
     const q = (document.getElementById('firmaKodu')?.value || '').trim();
-    const opts = (firmaListesi || []).map(f => getFirmaKodOnly(f)).filter(Boolean);
-    _openQuickPick({
-      title: 'Firma/Müşteri Kodu Seç',
-      query: q,
-      options: opts,
-      onPick: (val)=>{
-        if (firmaInput) { firmaInput.value = val; handleFirma(val); }
-        if (firmaSelect) firmaSelect.value = '';
-        try { applyCanonicalFirmaKodu(val); refreshFirmaFieldHint(); } catch (e) {}
-      }
-    });
-  });
-
-  if (malzemeAraBtn) addOnce(malzemeAraBtn, 'click', ()=>{
     try {
-      if (window.piyasa && typeof window.piyasa.hasOrders === 'function' && window.piyasa.hasOrders()) {
-        const q = (document.getElementById('malzeme')?.value || '').trim();
+      if (window.piyasa && typeof window.piyasa.openOrderPicker === 'function') {
         window.piyasa.openOrderPicker({ searchAllSheets: true, initialQuery: q });
         return;
       }
-    } catch (_) {}
-    const q = (document.getElementById('malzeme')?.value || '').trim();
-    const opts = (malzemeListesi || []).slice();
-    _openQuickPick({
-      title: 'Malzeme Seç',
-      query: q,
-      options: opts,
-      onPick: (val)=>{
-        if (malzemeInput2) malzemeInput2.value = val;
-        if (malzemeSelect2) malzemeSelect2.value = val;
-        // Eşleşme uygula (varsa)
-        if (currentFirmaMatches && currentFirmaMatches.length) {
-          const es = currentFirmaMatches.find(e => (e.malzeme || '') === val);
-          if (es) applyMatch(es);
-        }
+    } catch (e) {}
+  });
+  if (firmaIhracatBtn) addOnce(firmaIhracatBtn, 'click', () => {
+    try { window.__takipJobKind = 'ihracat'; window.__skipIhracatExcelPick = false; } catch (e) {}
+    try {
+      if (typeof window.openIhracatExcelBlockPicker === 'function') {
+        window.openIhracatExcelBlockPicker();
       }
-    });
+    } catch (e) {}
   });
 
-  // ⌨️ Enter ile "Bul" çalıştır (HP yaz -> Enter)
-  if (firmaKoduEl) addOnce(firmaKoduEl, 'keydown', (e)=>{ if (e.key === 'Enter') { e.preventDefault(); firmaAraBtn?.click(); } });
-  if (malzemeEl) addOnce(malzemeEl, 'keydown', (e)=>{ if (e.key === 'Enter') { e.preventDefault(); malzemeAraBtn?.click(); } });
+  if (firmaKoduEl) addOnce(firmaKoduEl, 'keydown', (e)=>{ if (e.key === 'Enter') { e.preventDefault(); firmaPiyasaBtn?.click(); } });
 
 } catch(e){}
 
@@ -1347,6 +1322,13 @@ try {
 
             try { refreshFirmaFieldHint(); } catch (e) {}
             try {
+              const panel = document.getElementById('ihracatPickPanel');
+              if (panel && !isReprint) {
+                panel.classList.add('hidden');
+                panel.innerHTML = '';
+              }
+            } catch (e) {}
+            try {
               if (window.piyasa && typeof window.piyasa.loadCustomers === 'function') {
                 Promise.resolve(window.piyasa.loadCustomers(false)).then(() => {
                   try { refreshFirmaFieldHint(); } catch (err) {}
@@ -1368,6 +1350,7 @@ try {
             try {
               window._ihracatRestoreParkedDetailsModal?.();
             } catch (_) {}
+            try { window.__skipIhracatExcelPick = false; } catch (_) {}
             clearActiveTakipVehicleRefs();
         }
 
@@ -1455,13 +1438,13 @@ try {
             hint.classList.remove('is-invalid', 'is-ok', 'is-yd', 'takip-form__field-hint--warn');
             if (!raw) {
                 hint.style.display = '';
-                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Firma kodunu yazın veya <strong>Bul</strong> ile sipariş seçin.';
+                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Kodu yazın. <strong>Piyasa</strong> veya <strong>İhracat</strong> ile seçin.';
                 return;
             }
             hint.style.display = '';
             if (isIhracatFirmaValue(raw)) {
                 hint.classList.add('is-yd');
-                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> İhracat (YD) — Piyasa çıkanlar listesine girmez.';
+                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> İhracat sevkiyatı — bu yazdırma ihracat raporuna gider.';
                 return;
             }
             let customer = null;
@@ -1570,6 +1553,14 @@ try {
                 { id:'malzeme',   label:'Malzeme' },
                 { id:'sevkYeri',  label:'Sevk Yeri' }
             ];
+            try {
+              const ihrPicked = !window.__skipIhracatExcelPick
+                && (window.__ihracatActivePrintShipment || window.__activeExcelShipment);
+              const ydPick = ihrPicked && String(ihrPicked.ydKey || ihrPicked.firma || '').trim();
+              if (ydPick && /\bYD\d{1,4}/i.test(ydPick)) {
+                required.push({ id: 'bbt', label: 'BBT' });
+              }
+            } catch (e) {}
 
             required.forEach(r => {
                 const el = document.getElementById(r.id);
@@ -2523,9 +2514,6 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             <button type="button" id="piyasaExcelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel verisini temizle">🗑️ PİYASA Excel Sil</button>
             <div class="my-1 border-t"></div>
             <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
-            <div class="my-1 border-t"></div>
-            <button type="button" id="exportVehiclesExcelBtn" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Tüm araç kayıtlarını Excel olarak indir">📊 Araç Listesi Excel</button>
-            <button type="button" id="vardiyaTakvimButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Vardiya takvimi — gece / gündüz döngüsü">🗓️ Vardiya Takvimi</button>
             <div class="my-1 border-t"></div>
             <button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>
           </div>

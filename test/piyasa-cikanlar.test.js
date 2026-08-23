@@ -47,6 +47,7 @@ test('iso week matches Piyasa Excel reading', () => {
   assert.equal(haftaLabel(34), '34. hafta');
   assert.equal(resolveHafta('34', 0), 34);
   assert.equal(resolveHafta('', Date.parse('2026-08-20T12:00:00+03:00')), 34);
+  assert.equal(resolveHafta('34', Date.parse('2026-08-24T00:31:31+03:00')), 35);
   const info = isoWeekInfoFromMs(Date.parse('2026-08-22T12:00:00+03:00'));
   assert.equal(info.week, 34);
   assert.equal(info.year, 2026);
@@ -76,6 +77,24 @@ test('groupCikanlarByHafta keeps current week open and past weeks separate', () 
   assert.equal(groups[1].isCurrent, false);
 });
 
+test('groupCikanlarByHafta uses print date not Excel source week', () => {
+  const { groupCikanlarByHafta } = require('../lib/piyasa-cikanlar');
+  const now = Date.parse('2026-08-24T00:40:00+03:00');
+  const groups = groupCikanlarByHafta([
+    {
+      id: 'hp8',
+      tarih: Date.parse('2026-08-24T00:31:31+03:00'),
+      hafta: '34',
+      haftaYear: 2026,
+      firma: 'HP8',
+    },
+  ], now);
+  assert.equal(groups[0].isCurrent, true);
+  assert.equal(groups[0].week, 35);
+  assert.equal(groups[0].count, 1);
+  assert.equal(groups[0].rows[0].firma, 'HP8');
+});
+
 test('groupCikanlarByHafta still shows empty current week', () => {
   const { groupCikanlarByHafta } = require('../lib/piyasa-cikanlar');
   const now = Date.parse('2026-08-22T12:00:00+03:00');
@@ -102,6 +121,17 @@ test('normalizeCikanlarInsert keeps piyasa fields', () => {
   assert.equal(row.sip_no, 'S-11');
   assert.equal(row.sehir, 'ANKARA');
   assert.ok(row.id);
+});
+
+test('normalizeCikanlarInsert stores print-date week not Excel week', () => {
+  const row = normalizeCikanlarInsert({
+    plaka: '06 FAY 148',
+    firma: 'HP8',
+    hafta: '34',
+    tarih: Date.parse('2026-08-24T00:31:31+03:00'),
+  }, (s, n) => String(s).slice(0, n));
+  assert.equal(row.error, undefined);
+  assert.equal(row.hafta, '35');
 });
 
 test('normalizeCikanlarInsert keeps selected kantar signature name', () => {
