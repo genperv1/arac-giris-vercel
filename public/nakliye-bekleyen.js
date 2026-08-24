@@ -570,14 +570,14 @@
     const when = fmtLoadedAt(meta.importedAt || meta.loadedAt);
     if (!rows.length) {
       el.innerHTML =
-        '<span class="nb-excel-no">İHRACAT Excel yüklü değil</span> — plan için yükleyin; biten sevkiyat çıkan rapordan anlaşılır.';
+        '<span class="nb-excel-no">İHRACAT Excel yüklü değil</span> — plan için yükleyin; giden araçlar listede durmaz.';
       return;
     }
     el.innerHTML =
       '<span class="nb-excel-ok">İHRACAT Excel yüklü</span>' +
       (files.length ? ' · ' + esc(files[0]) : '') +
       (when ? ' · ' + esc(when) : '') +
-      ' · çıkan raporlara göre bitenler düşer';
+      ' · giden / yazdırılan araçlar listeden düşer';
   }
 
   function filterItems(items) {
@@ -994,7 +994,13 @@
         return;
       }
       if (row.kind === 'plate') {
-        const statusCls = row.bassofor ? 'nb-side-bassofor' : row.ozmal ? 'nb-side-ozmal' : 'nb-side-red';
+        const statusCls = row.bassofor
+          ? 'nb-side-bassofor'
+          : row.ozmal
+            ? 'nb-side-ozmal'
+            : row.inside
+              ? 'nb-side-inside'
+              : 'nb-side-red';
         const excludeCopy = row.ozmal || row.bassofor ? ' nb-plate--exclude-copy' : '';
         const canPersistDelete = !row.ozmal && !row.bassofor;
         html +=
@@ -1236,10 +1242,11 @@
       }
       noExcel?.classList.add('hidden');
 
-      _allItems = core ? core.analyzeNakliyePending(rows, loadMeta(), { includeComplete: true }) : [];
+      _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
       if (core && typeof core.applyExtraPrintsToPendingItems === 'function') {
         _allItems = core.applyExtraPrintsToPendingItems(_allItems, reports, loadMeta());
       }
+      _allItems = (_allItems || []).filter((it) => !core || core.hasNakliyeBlockContent(it));
       const visible = filterItems(_allItems);
 
       const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);
@@ -1280,9 +1287,9 @@
       if (!hasSheet) {
         empty?.classList.remove('hidden');
         if (empty) {
-          empty.textContent = _allItems.length
-            ? 'Bekleyen sevkiyat yok.'
-            : 'Bekleyen sevkiyat yok — çıkan raporlara göre bu plan bitmiş.';
+          empty.textContent = _searchNeedle
+            ? 'Aramaya uyan bekleyen sevkiyat yok.'
+            : 'Bekleyen sevkiyat yok — giden araçlar listeden düştü.';
         }
         outer?.classList.add('hidden');
         return;

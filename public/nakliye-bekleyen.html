@@ -323,6 +323,12 @@
       font-weight: 700;
       font-size: 15px;
     }
+    .nb-sheet-grid tr.nb-plate td.nb-side-inside {
+      background: #fff;
+      color: #047857;
+      font-weight: 800;
+      font-size: 15px;
+    }
     .nb-sheet-grid tr.nb-plate td.nb-side-ozmal {
       background: #fff;
       color: #0d47a1;
@@ -586,7 +592,7 @@
 
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <div class="nb-toolbar-card">
-      <p class="nb-hint">Her blok kendi <strong>Excel / tarih / LOT</strong> kimliğiyle sayılır. Başka dosya veya eski tarih karışmaz. Çıkan ≥ plan ise <strong>TAMAMLANDI</strong>. <strong>yd 40</strong> yazınca YD40 bulunur.</p>
+      <p class="nb-hint">Her blok kendi <strong>Excel / tarih / LOT</strong> kimliğiyle sayılır. Excel’de giden kg dolu veya çıkan ≥ plan olan araçlar <strong>listeden düşer</strong>. Giden sütununda <strong>içerde / içeride</strong> yazanı <strong>İÇERDE</strong> gösterir. <strong>yd 40</strong> yazınca YD40 bulunur.</p>
       <div id="nbExcelStatus" class="text-xs text-gray-600 mb-2">Excel durumu yükleniyor…</div>
       <div class="flex flex-wrap gap-2 items-center">
         <input type="search" id="nbSearch" class="nb-input" style="width:160px;" placeholder="YD / LOT ara…" />
@@ -616,7 +622,7 @@
   <script src="idb.js"></script>
   <script src="dailyStore.js?v=20260821-multiexcel7"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260823-sameday10"></script>
-  <script src="nakliye-bekleyen.js?v=20260823-sameday10"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260824-icerde1"></script>
+  <script src="nakliye-bekleyen.js?v=20260824-icerde1"></script>
 </body>
 </html>

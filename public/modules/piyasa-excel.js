@@ -593,6 +593,56 @@
     return eu().suggestPiyasaOrders(state.orders, ctx || {}, 3);
   }
 
+  function _fillTakipPackagingFromSnap(snap) {
+    if (!snap || typeof snap !== 'object') return;
+    const setVal = (id, v) => {
+      const el = document.getElementById(id);
+      if (!el || v == null || String(v).trim() === '') return;
+      el.value = String(v).trim();
+    };
+    setVal('bbt', snap.bbt);
+    setVal('bosBbt', snap.bosBbt);
+    setVal('cuval', snap.cuval);
+    setVal('bosCuval', snap.bosCuval);
+    setVal('palet', snap.palet);
+    setVal('torba', snap.torba);
+  }
+
+  async function applyPastPiyasaSuggestion(hit) {
+    if (!hit) return false;
+    if (hit.source === 'paper' && hit.printRow) {
+      const row = hit.printRow;
+      const snap = (row.snapshot && typeof row.snapshot === 'object') ? row.snapshot : {};
+      const fake = {
+        firma: String(row.firma || snap.firmaKodu || snap.firma || '').trim(),
+        firmaAdi: String(snap.firmaAdi || hit.firmaAdi || '').trim(),
+        malzeme: String(row.malzeme || snap.malzeme || '').trim(),
+        yuklemeTuru: String(row.yukleme_turu || snap.yuklemeTuru || snap.ambalajBilgisi || '').trim(),
+        sevkYeri: String(row.sevk_yeri || snap.sevkYeri || '').trim(),
+        il: String(snap.sehir || snap.il || '').trim(),
+        aciklama: String(snap.yuklemeNotu || snap.baskiNotu || '').trim(),
+        miktar: snap.tonaj || snap.miktar || '',
+        sipNo: String(snap.sipNo || '').trim(),
+        odemeTuru: '',
+        org: '',
+        __idx: null,
+        __archiveKey: null,
+        _pickKey: null,
+        _frozenFromPicker: true,
+      };
+      applyOrderToForm(fake, { forceReuse: true });
+      _fillTakipPackagingFromSnap(snap);
+      try { clearLockedPiyasaPick(); } catch (e) {}
+      return true;
+    }
+    const order = hit.order || (hit.pickKey && typeof getOrderByIdx === 'function' ? getOrderByIdx(hit.pickKey) : null);
+    if (!order) return false;
+    const ok = await confirmReuseOrder(order);
+    if (!ok) return false;
+    applyOrderFromPicker(order);
+    return true;
+  }
+
   async function confirmReuseOrder(o) {
     if (!o || (!o.usedAt && getOrderPrintCount(o) <= 0)) return true;
     const ui = window.rpUi || {};

@@ -914,6 +914,75 @@ function piyasaOverlayStyle(zIndex) {
     }
   }
 
+  function _isoWeekFromMs(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    try {
+      const ymd = new Date(n).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+      const m = String(ymd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+      return Number.isFinite(week) && week > 0 ? week : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function _printRowSnapshot(row) {
+    const snap = row && row.snapshot && typeof row.snapshot === 'object' ? row.snapshot : {};
+    return snap;
+  }
+
+  async function fetchPastPrintPaperSuggestions(firma, limit) {
+    const key = normFirmaKey(firma);
+    if (!key) return [];
+    try {
+      const params = new URLSearchParams({ limit: '40', firma: key });
+      const r = await fetch('/api/print_history?' + params.toString() + '&_=' + Date.now(), {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!r.ok) return [];
+      const rows = await r.json();
+      if (!Array.isArray(rows)) return [];
+      const max = Math.max(1, parseInt(limit, 10) || 3);
+      const out = [];
+      const seen = new Set();
+      for (const row of rows) {
+        if (normFirmaKey(row.firma) !== key) continue;
+        if (/\bYD\d{1,4}/i.test(String(row.firma || ''))) continue;
+        const snap = _printRowSnapshot(row);
+        const malzeme = String(row.malzeme || snap.malzeme || '').trim();
+        const shape = malzeme.toUpperCase() + '|' + String(row.plaka || '').toUpperCase();
+        if (seen.has(shape)) continue;
+        seen.add(shape);
+        const ts = Number(row.tarih) || 0;
+        out.push({
+          source: 'paper',
+          week: _isoWeekFromMs(ts),
+          sheet: '',
+          order: null,
+          printRow: row,
+          pickKey: 'paper:' + String(row.id || ts),
+          malzeme,
+          firmaAdi: String(snap.firmaAdi || '').trim(),
+          sevkYeri: String(row.sevk_yeri || snap.sevkYeri || '').trim(),
+          yuklemeTuru: String(row.yukleme_turu || snap.yuklemeTuru || snap.ambalajBilgisi || '').trim(),
+          lastPrintPlate: String(row.plaka || '').trim(),
+          lastPrintAt: ts,
+        });
+        if (out.length >= max) break;
+      }
+      return out;
+    } catch (e) {
+      return [];
+    }
+  }
+
   function normPlateKey(s) {
     return String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/gi, '');
   }

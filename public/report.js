@@ -648,7 +648,8 @@
     if (excelKey) return 'ihracat';
     const note = String(d.yuklemeNotu || d.baskiNotu || snap.yuklemeNotu || '').trim();
     if (/SEVKİYATLARDA|SEVKIYATLARDA|DİKKAT\s+EDİLECEK|DIKKAT\s+EDILECEK/i.test(note)) return 'ihracat';
-    if (/^İrsaliye\s*No\s*:/im.test(note)) return 'ihracat';
+    // Piyasa Netsis (I01…) irsaliye satırı ihracat değildir; R11… ihracat.
+    if (/^İrsaliye\s*No\s*:/im.test(note) && /R11\b/i.test(note)) return 'ihracat';
     return 'piyasa';
   }
 

@@ -338,28 +338,99 @@
     return pickKey ?? last?.__idx ?? null;
   }
 
-  function countOrdersForFirma(firma) {
-    const key = normFirmaKey(firma);
-    if (!key) return 0;
+  function parsePiyasaWeekNum(value) {
+    const n = parseInt(String(value == null ? '' : value).replace(/[^\d]/g, ''), 10);
+    return Number.isFinite(n) && n > 0 && n < 60 ? n : null;
+  }
+
+  function _firmaOrderDedupeKey(o, week, sheet) {
+    if (typeof getOrderPickKey === 'function') {
+      const pk = getOrderPickKey(o);
+      if (pk) return String(pk);
+    }
+    return String(week || '') + ':' + String(sheet || '') + ':' + String(o && o.__idx);
+  }
+
+  /**
+   * Aktif Excel haftası vs eski haftalar. Bu haftada yoksa geçmiş sipariş/kâğıt önerisi için.
+   * lists: { currentWeek, currentOrders, weekArchive, normFirmaKey, getOrderPickKey, limit }
+   */
+  function findPastPiyasaSuggestions(firma, lists) {
+    const src = lists && typeof lists === 'object' ? lists : {};
+    const norm = typeof src.normFirmaKey === 'function'
+      ? src.normFirmaKey
+      : function (s) { return String(s || '').trim().toUpperCase().split('/')[0].trim(); };
+    const pickKeyOf = typeof src.getOrderPickKey === 'function' ? src.getOrderPickKey : function () { return null; };
+    const key = norm(firma);
+    const currentWeek = parsePiyasaWeekNum(src.currentWeek);
+    const limit = Math.max(1, parseInt(src.limit, 10) || 5);
+    const current = [];
+    const past = [];
     const seen = new Set();
-    let n = 0;
-    const visit = (o) => {
-      if (!o) return;
-      if (normFirmaKey(o.firma) !== key) return;
-      const pk = getOrderPickKey(o) || String(o.__idx);
+    const visit = (o, week, sheet) => {
+      if (!o || !key || norm(o.firma) !== key) return;
+      const pk = pickKeyOf(o) || _firmaOrderDedupeKey(o, week, sheet);
       if (seen.has(pk)) return;
       seen.add(pk);
-      n += 1;
+      const w = parsePiyasaWeekNum(week);
+      const hit = {
+        week: w,
+        sheet: String(sheet || '').trim(),
+        order: o,
+        pickKey: pk,
+        source: 'excel',
+        malzeme: String(o.malzeme || '').trim(),
+        firmaAdi: String(o.firmaAdi || o._hSutunValue || '').trim(),
+        sevkYeri: String(o.il || o.sevkYeri || '').trim(),
+        yuklemeTuru: String(o.yuklemeTuru || '').trim(),
+        lastPrintPlate: String(o.lastPrintPlate || o.usedPlate || '').trim(),
+        lastPrintAt: Number(o.lastPrintAt || o.usedAt || 0) || 0,
+      };
+      if (currentWeek != null && w === currentWeek) current.push(hit);
+      else if (w != null) past.push(hit);
     };
-    for (const o of state.orders || []) visit(o);
-    for (const block of state.weekArchive || []) {
-      for (const o of block.orders || []) visit(o);
+    for (const o of src.currentOrders || []) visit(o, src.currentWeek, src.currentSheet);
+    for (const block of src.weekArchive || []) {
+      for (const o of block.orders || []) visit(o, block.week, block.sheet);
     }
-    return n;
+    past.sort((a, b) => {
+      if (b.week !== a.week) return b.week - a.week;
+      return (b.lastPrintAt || 0) - (a.lastPrintAt || 0);
+    });
+    const uniq = [];
+    const seenShape = new Set();
+    for (const hit of past) {
+      const shape = [hit.week, hit.malzeme.toUpperCase(), hit.yuklemeTuru.toUpperCase(), hit.sevkYeri.toUpperCase()].join('|');
+      if (seenShape.has(shape)) continue;
+      seenShape.add(shape);
+      uniq.push(hit);
+      if (uniq.length >= limit) break;
+    }
+    return { currentWeek, currentCount: current.length, past: uniq };
+  }
+
+  function countOrdersForFirma(firma) {
+    return countCurrentWeekOrdersForFirma(firma);
+  }
+
+  function countCurrentWeekOrdersForFirma(firma) {
+    return findPastPiyasaSuggestionsForFirma(firma).currentCount;
+  }
+
+  function findPastPiyasaSuggestionsForFirma(firma) {
+    return findPastPiyasaSuggestions(firma, {
+      currentWeek: state.week,
+      currentSheet: state.sheet,
+      currentOrders: state.orders,
+      weekArchive: state.weekArchive,
+      normFirmaKey,
+      getOrderPickKey,
+      limit: 5,
+    });
   }
 
   function hasOrdersForFirma(firma) {
-    return countOrdersForFirma(firma) > 0;
+    return countCurrentWeekOrdersForFirma(firma) > 0;
   }
 
   function getLockedPickInfo() {

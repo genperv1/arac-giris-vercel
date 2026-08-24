@@ -3,11 +3,13 @@
  * Birim: BBT (tonaj değil).
  *
  * Kurallar:
- * - Giden tonajı dolu satır = çıkmış araç → listede gösterilmez
+ * - Giden kg dolu satır = çıkmış araç → listede gösterilmez
+ * - Giden sütununda içerde / içeride / içe… = tesiste, çıkmamış → İÇERDE (GELMEYEN değil)
  * - Plaka var, giden tonaj boş = gelmeyen araç → plaka + BBT yan sütunda
  * - Aynı YD yazdırması gelmeyen plakayı kapatır; Excel'de olmayan çıkan BBT kalandan düşer
  * - 0PLAKA0 / EU gibi sahte plaka gelmeyene yazılmaz, BBT'si plaka verilecek kalır
  * - Kalan BBT = plan − çıkan BBT − atanmış ama gelmeyen BBT
+ * - TAMAMLANDI / gideni dolu sevkiyat bekleyen listede durmaz
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -51,6 +53,16 @@
     return parseNum(v);
   }
 
+  /**
+   * Giden sütunu: içerde / içeride / içe… ve varyasyonları.
+   * Kantar kg değil; araç tesiste, henüz çıkmamış.
+   */
+  function isGidenInsideNote(raw) {
+    const norm = normTr(raw).replace(/[^A-Z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!norm) return false;
+    return norm.split(' ').some((w) => /^ICE/.test(w));
+  }
+
   function parsePendingNote(raw) {
     const norm = normTr(raw);
     if (!norm || !/PLAKA\s*VER/.test(norm)) return null;
@@ -91,11 +103,12 @@
 
   /**
    * Giden tonaj dolu = araç çıkmış.
-   * Excel'de NET/BBT yanlış kolona yazılmışsa veya eski yazdırma damgası
-   * (giden = BBT) kalmışsa GELMEDİ plaka kapanmaz.
+   * Yanlış damga: giden = BBT (24) veya giden = net/kg ama değer kantar kg değil (<1000).
+   * Kantar kg (32400 = 32400) gerçek çıkıştır — net kopyası diye açık bırakılmaz.
    */
   function isRowDeparted(row) {
     if (!row) return false;
+    if (isGidenInsideNote(row.gidenTonaj) && !row._nbLiveDeparted) return false;
     if (row._nbLiveDeparted && parseKg(row.gidenTonaj) > 0) return true;
     const g = parseKg(row.gidenTonaj);
     if (g <= 0) return false;
@@ -103,8 +116,8 @@
     const net = parseKg(row.netTonaj);
     const kg = parseKg(row.tonajKg);
     if (bbt > 0 && Math.abs(g - bbt) < 0.05) return false;
-    if (net > 0 && Math.abs(g - net) < 0.05) return false;
-    if (kg > 0 && Math.abs(g - kg) < 0.05) return false;
+    if (net > 0 && net < 1000 && Math.abs(g - net) < 0.05) return false;
+    if (kg > 0 && kg < 1000 && Math.abs(g - kg) < 0.05) return false;
     if (g < 100) return false;
     if (kg > 0 && kg < 100 && g >= 1000) return false;
     if (net > 0 && net < 100 && g >= 1000) return false;
@@ -889,6 +902,7 @@
         processedBbt: parseNum(it && it.processedBbt),
         departedBbt: parseNum(it && it.departedBbt),
         excelDepartedBbt: parseNum(it && it.departedBbt),
+        excelKgDepartedBbt: parseNum(it && it.excelKgDepartedBbt),
         waitingPlates: Array.isArray(it && it.waitingPlates) ? it.waitingPlates.slice() : [],
         ozmalPlates: Array.isArray(it && it.ozmalPlates) ? it.ozmalPlates.slice() : [],
         knownPlateKeys: Array.isArray(it && it.knownPlateKeys) ? it.knownPlateKeys.slice() : [],
@@ -966,8 +980,10 @@
         const plan = parseNum(it.planBbt);
         const waitBbt = sumWaitingBbt(kept);
         const excelDeparted = parseNum(it.excelDepartedBbt);
+        const excelKg = parseNum(it.excelKgDepartedBbt);
         const accounted = excelDeparted + waitBbt + rec.extraBbt + removedWaitingBbt;
         const reportsCoverPlan = plan > 0 && rec.bbt >= plan;
+        const excelKgClosed = plan > 0 && excelKg >= plan && kept.length === 0;
         const knownSet = pendingItemKnownPlates(it);
         it.reportBbt = rec.bbt;
         it.reportPrintCount = rec.plates.size;
@@ -983,7 +999,10 @@
           it.sourceDateLabel = formatDateKeyTR(it.excelDateKey);
         }
 
-        if (reportsCoverPlan) {
+        if (excelKgClosed) {
+          it.remainingBbt = 0;
+          it._emptyYdPending = false;
+        } else if (reportsCoverPlan) {
           it.remainingBbt = 0;
           it._emptyYdPending = false;
           it.waitingPlates = kept;
@@ -994,13 +1013,16 @@
           it._emptyYdPending = false;
         }
 
-        if (reportsCoverPlan && kept.length === 0) {
+        if (excelKgClosed) {
+          // Revize Excel'de kantar kg doluysa yazdırma eksiği sevkiyatı yeniden açmaz.
+          it.shipmentDone = true;
+        } else if (reportsCoverPlan && kept.length === 0) {
           it.shipmentDone = true;
         } else if (plan > 0 && rec.bbt > 0 && rec.bbt < plan) {
           // Aynı gün çıkan planın altındaysa TAMAMLANDI yazılmaz.
-          // 21 günlük live-mark Excel gideni kalanı 0 yapsa bile sarı satırdaki çıkan geçerlidir.
+          // Yalnızca live-mark kalanı 0 yaptıysa rapor BBT'si esas alınır.
           it.shipmentDone = false;
-          if (parseNum(it.remainingBbt) <= 0) {
+          if (parseNum(it.remainingBbt) <= 0 && excelKg < plan) {
             it.remainingBbt = Math.max(0, plan - rec.bbt - waitBbt);
           }
         } else if (plan > 0 && parseNum(it.remainingBbt) <= 0 && it.waitingPlates.length === 0) {
@@ -1288,6 +1310,7 @@
   }
 
   const WAITING_VEHICLE_LABEL = 'GELMEYEN ARAÇ';
+  const INSIDE_VEHICLE_LABEL = 'İÇERDE';
   const OZMAL_VEHICLE_LABEL = 'ÖZMAL';
 
   const DEFAULT_OZMAL_PLATES = [
@@ -1340,7 +1363,7 @@
 
   function hasNakliyeBlockContent(item) {
     if (!item) return false;
-    if (item.shipmentDone) return true;
+    if (item.shipmentDone) return false;
     if (parseNum(item.remainingBbt) > 0) return true;
     if ((item.waitingPlates || []).length > 0) return true;
     return !!item._emptyYdPending;
@@ -1377,14 +1400,16 @@
   function buildPlateRowFromEntry(entry, blockItem) {
     const ozmal = !!entry?.isOzmal;
     const bassofor = ozmal && isBassoforPlate(entry.plaka);
+    const inside = !ozmal && !!entry?.isInside;
     const no = parseSiraNo(entry?.sira);
     return {
       kind: 'plate',
       no: no != null ? no : '',
       ozmal,
       bassofor,
+      inside,
       a: compactPlate(entry.plaka),
-      b: ozmal ? ozmalRowStatusLabel(entry.plaka) : WAITING_VEHICLE_LABEL,
+      b: ozmal ? ozmalRowStatusLabel(entry.plaka) : inside ? INSIDE_VEHICLE_LABEL : WAITING_VEHICLE_LABEL,
       c: formatWaitingPlateBbtText(entry.bbt),
       plaka: String(entry?.plaka || '').trim(),
       bbt: entry?.bbt != null ? entry.bbt : null,
@@ -1704,6 +1729,7 @@
     const ozmalPlates = [];
     const knownPlateKeys = [];
     let departedBbt = 0;
+    let excelKgDepartedBbt = 0;
     let assignedWaitingBbt = 0;
 
     items.forEach((r) => {
@@ -1718,7 +1744,11 @@
       const rowBbt = parseNum(r.bbt);
 
       if (!keepExcelPlates && isRowDeparted(r)) {
-        departedBbt += rowBbt > 0 ? rowBbt : 0;
+        const add = rowBbt > 0 ? rowBbt : 0;
+        departedBbt += add;
+        if (!r._nbLiveDeparted && parseKg(r.gidenTonaj) >= 1000) {
+          excelKgDepartedBbt += add;
+        }
         return;
       }
 
@@ -1727,6 +1757,7 @@
         plaka,
         bbt: rowBbt > 0 ? rowBbt : null,
         isOzmal: isOzmalPlate(plaka),
+        isInside: isGidenInsideNote(r.gidenTonaj),
         sira: String(r.sira || '').trim(),
         id: String(r.id || '').trim(),
         blockKey: bk,
@@ -1795,6 +1826,7 @@
       ydKey,
       planBbt,
       departedBbt,
+      excelKgDepartedBbt,
       assignedWaitingBbt,
       processedBbt: departedBbt + assignedWaitingBbt,
       remainingBbt,
@@ -2378,6 +2410,7 @@
     enrichBalanceItemsWithReports,
     extraReportBbtForItem,
     applyExtraPrintsToPendingItems,
+    isGidenInsideNote,
     isPlaceholderPlate,
     parseKg,
     balanceRowStatus,
@@ -2402,6 +2435,7 @@
     hasOzmalSheetContent,
     DEFAULT_OZMAL_PLATES,
     WAITING_VEHICLE_LABEL,
+    INSIDE_VEHICLE_LABEL,
     OZMAL_VEHICLE_LABEL,
   };
 });

@@ -27,6 +27,10 @@
   window.piyasa.getActiveOrderIdx = getActiveOrderIdx;
   window.piyasa.getOrderByIdx = getOrderByIdx;
   window.piyasa.countOrdersForFirma = countOrdersForFirma;
+  window.piyasa.countCurrentWeekOrdersForFirma = countCurrentWeekOrdersForFirma;
+  window.piyasa.findPastSuggestions = findPastPiyasaSuggestionsForFirma;
+  window.piyasa.fetchPastPaperSuggestions = fetchPastPrintPaperSuggestions;
+  window.piyasa.applyPastSuggestion = applyPastPiyasaSuggestion;
   window.piyasa.hasOrdersForFirma = hasOrdersForFirma;
   window.piyasa.getLockedPickInfo = getLockedPickInfo;
   window.piyasa.clearLockedPick = clearLockedPiyasaPick;

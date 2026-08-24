@@ -395,6 +395,7 @@ function showTakipFormu(vehicle) {
                                   <i class="fas fa-info-circle" aria-hidden="true"></i>
                                   Kodu yazın. <strong>Piyasa</strong> sipariş seçer, <strong>İhracat</strong> YD seçer.
                                 </p>
+                                <div id="piyasaPastSuggestBar" class="piyasa-past-suggest" hidden></div>
                             </td>
                         </tr>
                         <tr>
@@ -1368,6 +1369,7 @@ try {
             if (w) { w.classList.add('hidden'); w.textContent = ''; }
             const fh = document.getElementById('firmaFieldHint');
             if (fh) fh.classList.remove('is-invalid');
+            try { _clearPiyasaPastSuggestBar(); } catch (e) {}
         }
 
         function getTakipFirmaKoduRaw() {
@@ -1431,6 +1433,94 @@ try {
             return canonical;
         }
 
+        function _clearPiyasaPastSuggestBar() {
+            const bar = document.getElementById('piyasaPastSuggestBar');
+            if (!bar) return;
+            bar.hidden = true;
+            bar.innerHTML = '';
+            try { window.__piyasaPastSuggestHits = null; } catch (e) {}
+        }
+
+        function _formatPastSuggestWhen(ms) {
+            const n = Number(ms);
+            if (!Number.isFinite(n) || n <= 0) return '';
+            try {
+                return new Date(n).toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function _renderPiyasaPastSuggestBar(raw, found, papers) {
+            const bar = document.getElementById('piyasaPastSuggestBar');
+            if (!bar) return;
+            const currentWeek = found && found.currentWeek;
+            const past = (found && found.past) || [];
+            const extra = Array.isArray(papers) ? papers : [];
+            if ((found && found.currentCount > 0) || (!past.length && !extra.length)) {
+                _clearPiyasaPastSuggestBar();
+                return;
+            }
+            const hits = past.concat(extra);
+            window.__piyasaPastSuggestHits = hits;
+            const weekLabel = currentWeek ? (currentWeek + '. haftada yok') : 'bu haftanın Excel’inde yok';
+            const buttons = hits.map((hit, i) => {
+                const bits = [];
+                if (hit.source === 'paper') {
+                    bits.push('Son kâğıt');
+                    const when = _formatPastSuggestWhen(hit.lastPrintAt);
+                    if (when) bits.push(when);
+                    if (hit.lastPrintPlate) bits.push(hit.lastPrintPlate);
+                } else {
+                    bits.push((hit.week ? (hit.week + '. hafta') : 'eski hafta'));
+                }
+                if (hit.malzeme) bits.push(hit.malzeme);
+                if (hit.firmaAdi) bits.push(hit.firmaAdi);
+                if (hit.sevkYeri) bits.push(hit.sevkYeri);
+                if (hit.source !== 'paper' && hit.lastPrintPlate) bits.push('plaka ' + hit.lastPrintPlate);
+                return '<button type="button" class="piyasa-past-suggest__btn" data-past-suggest="' + i + '">'
+                    + escapeHtml(bits.join(' · ')) + '</button>';
+            }).join('');
+            bar.hidden = false;
+            bar.innerHTML = '<div class="piyasa-past-suggest__note">⚠️ '
+                + escapeHtml(String(raw || '').trim()) + ' ' + escapeHtml(weekLabel)
+                + ', daha önce vardı. Tıklayınca bilgiler gelir.</div>' + buttons;
+            bar.querySelectorAll('[data-past-suggest]').forEach((btn) => {
+                btn.addEventListener('click', async (ev) => {
+                    ev.preventDefault();
+                    const idx = parseInt(btn.getAttribute('data-past-suggest'), 10);
+                    const hit = (window.__piyasaPastSuggestHits || [])[idx];
+                    if (!hit || !window.piyasa || typeof window.piyasa.applyPastSuggestion !== 'function') return;
+                    try {
+                        await window.piyasa.applyPastSuggestion(hit);
+                    } catch (e) {
+                        console.warn('Geçmiş piyasa önerisi uygulanamadı:', e);
+                    }
+                });
+            });
+        }
+
+        function _schedulePiyasaPaperSuggest(raw, found) {
+            try { clearTimeout(window.__piyasaPaperSuggestTimer); } catch (e) {}
+            if (!raw || (found && found.currentCount > 0)) return;
+            if (!window.piyasa || typeof window.piyasa.fetchPastPaperSuggestions !== 'function') return;
+            window.__piyasaPaperSuggestTimer = setTimeout(async () => {
+                const still = getTakipFirmaKoduRaw();
+                if (still !== raw) return;
+                let papers = [];
+                try { papers = await window.piyasa.fetchPastPaperSuggestions(raw, 3); } catch (e) { papers = []; }
+                if (getTakipFirmaKoduRaw() !== raw) return;
+                const latest = (window.piyasa.findPastSuggestions
+                    ? window.piyasa.findPastSuggestions(raw)
+                    : found) || found;
+                if (latest && latest.currentCount > 0) {
+                    _clearPiyasaPastSuggestBar();
+                    return;
+                }
+                _renderPiyasaPastSuggestBar(raw, latest, papers);
+            }, 400);
+        }
+
         function refreshFirmaFieldHint() {
             const hint = document.getElementById('firmaFieldHint');
             if (!hint) return;
@@ -1439,12 +1529,14 @@ try {
             if (!raw) {
                 hint.style.display = '';
                 hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Kodu yazın. <strong>Piyasa</strong> veya <strong>İhracat</strong> ile seçin.';
+                _clearPiyasaPastSuggestBar();
                 return;
             }
             hint.style.display = '';
             if (isIhracatFirmaValue(raw)) {
                 hint.classList.add('is-yd');
                 hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> İhracat sevkiyatı — bu yazdırma ihracat raporuna gider.';
+                _clearPiyasaPastSuggestBar();
                 return;
             }
             let customer = null;
@@ -1453,12 +1545,13 @@ try {
                     customer = window.piyasa.resolveCustomerByKod(raw);
                 }
             } catch (e) { customer = null; }
-            let orderCount = 0;
+            let found = { currentWeek: null, currentCount: 0, past: [] };
             try {
-                if (window.piyasa && typeof window.piyasa.countOrdersForFirma === 'function') {
-                    orderCount = window.piyasa.countOrdersForFirma(raw) || 0;
+                if (window.piyasa && typeof window.piyasa.findPastSuggestions === 'function') {
+                    found = window.piyasa.findPastSuggestions(raw) || found;
                 }
-            } catch (e) { orderCount = 0; }
+            } catch (e) {}
+            const orderCount = Number(found.currentCount || 0);
             let picked = false;
             let pickInfo = null;
             try {
@@ -1484,22 +1577,35 @@ try {
                 ].filter(Boolean).join(' — ');
                 hint.classList.add('is-ok');
                 hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> Seçildi: <strong>' + escapeHtml(sel || raw) + '</strong>';
+                _clearPiyasaPastSuggestBar();
+                return;
+            }
+            if (orderCount > 0) {
+                _clearPiyasaPastSuggestBar();
+                hint.classList.add('takip-form__field-hint--warn');
+                const who = customer
+                    ? ('<strong>' + custBits.join(' / ') + '</strong> — ')
+                    : '';
+                hint.innerHTML = '<i class="fas fa-exclamation-circle" aria-hidden="true"></i> '
+                    + who
+                    + 'Bu haftanın Excel’inde <strong>' + orderCount + '</strong> sipariş var. <strong>Piyasa</strong> ile seçin.';
+                return;
+            }
+            _renderPiyasaPastSuggestBar(raw, found, []);
+            _schedulePiyasaPaperSuggest(raw, found);
+            if (found.past && found.past.length) {
+                hint.classList.add('takip-form__field-hint--warn');
+                const weeks = [...new Set(found.past.map((h) => h.week).filter(Boolean))];
+                const weekText = weeks.map((w) => w + '. hafta').join(', ');
+                hint.innerHTML = '<i class="fas fa-exclamation-circle" aria-hidden="true"></i> '
+                    + (found.currentWeek ? (found.currentWeek + '. haftada yok') : 'Bu haftanın Excel’inde yok')
+                    + ', daha önce <strong>' + escapeHtml(weekText) + '</strong> vardı. Aşağıdan tıklayınca bilgiler gelir.';
                 return;
             }
             if (customer) {
                 hint.classList.add('is-ok');
-                let msg = 'Piyasa müşteri listesinde var: <strong>' + custBits.join(' / ') + '</strong>';
-                if (orderCount > 0) {
-                    hint.classList.remove('is-ok');
-                    hint.classList.add('takip-form__field-hint--warn');
-                    msg += ' — Excel’de ' + orderCount + ' sipariş. <strong>Bul</strong> ile seçin.';
-                }
-                hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> ' + msg;
-                return;
-            }
-            if (orderCount > 0) {
-                hint.classList.add('takip-form__field-hint--warn');
-                hint.innerHTML = '<i class="fas fa-exclamation-circle" aria-hidden="true"></i> Piyasa Excel’de <strong>' + orderCount + '</strong> sipariş var. Listeden seçin.';
+                hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> Piyasa müşteri listesinde var: <strong>'
+                    + custBits.join(' / ') + '</strong>. Bu hafta Excel’de yok — eski kâğıt varsa aşağıda çıkar.';
                 return;
             }
             hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Müşteri listesinde bulunamadı — Piyasa olarak basılır, çıkanlar listesine yazılır.';
@@ -1732,11 +1838,17 @@ try {
             if (pending || wasRequested) {
               // Kullanıcıdan onay al: çıktı gerçekten alındı mı?
               // Özel modal ile inatçı onay al
-              const printed = await showPersistentConfirmModal('Rapor yazdırıldı mı?', 'Evet (Tamam)', 'Hayır (İptal)');
+              const printed = await showPersistentConfirmModal(
+                'Takip formu basıldı. Rapora ve Piyasa Çıkanlar’a yazılsın mı?',
+                'Evet, yaz',
+                'Hayır'
+              );
               if (!printed) {
-                try { window.__pendingPrintCommit = null; } catch(e){}
-                try { resetTakipFormUI(); } catch(e){}
-                try { kapatForm(); } catch(e){}
+                try {
+                  if (typeof showToast === 'function') {
+                    showToast('Kayıt rapora eklenmedi. Eklemek için tekrar Yazdır’a basıp Evet deyin.', 'warning');
+                  }
+                } catch (e) {}
                 return;
               }
               if (!pending) {

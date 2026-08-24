@@ -2217,6 +2217,43 @@ html.allow-ui-motion:not(.reduce-motion-os) .takip-modal__btn {
   padding: 0.45rem 0.6rem;
 }
 
+#takipFormuModal .piyasa-past-suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#takipFormuModal .piyasa-past-suggest[hidden] {
+  display: none;
+}
+
+#takipFormuModal .piyasa-past-suggest__note {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #92400e;
+}
+
+#takipFormuModal .piyasa-past-suggest__btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #312e81;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+#takipFormuModal .piyasa-past-suggest__btn:hover {
+  background: #e0e7ff;
+  border-color: #818cf8;
+}
+
 /* Şoför bilgileri — sıcak krem ton (modal gövdesinden belirgin farklı) */
 #takipFormuModal .takip-form__section.highlight-section {
   margin-bottom: 0.5rem;
