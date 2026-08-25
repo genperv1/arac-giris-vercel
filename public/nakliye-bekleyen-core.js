@@ -4,9 +4,10 @@
  *
  * Kurallar:
  * - Giden kg dolu satır = çıkmış araç → listede gösterilmez
- * - Giden sütununda içerde / içeride / içe… = tesiste, çıkmamış → İÇERDE (GELMEYEN değil)
+ * - Giden / satırda içerde / içeride / içe… = tesiste, plaka verilmiş → listede yok, BBT kalandan düşer
  * - Plaka var, giden tonaj boş = gelmeyen araç → plaka + BBT yan sütunda
- * - Aynı YD yazdırması gelmeyen plakayı kapatır; Excel'de olmayan çıkan BBT kalandan düşer
+ * - Excel kaynak: rapora bakılmaz; dosyada gideni boş plaka gelmeyen kalır
+ * - Sistem kaynak: aynı YD yazdırması gelmeyen plakayı kapatır; Excel'de olmayan çıkan BBT kalandan düşer
  * - 0PLAKA0 / EU gibi sahte plaka gelmeyene yazılmaz, BBT'si plaka verilecek kalır
  * - Kalan BBT = plan − çıkan BBT − atanmış ama gelmeyen BBT
  * - TAMAMLANDI / gideni dolu sevkiyat bekleyen listede durmaz
@@ -61,6 +62,15 @@
     const norm = normTr(raw).replace(/[^A-Z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!norm) return false;
     return norm.split(' ').some((w) => /^ICE/.test(w));
+  }
+
+  function rowIsInside(row) {
+    if (!row) return false;
+    if (row.iceride === true || row._nbInside) return true;
+    if (isGidenInsideNote(row.gidenTonaj)) return true;
+    if (isGidenInsideNote(row.yuklemeNotu)) return true;
+    if (isGidenInsideNote(row.aciklama)) return true;
+    return false;
   }
 
   function parsePendingNote(raw) {
@@ -738,6 +748,10 @@
       const pk = plateKey(p && p.plaka);
       if (pk) known.add(pk);
     });
+    (item && item.insidePlates ? item.insidePlates : []).forEach((p) => {
+      const pk = plateKey(p && p.plaka);
+      if (pk) known.add(pk);
+    });
     (item && item.ozmalPlates ? item.ozmalPlates : []).forEach((p) => {
       const pk = plateKey(p && p.plaka);
       if (pk) known.add(pk);
@@ -904,13 +918,14 @@
         excelDepartedBbt: parseNum(it && it.departedBbt),
         excelKgDepartedBbt: parseNum(it && it.excelKgDepartedBbt),
         waitingPlates: Array.isArray(it && it.waitingPlates) ? it.waitingPlates.slice() : [],
+        insidePlates: Array.isArray(it && it.insidePlates) ? it.insidePlates.slice() : [],
         ozmalPlates: Array.isArray(it && it.ozmalPlates) ? it.ozmalPlates.slice() : [],
         knownPlateKeys: Array.isArray(it && it.knownPlateKeys) ? it.knownPlateKeys.slice() : [],
       })
     );
     const plateBbtFromItem = (item, pk) => {
       if (!pk || !item) return 0;
-      const pools = [].concat(item.waitingPlates || [], item.ozmalPlates || []);
+      const pools = [].concat(item.waitingPlates || [], item.insidePlates || [], item.ozmalPlates || []);
       for (let i = 0; i < pools.length; i++) {
         if (plateKey(pools[i] && pools[i].plaka) === pk) return parseNum(pools[i].bbt);
       }
@@ -968,6 +983,10 @@
         let removedWaitingBbt = 0;
         const kept = [];
         (it.waitingPlates || []).forEach((p) => {
+          if (p && (p.isInside || rowIsInside(p))) {
+            it.insidePlates.push(p);
+            return;
+          }
           const pk = plateKey(p && p.plaka);
           if (pk && rec.plates.has(pk)) {
             removedWaitingBbt += parseNum(p && p.bbt);
@@ -976,14 +995,29 @@
           kept.push(p);
         });
         it.waitingPlates = kept;
+        const keptInside = [];
+        (it.insidePlates || []).forEach((p) => {
+          const pk = plateKey(p && p.plaka);
+          if (pk && rec.plates.has(pk)) {
+            removedWaitingBbt += parseNum(p && p.bbt);
+            return;
+          }
+          keptInside.push(p);
+        });
+        it.insidePlates = keptInside;
+        it.insideBbt = sumWaitingBbt(keptInside);
 
         const plan = parseNum(it.planBbt);
         const waitBbt = sumWaitingBbt(kept);
+        const insideBbt = parseNum(it.insideBbt);
+        const ozmalBbt = sumWaitingBbt(it.ozmalPlates);
         const excelDeparted = parseNum(it.excelDepartedBbt);
         const excelKg = parseNum(it.excelKgDepartedBbt);
-        const accounted = excelDeparted + waitBbt + rec.extraBbt + removedWaitingBbt;
+        const accounted = excelDeparted + waitBbt + insideBbt + ozmalBbt + rec.extraBbt + removedWaitingBbt;
+        const excelLeft = Math.max(0, plan - excelDeparted - waitBbt - insideBbt - ozmalBbt);
+        const hasExcelAssigned = kept.length > 0 || insideBbt > 0 || ozmalBbt > 0;
         const reportsCoverPlan = plan > 0 && rec.bbt >= plan;
-        const excelKgClosed = plan > 0 && excelKg >= plan && kept.length === 0;
+        const excelKgClosed = plan > 0 && excelKg >= plan && !hasExcelAssigned;
         const knownSet = pendingItemKnownPlates(it);
         it.reportBbt = rec.bbt;
         it.reportPrintCount = rec.plates.size;
@@ -1002,7 +1036,11 @@
         if (excelKgClosed) {
           it.remainingBbt = 0;
           it._emptyYdPending = false;
-        } else if (reportsCoverPlan) {
+        } else if (ozmalBbt > 0) {
+          // Özmal Excel'de atanmış sayılır; başka gün aynı YD yazdırması (extra)
+          // bu boş BBT'yi yemez. Gelmeyen bekleyenlerde extra hâlâ kalandan düşer.
+          it.remainingBbt = excelLeft;
+        } else if (reportsCoverPlan && kept.length === 0 && insideBbt <= 0 && ozmalBbt <= 0) {
           it.remainingBbt = 0;
           it._emptyYdPending = false;
           it.waitingPlates = kept;
@@ -1013,17 +1051,22 @@
           it._emptyYdPending = false;
         }
 
+        if ((kept.length > 0 || insideBbt > 0 || ozmalBbt > 0) && excelLeft > 0 && reportsCoverPlan) {
+          it.remainingBbt = excelLeft;
+          it.shipmentDone = false;
+        }
+
         if (excelKgClosed) {
           // Revize Excel'de kantar kg doluysa yazdırma eksiği sevkiyatı yeniden açmaz.
           it.shipmentDone = true;
-        } else if (reportsCoverPlan && kept.length === 0) {
+        } else if (reportsCoverPlan && kept.length === 0 && insideBbt <= 0 && ozmalBbt <= 0) {
           it.shipmentDone = true;
         } else if (plan > 0 && rec.bbt > 0 && rec.bbt < plan) {
           // Aynı gün çıkan planın altındaysa TAMAMLANDI yazılmaz.
           // Yalnızca live-mark kalanı 0 yaptıysa rapor BBT'si esas alınır.
           it.shipmentDone = false;
-          if (parseNum(it.remainingBbt) <= 0 && excelKg < plan) {
-            it.remainingBbt = Math.max(0, plan - rec.bbt - waitBbt);
+          if (parseNum(it.remainingBbt) <= 0 && excelKg < plan && !hasExcelAssigned) {
+            it.remainingBbt = Math.max(0, plan - rec.bbt - waitBbt - insideBbt - ozmalBbt);
           }
         } else if (plan > 0 && parseNum(it.remainingBbt) <= 0 && it.waitingPlates.length === 0) {
           it.shipmentDone = true;
@@ -1032,9 +1075,10 @@
           it.shipmentDone = false;
         }
 
+        it.excelLeftBbt = excelLeft;
         it.departedBbt = excelDeparted + rec.extraBbt + removedWaitingBbt;
-        it.assignedWaitingBbt = it.shipmentDone ? 0 : waitBbt;
-        it.processedBbt = it.departedBbt + it.assignedWaitingBbt;
+        it.assignedWaitingBbt = it.shipmentDone ? 0 : waitBbt + insideBbt + ozmalBbt;
+        it.processedBbt = it.departedBbt + (it.shipmentDone ? 0 : waitBbt + insideBbt + ozmalBbt);
         if (plan > 0 && parseNum(it.reportBbt) > plan) it.reportBbt = plan;
         if (it.remainingBbt <= 0 && it.waitingPlates.length === 0 && rec.bbt <= 0) {
           it._emptyYdPending = false;
@@ -1043,6 +1087,31 @@
         delete it.excelDepartedBbt;
         return it;
       });
+  }
+
+  function normalizeNbSourceMode(mode) {
+    const s = String(mode || '')
+      .trim()
+      .toLowerCase();
+    if (s === 'sistem' || s === 'system' || s === 'rapor' || s === 'report') return 'sistem';
+    return 'excel';
+  }
+
+  /**
+   * Excel: dosyadaki plaka / giden kg / kalan BBT.
+   * Sistem: yazdırma raporları gelmeyeni kapatır, extra BBT kalandan düşer.
+   */
+  function analyzeNakliyePendingFromSource(rows, reports, meta, mode) {
+    const source = normalizeNbSourceMode(mode);
+    let working = (rows || []).map((r) => (clearLiveDepartedMark ? clearLiveDepartedMark(r) : r));
+    if (source === 'sistem') {
+      working = applyLiveDepartedMarks(working, meta, reports, { forPending: true });
+    }
+    let items = analyzeNakliyePending(working, meta);
+    if (source === 'sistem' && typeof applyExtraPrintsToPendingItems === 'function') {
+      items = applyExtraPrintsToPendingItems(items, reports, meta);
+    }
+    return (items || []).filter(hasNakliyeBlockContent);
   }
 
   function enrichBalanceItemsWithReports(items, reports, meta) {
@@ -1478,34 +1547,20 @@
     if (stem && !dateKeyFromFileName(item && item.fileName) && !(yd && filenameMentionsYd(stem, yd))) {
       bits.push(stem);
     }
-    const plan = parseNum(item && item.planBbt);
-    const cikan = parseNum(item && item.reportBbt);
-    const excelPrinted = parseNum(item && item.excelPrintedCount);
-    const excelWaiting = parseNum(item && item.excelWaitingCount);
-    const excelTotal = parseNum(item && item.excelPlateCount);
-    const nPrint = Array.isArray(item && item.reportPlates)
-      ? item.reportPlates.length
-      : parseNum(item && item.reportPrintCount);
-    if (cikan > 0 || (item && item.shipmentDone) || excelPrinted > 0 || excelWaiting > 0) {
-      if (cikan > 0 || (item && item.shipmentDone)) {
-        bits.push(plan > 0 ? `çıkan ${cikan}/${plan}` : `çıkan ${cikan}`);
-      }
-      const extraPlates = parseNum(item && item.extraPlateCount);
-      if (excelTotal > 0 || excelPrinted > 0 || excelWaiting > 0) {
-        if (excelPrinted > 0) bits.push(`${excelPrinted} yazdırıldı`);
-        if (excelWaiting > 0) bits.push(`${excelWaiting} bekliyor`);
-        if (extraPlates > 0) bits.push(`+${extraPlates} ek plaka`);
-      } else if (nPrint > 0) {
-        bits.push(`${nPrint} yazdırma`);
-      }
-    }
     return bits.length ? ' · ' + bits.join(' · ') : '';
   }
 
   function formatFooterStatusText(item) {
     if (!item) return formatFooterRemainingText(0);
-    if (item.shipmentDone) return 'TAMAMLANDI';
-    return formatFooterRemainingText(item.remainingBbt);
+    const waiting = (item.waitingPlates || []).length;
+    if (item.shipmentDone && waiting === 0 && parseNum(item.remainingBbt) <= 0) {
+      return 'TAMAMLANDI';
+    }
+    const rem = parseNum(item.remainingBbt);
+    if (rem > 0) return formatFooterRemainingText(rem);
+    const left = parseNum(item.excelLeftBbt);
+    if (left > 0) return formatFooterRemainingText(left);
+    return formatFooterRemainingText(rem);
   }
 
   function sumRemainingBbt(items) {
@@ -1576,7 +1631,8 @@
     });
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
-    if (item.shipmentDone) {
+    const hasWaiting = (item.waitingPlates || []).length > 0;
+    if (item.shipmentDone && !hasWaiting && rem <= 0) {
       rows.push({
         kind: 'done',
         a: formatFooterStatusText(item),
@@ -1584,7 +1640,7 @@
         blockKey: String(item.blockKey || '').trim(),
         fileName: String(item.fileName || '').trim(),
       });
-    } else if (rem > 0 || item._emptyYdPending) {
+    } else if (rem > 0 || item._emptyYdPending || hasWaiting) {
       rows.push({
         kind: 'pending',
         a: formatFooterStatusText(item),
@@ -1726,6 +1782,7 @@
 
     const explicitNotes = collectExplicitPendingNotes(items);
     const waitingPlates = [];
+    const insidePlates = [];
     const ozmalPlates = [];
     const knownPlateKeys = [];
     let departedBbt = 0;
@@ -1753,11 +1810,12 @@
       }
 
       const bk = blockGroupKey(r);
+      const inside = rowIsInside(r);
       const entry = {
         plaka,
         bbt: rowBbt > 0 ? rowBbt : null,
         isOzmal: isOzmalPlate(plaka),
-        isInside: isGidenInsideNote(r.gidenTonaj),
+        isInside: inside,
         sira: String(r.sira || '').trim(),
         id: String(r.id || '').trim(),
         blockKey: bk,
@@ -1765,8 +1823,9 @@
         rowRef: `${bk}::${plateKey(plaka)}::${String(r.sira || '').trim()}::${String(r.id || '').trim()}`,
       };
       if (entry.isOzmal) ozmalPlates.push(entry);
+      else if (inside) insidePlates.push(entry);
       else waitingPlates.push(entry);
-      // Özmal BBT de plana sayılır (listede görünmese bile atanmış kabul)
+      // Özmal / içerde BBT de plana sayılır (listede görünmese bile atanmış kabul)
       if (rowBbt > 0) assignedWaitingBbt += rowBbt;
     });
 
@@ -1784,8 +1843,9 @@
       items.some((x) => x && x._ihracatEmptyBlock) &&
       (planBbt == null || planBbt <= 0) &&
       !waitingPlates.length &&
+      !insidePlates.length &&
       !ozmalPlates.length;
-    if ((planBbt == null || planBbt <= 0) && !includeComplete && !waitingPlates.length && !ozmalPlates.length) {
+    if ((planBbt == null || planBbt <= 0) && !includeComplete && !waitingPlates.length && !insidePlates.length && !ozmalPlates.length) {
       if (!emptyYdUnknownPlan) return null;
     }
     if ((planBbt == null || planBbt <= 0) && includeComplete && !hasYd && !waitingPlates.length && !ozmalPlates.length) {
@@ -1828,8 +1888,10 @@
       departedBbt,
       excelKgDepartedBbt,
       assignedWaitingBbt,
+      insideBbt: sumWaitingBbt(insidePlates),
       processedBbt: departedBbt + assignedWaitingBbt,
       remainingBbt,
+      excelLeftBbt: remainingBbt,
       port,
       headerText: String(sample.headerText || sample.blockMeta?.mainHeader || '').trim(),
       malzeme: String(sample.malzeme || '').trim(),
@@ -1837,6 +1899,7 @@
       lotLabel,
       yuklemeYeri,
       waitingPlates,
+      insidePlates,
       ozmalPlates,
       knownPlateKeys,
       explicitNotes,
@@ -2410,7 +2473,10 @@
     enrichBalanceItemsWithReports,
     extraReportBbtForItem,
     applyExtraPrintsToPendingItems,
+    normalizeNbSourceMode,
+    analyzeNakliyePendingFromSource,
     isGidenInsideNote,
+    rowIsInside,
     isPlaceholderPlate,
     parseKg,
     balanceRowStatus,

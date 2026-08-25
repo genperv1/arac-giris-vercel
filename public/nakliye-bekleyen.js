@@ -9,8 +9,11 @@
   const UNDO_MAX = 25;
   const SITE_STORAGE_KEY = 'nb_yukleme_yeri';
   const SITE_OPTIONS = ['AVDAN', '1.OSB'];
+  const SOURCE_MODE_KEY = 'nb_source_mode';
+  let _sourceMode = '';
   let _autoTimer = 0;
   let _renderBusy = false;
+  let _renderQueued = false;
 
   function esc(s) {
     return String(s || '')
@@ -50,7 +53,28 @@
     } catch (e) {}
   }
 
+  function coerceReportList(data) {
+    if (Array.isArray(data)) return data;
+    if (!data || typeof data !== 'object') return [];
+    if (Array.isArray(data.reports)) return data.reports;
+    if (Array.isArray(data.rows)) return data.rows;
+    if (Array.isArray(data.data)) return data.data;
+    if (Array.isArray(data.items)) return data.items;
+    return [];
+  }
+
+  function readLocalPrintReports() {
+    try {
+      const raw = localStorage.getItem('report_events_v1');
+      const arr = JSON.parse(raw || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   async function fetchPrintReports() {
+    let remote = [];
     try {
       const r = await fetch('/api/reports?limit=8000&_=' + Date.now(), {
         method: 'GET',
@@ -58,12 +82,12 @@
         cache: 'no-store',
         headers: authHeaders(),
       });
-      if (!r.ok) return [];
-      const data = await r.json();
-      return Array.isArray(data) ? data : [];
+      if (r.ok) remote = coerceReportList(await r.json());
     } catch (e) {
-      return [];
+      remote = [];
     }
+    if (remote.length) return remote;
+    return readLocalPrintReports();
   }
 
   function loadRows() {
@@ -88,16 +112,62 @@
     return rows;
   }
 
+  function loadSourceMode() {
+    if (_sourceMode === 'excel' || _sourceMode === 'sistem') return _sourceMode;
+    try {
+      const raw = localStorage.getItem(SOURCE_MODE_KEY);
+      if (core && typeof core.normalizeNbSourceMode === 'function') {
+        _sourceMode = core.normalizeNbSourceMode(raw);
+      } else {
+        _sourceMode = String(raw || '').toLowerCase() === 'sistem' ? 'sistem' : 'excel';
+      }
+    } catch (e) {
+      _sourceMode = 'excel';
+    }
+    return _sourceMode;
+  }
+
+  function saveSourceMode(mode) {
+    const next = core && typeof core.normalizeNbSourceMode === 'function'
+      ? core.normalizeNbSourceMode(mode)
+      : (String(mode || '').toLowerCase() === 'sistem' ? 'sistem' : 'excel');
+    _sourceMode = next;
+    try {
+      localStorage.setItem(SOURCE_MODE_KEY, next);
+    } catch (e) { /* ignore */ }
+    return next;
+  }
+
+  function applySourceModeChrome(mode) {
+    const source = mode || loadSourceMode();
+    document.body.classList.toggle('nb-mode-excel', source === 'excel');
+    document.body.classList.toggle('nb-mode-sistem', source === 'sistem');
+    document.querySelectorAll('[data-nb-mode]').forEach((btn) => {
+      const on = btn.getAttribute('data-nb-mode') === source;
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    const chip = document.getElementById('nbModeChip');
+    if (chip) chip.textContent = source === 'sistem' ? 'Sistem' : 'Excel';
+    const hint = document.getElementById('nbModeHint');
+    if (hint) {
+      hint.textContent =
+        source === 'sistem'
+          ? 'Sistem: yazdırma raporları Excel ile birleşir. Baskısı geçen plaka listeden düşer.'
+          : 'Excel: rapora bakılmaz. Giden kg boş plakalar gelmeyen kalır.';
+    }
+  }
+
   async function loadRowsWithLiveDeparted() {
     const rows = loadRows();
-    if (!rows.length || !core) return { rows, reports: [] };
+    const mode = loadSourceMode();
+    if (!rows.length || !core) return { rows, reports: [], mode };
     const cleaned = rows.map((r) => (core.clearLiveDepartedMark ? core.clearLiveDepartedMark(r) : r));
+    if (mode !== 'sistem') {
+      return { rows: cleaned, reports: [], mode: 'excel' };
+    }
     const reports = await fetchPrintReports();
-    const marked =
-      core.applyLiveDepartedMarks
-        ? core.applyLiveDepartedMarks(cleaned, loadMeta(), reports, { forExcelDay: true })
-        : cleaned;
-    return { rows: marked, reports };
+    return { rows: cleaned, reports, mode: loadSourceMode() };
   }
 
   function loadMeta() {
@@ -558,27 +628,7 @@
     await renderList();
   }
 
-  function refreshExcelStatus() {
-    const el = document.getElementById('nbExcelStatus');
-    if (!el) return;
-    const meta = loadMeta();
-    const rows = loadRows();
-    const files = []
-      .concat(meta.fileName ? [meta.fileName] : [])
-      .concat(Array.isArray(meta.files) ? meta.files : [])
-      .filter(Boolean);
-    const when = fmtLoadedAt(meta.importedAt || meta.loadedAt);
-    if (!rows.length) {
-      el.innerHTML =
-        '<span class="nb-excel-no">İHRACAT Excel yüklü değil</span> — plan için yükleyin; giden araçlar listede durmaz.';
-      return;
-    }
-    el.innerHTML =
-      '<span class="nb-excel-ok">İHRACAT Excel yüklü</span>' +
-      (files.length ? ' · ' + esc(files[0]) : '') +
-      (when ? ' · ' + esc(when) : '') +
-      ' · giden / yazdırılan araçlar listeden düşer';
-  }
+  function refreshExcelStatus() {}
 
   function filterItems(items) {
     const raw = String(_searchNeedle || '').trim();
@@ -1220,68 +1270,47 @@
   }
 
   async function renderList() {
-    if (_renderBusy) return;
+    if (_renderBusy) {
+      _renderQueued = true;
+      return;
+    }
     _renderBusy = true;
     const loading = document.getElementById('nbListLoading');
     const empty = document.getElementById('nbListEmpty');
     const noExcel = document.getElementById('nbNoExcel');
     const outer = document.getElementById('nbSheetOuter');
-    const stats = document.getElementById('nbStats');
 
     try {
-      const loaded = await loadRowsWithLiveDeparted();
-      const rows = loaded && loaded.rows ? loaded.rows : loaded || [];
-      const reports = loaded && loaded.reports ? loaded.reports : [];
+      do {
+        _renderQueued = false;
+        const loaded = await loadRowsWithLiveDeparted();
+        const sourceMode = loadSourceMode();
+        applySourceModeChrome(sourceMode);
+        if (loaded && loaded.mode && loaded.mode !== sourceMode) {
+          _renderQueued = true;
+          continue;
+        }
+        const rows = loaded && loaded.rows ? loaded.rows : loaded || [];
+        const reports = sourceMode === 'sistem' && loaded && loaded.reports ? loaded.reports : [];
 
-      if (!rows.length) {
-        empty?.classList.add('hidden');
-        noExcel?.classList.remove('hidden');
-        outer?.classList.add('hidden');
-        if (stats) stats.textContent = '';
-        return;
-      }
-      noExcel?.classList.add('hidden');
+        if (!rows.length) {
+          empty?.classList.add('hidden');
+          noExcel?.classList.remove('hidden');
+          outer?.classList.add('hidden');
+          continue;
+        }
+        noExcel?.classList.add('hidden');
 
-      _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
-      if (core && typeof core.applyExtraPrintsToPendingItems === 'function') {
-        _allItems = core.applyExtraPrintsToPendingItems(_allItems, reports, loadMeta());
+      if (core && typeof core.analyzeNakliyePendingFromSource === 'function') {
+        _allItems = core.analyzeNakliyePendingFromSource(rows, reports, loadMeta(), sourceMode);
+      } else {
+        _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
+        if (sourceMode === 'sistem' && core && typeof core.applyExtraPrintsToPendingItems === 'function') {
+          _allItems = core.applyExtraPrintsToPendingItems(_allItems, reports, loadMeta());
+        }
+        _allItems = (_allItems || []).filter((it) => !core || core.hasNakliyeBlockContent(it));
       }
-      _allItems = (_allItems || []).filter((it) => !core || core.hasNakliyeBlockContent(it));
       const visible = filterItems(_allItems);
-
-      const totalRemaining = visible.reduce((s, x) => s + (x.remainingBbt || 0), 0);
-      const totalPlan = visible.reduce((s, x) => s + (x.planBbt || 0), 0);
-      const totalCikan = visible.reduce((s, x) => s + (x.reportBbt || 0), 0);
-      const waitingCount = visible.reduce((s, x) => s + (x.waitingPlates || []).length, 0);
-      const fileCount =
-        typeof core.listKnownExcelFiles === 'function'
-          ? core.listKnownExcelFiles(rows, loadMeta()).length
-          : 0;
-      const rawYds = [];
-      const seenYd = new Set();
-      (rows || []).forEach((r) => {
-        const yd = core && core.normalizeYdKey
-          ? core.normalizeYdKey([r && r.ydKey, r && r.firma, r && r.headerText].filter(Boolean).join(' '))
-          : '';
-        if (!yd || seenYd.has(yd)) return;
-        seenYd.add(yd);
-        rawYds.push(yd);
-      });
-      if (stats) {
-        stats.textContent =
-          visible.length +
-          ' sevkiyat · Excel ' +
-          totalPlan +
-          ' BBT · rapor çıkan ' +
-          totalCikan +
-          ' BBT · kalan ' +
-          totalRemaining +
-          ' BBT' +
-          (waitingCount ? ' · ' + waitingCount + ' gelmeyen plaka' : '') +
-          (fileCount > 1 ? ' · ' + fileCount + ' Excel' : '') +
-          (rawYds.length ? ' · ' + rawYds.join(', ') : '') +
-          (_searchNeedle ? ' (filtreli)' : '');
-      }
 
       const hasSheet = core && visible.some((x) => core.hasBlockSheetContent(x));
       if (!hasSheet) {
@@ -1289,14 +1318,19 @@
         if (empty) {
           empty.textContent = _searchNeedle
             ? 'Aramaya uyan bekleyen sevkiyat yok.'
-            : 'Bekleyen sevkiyat yok — giden araçlar listeden düştü.';
+            : sourceMode === 'sistem'
+              ? reports.length
+                ? 'Bekleyen sevkiyat yok — giden / yazdırılan araçlar listeden düştü.'
+                : 'Sistem: yazdırma raporu yok. Excel’e geçin veya raporu kontrol edin.'
+                : 'Bekleyen sevkiyat yok — Excel’de açık plaka veya kalan BBT yok.';
         }
         outer?.classList.add('hidden');
-        return;
-      }
-      empty?.classList.add('hidden');
-      outer?.classList.remove('hidden');
-      renderExcelSheet(visible);
+          continue;
+        }
+        empty?.classList.add('hidden');
+        outer?.classList.remove('hidden');
+        renderExcelSheet(visible);
+      } while (_renderQueued);
     } catch (err) {
       console.error('nakliye-bekleyen renderList', err);
       empty?.classList.remove('hidden');
@@ -1306,6 +1340,7 @@
     } finally {
       loading?.classList.add('hidden');
       _renderBusy = false;
+      if (_renderQueued) void renderList();
     }
   }
 
@@ -1381,6 +1416,19 @@
       renderList();
     });
 
+    document.querySelectorAll('[data-nb-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const next = saveSourceMode(btn.getAttribute('data-nb-mode') || 'excel');
+        applySourceModeChrome(next);
+        toast(
+          next === 'sistem'
+            ? 'Sistem — son 21 gün yazdırma raporları'
+            : 'Excel — dosyada ne varsa o'
+        );
+        void renderList();
+      });
+    });
+
     const outer = document.getElementById('nbSheetOuter');
     outer?.addEventListener('click', (e) => {
       const siteBtn = e.target.closest('[data-nb-site]');
@@ -1443,6 +1491,7 @@
 
   async function init() {
     bindUiHandlers();
+    applySourceModeChrome();
     syncSiteButtons();
 
     try {

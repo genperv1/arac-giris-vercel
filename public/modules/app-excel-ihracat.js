@@ -2643,6 +2643,28 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
   return out;
 }
 
+function _isExcelInsideNoteText(raw) {
+  const norm = String(raw || '')
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C')
+    .replace(/[^A-Z0-9\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!norm) return false;
+  return norm.split(' ').some((w) => /^ICE/.test(w));
+}
+
+function _rowHasInsideNote(row) {
+  if (!row) return false;
+  if (Array.isArray(row)) return row.some((v) => _isExcelInsideNoteText(v));
+  return _isExcelInsideNoteText(row);
+}
+
 function parseIhracatBlockToplamRow(row, blockCols) {
   if (!row || !blockCols) return null;
   const pick = (key) => {
@@ -2780,23 +2802,57 @@ function getIhracatBlockFooterNote(shipment) {
   return '';
 }
 
+function _ihracatHeaderBookingNo(headerText) {
+  const m = String(headerText || '').match(/BOOKING\s*NO\s*:\s*([A-Z0-9\-]+)/i);
+  return m ? m[1].toUpperCase() : '';
+}
+
+function _ihracatHeaderPfkOrPo(headerText) {
+  const m = String(headerText || '').match(/\b(P(?:O|FK)\s*(?:NO:?)?\s*[\w\-:]+(?:\([^)]{0,12}\))?)/i);
+  return m ? m[1].replace(/\s+/g, ' ').toUpperCase().trim() : '';
+}
+
+function _ihracatHeaderLotNo(headerText) {
+  const m = String(headerText || '').match(/LOT\s*NO\s*([\d\s]+)/i);
+  return m ? String(m[1] || '').replace(/\s+/g, '').trim() : '';
+}
+
+function _ihracatHeaderMalzeme(headerText) {
+  if (typeof _extractMalzeme === 'function') return _extractMalzeme(headerText) || '';
+  const m = String(headerText || '').match(/\bHP\s*([0-9][0-9\.,]*\s*-\s*[0-9][0-9\.,]*)\b/i);
+  if (!m) return '';
+  const rng = String(m[1] || '').replace(/\s+/g, '').replace(/\./g, ',');
+  return `HP ${rng}`;
+}
+
+/** Aynı YD + HP’li ama farklı PFK / booking’li blokları ayır (örn. PFK-26-33 vs PFK-26-34) */
 function _ihracatBlockSelectionKey(headerText) {
   const ht = String(headerText || '').replace(/\s+/g, ' ').trim();
   if (!ht) return '';
   const yd = (ht.match(/\b(YD\d{1,4})\b/i) || [])[1] || '';
-  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1] || '';
-  const mal = _extractMalzeme(ht) || '';
-  return [yd, book, mal].join('|').toUpperCase();
+  const book = _ihracatHeaderBookingNo(ht);
+  const lot = _ihracatHeaderLotNo(ht);
+  const pfk = _ihracatHeaderPfkOrPo(ht);
+  const mal = _ihracatHeaderMalzeme(ht);
+  const key = [yd, book, lot, pfk, mal].join('|').toUpperCase();
+  if (!book && !pfk) return `${key}|${ht.slice(0, 120).toUpperCase()}`;
+  return key;
 }
 
 function _rowInSelectedBlocks(rowIdx, onlyBlocks, headerText) {
   if (!onlyBlocks || !onlyBlocks.length) return true;
-  const selKey = _ihracatBlockSelectionKey(headerText);
-  if (selKey) {
-    const byHeader = onlyBlocks.some((b) => _ihracatBlockSelectionKey(b.headerText) === selKey);
-    if (byHeader) return true;
+  // Kaynak: seçim tablosundaki satır aralığı. YD+HP aynı diye kardeş bloğu (farklı PFK/booking) ekleme.
+  const ranged = onlyBlocks.filter((b) => b && b.startRow != null && Number.isFinite(Number(b.startRow)));
+  if (ranged.length) {
+    return ranged.some((b) => {
+      const start = Number(b.startRow);
+      const end = (b.endRow != null && Number.isFinite(Number(b.endRow))) ? Number(b.endRow) : start;
+      return rowIdx >= start && rowIdx <= end;
+    });
   }
-  return onlyBlocks.some((b) => rowIdx >= b.startRow && rowIdx <= b.endRow);
+  const selKey = _ihracatBlockSelectionKey(headerText);
+  if (!selKey) return false;
+  return onlyBlocks.some((b) => _ihracatBlockSelectionKey(b.headerText) === selKey);
 }
 
 function _expandMergedCellsInGrid(grid, ws) {
@@ -2882,6 +2938,8 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     if (blockIrsCol !== undefined) parseCols.irsaliyeNo = blockIrsCol;
     else if (blockCols.plaka !== undefined && blockCols.plaka >= 2) parseCols.irsaliyeNo = blockCols.plaka - 2;
 
+    let blockInside = false;
+
     for (let rr = r+1; rr < grid.length; rr++) {
       const d = grid[rr] || [];
       const rawA0 = String(d[0] || '').trim();
@@ -2892,6 +2950,7 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         break;
       }
       if (/\bKALAN\b/.test(rowTextUpper)) break;
+      if (_rowHasInsideNote(d)) blockInside = true;
 
       const plakaRaw = blockCols.plaka !== undefined ? d[blockCols.plaka] : null;
       const maybeNote = String(d[noteColumnIndex] || '').trim();
@@ -2952,6 +3011,7 @@ firma: (firma || '').slice(0, 40),
   bosBbt: blockCols.bosBbt !== undefined ? _nz(d[blockCols.bosBbt]) : '',
   bosCuval: blockCols.bosCuval !== undefined ? _nz(d[blockCols.bosCuval]) : '',
   gidenTonaj: blockCols.gidenTonaj !== undefined ? _nz(d[blockCols.gidenTonaj]) : '',
+  iceride: blockInside || _rowHasInsideNote(d),
 
   yuklemeNotu: (String(d[noteColumnIndex] || '').trim() || blockYuklemeNotu),
 
@@ -2967,6 +3027,7 @@ firma: (firma || '').slice(0, 40),
     blockRows.forEach((br) => {
       br.blockPendingPlakaNotes = blockPendingPlakaNotes;
       if (blockTotals) br.blockTotals = blockTotals;
+      if (blockInside) br.iceride = true;
       if (yuklemeYeri) {
         br.yuklemeYeri = yuklemeYeri;
         if (br.blockMeta && typeof br.blockMeta === 'object') br.blockMeta.yuklemeYeri = yuklemeYeri;

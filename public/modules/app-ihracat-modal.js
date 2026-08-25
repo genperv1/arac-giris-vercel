@@ -24,12 +24,14 @@ function _ihracatBlockContentKey(s) {
 
   const ht = String(s.headerText || '').trim();
   const malzeme = String(s.malzeme || '').trim();
-  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1];
+  const book = (ht.match(/BOOKING\s*NO\s*:\s*([A-Z0-9\-]+)/i) || [])[1];
   const lot = (ht.match(/LOT\s*NO\s*([\d\s]+)/i) || [])[1];
+  const pfk = (ht.match(/\b(P(?:O|FK)\s*(?:NO:?)?\s*[\w\-:]+(?:\([^)]{0,12}\))?)/i) || [])[1];
   const hp = (ht.match(/HP\s*([\d.,]+\s*-\s*[\d.,]+)/i) || [])[1];
   const parts = [];
   if (book) parts.push(`BOOKING_${book}`);
   else if (lot) parts.push(`LOT_${lot.replace(/\s+/g, '')}`);
+  if (pfk) parts.push(`PFK_${String(pfk).replace(/\W+/g, '_')}`);
   if (malzeme) parts.push(`M_${malzeme.replace(/\W+/g, '_').slice(0, 36)}`);
   else if (hp) parts.push(`HP_${hp.replace(/\W+/g, '_')}`);
   if (parts.length) return parts.join('__');
@@ -444,15 +446,21 @@ function _ihracatBindModalEnhancements(modal, meta, shipments, handlers) {
 function _ihracatShortBlockTitle(headerText, malzemeHint) {
   const ht = String(headerText || '').trim();
   if (!ht) return '';
-  const yd = _extractFirmaKod(ht);
+  const yd = typeof _extractFirmaKod === 'function' ? _extractFirmaKod(ht) : ((ht.match(/\b(YD\d{1,4})\b/i) || [])[1] || '');
   const lot = (ht.match(/LOT\s*NO\s*([\d\s]+)/i) || [])[1];
-  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1];
+  const pfk = (typeof _ihracatHeaderPfkOrPo === 'function')
+    ? _ihracatHeaderPfkOrPo(ht)
+    : ((ht.match(/\b(P(?:O|FK)\s*(?:NO:?)?\s*[\w\-:]+(?:\([^)]{0,12}\))?)/i) || [])[1] || '');
+  const book = (typeof _ihracatHeaderBookingNo === 'function')
+    ? _ihracatHeaderBookingNo(ht)
+    : ((ht.match(/BOOKING\s*NO\s*:\s*([A-Z0-9\-]+)/i) || [])[1] || '');
   const hp = (ht.match(/HP\s*([\d.,]+\s*-\s*[\d.,]+)/i) || [])[1];
   const malzeme = String(malzemeHint || '').trim();
   const parts = [];
   if (yd) parts.push(yd);
   if (lot) parts.push(`LOT ${lot.trim()}`);
-  if (book) parts.push(`Booking ${book}`);
+  if (pfk) parts.push(pfk);
+  else if (book) parts.push(`Booking ${book}`);
   if (malzeme) parts.push(malzeme);
   else if (hp) parts.push(`HP ${hp.trim()}`);
   return parts.join(' · ') || ht.slice(0, 80);

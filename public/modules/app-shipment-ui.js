@@ -45,7 +45,7 @@ function extractFirmaKodWithPO(raw) {
   // ✅ PO veya PFK ile birlikte ürün bilgisini yakala
   // Formatlar: PFK 25-32, PO 21-33, PO:C2603-D1000, PO NO: 21-33, PFK NO:52-63 vb.
   // Regex: P(O|FK) + isteğe bağlı boşluk/NO + boşluk + kod (alphanumeric, dash, colon)
-  const poMatch = text.match(/\b(P(?:O|FK)\s*(?:NO:?)?\s*[\w\-:]+)/i);
+  const poMatch = text.match(/\b(P(?:O|FK)\s*(?:NO:?)?\s*[\w\-:]+(?:\([^)]{0,12}\))?)/i);
   let poKod = '';
   
   if (poMatch) {
@@ -185,10 +185,13 @@ function showShipmentSelectUI(blocks, fileName){
   const rows = blocks.map((b) => {
     // ✅ SECURITY: Use escapeHtml for user input in HTML context (XSS protection)
     const headerShort = escapeHtml(_safeStr(b.headerText)).slice(0,160) + (escapeHtml(_safeStr(b.headerText)).length>160 ? '…' : '');
+    const firmaLabel = (typeof extractFirmaKodWithPO === 'function')
+      ? (extractFirmaKodWithPO(b.headerText || b.firma) || b.firma || '-')
+      : (b.firma || '-');
     return `
       <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
         <td style="padding:10px; text-align:center;"><input type="checkbox" class="shipPick" data-id="${escapeAttr(b.id)}" /></td>
-        <td style="padding:10px; max-width:260px; white-space:normal; overflow-wrap:break-word; word-break:break-word; font-size:13px;"><b>${escapeHtml(b.firma || '-')}</b></td>
+        <td style="padding:10px; max-width:260px; white-space:normal; overflow-wrap:break-word; word-break:break-word; font-size:13px;"><b>${escapeHtml(firmaLabel)}</b></td>
         <td style="padding:10px;">${escapeHtml(b.malzeme || '-')}</td>
         <td style="padding:10px; white-space:nowrap;">${escapeHtml(b.sevkYeri || '-')}</td>
         <td style="padding:10px;">${escapeHtml(b.ambalaj || '-')}</td>
@@ -330,10 +333,14 @@ function showShipmentSelectUI(blocks, fileName){
 function _blockKeyFromHeader(headerText) {
   const ht = String(headerText || '').replace(/\s+/g, ' ').trim();
   if (!ht) return '';
+  if (typeof _ihracatBlockSelectionKey === 'function') {
+    return _ihracatBlockSelectionKey(ht) || ht.slice(0, 80);
+  }
   const yd = (ht.match(/\b(YD\d{1,4})\b/i) || [])[1] || '';
-  const book = (ht.match(/BOOKING\s*NO\s*:\s*(\d+)/i) || [])[1] || '';
+  const book = (ht.match(/BOOKING\s*NO\s*:\s*([A-Z0-9\-]+)/i) || [])[1] || '';
+  const pfk = (ht.match(/\b(P(?:O|FK)\s*(?:NO:?)?\s*[\w\-:]+(?:\([^)]{0,12}\))?)/i) || [])[1] || '';
   const mal = _extractMalzeme(ht) || '';
-  return [yd, book, mal].join('|').toUpperCase() || ht.slice(0, 80);
+  return [yd, book, pfk, mal].join('|').toUpperCase() || ht.slice(0, 80);
 }
 
 function buildIhracatLoadedRowBlockId(row, meta) {

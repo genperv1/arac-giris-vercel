@@ -4,6 +4,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const core = require('../public/nakliye-bekleyen-core.js');
 
+function assertCleanNakliyeciHeader(text) {
+  const s = String(text || '');
+  assert.equal(/çıkan\s+\d/.test(s), false, s);
+  assert.equal(/yazdırıldı/.test(s), false, s);
+  assert.equal(/bekliyor/.test(s), false, s);
+  assert.equal(/\d+\s*yazdırma/.test(s), false, s);
+  assert.equal(/ek plaka/.test(s), false, s);
+  assert.equal(/\d+\/\d+/.test(s), false, s);
+}
+
 test('parsePendingNote detects full and partial plaka messages', () => {
   assert.deepEqual(core.parsePendingNote('PLAKA VERİLECEK'), {
     remainingBbt: null,
@@ -1698,7 +1708,7 @@ test('Excel plan vs rapor çıkan — 1126/1144 henüz bitmedi, YD33 görünür'
   assert.equal(out[0].shipmentDone, false);
   assert.equal(out[0].remainingBbt, 18);
   const sheet = core.buildExcelBlockRows(out[0]);
-  assert.match(sheet[0].a, /çıkan 1126\/1144/);
+  assertCleanNakliyeciHeader(sheet[0].a);
   assert.match(sheet.find((r) => r.kind === 'pending').a, /18\s*BBT/i);
 });
 
@@ -1731,7 +1741,7 @@ test('Excel plan vs rapor — çıkan >= plan ise TAMAMLANDI, blok kaybolmaz', (
   assert.equal(core.hasNakliyeBlockContent(out[0]), false);
   const sheet = core.buildExcelBlockRows(out[0]);
   assert.equal(sheet.find((r) => r.kind === 'done').a, 'TAMAMLANDI');
-  assert.match(sheet[0].a, /çıkan 48\/48/);
+  assertCleanNakliyeciHeader(sheet[0].a);
 });
 
 test('başka LOT YD33 yazdırması bu Excel planına sayılmaz', () => {
@@ -1928,7 +1938,7 @@ test('YD276 — çıkan 288/400 iken TAMAMLANDI yazılmaz', () => {
   assert.equal(out[0].shipmentDone, false);
   assert.equal(out[0].remainingBbt, 112);
   assert.equal(core.formatFooterStatusText(out[0]), '112 BBT DAHA PLAKA VERİLECEK');
-  assert.match(core.formatCikanSuffix(out[0]), /çıkan 288\/400/);
+  assertCleanNakliyeciHeader(core.formatCikanSuffix(out[0]));
 });
 
 test('çıkan 44/120 kartta ÇIKTI satırı yok, yazdırma sayısı durur', () => {
@@ -1963,8 +1973,7 @@ test('çıkan 44/120 kartta ÇIKTI satırı yok, yazdırma sayısı durur', () =
   assert.equal(out[0].reportPlates.length, 2);
   const sheet = core.buildExcelBlockRows(out[0]);
   assert.equal(sheet.filter((r) => r.cikan || r.b === 'ÇIKTI').length, 0);
-  assert.match(core.formatCikanSuffix(out[0]), /çıkan 44\/120/);
-  assert.match(core.formatCikanSuffix(out[0]), /2 yazdırma/);
+  assertCleanNakliyeciHeader(core.formatCikanSuffix(out[0]));
   assert.equal(core.formatFooterStatusText(out[0]), '76 BBT DAHA PLAKA VERİLECEK');
 });
 
@@ -2007,7 +2016,7 @@ test('çıkan planı geçse bile sarı satırda plan üstü yazılmaz', () => {
   const out = core.applyExtraPrintsToPendingItems(pending, reports, { dateKey: '2026-08-19' });
   assert.equal(out[0].shipmentDone, true);
   assert.equal(out[0].reportBbt, 400);
-  assert.match(core.buildExcelBlockRows(out[0])[0].a, /çıkan 400\/400/);
+  assertCleanNakliyeciHeader(core.buildExcelBlockRows(out[0])[0].a);
 });
 
 test('YD276 — eski tarihli / başka dalga yazdırma 400 plana eklenmez', () => {
@@ -2101,9 +2110,7 @@ test('YD276 — Excel 14 yazdırıldı 2 bekliyor, önceki akşam 25 yazdırma o
   assert.equal(out[0].shipmentDone, false);
   assert.equal(out[0].waitingPlates.length, 2);
   const suffix = core.formatCikanSuffix(out[0]);
-  assert.match(suffix, /14 yazdırıldı/);
-  assert.match(suffix, /2 bekliyor/);
-  assert.equal(/25 yazdırma/.test(suffix), false);
+  assertCleanNakliyeciHeader(suffix);
   assert.notEqual(core.formatFooterStatusText(out[0]), 'TAMAMLANDI');
 });
 
@@ -2152,9 +2159,7 @@ test('YD276 — Excel plakası sonraki gün yazdırıldıysa modal gibi yazdır�
   assert.equal(out[0].reportBbt, 350);
   assert.equal(out[0].shipmentDone, false);
   const suffix = core.formatCikanSuffix(out[0]);
-  assert.match(suffix, /14 yazdırıldı/);
-  assert.match(suffix, /2 bekliyor/);
-  assert.equal(/8 yazdırıldı/.test(suffix), false);
+  assertCleanNakliyeciHeader(suffix);
 });
 
 test('Excel günü 00:00-08:00 ek plaka önceki dalgadır, 20.08 kartına yazılmaz', () => {
@@ -2185,7 +2190,7 @@ test('Excel günü 00:00-08:00 ek plaka önceki dalgadır, 20.08 kartına yazıl
   });
   assert.equal(out[0].reportBbt, 22);
   assert.equal(out[0].extraPlateCount, 1);
-  assert.match(core.formatCikanSuffix(out[0]), /1 yazdırma/);
+  assertCleanNakliyeciHeader(core.formatCikanSuffix(out[0]));
 });
 
 test('eski Excel + çıkışta yeni plaka kalandan düşer', () => {
@@ -2227,9 +2232,7 @@ test('eski Excel + çıkışta yeni plaka kalandan düşer', () => {
   assert.equal(out[0].reportBbt, 375);
   assert.equal(out[0].remainingBbt, 0);
   const suffix = core.formatCikanSuffix(out[0]);
-  assert.match(suffix, /14 yazdırıldı/);
-  assert.match(suffix, /2 bekliyor/);
-  assert.match(suffix, /\+1 ek plaka/);
+  assertCleanNakliyeciHeader(suffix);
 });
 
 test('aynı plaka ikinci yazdırma BBT yi iki kez saymaz', () => {
@@ -2401,7 +2404,7 @@ test('isGidenInsideNote — içerde / içeride / içe ve varyasyonlar', () => {
   assert.equal(core.isGidenInsideNote('PLAKA VERİLECEK'), false);
 });
 
-test('giden içerde — çıkmış sayılmaz, GELMEYEN değil İÇERDE yazılır', () => {
+test('giden içerde — listede yok, BBT kalandan düşer', () => {
   assert.equal(core.isRowDeparted({ gidenTonaj: 'içerde', bbt: '24', netTonaj: '32400' }), false);
   assert.equal(core.isRowDeparted({ gidenTonaj: 'içeride', bbt: '24' }), false);
   assert.equal(core.isRowDeparted({ gidenTonaj: '32400 içerde', bbt: '24', netTonaj: '32400' }), false);
@@ -2425,16 +2428,13 @@ test('giden içerde — çıkmış sayılmaz, GELMEYEN değil İÇERDE yazılır
   assert.ok(item);
   assert.equal(item.departedBbt, 0);
   assert.equal(item.remainingBbt, 0);
-  assert.equal(item.waitingPlates.length, 2);
-  const inside = item.waitingPlates.find((p) => core.compactPlate(p.plaka) === '43ACM276');
-  const waiting = item.waitingPlates.find((p) => core.compactPlate(p.plaka) === '03DH540');
-  assert.equal(inside.isInside, true);
-  assert.equal(waiting.isInside, false);
+  assert.equal(item.waitingPlates.length, 1);
+  assert.equal(item.insidePlates.length, 1);
+  assert.equal(core.compactPlate(item.insidePlates[0].plaka), '43ACM276');
+  assert.equal(core.compactPlate(item.waitingPlates[0].plaka), '03DH540');
   const rows = core.buildExcelBlockRows(item);
-  const insideRow = rows.find((r) => r.a === '43ACM276');
+  assert.equal(rows.find((r) => r.a === '43ACM276'), undefined);
   const waitingRow = rows.find((r) => r.a === '03DH540');
-  assert.equal(insideRow.b, 'İÇERDE');
-  assert.equal(insideRow.inside, true);
   assert.equal(waitingRow.b, 'GELMEYEN ARAÇ');
 });
 
@@ -2462,10 +2462,209 @@ test('giden içeride yazdırılınca plaka kapanır', () => {
   assert.equal(core.analyzeNakliyePending(marked)[0].waitingPlates.length, 0);
 
   const pending = core.analyzeNakliyePending(rows);
-  assert.equal(pending[0].waitingPlates.length, 1);
-  assert.equal(pending[0].waitingPlates[0].isInside, true);
+  assert.equal(pending[0].waitingPlates.length, 0);
+  assert.equal(pending[0].insidePlates.length, 1);
+  assert.equal(pending[0].insidePlates[0].isInside, true);
   const afterPrint = core.applyExtraPrintsToPendingItems(pending, reports, meta);
   assert.equal(afterPrint[0].waitingPlates.length, 0);
+  assert.equal(afterPrint[0].insidePlates.length, 0);
+});
+
+test('iceride flag — gelmeyen yazılmaz, BBT kalandan düşer, başlıkta 80 BBT kalır', () => {
+  const header = 'YD172(G) / LOT NO 26 07 49 / HP 1,20-2,80 / 80 BBT';
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'B172-80',
+      blockHeaderRow: 40,
+      headerText: header,
+      ydKey: 'YD172',
+      plaka: '54ANY862',
+      bbt: '20',
+      gidenTonaj: '',
+      iceride: true,
+      fileName: '24.08.2026.xlsx',
+    },
+    {
+      blockKey: 'B172-80',
+      blockHeaderRow: 40,
+      headerText: header,
+      ydKey: 'YD172',
+      plaka: '54ADV400',
+      bbt: '20',
+      gidenTonaj: '',
+      iceride: true,
+      fileName: '24.08.2026.xlsx',
+    },
+  ]);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].planBbt, 80);
+  assert.equal(pending[0].waitingPlates.length, 0);
+  assert.equal(pending[0].insidePlates.length, 2);
+  assert.equal(pending[0].remainingBbt, 40);
+  assert.equal(core.hasNakliyeBlockContent(pending[0]), true);
+  const sheet = core.buildExcelBlockRows(pending[0]);
+  assert.match(sheet[0].a, /YD172\(G\) 80 BBT/);
+  assertCleanNakliyeciHeader(sheet[0].a);
+  assert.equal(sheet.some((r) => r.kind === 'plate'), false);
+  assert.match(sheet.find((r) => r.kind === 'pending').a, /40\s*BBT/i);
+});
+
+test('iceride satırdaki İÇERİDE notu da gizler', () => {
+  assert.equal(core.rowIsInside({ iceride: true, gidenTonaj: '' }), true);
+  assert.equal(core.rowIsInside({ yuklemeNotu: 'İÇERİDE', gidenTonaj: '' }), true);
+  assert.equal(core.rowIsInside({ gidenTonaj: '', plaka: '54ANY862' }), false);
+});
+
+test('YD92 — gelmeyen varken turuncu kalan BBT footer durur', () => {
+  const header = 'YD92(M) / LOT NO 26 07 14 / HP 0,074-0,30 / 200 BBT';
+  const rows = [
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '43ADN609', bbt: '13', gidenTonaj: '15000', netTonaj: '14950', tonajKg: '14950' },
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '42ASJ679', bbt: '23', gidenTonaj: '' },
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '42AOC808', bbt: '23', gidenTonaj: '' },
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '42AHG926', bbt: '23', gidenTonaj: '' },
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '42AAA001', bbt: '24', gidenTonaj: '27600', netTonaj: '27600', tonajKg: '27600' },
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '42AAA002', bbt: '24', gidenTonaj: '27600', netTonaj: '27600', tonajKg: '27600' },
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '42AAA003', bbt: '24', gidenTonaj: '27600', netTonaj: '27600', tonajKg: '27600' },
+    { blockKey: 'B92', blockHeaderRow: 10, headerText: header, ydKey: 'YD92', plaka: '42AAA004', bbt: '22', gidenTonaj: '25300', netTonaj: '25300', tonajKg: '25300' },
+  ];
+  const pending = core.analyzeNakliyePending(rows);
+  assert.equal(pending[0].planBbt, 200);
+  assert.equal(pending[0].waitingPlates.length, 3);
+  assert.equal(pending[0].remainingBbt, 24);
+  let sheet = core.buildExcelBlockRows(pending[0]);
+  assert.match(sheet.find((r) => r.kind === 'pending').a, /24\s*BBT DAHA PLAKA VERİLECEK/);
+
+  const reports = [];
+  for (let i = 0; i < 10; i++) {
+    reports.push({
+      type: 'PRINT',
+      ts: Date.now(),
+      data: { plaka: '03EK' + String(100 + i), firma: 'YD92(M) / LOT NO 26 07 14', bbt: '20', malzeme: 'HP 0,074-0,30' },
+    });
+  }
+  const out = core.applyExtraPrintsToPendingItems(pending, reports, {});
+  assert.equal(out[0].waitingPlates.length, 3);
+  assert.equal(out[0].shipmentDone, false);
+  assert.ok(out[0].remainingBbt > 0 || out[0].excelLeftBbt > 0);
+  sheet = core.buildExcelBlockRows(out[0]);
+  const footer = sheet.find((r) => r.kind === 'pending');
+  assert.ok(footer, 'turuncu kalan satır yok');
+  assert.match(footer.a, /BBT DAHA PLAKA VERİLECEK/);
+});
+
+test('YD113 — özmal atanmış, extra yazdırma kalan 86 BBT yi yemez', () => {
+  const header = 'YD113(G) / LOT NO 26 05 06 / HP 1,20-2,80 / 200 BBT';
+  const ozmal = ['43ADS403', '43ADS408', '43ADT546', '43ADT550', '43ADT553', '43ADT557'];
+  const rows = ozmal.map((plaka) => ({
+    blockKey: 'B113',
+    blockHeaderRow: 4,
+    headerText: header,
+    ydKey: 'YD113',
+    fileName: '22.08.2026.xlsx',
+    plaka,
+    bbt: '19',
+    gidenTonaj: '',
+  }));
+  const pending = core.analyzeNakliyePending(rows, { dateKey: '2026-08-22', fileName: '22.08.2026.xlsx' });
+  assert.equal(pending[0].planBbt, 200);
+  assert.equal(pending[0].ozmalPlates.length, 6);
+  assert.equal(pending[0].waitingPlates.length, 0);
+  assert.equal(pending[0].remainingBbt, 86);
+
+  const reports = [];
+  for (let i = 0; i < 4; i++) {
+    reports.push({
+      type: 'PRINT',
+      ts: new Date('2026-08-24T10:00:00+03:00').getTime() + i * 60000,
+      data: {
+        plaka: '03EXT' + String(100 + i),
+        firma: 'YD113(G) / LOT NO 26 05 06',
+        bbt: i === 3 ? '23' : '21',
+        malzeme: 'HP 1,20-2,80',
+      },
+    });
+  }
+  const extraBbt = reports.reduce((s, r) => s + Number(r.data.bbt), 0);
+  assert.equal(extraBbt, 86);
+
+  const out = core.applyExtraPrintsToPendingItems(pending, reports, {
+    dateKey: '2026-08-22',
+    fileName: '22.08.2026.xlsx',
+  });
+  assert.equal(out[0].waitingPlates.length, 0);
+  assert.equal(out[0].ozmalPlates.length, 6);
+  assert.equal(out[0].shipmentDone, false);
+  assert.equal(out[0].remainingBbt, 86);
+  const sheet = core.buildExcelBlockRows(out[0]);
+  assert.equal(sheet.filter((r) => r.kind === 'plate').length, 0);
+  assertCleanNakliyeciHeader(sheet[0].a);
+  const footer = sheet.find((r) => r.kind === 'pending');
+  assert.ok(footer, 'turuncu kalan satır yok');
+  assert.match(footer.a, /86\s*BBT DAHA PLAKA VERİLECEK/);
+});
+
+test('normalizeNbSourceMode — excel varsayılan, sistem eşanlamlıları', () => {
+  assert.equal(core.normalizeNbSourceMode(''), 'excel');
+  assert.equal(core.normalizeNbSourceMode('excel'), 'excel');
+  assert.equal(core.normalizeNbSourceMode('sistem'), 'sistem');
+  assert.equal(core.normalizeNbSourceMode('report'), 'sistem');
+});
+
+test('Excel kaynak — rapor gelmeyen 4 plakayı kapatmaz, kalan 86 BBT', () => {
+  const header = 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT';
+  const fileName = '21.08.2026.xlsx';
+  const meta = { dateKey: '2026-08-21', fileName };
+  const waiting = [
+    { plaka: '03ACR440', bbt: '28' },
+    { plaka: '03YB448', bbt: '28' },
+    { plaka: '03BK867', bbt: '22' },
+    { plaka: '03AFA819', bbt: '24' },
+  ];
+  const departedBbt = [26, 26, 26, 26, 27, 27, 27, 27];
+  const rows = waiting.map((p, i) => ({
+    blockKey: 'B276',
+    blockHeaderRow: 10,
+    headerText: header,
+    ydKey: 'YD276',
+    fileName,
+    plaka: p.plaka,
+    bbt: p.bbt,
+    gidenTonaj: '',
+    sira: String(i + 4),
+  }));
+  departedBbt.forEach((bbt, i) => {
+    rows.push({
+      blockKey: 'B276',
+      blockHeaderRow: 10,
+      headerText: header,
+      ydKey: 'YD276',
+      fileName,
+      plaka: '03DEP' + String(100 + i),
+      bbt: String(bbt),
+      gidenTonaj: '25000',
+      netTonaj: '25000',
+      tonajKg: '25000',
+      sira: String(i + 6),
+    });
+  });
+  const reports = waiting.map((p, i) => ({
+    type: 'PRINT',
+    ts: new Date('2026-08-24T11:00:00+03:00').getTime() + i * 60000,
+    data: { plaka: p.plaka, firma: 'YD276(M) / LOT NO 26 07 44', bbt: p.bbt, malzeme: 'HP 0,15-0,40' },
+  }));
+
+  const excel = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'excel');
+  assert.equal(excel.length, 1);
+  assert.equal(excel[0].planBbt, 400);
+  assert.equal(excel[0].waitingPlates.length, 4);
+  assert.equal(excel[0].remainingBbt, 86);
+  const excelSheet = core.buildExcelBlockRows(excel[0]);
+  assert.equal(excelSheet.filter((r) => r.kind === 'plate').length, 4);
+  assert.match(excelSheet.find((r) => r.kind === 'pending').a, /86\s*BBT DAHA PLAKA VERİLECEK/);
+
+  const sistem = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
+  assert.equal(sistem[0].waitingPlates.length, 0);
+  assert.equal(excelSheet.filter((r) => /GELMEYEN/i.test(String(r.b || ''))).length, 4);
 });
 
 
