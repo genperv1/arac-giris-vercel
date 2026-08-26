@@ -1754,12 +1754,12 @@ test('Sistem — Excel’den önceki yazdırma son 20 günde olsa bile sayılmaz
       data: { plaka: '03OLD111', firma: 'YD40(G) / LOT NO 26 08 01', bbt: '24' },
     },
   ];
-  const sistem = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
-  assert.equal(sistem[0].waitingPlates.length, 1);
-  assert.equal(sistem[0].reportBbt || 0, 0);
+  const out = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
+  assert.equal(out[0].waitingPlates.length, 1);
+  assert.equal(out[0].reportBbt || 0, 0);
 });
 
-test('Sistem — Excel 20 günlükken o geçmiş yazdırmalar sayılır', () => {
+test('yazdırma raporu Excel gelmeyen plakayı kapatmaz', () => {
   const header = 'YD33 / LOT NO 26 07 23 / 48 BBT';
   const fileName = '06.08.2026.xlsx';
   const meta = { dateKey: '2026-08-06', fileName };
@@ -1797,8 +1797,9 @@ test('Sistem — Excel 20 günlükken o geçmiş yazdırmalar sayılır', () => 
       data: { plaka: '03PAST02', firma: 'YD33 / LOT NO 26 07 23', bbt: '24' },
     },
   ];
-  const sistem = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
-  assert.equal(sistem.length, 0);
+  const out = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
+  assert.equal(out.length, 1);
+  assert.equal(out[0].waitingPlates.length, 2);
 });
 
 test('Excel plan vs rapor çıkan — 1126/1144 henüz bitmedi, YD33 görünür', () => {
@@ -2560,7 +2561,7 @@ test('giden içerde — listede yok, BBT kalandan düşer', () => {
     },
   ]);
   assert.ok(item);
-  assert.equal(item.departedBbt, 0);
+  assert.equal(item.departedBbt, 20);
   assert.equal(item.remainingBbt, 0);
   assert.equal(item.waitingPlates.length, 1);
   assert.equal(item.insidePlates.length, 1);
@@ -2689,12 +2690,14 @@ test('iceride flag — gelmeyen yazılmaz, BBT kalandan düşer, başlıkta 80 B
 });
 
 test('iceride satırdaki İÇERİDE notu da gizler', () => {
-  assert.equal(core.rowIsInside({ iceride: true, gidenTonaj: '' }), false);
+  assert.equal(core.rowIsInside({ iceride: true, gidenTonaj: '' }), true);
   assert.equal(core.rowIsInside({ yuklemeNotu: 'İÇERİDE', gidenTonaj: '' }), true);
+  assert.equal(core.rowIsInside({ gidenTonaj: 'içerde', plaka: '54ANY862' }), true);
+  assert.equal(core.rowIsInside({ gidenTonaj: 'içe', plaka: '54ANY862' }), true);
   assert.equal(core.rowIsInside({ gidenTonaj: '', plaka: '54ANY862' }), false);
 });
 
-test('eski blok iceride bayrağı gelmeyen plakayı gizlemez', () => {
+test('eski blok iceride bayrağı — hepsi işaretliyse metinsiz plaka gelmeyen kalır', () => {
   const header = 'YD20(M) / LOT NO 26 07 10 / HP 0,15-0,30 / 1100 BBT';
   const pending = core.analyzeNakliyePending([
     {
@@ -2706,7 +2709,16 @@ test('eski blok iceride bayrağı gelmeyen plakayı gizlemez', () => {
       bbt: '25',
       gidenTonaj: '',
       iceride: true,
-      fileName: '26.08.2026.xlsx',
+    },
+    {
+      blockKey: 'B20s',
+      blockHeaderRow: 10,
+      headerText: header,
+      ydKey: 'YD20',
+      plaka: '03AAA111',
+      bbt: '25',
+      gidenTonaj: '',
+      iceride: true,
     },
     {
       blockKey: 'B20s',
@@ -2716,20 +2728,38 @@ test('eski blok iceride bayrağı gelmeyen plakayı gizlemez', () => {
       plaka: '03DH540',
       bbt: '25',
       gidenTonaj: 'içeride',
-      fileName: '26.08.2026.xlsx',
+      iceride: true,
     },
   ]);
-  assert.equal(pending[0].waitingPlates.length, 1);
-  assert.equal(core.compactPlate(pending[0].waitingPlates[0].plaka), '43VE530');
   assert.equal(pending[0].insidePlates.length, 1);
+  assert.equal(pending[0].waitingPlates.length, 2);
+  assert.equal(core.compactPlate(pending[0].insidePlates[0].plaka), '03DH540');
   const sheet = core.buildExcelBlockRows(pending[0]);
   assert.equal(sheet.some((r) => r.a === '43VE530' && r.b === 'GELMEYEN ARAÇ'), true);
   assert.equal(sheet.some((r) => r.a === '03DH540'), false);
 });
 
-test('blok notundaki İÇERİDE tüm gelmeyen plakaları gizlemez', () => {
+test('Excel içeride / içerde / içe çıkmış sayılır, listede yok, BBT düşer', () => {
+  const header = 'YD50(G) / 80 BBT';
+  const pending = core.analyzeNakliyePending([
+    { blockKey: 'Y', headerText: header, plaka: '43ACM276', bbt: '20', gidenTonaj: 'içeride' },
+    { blockKey: 'Y', headerText: header, plaka: '03DH540', bbt: '20', gidenTonaj: 'içerde' },
+    { blockKey: 'Y', headerText: header, plaka: '03BN929', bbt: '20', gidenTonaj: 'içe' },
+    { blockKey: 'Y', headerText: header, plaka: '03VE530', bbt: '20', gidenTonaj: '' },
+  ]);
+  assert.equal(pending[0].planBbt, 80);
+  assert.equal(pending[0].departedBbt, 60);
+  assert.equal(pending[0].insidePlates.length, 3);
+  assert.equal(pending[0].waitingPlates.length, 1);
+  assert.equal(pending[0].remainingBbt, 0);
+  const sheet = core.buildExcelBlockRows(pending[0]);
+  assert.equal(sheet.filter((r) => r.b === 'GELMEYEN ARAÇ').length, 1);
+  assert.equal(sheet.some((r) => r.a === '03VE530'), true);
+  assert.equal(sheet.some((r) => r.a === '43ACM276'), false);
+});
+
+test('satır notundaki İÇERİDE çıkmış sayılır, listede yok', () => {
   const header = 'YD20(M) / LOT NO 26 07 10 / HP 0,15-0,30 / 1100 BBT';
-  const note = 'İÇERİDE BEKLEYEN ARAÇLAR — AVDAN';
   const pending = core.analyzeNakliyePending([
     {
       blockKey: 'B20n',
@@ -2738,7 +2768,7 @@ test('blok notundaki İÇERİDE tüm gelmeyen plakaları gizlemez', () => {
       plaka: '43VE530',
       bbt: '25',
       gidenTonaj: '',
-      yuklemeNotu: note,
+      yuklemeNotu: 'İÇERİDE',
     },
     {
       blockKey: 'B20n',
@@ -2747,13 +2777,14 @@ test('blok notundaki İÇERİDE tüm gelmeyen plakaları gizlemez', () => {
       plaka: '03DH540',
       bbt: '25',
       gidenTonaj: '',
-      yuklemeNotu: note,
     },
   ]);
-  assert.equal(pending[0].waitingPlates.length, 2);
-  assert.equal(pending[0].insidePlates.length, 0);
+  assert.equal(pending[0].insidePlates.length, 1);
+  assert.equal(pending[0].waitingPlates.length, 1);
+  assert.equal(pending[0].departedBbt, 25);
   const sheet = core.buildExcelBlockRows(pending[0]);
-  assert.equal(sheet.filter((r) => r.b === 'GELMEYEN ARAÇ').length, 2);
+  assert.equal(sheet.some((r) => r.a === '43VE530'), false);
+  assert.equal(sheet.some((r) => r.a === '03DH540' && r.b === 'GELMEYEN ARAÇ'), true);
 });
 
 test('YD92 — gelmeyen varken turuncu kalan BBT footer durur', () => {
@@ -2844,11 +2875,11 @@ test('YD113 — özmal atanmış, extra yazdırma kalan 86 BBT yi yemez', () => 
   assert.match(footer.a, /86\s*BBT’ye plaka verilecektir\./);
 });
 
-test('normalizeNbSourceMode — excel varsayılan, sistem eşanlamlıları', () => {
+test('normalizeNbSourceMode — yalnızca Excel', () => {
   assert.equal(core.normalizeNbSourceMode(''), 'excel');
   assert.equal(core.normalizeNbSourceMode('excel'), 'excel');
-  assert.equal(core.normalizeNbSourceMode('sistem'), 'sistem');
-  assert.equal(core.normalizeNbSourceMode('report'), 'sistem');
+  assert.equal(core.normalizeNbSourceMode('sistem'), 'excel');
+  assert.equal(core.normalizeNbSourceMode('report'), 'excel');
 });
 
 test('Excel kaynak — rapor gelmeyen 4 plakayı kapatmaz, kalan 86 BBT', () => {
@@ -2902,10 +2933,10 @@ test('Excel kaynak — rapor gelmeyen 4 plakayı kapatmaz, kalan 86 BBT', () => 
   const excelSheet = core.buildExcelBlockRows(excel[0]);
   assert.equal(excelSheet.filter((r) => r.kind === 'plate').length, 4);
   assert.match(excelSheet.find((r) => r.kind === 'pending').a, /86\s*BBT’ye plaka verilecektir\./);
-
-  const sistem = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
-  assert.equal(sistem[0].waitingPlates.length, 0);
   assert.equal(excelSheet.filter((r) => /GELMEYEN/i.test(String(r.b || ''))).length, 4);
+
+  const fromSistemArg = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
+  assert.equal(fromSistemArg[0].waitingPlates.length, 4);
 });
 
 

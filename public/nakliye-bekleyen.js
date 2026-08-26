@@ -9,8 +9,6 @@
   const UNDO_MAX = 25;
   const SITE_STORAGE_KEY = 'nb_yukleme_yeri';
   const SITE_OPTIONS = ['AVDAN', '1.OSB'];
-  const SOURCE_MODE_KEY = 'nb_source_mode';
-  let _sourceMode = '';
   let _autoTimer = 0;
   let _renderBusy = false;
   let _renderQueued = false;
@@ -32,15 +30,6 @@
     toast._t = setTimeout(() => el.classList.remove('is-visible'), 2200);
   }
 
-  function authHeaders() {
-    const h = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' };
-    try {
-      const token = localStorage.getItem('authToken') || '';
-      if (token) h.Authorization = 'Bearer ' + token;
-    } catch (e) { /* ignore */ }
-    return h;
-  }
-
   async function reloadStore() {
     try {
       if (window.DailyStore && typeof DailyStore.reload === 'function') {
@@ -51,43 +40,6 @@
         await DailyStore.init();
       }
     } catch (e) {}
-  }
-
-  function coerceReportList(data) {
-    if (Array.isArray(data)) return data;
-    if (!data || typeof data !== 'object') return [];
-    if (Array.isArray(data.reports)) return data.reports;
-    if (Array.isArray(data.rows)) return data.rows;
-    if (Array.isArray(data.data)) return data.data;
-    if (Array.isArray(data.items)) return data.items;
-    return [];
-  }
-
-  function readLocalPrintReports() {
-    try {
-      const raw = localStorage.getItem('report_events_v1');
-      const arr = JSON.parse(raw || '[]');
-      return Array.isArray(arr) ? arr : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  async function fetchPrintReports() {
-    let remote = [];
-    try {
-      const r = await fetch('/api/reports?limit=8000&_=' + Date.now(), {
-        method: 'GET',
-        credentials: 'same-origin',
-        cache: 'no-store',
-        headers: authHeaders(),
-      });
-      if (r.ok) remote = coerceReportList(await r.json());
-    } catch (e) {
-      remote = [];
-    }
-    if (remote.length) return remote;
-    return readLocalPrintReports();
   }
 
   function loadRows() {
@@ -112,62 +64,11 @@
     return rows;
   }
 
-  function loadSourceMode() {
-    if (_sourceMode === 'excel' || _sourceMode === 'sistem') return _sourceMode;
-    try {
-      const raw = localStorage.getItem(SOURCE_MODE_KEY);
-      if (core && typeof core.normalizeNbSourceMode === 'function') {
-        _sourceMode = core.normalizeNbSourceMode(raw);
-      } else {
-        _sourceMode = String(raw || '').toLowerCase() === 'sistem' ? 'sistem' : 'excel';
-      }
-    } catch (e) {
-      _sourceMode = 'excel';
-    }
-    return _sourceMode;
-  }
-
-  function saveSourceMode(mode) {
-    const next = core && typeof core.normalizeNbSourceMode === 'function'
-      ? core.normalizeNbSourceMode(mode)
-      : (String(mode || '').toLowerCase() === 'sistem' ? 'sistem' : 'excel');
-    _sourceMode = next;
-    try {
-      localStorage.setItem(SOURCE_MODE_KEY, next);
-    } catch (e) { /* ignore */ }
-    return next;
-  }
-
-  function applySourceModeChrome(mode) {
-    const source = mode || loadSourceMode();
-    document.body.classList.toggle('nb-mode-excel', source === 'excel');
-    document.body.classList.toggle('nb-mode-sistem', source === 'sistem');
-    document.querySelectorAll('[data-nb-mode]').forEach((btn) => {
-      const on = btn.getAttribute('data-nb-mode') === source;
-      btn.classList.toggle('is-on', on);
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    });
-    const chip = document.getElementById('nbModeChip');
-    if (chip) chip.textContent = source === 'sistem' ? 'Sistem' : 'Excel';
-    const hint = document.getElementById('nbModeHint');
-    if (hint) {
-      hint.textContent =
-        source === 'sistem'
-          ? 'Sistem: yazdırma, Excel tarihinden 20 gün (geçmiş dahil). Baskısı geçen plaka listeden düşer.'
-          : 'Excel: rapora bakılmaz. Giden kg boş plakalar gelmeyen kalır.';
-    }
-  }
-
   async function loadRowsWithLiveDeparted() {
     const rows = loadRows();
-    const mode = loadSourceMode();
-    if (!rows.length || !core) return { rows, reports: [], mode };
+    if (!rows.length || !core) return { rows, reports: [] };
     const cleaned = rows.map((r) => (core.clearLiveDepartedMark ? core.clearLiveDepartedMark(r) : r));
-    if (mode !== 'sistem') {
-      return { rows: cleaned, reports: [], mode: 'excel' };
-    }
-    const reports = await fetchPrintReports();
-    return { rows: cleaned, reports, mode: loadSourceMode() };
+    return { rows: cleaned, reports: [] };
   }
 
   function loadMeta() {
@@ -1284,14 +1185,7 @@
       do {
         _renderQueued = false;
         const loaded = await loadRowsWithLiveDeparted();
-        const sourceMode = loadSourceMode();
-        applySourceModeChrome(sourceMode);
-        if (loaded && loaded.mode && loaded.mode !== sourceMode) {
-          _renderQueued = true;
-          continue;
-        }
         const rows = loaded && loaded.rows ? loaded.rows : loaded || [];
-        const reports = sourceMode === 'sistem' && loaded && loaded.reports ? loaded.reports : [];
 
         if (!rows.length) {
           empty?.classList.add('hidden');
@@ -1302,12 +1196,9 @@
         noExcel?.classList.add('hidden');
 
       if (core && typeof core.analyzeNakliyePendingFromSource === 'function') {
-        _allItems = core.analyzeNakliyePendingFromSource(rows, reports, loadMeta(), sourceMode);
+        _allItems = core.analyzeNakliyePendingFromSource(rows, [], loadMeta(), 'excel');
       } else {
         _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
-        if (sourceMode === 'sistem' && core && typeof core.applyExtraPrintsToPendingItems === 'function') {
-          _allItems = core.applyExtraPrintsToPendingItems(_allItems, reports, loadMeta());
-        }
         _allItems = (_allItems || []).filter((it) => !core || core.hasNakliyeBlockContent(it));
       }
       const visible = filterItems(_allItems);
@@ -1318,11 +1209,7 @@
         if (empty) {
           empty.textContent = _searchNeedle
             ? 'Aramaya uyan bekleyen sevkiyat yok.'
-            : sourceMode === 'sistem'
-              ? reports.length
-                ? 'Bekleyen sevkiyat yok — giden / yazdırılan araçlar listeden düştü.'
-                : 'Sistem: yazdırma raporu yok. Excel’e geçin veya raporu kontrol edin.'
-                : 'Bekleyen sevkiyat yok — Excel’de açık plaka veya kalan BBT yok.';
+            : 'Bekleyen sevkiyat yok — Excel’de açık plaka veya kalan BBT yok.';
         }
         outer?.classList.add('hidden');
           continue;
@@ -1416,19 +1303,6 @@
       renderList();
     });
 
-    document.querySelectorAll('[data-nb-mode]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const next = saveSourceMode(btn.getAttribute('data-nb-mode') || 'excel');
-        applySourceModeChrome(next);
-        toast(
-          next === 'sistem'
-            ? 'Sistem — Excel tarihinden 20 gün (geçmiş yazdırmalar dahil)'
-            : 'Excel — dosyada ne varsa o'
-        );
-        void renderList();
-      });
-    });
-
     const outer = document.getElementById('nbSheetOuter');
     outer?.addEventListener('click', (e) => {
       const siteBtn = e.target.closest('[data-nb-site]');
@@ -1491,7 +1365,6 @@
 
   async function init() {
     bindUiHandlers();
-    applySourceModeChrome();
     syncSiteButtons();
 
     try {

@@ -2959,7 +2959,6 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
       const rowText = _rowToText(d).toUpperCase();
       const isLikelyNote = maybeNote.length > 20 && /[A-ZÇĞİÖŞÜİ]/i.test(maybeNote) && !/(SIRANO|PLAKA|BBT|ÇUVAL|CUVAL|PALET|TONAJ|TARİH|TARIH|FİRMA|FIRMA|MALZEME|AÇIKLAMA|ACIKLAMA|NOT|YÜKLEME|YUKLEME)/i.test(rowText);
       if (!plakaRaw && !blockYuklemeNotu && isLikelyNote) {
-        // Bloğa yazılmış İÇERİDE notu tüm plakaları gizlemesin
         if (!_isExcelInsideNoteText(maybeNote)) blockYuklemeNotu = maybeNote;
         continue;
       }
@@ -3014,7 +3013,7 @@ firma: (firma || '').slice(0, 40),
   bosBbt: blockCols.bosBbt !== undefined ? _nz(d[blockCols.bosBbt]) : '',
   bosCuval: blockCols.bosCuval !== undefined ? _nz(d[blockCols.bosCuval]) : '',
   gidenTonaj: blockCols.gidenTonaj !== undefined ? _nz(d[blockCols.gidenTonaj]) : '',
-  iceride: _rowHasInsideNote(d, insideColIdxs),
+  iceride: _rowHasInsideNote(d, insideColIdxs) || _rowHasInsideNote(d),
 
   yuklemeNotu: (function () {
     const ownNote = String(d[noteColumnIndex] || '').trim();

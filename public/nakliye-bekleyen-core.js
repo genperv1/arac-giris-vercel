@@ -4,13 +4,11 @@
  *
  * Kurallar:
  * - Giden kg dolu satır = çıkmış araç → listede gösterilmez
- * - Giden / satırda içerde / içeride / içe… = tesiste, plaka verilmiş → o satır listede yok, BBT kalandan düşer
- *   (blok notu veya eski iceride bayrağı diğer gelmeyen plakaları gizlemez)
+ * - Giden / satırda içerde / içeride / içe… = çıkmış sayılır → listede yok, BBT kalandan düşer
  * - Plaka var, giden tonaj boş = gelmeyen araç → plaka + BBT yan sütunda
- * - Excel kaynak: rapora bakılmaz; dosyada gideni boş plaka gelmeyen kalır
- * - Sistem kaynak: aynı YD yazdırması gelmeyen plakayı kapatır; Excel'de olmayan çıkan BBT kalandan düşer
+ * - Yalnızca Excel: rapora bakılmaz; dosyada gideni boş plaka gelmeyen kalır
  * - 0PLAKA0 / EU gibi sahte plaka gelmeyene yazılmaz, BBT'si plaka verilecek kalır
- * - Kalan BBT = plan − çıkan BBT − atanmış ama gelmeyen BBT
+ * - Kalan BBT = plan − çıkan BBT (kg + içeride) − atanmış gelmeyen / özmal BBT
  * - Kalan BBT 0 ise turuncu PLAKA VERİLECEK satırı yazılmaz (gelmeyen plaka olsa da)
  * - TAMAMLANDI / gideni dolu sevkiyat bekleyen listede durmaz
  */
@@ -71,12 +69,26 @@
     return norm.split(' ').some(isInsideNoteWord);
   }
 
+  function rowHasInsideText(row) {
+    if (!row) return false;
+    const fields = [
+      row.gidenTonaj,
+      row.aciklama,
+      row.yuklemeNotu,
+      row.bosBbt,
+      row.fark,
+      row.netTonaj,
+      row.ogrTonaj,
+      row.tonajKg,
+    ];
+    return fields.some((v) => isGidenInsideNote(v));
+  }
+
   function rowIsInside(row) {
     if (!row) return false;
     if (row._nbInside) return true;
-    if (isGidenInsideNote(row.gidenTonaj)) return true;
-    if (isGidenInsideNote(row.aciklama)) return true;
-    if (isGidenInsideNote(row.yuklemeNotu)) return true;
+    if (rowHasInsideText(row)) return true;
+    if (row.iceride === true) return true;
     return false;
   }
 
@@ -1140,29 +1152,20 @@
       });
   }
 
-  function normalizeNbSourceMode(mode) {
-    const s = String(mode || '')
-      .trim()
-      .toLowerCase();
-    if (s === 'sistem' || s === 'system' || s === 'rapor' || s === 'report') return 'sistem';
+  function normalizeNbSourceMode() {
     return 'excel';
   }
 
   /**
-   * Excel: dosyadaki plaka / giden kg / kalan BBT.
-   * Sistem: yazdırma raporları gelmeyeni kapatır, extra BBT kalandan düşer.
+   * Yalnızca Excel: dosyadaki plaka / giden kg / içeride notu / kalan BBT.
+   * Yazdırma raporları bekleyen listeye karışmaz.
    */
   function analyzeNakliyePendingFromSource(rows, reports, meta, mode) {
-    const source = normalizeNbSourceMode(mode);
+    void reports;
+    void mode;
     let working = (rows || []).map((r) => (clearLiveDepartedMark ? clearLiveDepartedMark(r) : r));
     working = repairRowSourceFiles(working, meta);
-    if (source === 'sistem') {
-      working = applyLiveDepartedMarks(working, meta, reports, { forPending: true });
-    }
-    let items = analyzeNakliyePending(working, meta);
-    if (source === 'sistem' && typeof applyExtraPrintsToPendingItems === 'function') {
-      items = applyExtraPrintsToPendingItems(items, reports, meta);
-    }
+    const items = analyzeNakliyePending(working, meta);
     return (items || []).filter(hasNakliyeBlockContent);
   }
 
@@ -1857,22 +1860,19 @@
       if (!isValidPlateCell(String(r.plaka || '').trim())) return false;
       return !isRowDeparted(r);
     });
-    const insideYuklemeNotes = openPlateRows
-      .map((r) => String(r.yuklemeNotu || '').trim())
-      .filter((n) => n && isGidenInsideNote(n));
-    const uniqueInsideYukleme = [...new Set(insideYuklemeNotes.map((n) => normTr(n)))];
-    const sharedInsideYuklemeNote =
+    const textInsideCount = openPlateRows.filter((r) => rowHasInsideText(r)).length;
+    const flaggedCount = openPlateRows.filter((r) => r.iceride === true || r._nbInside).length;
+    const staleBlockInside =
       openPlateRows.length > 1 &&
-      uniqueInsideYukleme.length === 1 &&
-      insideYuklemeNotes.length === openPlateRows.length;
+      flaggedCount === openPlateRows.length &&
+      textInsideCount < openPlateRows.length;
 
     function rowCountsAsInside(r) {
       if (!r) return false;
       if (r._nbInside) return true;
-      if (isGidenInsideNote(r.gidenTonaj)) return true;
-      if (isGidenInsideNote(r.aciklama)) return true;
-      if (sharedInsideYuklemeNote) return false;
-      return isGidenInsideNote(r.yuklemeNotu);
+      if (rowHasInsideText(r)) return true;
+      if (staleBlockInside) return false;
+      return r.iceride === true;
     }
 
     items.forEach((r) => {
@@ -1908,11 +1908,16 @@
         fileName: rowSourceFile(r),
         rowRef: `${bk}::${plateKey(plaka)}::${String(r.sira || '').trim()}::${String(r.id || '').trim()}`,
       };
-      if (entry.isOzmal) ozmalPlates.push(entry);
-      else if (inside) insidePlates.push(entry);
-      else waitingPlates.push(entry);
-      // Özmal / içerde BBT de plana sayılır (listede görünmese bile atanmış kabul)
-      if (rowBbt > 0) assignedWaitingBbt += rowBbt;
+      if (entry.isOzmal) {
+        ozmalPlates.push(entry);
+        if (rowBbt > 0) assignedWaitingBbt += rowBbt;
+      } else if (inside) {
+        insidePlates.push(entry);
+        if (rowBbt > 0) departedBbt += rowBbt;
+      } else {
+        waitingPlates.push(entry);
+        if (rowBbt > 0) assignedWaitingBbt += rowBbt;
+      }
     });
 
     const ydKey = extractYdLabel(sample);
@@ -1941,10 +1946,11 @@
 
     let remainingBbt = null;
     const noteWithQty = explicitNotes.find((n) => n.remainingBbt != null && n.remainingBbt > 0);
-    if (noteWithQty) {
+    const calculatedRemaining = Math.max(0, planBbt - departedBbt - assignedWaitingBbt);
+    if (noteWithQty && departedBbt <= 0) {
       remainingBbt = noteWithQty.remainingBbt;
     } else {
-      remainingBbt = Math.max(0, planBbt - departedBbt - assignedWaitingBbt);
+      remainingBbt = calculatedRemaining;
     }
 
     if (remainingBbt <= 0 && waitingPlates.length === 0 && ozmalPlates.length === 0 && !includeComplete) {
@@ -2563,6 +2569,7 @@
     normalizeNbSourceMode,
     analyzeNakliyePendingFromSource,
     isGidenInsideNote,
+    rowHasInsideText,
     rowIsInside,
     isPlaceholderPlate,
     parseKg,

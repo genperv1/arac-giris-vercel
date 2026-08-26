@@ -731,8 +731,8 @@
       <div class="nb-brand">
         <img src="logo.png" alt="" class="nb-logo" width="40" height="40" />
         <div>
-          <h1>Nakliye Bekleyenleri <span class="nb-mode-chip" id="nbModeChip">Excel</span></h1>
-          <p>Nakliyeci listesi · kopyala ve gönder</p>
+          <h1>Nakliye Bekleyenleri</h1>
+          <p>Nakliyeci listesi · Excel’de ne varsa o · kopyala ve gönder</p>
         </div>
       </div>
       <button type="button" id="nbBackBtn" class="nb-home">Ana Sayfa</button>
@@ -742,18 +742,7 @@
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <section class="nb-panel">
       <div class="nb-panel-row">
-        <div>
-          <span class="nb-source-label">Kaynak</span>
-          <div class="nb-mode-group" role="group" aria-label="Kaynak">
-            <button type="button" class="nb-btn nb-btn--mode is-on" data-nb-mode="excel" aria-pressed="true" title="Excel’de ne varsa onu göster">
-              <i class="fas fa-file-excel" aria-hidden="true"></i> Excel
-            </button>
-            <button type="button" class="nb-btn nb-btn--mode" data-nb-mode="sistem" aria-pressed="false" title="Excel tarihinden 20 gün yazdırma raporlarına göre göster">
-              <i class="fas fa-print" aria-hidden="true"></i> Sistem
-            </button>
-          </div>
-          <p class="nb-hint" id="nbModeHint">Excel: rapora bakılmaz. Giden kg boş plakalar gelmeyen kalır.</p>
-        </div>
+        <p class="nb-hint" id="nbModeHint">Giden kg dolu veya içerde / içeride / içe yazan araçlar çıkmış sayılır; listede durmaz, BBT kalandan düşer.</p>
         <div class="nb-tools">
           <input type="search" id="nbSearch" class="nb-input" placeholder="YD / LOT ara…" />
           <button type="button" id="nbRefreshBtn" class="nb-btn"><i class="fas fa-sync-alt"></i> Yenile</button>
@@ -773,7 +762,7 @@
 
     <div id="nbListLoading" class="nb-empty-msg">Liste hazırlanıyor…</div>
     <div id="nbListEmpty" class="nb-empty-msg hidden">Bekleyen sevkiyat yok.</div>
-    <div id="nbNoExcel" class="nb-empty-msg hidden">İhracat Excel yüklü değil. Yeni plan için ana sayfadan Excel yükleyin; biten sevkiyatlar rapordan düşer.</div>
+    <div id="nbNoExcel" class="nb-empty-msg hidden">İhracat Excel yüklü değil. Ana sayfadan Excel yükleyin.</div>
 
     <div id="nbSheetOuter" class="nb-sheet-outer hidden" aria-label="Nakliye bekleyenleri Excel özeti"></div>
   </main>
@@ -783,7 +772,7 @@
   <script src="idb.js"></script>
   <script src="dailyStore.js?v=20260821-multiexcel7"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260826-bbtye"></script>
-  <script src="nakliye-bekleyen.js?v=20260826-sysdate20"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260826-iceride-cikis"></script>
+  <script src="nakliye-bekleyen.js?v=20260826-excel-only"></script>
 </body>
 </html>
