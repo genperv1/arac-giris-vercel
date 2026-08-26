@@ -153,7 +153,7 @@
     if (hint) {
       hint.textContent =
         source === 'sistem'
-          ? 'Sistem: yazdırma raporları Excel ile birleşir. Baskısı geçen plaka listeden düşer.'
+          ? 'Sistem: yazdırma, Excel tarihinden 20 gün (geçmiş dahil). Baskısı geçen plaka listeden düşer.'
           : 'Excel: rapora bakılmaz. Giden kg boş plakalar gelmeyen kalır.';
     }
   }
@@ -340,7 +340,7 @@
         changed = true;
         bumped = delta;
         return {
-          text: nextRem > 0 ? `${nextRem}BBT PLAKA VERİLECEK` : 'PLAKA VERİLECEK',
+          text: nextRem > 0 ? `${nextRem}BBT PLAKA VERİLECEK` : '',
           remainingBbt: nextRem,
         };
       });
@@ -385,7 +385,7 @@
     );
   }
 
-  /** Plaka satırındaki BBT değişince alttaki "DAHA PLAKA VERİLECEK" düşer/artar */
+  /** Plaka satırındaki BBT değişince alttaki "BBT’ye plaka verilecektir" düşer/artar */
   async function syncPlateBbtFromDom(tr) {
     if (!core || !tr || !tr.classList.contains('nb-plate')) return;
     if (tr.classList.contains('nb-plate--ozmal')) return;
@@ -1422,7 +1422,7 @@
         applySourceModeChrome(next);
         toast(
           next === 'sistem'
-            ? 'Sistem — son 21 gün yazdırma raporları'
+            ? 'Sistem — Excel tarihinden 20 gün (geçmiş yazdırmalar dahil)'
             : 'Excel — dosyada ne varsa o'
         );
         void renderList();

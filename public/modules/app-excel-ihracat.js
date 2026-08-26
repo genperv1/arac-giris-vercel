@@ -2656,13 +2656,15 @@ function _isExcelInsideNoteText(raw) {
     .replace(/\s+/g, ' ')
     .trim();
   if (!norm) return false;
-  return norm.split(' ').some((w) => /^ICE/.test(w));
+  return norm.split(' ').some((w) => /^ICE(R(DE|IDE|I)?(KI)?)?$/.test(w));
 }
 
-function _rowHasInsideNote(row) {
+function _rowHasInsideNote(row, colIdxs) {
   if (!row) return false;
-  if (Array.isArray(row)) return row.some((v) => _isExcelInsideNoteText(v));
-  return _isExcelInsideNoteText(row);
+  if (!Array.isArray(row)) return _isExcelInsideNoteText(row);
+  const idxs = Array.isArray(colIdxs) ? colIdxs.filter((i) => i !== undefined && i !== null && i >= 0) : [];
+  if (idxs.length) return idxs.some((i) => _isExcelInsideNoteText(row[i]));
+  return row.some((v) => _isExcelInsideNoteText(v));
 }
 
 function parseIhracatBlockToplamRow(row, blockCols) {
@@ -2938,7 +2940,8 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     if (blockIrsCol !== undefined) parseCols.irsaliyeNo = blockIrsCol;
     else if (blockCols.plaka !== undefined && blockCols.plaka >= 2) parseCols.irsaliyeNo = blockCols.plaka - 2;
 
-    let blockInside = false;
+    const insideColIdxs = [blockCols.gidenTonaj, noteColumnIndex, parseCols.aciklama]
+      .filter((i, idx, arr) => i !== undefined && i !== null && i >= 0 && arr.indexOf(i) === idx);
 
     for (let rr = r+1; rr < grid.length; rr++) {
       const d = grid[rr] || [];
@@ -2950,14 +2953,14 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         break;
       }
       if (/\bKALAN\b/.test(rowTextUpper)) break;
-      if (_rowHasInsideNote(d)) blockInside = true;
 
       const plakaRaw = blockCols.plaka !== undefined ? d[blockCols.plaka] : null;
       const maybeNote = String(d[noteColumnIndex] || '').trim();
       const rowText = _rowToText(d).toUpperCase();
       const isLikelyNote = maybeNote.length > 20 && /[A-ZÇĞİÖŞÜİ]/i.test(maybeNote) && !/(SIRANO|PLAKA|BBT|ÇUVAL|CUVAL|PALET|TONAJ|TARİH|TARIH|FİRMA|FIRMA|MALZEME|AÇIKLAMA|ACIKLAMA|NOT|YÜKLEME|YUKLEME)/i.test(rowText);
       if (!plakaRaw && !blockYuklemeNotu && isLikelyNote) {
-        blockYuklemeNotu = maybeNote;
+        // Bloğa yazılmış İÇERİDE notu tüm plakaları gizlemesin
+        if (!_isExcelInsideNoteText(maybeNote)) blockYuklemeNotu = maybeNote;
         continue;
       }
       if (!plakaRaw) continue;
@@ -3011,9 +3014,14 @@ firma: (firma || '').slice(0, 40),
   bosBbt: blockCols.bosBbt !== undefined ? _nz(d[blockCols.bosBbt]) : '',
   bosCuval: blockCols.bosCuval !== undefined ? _nz(d[blockCols.bosCuval]) : '',
   gidenTonaj: blockCols.gidenTonaj !== undefined ? _nz(d[blockCols.gidenTonaj]) : '',
-  iceride: blockInside || _rowHasInsideNote(d),
+  iceride: _rowHasInsideNote(d, insideColIdxs),
 
-  yuklemeNotu: (String(d[noteColumnIndex] || '').trim() || blockYuklemeNotu),
+  yuklemeNotu: (function () {
+    const ownNote = String(d[noteColumnIndex] || '').trim();
+    if (ownNote) return ownNote;
+    if (blockYuklemeNotu && !_isExcelInsideNoteText(blockYuklemeNotu)) return blockYuklemeNotu;
+    return '';
+  })(),
 
   firma,
   sevkYeri,
@@ -3027,7 +3035,6 @@ firma: (firma || '').slice(0, 40),
     blockRows.forEach((br) => {
       br.blockPendingPlakaNotes = blockPendingPlakaNotes;
       if (blockTotals) br.blockTotals = blockTotals;
-      if (blockInside) br.iceride = true;
       if (yuklemeYeri) {
         br.yuklemeYeri = yuklemeYeri;
         if (br.blockMeta && typeof br.blockMeta === 'object') br.blockMeta.yuklemeYeri = yuklemeYeri;

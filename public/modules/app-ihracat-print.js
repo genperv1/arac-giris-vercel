@@ -515,8 +515,8 @@ function _ihracatCollectReportPrintCountsByPlate(meta, excelFirmalar) {
     if (window.NakliyeBekleyenCore && typeof NakliyeBekleyenCore.printReportValidForPending === 'function') {
       return NakliyeBekleyenCore.printReportValidForPending(ts, meta);
     }
-    const twentyOneDaysAgo = Date.now() - 21 * 24 * 60 * 60 * 1000;
-    return !(Number.isFinite(ts) && ts > 0 && ts < twentyOneDaysAgo);
+    const twentyDaysAgo = Date.now() - 20 * 24 * 60 * 60 * 1000;
+    return !(Number.isFinite(ts) && ts > 0 && ts < twentyDaysAgo);
   };
 
   _ihracatGetPrintReports().forEach((r) => {

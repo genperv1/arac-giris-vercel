@@ -4,12 +4,14 @@
  *
  * Kurallar:
  * - Giden kg dolu satır = çıkmış araç → listede gösterilmez
- * - Giden / satırda içerde / içeride / içe… = tesiste, plaka verilmiş → listede yok, BBT kalandan düşer
+ * - Giden / satırda içerde / içeride / içe… = tesiste, plaka verilmiş → o satır listede yok, BBT kalandan düşer
+ *   (blok notu veya eski iceride bayrağı diğer gelmeyen plakaları gizlemez)
  * - Plaka var, giden tonaj boş = gelmeyen araç → plaka + BBT yan sütunda
  * - Excel kaynak: rapora bakılmaz; dosyada gideni boş plaka gelmeyen kalır
  * - Sistem kaynak: aynı YD yazdırması gelmeyen plakayı kapatır; Excel'de olmayan çıkan BBT kalandan düşer
  * - 0PLAKA0 / EU gibi sahte plaka gelmeyene yazılmaz, BBT'si plaka verilecek kalır
  * - Kalan BBT = plan − çıkan BBT − atanmış ama gelmeyen BBT
+ * - Kalan BBT 0 ise turuncu PLAKA VERİLECEK satırı yazılmaz (gelmeyen plaka olsa da)
  * - TAMAMLANDI / gideni dolu sevkiyat bekleyen listede durmaz
  */
 (function (root, factory) {
@@ -58,18 +60,23 @@
    * Giden sütunu: içerde / içeride / içe… ve varyasyonları.
    * Kantar kg değil; araç tesiste, henüz çıkmamış.
    */
+  function isInsideNoteWord(w) {
+    // içe / içeri / içerde / içeride / … — "içerik" / "içecek" tutmasın
+    return /^ICE(R(DE|IDE|I)?(KI)?)?$/.test(String(w || ''));
+  }
+
   function isGidenInsideNote(raw) {
     const norm = normTr(raw).replace(/[^A-Z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!norm) return false;
-    return norm.split(' ').some((w) => /^ICE/.test(w));
+    return norm.split(' ').some(isInsideNoteWord);
   }
 
   function rowIsInside(row) {
     if (!row) return false;
-    if (row.iceride === true || row._nbInside) return true;
+    if (row._nbInside) return true;
     if (isGidenInsideNote(row.gidenTonaj)) return true;
-    if (isGidenInsideNote(row.yuklemeNotu)) return true;
     if (isGidenInsideNote(row.aciklama)) return true;
+    if (isGidenInsideNote(row.yuklemeNotu)) return true;
     return false;
   }
 
@@ -584,13 +591,57 @@
     return printReportValidForMeta(reportTs, meta);
   }
 
-  /** Nakliye bekleyen: eski Excel yüklü kalsa da son 21 gün çıkan raporları say. */
-  const PENDING_REPORT_WINDOW_MS = 21 * 24 * 60 * 60 * 1000;
+  /**
+   * Sistem penceresi Excel tarihine bağlı: o günden itibaren 20 gün.
+   * Excel 20 günlük olduğunda o geçmiş yazdırmalar da sayılır; önceki dalga (Excel’den önce) karışmaz.
+   */
+  const PENDING_REPORT_WINDOW_DAYS = 20;
+  const PENDING_REPORT_WINDOW_MS = PENDING_REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-  function printReportValidForPending(reportTs, meta) {
+  function pendingExcelDateKeys(meta) {
+    const keys = [];
+    const seen = new Set();
+    const add = (dk) => {
+      const k = String(dk || '').trim();
+      if (!k || !/^\d{4}-\d{2}-\d{2}$/.test(k) || seen.has(k)) return;
+      seen.add(k);
+      keys.push(k);
+    };
+    const m = meta || {};
+    splitExcelFileNames(m.fileName).forEach((n) => add(dateKeyFromFileName(n)));
+    if (Array.isArray(m.files)) {
+      m.files.forEach((n) => splitExcelFileNames(n).forEach((p) => add(dateKeyFromFileName(p))));
+    }
+    add(m.dateKey);
+    return keys;
+  }
+
+  function printOnOrAfterExcelDate(ts, dateKey) {
+    if (!dateKey) return true;
+    if (printDayMatchesExcelDate(ts, dateKey)) return true;
+    const printDay = istanbulDayKey(ts);
+    return !!(printDay && printDay > dateKey);
+  }
+
+  function printWithinExcelPendingWindow(ts, dateKey) {
+    if (!printOnOrAfterExcelDate(ts, dateKey)) return false;
+    const printDay = istanbulDayKey(ts);
+    const end = addDaysToDateKey(dateKey, PENDING_REPORT_WINDOW_DAYS);
+    if (!printDay || !end) return false;
+    return printDay <= end;
+  }
+
+  function printReportValidForPending(reportTs, meta, item) {
     const ts = Number(reportTs);
     if (!Number.isFinite(ts) || ts <= 0) return false;
     if (printReportValidForBalance(ts, meta)) return true;
+
+    const itemDk = item ? itemExcelDateKey(item, meta) : '';
+    if (itemDk) return printWithinExcelPendingWindow(ts, itemDk);
+
+    const dates = pendingExcelDateKeys(meta);
+    if (dates.length) return dates.some((dk) => printWithinExcelPendingWindow(ts, dk));
+
     return Date.now() - ts <= PENDING_REPORT_WINDOW_MS;
   }
 
@@ -832,7 +883,7 @@
    * Excel günü 00:00–08:00 önceki dalganın gece vardiyasıdır (20.08 kartına 19.08 gecesi yazılmaz).
    */
   function printReportValidForExtraPlate(ts, item, meta) {
-    if (!printReportValidForPending(ts, meta)) return false;
+    if (!printReportValidForPending(ts, meta, item)) return false;
     const start = itemExcelDateKey(item, meta);
     if (!start) return true;
     const printDay = istanbulDayKey(ts);
@@ -860,7 +911,7 @@
 
   /** Bu Excel günü + gece vardiyası. Ertesi gün aynı LOT başka dalga sayılmaz. */
   function printReportValidForItem(ts, item, meta) {
-    if (!printReportValidForPending(ts, meta)) return false;
+    if (!printReportValidForPending(ts, meta, item)) return false;
     const start = itemExcelDateKey(item, meta);
     if (!start) return true;
     return printDayMatchesExcelDate(ts, start);
@@ -944,10 +995,10 @@
       let best = null;
       let bestScore = 0;
       sameYd.forEach((it) => {
-        if (!printReportValidForPending(r.ts, meta)) return;
+        if (!printReportValidForPending(r.ts, meta, it)) return;
         const known = pendingItemKnownPlates(it);
         const isExcelPlate = !!(pk && known.has(pk));
-        // Excel satırı: 21 gün. Excel dışı yeni plaka: bu Excel tarihi ve sonrası (dosya güncellenmese de düşer).
+        // Excel satırı: Excel tarihi + 20 gün. Excel dışı yeni plaka: bu Excel tarihi ve sonrası.
         if (!isExcelPlate && !printReportValidForExtraPlate(r.ts, it, meta)) return;
         const s = scorePendingPrintTarget(it, lot, reportMal, r, meta);
         if (s < 0) return;
@@ -1104,6 +1155,7 @@
   function analyzeNakliyePendingFromSource(rows, reports, meta, mode) {
     const source = normalizeNbSourceMode(mode);
     let working = (rows || []).map((r) => (clearLiveDepartedMark ? clearLiveDepartedMark(r) : r));
+    working = repairRowSourceFiles(working, meta);
     if (source === 'sistem') {
       working = applyLiveDepartedMarks(working, meta, reports, { forPending: true });
     }
@@ -1239,7 +1291,7 @@
         const pk = plateKey(raw);
         if (!pk || seen.has(pk)) return;
         seen.add(pk);
-        slots.push({ pk, yd, used: false });
+        slots.push({ pk, yd, ts: r.ts, used: false });
       });
     });
     return slots;
@@ -1272,7 +1324,13 @@
       if (isRowDeparted(working)) return working;
       const plaka = String(working.plaka || '').trim();
       if (!isValidPlateCell(plaka)) return working;
-      const slot = slots.find((s) => printSlotMatchesRow(s, working));
+      const slot = slots.find((s) => {
+        if (!printSlotMatchesRow(s, working)) return false;
+        if (opts && opts.forPending && s.ts) {
+          return printReportValidForPending(s.ts, meta, working);
+        }
+        return true;
+      });
       if (!slot) return working;
       slot.used = true;
       const gt = parseKg(working.tonajKg) || parseKg(working.netTonaj) || parseNum(working.bbt) || 1;
@@ -1294,11 +1352,9 @@
     const rem = remainingBbt != null ? remainingBbt : 0;
     const plan = planBbt != null ? planBbt : 0;
     const hasWaiting = Array.isArray(waitingPlates) && waitingPlates.length > 0;
-    if (rem > 0 && (hasWaiting || rem < plan)) {
+    if (rem <= 0) return '';
+    if (hasWaiting || rem < plan) {
       return `${rem}BBT PLAKA VERİLECEK`;
-    }
-    if (rem > 0 && !hasWaiting) {
-      return 'PLAKA VERİLECEK';
     }
     return 'PLAKA VERİLECEK';
   }
@@ -1533,8 +1589,14 @@
 
   function formatFooterRemainingText(totalRemaining) {
     const n = parseNum(totalRemaining);
-    if (n > 0) return `${n} BBT DAHA PLAKA VERİLECEK`;
-    return 'PLAKA VERİLECEK';
+    if (n > 0) return `${n} BBT’ye plaka verilecektir.`;
+    return '';
+  }
+
+  function pendingAssignQty(item) {
+    const rem = parseNum(item && item.remainingBbt);
+    if (rem > 0) return rem;
+    return parseNum(item && item.excelLeftBbt);
   }
 
   function formatCikanSuffix(item) {
@@ -1551,16 +1613,15 @@
   }
 
   function formatFooterStatusText(item) {
-    if (!item) return formatFooterRemainingText(0);
+    if (!item) return '';
     const waiting = (item.waitingPlates || []).length;
     if (item.shipmentDone && waiting === 0 && parseNum(item.remainingBbt) <= 0) {
       return 'TAMAMLANDI';
     }
-    const rem = parseNum(item.remainingBbt);
-    if (rem > 0) return formatFooterRemainingText(rem);
-    const left = parseNum(item.excelLeftBbt);
-    if (left > 0) return formatFooterRemainingText(left);
-    return formatFooterRemainingText(rem);
+    const qty = pendingAssignQty(item);
+    if (qty > 0) return formatFooterRemainingText(qty);
+    if (item._emptyYdPending) return 'PLAKA VERİLECEK';
+    return '';
   }
 
   function sumRemainingBbt(items) {
@@ -1632,18 +1693,19 @@
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
     const hasWaiting = (item.waitingPlates || []).length > 0;
+    const pendingText = formatFooterStatusText(item);
     if (item.shipmentDone && !hasWaiting && rem <= 0) {
       rows.push({
         kind: 'done',
-        a: formatFooterStatusText(item),
+        a: pendingText || 'TAMAMLANDI',
         b: '',
         blockKey: String(item.blockKey || '').trim(),
         fileName: String(item.fileName || '').trim(),
       });
-    } else if (rem > 0 || item._emptyYdPending || hasWaiting) {
+    } else if (pendingText && (pendingAssignQty(item) > 0 || item._emptyYdPending)) {
       rows.push({
         kind: 'pending',
-        a: formatFooterStatusText(item),
+        a: pendingText,
         b: '',
         blockKey: String(item.blockKey || '').trim(),
         fileName: String(item.fileName || '').trim(),
@@ -1789,6 +1851,30 @@
     let excelKgDepartedBbt = 0;
     let assignedWaitingBbt = 0;
 
+    const openPlateRows = items.filter((r) => {
+      if (!r || r._ihracatEmptyBlock) return false;
+      if (parsePendingNote(r.plaka)) return false;
+      if (!isValidPlateCell(String(r.plaka || '').trim())) return false;
+      return !isRowDeparted(r);
+    });
+    const insideYuklemeNotes = openPlateRows
+      .map((r) => String(r.yuklemeNotu || '').trim())
+      .filter((n) => n && isGidenInsideNote(n));
+    const uniqueInsideYukleme = [...new Set(insideYuklemeNotes.map((n) => normTr(n)))];
+    const sharedInsideYuklemeNote =
+      openPlateRows.length > 1 &&
+      uniqueInsideYukleme.length === 1 &&
+      insideYuklemeNotes.length === openPlateRows.length;
+
+    function rowCountsAsInside(r) {
+      if (!r) return false;
+      if (r._nbInside) return true;
+      if (isGidenInsideNote(r.gidenTonaj)) return true;
+      if (isGidenInsideNote(r.aciklama)) return true;
+      if (sharedInsideYuklemeNote) return false;
+      return isGidenInsideNote(r.yuklemeNotu);
+    }
+
     items.forEach((r) => {
       if (r._ihracatEmptyBlock) return;
       if (parsePendingNote(r.plaka)) return;
@@ -1810,7 +1896,7 @@
       }
 
       const bk = blockGroupKey(r);
-      const inside = rowIsInside(r);
+      const inside = rowCountsAsInside(r);
       const entry = {
         plaka,
         bbt: rowBbt > 0 ? rowBbt : null,
@@ -2446,6 +2532,7 @@
     formatPendingExcelText,
     formatFooterRemainingText,
     formatFooterStatusText,
+    pendingAssignQty,
     formatCikanSuffix,
     sumRemainingBbt,
     formatWaitingPlateBbtText,
