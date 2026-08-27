@@ -1,7 +1,6 @@
 (function () {
   'use strict';
 
-  const CACHE_KEY = 'printBgDataUrl_v3';
   const API = '/api/print-form-bg';
 
   function readFileAsDataUrl(file) {
@@ -63,11 +62,15 @@
     }
     const dataUrl = await readFileAsDataUrl(file);
     await uploadToServer(dataUrl, 'takip-upload');
-    try { localStorage.setItem(CACHE_KEY, dataUrl); } catch (_) {}
-    if (window.PrintFormBg && typeof window.PrintFormBg.clearCache === 'function') {
-      window.PrintFormBg.clearCache();
-    }
-    try { localStorage.setItem(CACHE_KEY, dataUrl); } catch (_) {}
+    try {
+      if (window.PrintFormBg && typeof window.PrintFormBg.clearCache === 'function') {
+        window.PrintFormBg.clearCache();
+      }
+    } catch (_) {}
+    try {
+      const img = new Image();
+      img.src = API;
+    } catch (_) {}
     if (typeof window.showToast === 'function') {
       window.showToast('Form şablonu kaydedildi.');
     }

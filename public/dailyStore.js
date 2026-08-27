@@ -93,7 +93,7 @@
       }
       dropKeys.forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
 
-      ['printBgDataUrl', 'print_bg_data_url', 'printBgUrl'].forEach((k) => {
+      ['printBgDataUrl', 'printBgDataUrl_v3', 'print_bg_data_url'].forEach((k) => {
         try { localStorage.removeItem(k); } catch (e) {}
       });
     } catch (e) { /* ignore */ }

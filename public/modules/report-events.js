@@ -5,6 +5,7 @@
   const KEY = 'report_events_v1';
   const MAX = 2000;
   let _cache = [];
+  let _writeTimer = null;
 
   function _readLocal() {
     try {
@@ -24,6 +25,14 @@
     } catch (e) {
       return false;
     }
+  }
+
+  function _scheduleWriteLocal() {
+    if (_writeTimer) return;
+    _writeTimer = setTimeout(function () {
+      _writeTimer = null;
+      _writeLocal(_cache);
+    }, 900);
   }
 
   function refreshReportCache() {
@@ -54,9 +63,7 @@
             }
           });
           _cache = (merged || []).slice(0, MAX);
-          try {
-            _writeLocal(_cache);
-          } catch (e) {}
+          _scheduleWriteLocal();
         })
         .catch(() => {});
     } catch (e) {}
@@ -84,7 +91,6 @@
 
   function add(type, data) {
     try {
-      console.log(data);
       let saat = '';
       let kantar = '';
       let malzeme = '';
@@ -224,9 +230,7 @@
       };
       _cache.unshift(ev);
       if (_cache.length > MAX) _cache.length = MAX;
-      try {
-        _writeLocal(_cache);
-      } catch (e) {}
+      _scheduleWriteLocal();
       try {
         fetch('/api/reports', {
           method: 'POST',

@@ -4,7 +4,7 @@
   var VER =
     typeof window !== 'undefined' && window.__ASSET_VER != null && String(window.__ASSET_VER).trim() !== ''
       ? String(window.__ASSET_VER).trim()
-      : '1.0.1-20260718';
+      : '1.0.2-20260827-printfast';
 
   function qs() {
     return 'v=' + encodeURIComponent(VER);
@@ -68,40 +68,74 @@
   try {
     if (document.documentElement.classList.contains('logged-in')) {
       window.ensureXlsxLoaded().catch(function () {});
+      schedulePrintWarmup();
     }
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v5-live';
+  var PRINT_REV = 'print-v8-iframe';
+  var printWarmPromise = null;
+
+  function prefetchPrintAssets() {
+    try {
+      var origin = window.location.origin || '';
+      var bg = new Image();
+      bg.src = origin + '/api/print-form-bg';
+    } catch (e) {}
+    try {
+      if (window.PrintFormBg && typeof window.PrintFormBg.prefetchPrintBgImage === 'function') {
+        window.PrintFormBg.prefetchPrintBgImage();
+      }
+    } catch (e) {}
+    try {
+      if (!window.SignatureRegistry) return;
+      ['kantar', 'saha'].forEach(function (role) {
+        var names = window.SignatureRegistry.getNamesForRole(role) || [];
+        names.forEach(function (name) {
+          var src = window.SignatureRegistry.resolveSignatureSrc(role, name);
+          if (!src) return;
+          var abs = window.SignatureRegistry.toAbsoluteSignatureSrc
+            ? window.SignatureRegistry.toAbsoluteSignatureSrc(src)
+            : src;
+          var img = new Image();
+          img.src = abs;
+        });
+      });
+    } catch (e) {}
+  }
+
+  function loadScriptIfMissing(test, src) {
+    if (test()) return Promise.resolve();
+    return loadScript(src);
+  }
+
   window.ensurePrintLoaded = function () {
     var needPrint = !window.Print || typeof window.Print.yazdirForm !== 'function';
     var stalePrint = window.Print && window.Print.__aracBosRev !== PRINT_REV;
     if (!needPrint && !stalePrint) return Promise.resolve();
     if (stalePrint) {
       try {
-        document.querySelectorAll('script[src*="print.js"]').forEach(function (n) { n.remove(); });
+        document.querySelectorAll('script[src*="print.js"],script[src*="print-main.js"]').forEach(function (n) { n.remove(); });
       } catch (e) {}
       window.Print = null;
       printPromise = null;
     }
     if (printPromise) return printPromise;
-    printPromise = loadScript('/signatures-registry.js')
-      .then(function () { return loadScript('/print-form-bg-upload.js'); })
-      .then(function () { return loadScript('/print-layout-settings.js'); })
+    printPromise = loadScriptIfMissing(function () { return !!window.SignatureRegistry; }, '/signatures-registry.js')
+      .then(function () { return loadScriptIfMissing(function () { return !!window.PrintFormBgUpload; }, '/print-form-bg-upload.js'); })
+      .then(function () { return loadScriptIfMissing(function () { return !!window.PrintLayoutSettings; }, '/print-layout-settings.js'); })
       .then(function () {
         if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.ensureSyncedOnce === 'function') {
           return window.PrintLayoutSettings.ensureSyncedOnce().catch(function () {});
         }
       })
       .then(function () { return loadScript('/modules/print-main.js?rev=' + encodeURIComponent(PRINT_REV)); })
-      .then(function () { return loadScript('/modules/print-ux-fit.js'); })
+      .then(function () { return loadScriptIfMissing(function () { return !!window.__printUxFitLoaded; }, '/modules/print-ux-fit.js'); })
       .then(function () {
         if (window.Print) window.Print.__aracBosRev = PRINT_REV;
       })
       .then(function () {
-        if (window.PrintFormBg && typeof window.PrintFormBg.resolvePrintBgUrl === 'function') {
-          window.PrintFormBg.resolvePrintBgUrl().catch(function () {});
-        }
+        prefetchPrintAssets();
       })
       .catch(function (e) {
       printPromise = null;
@@ -109,6 +143,38 @@
     });
     return printPromise;
   };
+
+  window.warmupPrintPipeline = function () {
+    if (printWarmPromise) return printWarmPromise;
+    printWarmPromise = Promise.resolve()
+      .then(function () {
+        if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
+          return window.SignatureRegistry.loadSignatures().catch(function () {});
+        }
+      })
+      .then(function () { return window.ensurePrintLoaded(); })
+      .then(function () { prefetchPrintAssets(); })
+      .catch(function () {
+        printWarmPromise = null;
+      });
+    return printWarmPromise;
+  };
+
+  function schedulePrintWarmup() {
+    var run = function () {
+      try { window.warmupPrintPipeline(); } catch (e) {}
+    };
+    try {
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(run, { timeout: 1600 });
+      } else {
+        setTimeout(run, 250);
+      }
+    } catch (e) {
+      setTimeout(run, 250);
+    }
+  }
+  window.schedulePrintWarmup = schedulePrintWarmup;
 
   try {
     document.documentElement.classList.remove('allow-ui-motion');

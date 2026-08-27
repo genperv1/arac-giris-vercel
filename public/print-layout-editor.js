@@ -512,34 +512,13 @@
       }
 
       try {
-        const cached = localStorage.getItem('printBgDataUrl_v3');
-        if (cached && /^data:image\/(jpeg|jpg|png)/i.test(cached)) {
+        const src = (window.PrintFormBg && typeof window.PrintFormBg.resolvePrintBgSrcForWindow === 'function')
+          ? window.PrintFormBg.resolvePrintBgSrcForWindow()
+          : '/api/print-form-bg';
+        if (src) {
           bg.onerror = tryNextFallback;
-          bg.src = cached;
+          bg.src = src;
           return;
-        }
-      } catch (e) { /* ignore */ }
-
-      try {
-        if (window.PrintFormBg?.resolvePrintBgUrl) {
-          const url = await window.PrintFormBg.resolvePrintBgUrl();
-          if (url) {
-            bg.onerror = tryNextFallback;
-            bg.src = url;
-            return;
-          }
-        }
-      } catch (e) { /* ignore */ }
-
-      try {
-        const r = await fetch('/api/print-form-bg', { credentials: 'include', cache: 'no-cache' });
-        if (r.ok) {
-          const blob = await r.blob();
-          if (blob && blob.size > 500) {
-            bg.onerror = tryNextFallback;
-            bg.src = URL.createObjectURL(blob);
-            return;
-          }
         }
       } catch (e) { /* ignore */ }
 
@@ -547,7 +526,7 @@
     }
 
     async function loadSigImages() {
-      try { if (window.SignatureRegistry) await window.SignatureRegistry.loadSignatures(true); } catch (e) { /* ignore */ }
+      try { if (window.SignatureRegistry) await window.SignatureRegistry.loadSignatures(); } catch (e) { /* ignore */ }
       PLS.FIELD_DEFS.filter((d) => d.kind === 'sig').forEach((def) => {
         const img = boxes.get(def.key)?.querySelector('.ple-sig-img');
         if (!img) return;

@@ -1608,8 +1608,10 @@ let sonuc = {
                 state.vehicles = (state.vehicles || []).filter(v => String(v.id) !== String(vehicleData.id));
                 state.vehicles.unshift(vehicleData);
                 storage.save(`vehicle_${vehicleData.id}`, vehicleData);
-                try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
-                try { typeof updateVehicleList === 'function' && updateVehicleList(); } catch (_) {}
+                if (!window.__afterTakipPrintRequested) {
+                    try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
+                    try { typeof updateVehicleList === 'function' && updateVehicleList(); } catch (_) {}
+                }
             } catch (error) {
                 console.error('❌ Yazdırma öncesi araç kaydetme hatası:', error);
             }

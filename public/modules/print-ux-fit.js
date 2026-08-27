@@ -1,6 +1,8 @@
 // print-ux-fit.js — eşleştirme UX + yazdırma sığdırma
 // Otomatik bölüm — scripts/split-large-files.js
 
+try { window.__printUxFitLoaded = true; } catch (e) {}
+
 function setupEslestirmeUXInsideForm() {
   const firmaSelectEl   = document.getElementById('firmaSelect');
   const firmaInputEl    = document.getElementById('firmaKodu');
@@ -216,7 +218,10 @@ function fitToBoxDiv(el, minPx = 8, maxPx = 14, allowHeightOverflow = false) {
     window.Print.yazdirForm = function(opts){
       const ret = orig.call(window.Print, opts);
       try {
-        // Print penceresi DOM'u oluştuktan sonra sığdır
+        if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.useStrictPrintLayout === 'function'
+            && window.PrintLayoutSettings.useStrictPrintLayout()) {
+          return ret;
+        }
         setTimeout(() => {
           try { fitToBoxDiv(document.getElementById('printAmbalaj'), 10, 22, true); } catch(e) {}
           try { fitToBoxDiv(document.getElementById('printSevkYeri'), 10, 22, true); } catch(e) {}
@@ -239,5 +244,6 @@ function fitToBoxDiv(el, minPx = 8, maxPx = 14, allowHeightOverflow = false) {
       return ret;
     };
   } catch(e) {}
+  try { window.__printUxFitLoaded = true; } catch (e) {}
 })();
 

@@ -838,8 +838,7 @@ async function persistPrintHistoryAndPiyasaCikanlar(printEv, pending, commitTs) 
         const j = await phRes.json();
         phId = String((j && j.id) || '').trim();
       } catch (e) { phId = ''; }
-      try { if (typeof window.refreshReportCache === 'function') window.refreshReportCache(); } catch (e) {}
-      try { if (typeof window._ihracatOnReportsChanged === 'function') window._ihracatOnReportsChanged(); } catch (e) {}
+      try { if (typeof window._ihracatPatchLocalPrintReport === 'function') window._ihracatPatchLocalPrintReport(printEv, commitTs, phId); } catch (e) {}
     }
   } catch (e) {
     console.warn('Print history save failed:', e);
@@ -1390,7 +1389,7 @@ function fillTakipFormFromExcelRow(chosen) {
   set('malzeme', chosen.malzeme);
   set('malzemeSelect', chosen.malzeme);
 
-  let sevk = String(chosen.sevkYeri || '').trim();
+  let sevk = String(chosen.sevkYeri || chosen.port || '').trim();
   if (!sevk && typeof extractPrimaryPortFromShipment === 'function') {
     sevk = extractPrimaryPortFromShipment(chosen) || '';
   }
@@ -1404,6 +1403,7 @@ function fillTakipFormFromExcelRow(chosen) {
     amb = extractPrimaryAmbalajFromHeader(String(chosen.blockMeta?.mainHeader || chosen.headerText || '')) || '';
   }
   set('ambalajBilgisi', amb);
+  set('seperatorBilgisi', chosen.seperatorBilgisi);
 
   const tonaj = (chosen.tonajKg != null && String(chosen.tonajKg).trim() !== '')
     ? String(chosen.tonajKg).trim()
@@ -3249,6 +3249,104 @@ function _escIhrPick(s) {
     .replace(/"/g, '&quot;');
 }
 
+function _ihracatPickNonEmpty(obj, keys) {
+  const src = obj && typeof obj === 'object' ? obj : {};
+  for (let i = 0; i < keys.length; i++) {
+    const v = src[keys[i]];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+}
+
+/** Yazdırma raporundaki sevkiyat alanları (eski yazdırma → Seç) */
+function ihracatPickFieldsFromReportData(d) {
+  const sevk = _ihracatPickNonEmpty(d, ['sevkYeri', 'sevk_yeri', 'port']);
+  const amb = _ihracatPickNonEmpty(d, ['ambalajBilgisi', 'ambalaj']);
+  const sep = _ihracatPickNonEmpty(d, ['seperatorBilgisi', 'seperator']);
+  const note = _ihracatPickNonEmpty(d, ['yuklemeNotu', 'baskiNotu', 'not']);
+  return {
+    sevkYeri: sevk,
+    port: sevk,
+    ambalaj: amb,
+    ambalajBilgisi: amb,
+    seperatorBilgisi: sep,
+    yuklemeNotu: note,
+    tonaj: _ihracatPickNonEmpty(d, ['tonaj']),
+    headerText: _ihracatPickNonEmpty(d, ['headerText']),
+    fileName: _ihracatPickNonEmpty(d, ['excelFileName', 'fileName']),
+  };
+}
+
+function mergeIhracatPickReportItem(existing, extra) {
+  if (!existing) return extra;
+  const out = Object.assign({}, existing);
+  [
+    'sevkYeri', 'port', 'ambalaj', 'ambalajBilgisi', 'seperatorBilgisi',
+    'yuklemeNotu', 'tonaj', 'malzeme', 'malzemeLabel', 'lotLabel',
+    'headerText', 'fileName',
+  ].forEach((k) => {
+    if (!String(out[k] || '').trim() && String((extra && extra[k]) || '').trim()) {
+      out[k] = extra[k];
+    }
+  });
+  if (!out._reportData && extra && extra._reportData) out._reportData = extra._reportData;
+  return out;
+}
+
+function ihracatChosenFromPickItem(item) {
+  if (!item) return null;
+  const fromReport = item._fromReport
+    ? ihracatPickFieldsFromReportData(item._reportData || item)
+    : {};
+  const sevk = String(item.sevkYeri || item.port || fromReport.sevkYeri || '').trim();
+  const amb = String(item.ambalaj || item.ambalajBilgisi || fromReport.ambalaj || '').trim();
+  const note = String(item.yuklemeNotu || fromReport.yuklemeNotu || item.lotLabel || '').trim();
+  const headerText = String(item.headerText || fromReport.headerText || '').trim();
+  return {
+    firma: item.ydKey || item.firma || '',
+    ydKey: item.ydKey || '',
+    headerText,
+    malzeme: item.malzemeLabel || item.malzeme || '',
+    lotLabel: item.lotLabel || '',
+    fileName: item.fileName || fromReport.fileName || '',
+    blockKey: item.blockKey || '',
+    blockMeta: item.blockMeta || null,
+    sevkYeri: sevk,
+    port: sevk,
+    ambalaj: amb,
+    ambalajBilgisi: amb,
+    seperatorBilgisi: String(item.seperatorBilgisi || fromReport.seperatorBilgisi || '').trim(),
+    yuklemeNotu: note,
+    tonaj: String(item.tonaj || fromReport.tonaj || '').trim(),
+    bbt: '',
+    _fromReport: !!item._fromReport,
+  };
+}
+
+function _fillTakipGapsFromEslestirme() {
+  try {
+    const firma = String(document.getElementById('firmaKodu')?.value || '').trim();
+    if (!firma || typeof eslestirmeStorage === 'undefined' || typeof eslestirmeStorage.getByFirma !== 'function') {
+      return;
+    }
+    const matches = eslestirmeStorage.getByFirma(firma) || [];
+    if (!matches.length) return;
+    const malzeme = String(document.getElementById('malzeme')?.value || '').trim();
+    const hit = matches.find((e) => String(e.malzeme || '').trim() === malzeme)
+      || (matches.length === 1 ? matches[0] : null);
+    if (!hit) return;
+    const setIfEmpty = (id, val) => {
+      const el = document.getElementById(id);
+      if (!el || String(el.value || '').trim()) return;
+      const v = String(val || '').trim();
+      if (v) el.value = v;
+    };
+    setIfEmpty('sevkYeri', hit.sevkYeri);
+    setIfEmpty('ambalajBilgisi', hit.ambalajBilgisi);
+    setIfEmpty('yuklemeNotu', hit.yuklemeNotu);
+  } catch (e) { /* ignore */ }
+}
+
 function _istanbulDayKeyLocal(ts) {
   try {
     return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
@@ -3325,25 +3423,37 @@ async function listTodayIhracatReportBlocks() {
       : '';
     const mal = String(d.malzeme || r.malzeme || '').trim();
     const key = yd + '|' + String(lot || '').replace(/\s+/g, '').toUpperCase();
+    const fields = ihracatPickFieldsFromReportData(d);
+    const todayTr = (() => {
+      try {
+        return new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+      } catch (e) {
+        return '';
+      }
+    })();
+    const next = {
+      ydKey: yd,
+      lotLabel: lot,
+      malzemeLabel: mal,
+      malzeme: mal,
+      headerText: fields.headerText || [yd, lot, mal].filter(Boolean).join(' / '),
+      fileName: fields.fileName || String(d.excelFileName || '').trim(),
+      sourceDateLabel: todayTr,
+      planBbt: 0,
+      sevkYeri: fields.sevkYeri,
+      port: fields.port,
+      ambalaj: fields.ambalaj,
+      ambalajBilgisi: fields.ambalajBilgisi,
+      seperatorBilgisi: fields.seperatorBilgisi,
+      yuklemeNotu: fields.yuklemeNotu,
+      tonaj: fields.tonaj,
+      _fromReport: true,
+      _reportData: d,
+    };
     if (!map.has(key)) {
-      const todayTr = (() => {
-        try {
-          return new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
-        } catch (e) {
-          return '';
-        }
-      })();
-      map.set(key, {
-        ydKey: yd,
-        lotLabel: lot,
-        malzemeLabel: mal,
-        malzeme: mal,
-        headerText: [yd, lot, mal].filter(Boolean).join(' / '),
-        fileName: String(d.excelFileName || '').trim(),
-        sourceDateLabel: todayTr,
-        planBbt: 0,
-        _fromReport: true,
-      });
+      map.set(key, next);
+    } else {
+      map.set(key, mergeIhracatPickReportItem(map.get(key), next));
     }
   });
   return Array.from(map.values());
@@ -3366,18 +3476,13 @@ async function collectIhracatPickRows() {
 
 function applyIhracatExcelBlockPick(item) {
   if (!item) return false;
-  const chosen = {
-    firma: item.ydKey || '',
-    ydKey: item.ydKey || '',
-    headerText: item.headerText || '',
-    malzeme: item.malzemeLabel || item.malzeme || '',
-    lotLabel: item.lotLabel || '',
-    fileName: item.fileName || '',
-    blockKey: item.blockKey || '',
-    sevkYeri: item.yuklemeYeri || item.sevkYeri || '',
-    yuklemeNotu: item.lotLabel || '',
-    bbt: '',
-  };
+  let chosen = ihracatChosenFromPickItem(item);
+  if (!chosen) return false;
+  try {
+    if (typeof applyFirmaOverridesToShipment === 'function') {
+      chosen = applyFirmaOverridesToShipment(chosen) || chosen;
+    }
+  } catch (e) {}
   try {
     window.__ihracatActivePrintShipment = chosen;
     window.__activeExcelShipment = chosen;
@@ -3385,6 +3490,7 @@ function applyIhracatExcelBlockPick(item) {
     window.__skipIhracatExcelPick = false;
   } catch (e) {}
   fillTakipFormFromExcelRow(chosen);
+  _fillTakipGapsFromEslestirme();
   const bbtEl = document.getElementById('bbt');
   if (bbtEl) bbtEl.value = '';
   const ask = document.getElementById('ihrPickBbtInput');
@@ -3433,6 +3539,11 @@ function _setIhracatPickHint(text, isErr) {
 function renderIhracatPickPanelSync(rows) {
   const panel = document.getElementById('ihracatPickPanel');
   if (!panel) return;
+  const keepBbt = String(
+    document.getElementById('ihrPickBbtInput')?.value
+    || document.getElementById('bbt')?.value
+    || ''
+  ).trim();
   document.getElementById('ihracatBlockPickerOverlay')?.remove();
   if (window.__skipIhracatExcelPick) {
     panel.classList.add('hidden');
@@ -3488,9 +3599,14 @@ function renderIhracatPickPanelSync(rows) {
   });
   const ask = document.getElementById('ihrPickBbtInput');
   if (ask) {
-    const current = String(document.getElementById('bbt')?.value || '').trim();
-    if (current) ask.value = current;
+    const current = keepBbt || String(document.getElementById('bbt')?.value || '').trim();
+    if (current) {
+      ask.value = current;
+      _syncIhracatPickBbt(current);
+    }
     ask.addEventListener('input', () => _syncIhracatPickBbt(ask.value));
+    ask.addEventListener('change', () => _syncIhracatPickBbt(ask.value));
+    ask.addEventListener('blur', () => _syncIhracatPickBbt(ask.value));
   }
 }
 
@@ -3521,16 +3637,39 @@ async function ensureIhracatExcelPickBeforePrint() {
     const firma = String(document.getElementById('firmaKodu')?.value || '').trim();
     if (_firmaLooksPiyasaNotYd(firma)) return true;
     if (window.__takipJobKind !== 'ihracat' && !/\bYD\d{1,4}/i.test(firma)) return true;
-    const rows = await renderIhracatPickPanel();
-    if (!rows.length) return true;
+
+    const liveBbt = String(
+      document.getElementById('ihrPickBbtInput')?.value
+      || document.getElementById('bbt')?.value
+      || ''
+    ).trim();
+    if (liveBbt) _syncIhracatPickBbt(liveBbt);
+
     const picked = window.__ihracatActivePrintShipment || window.__activeExcelShipment;
+    const pickedOk = !!(picked && String(picked.ydKey || picked.firma || '').trim());
+    const bbt = _ihracatPickBbtValue();
+    if (pickedOk && bbt > 0) {
+      _syncIhracatPickBbt(String(bbt));
+      return true;
+    }
+
     const panel = document.getElementById('ihracatPickPanel');
-    if (!picked || !String(picked.ydKey || picked.firma || '').trim()) {
+    const hasRowsOnScreen = !!(panel && panel.querySelector('.ihr-pick-row'));
+    let rows = Array.isArray(window.__ihracatPickRows) ? window.__ihracatPickRows : null;
+    if (!hasRowsOnScreen) {
+      if (rows && rows.length) {
+        renderIhracatPickPanelSync(rows);
+      } else {
+        rows = await renderIhracatPickPanel();
+      }
+    }
+    if (!(rows && rows.length) && !hasRowsOnScreen) return true;
+
+    if (!pickedOk) {
       _setIhracatPickHint('Önce listedeki sevkiyattan Seç deyin.', true);
       try { panel && panel.scrollIntoView({ block: 'nearest' }); } catch (e) {}
       return false;
     }
-    const bbt = _ihracatPickBbtValue();
     if (!(bbt > 0)) {
       _setIhracatPickHint('BBT sayısı yazın. Rapora bu sayı gider.', true);
       const ask = document.getElementById('ihrPickBbtInput') || document.getElementById('bbt');
@@ -3560,6 +3699,11 @@ window.renderIhracatPickPanel = renderIhracatPickPanel;
 window.ensureIhracatExcelPickBeforePrint = ensureIhracatExcelPickBeforePrint;
 window.maybeOfferIhracatExcelPickOnOpen = maybeOfferIhracatExcelPickOnOpen;
 window.applyIhracatExcelBlockPick = applyIhracatExcelBlockPick;
+window.ihracatPickFieldsFromReportData = ihracatPickFieldsFromReportData;
+window.ihracatChosenFromPickItem = ihracatChosenFromPickItem;
+window.mergeIhracatPickReportItem = mergeIhracatPickReportItem;
+window._syncIhracatPickBbt = _syncIhracatPickBbt;
+window._ihracatPickBbtValue = _ihracatPickBbtValue;
 window.commitIhracatImport = commitIhracatImport;
 window.applyReprintSnapshotToTakipForm = applyReprintSnapshotToTakipForm;
 window.mergeReprintPreferFilled = mergeReprintPreferFilled;

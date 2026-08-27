@@ -371,6 +371,7 @@
     getMatchingNotes,
     buildPrintContext,
     invalidateCache,
-    noteMatches
+    noteMatches,
+    prefetch: fetchActiveNotes
   };
 })();

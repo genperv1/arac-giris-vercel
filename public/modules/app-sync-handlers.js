@@ -14,7 +14,14 @@
       refreshVehicleList();
     });
 
-    window.SyncManager.on('vehicle_updated', () => {
+    window.SyncManager.on('vehicle_updated', (data) => {
+      const patched = applyVehicleFromEvent(data);
+      if (window.__afterTakipPrintRequested) return;
+      if (patched) {
+        try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (_) {}
+        try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
+        return;
+      }
       refreshVehicleList();
       try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
     });
@@ -67,6 +74,25 @@
         }
       } catch (e) {}
     });
+  }
+
+  function applyVehicleFromEvent(data) {
+    const vehicle = data && (data.vehicle || (data.id && data.cekiciPlaka ? data : null));
+    const id = String((data && data.id) || (vehicle && vehicle.id) || '').trim();
+    if (!id || !vehicle || typeof vehicle !== 'object') return false;
+    try {
+      if (window.storage && typeof window.storage.save === 'function') {
+        window.storage.save('vehicle_' + id, vehicle);
+      }
+    } catch (e) {}
+    try {
+      if (typeof state !== 'undefined' && Array.isArray(state.vehicles)) {
+        const idx = state.vehicles.findIndex((v) => String(v.id) === id);
+        if (idx >= 0) state.vehicles[idx] = vehicle;
+        else state.vehicles = [vehicle].concat(state.vehicles);
+      }
+    } catch (e) {}
+    return true;
   }
 
   function refreshVehicleList() {

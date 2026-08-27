@@ -415,8 +415,18 @@ function setupTakipFormButtons() {
             // Prevent multiple rapid clicks
             if (yazdirBtn.__printing) return;
             yazdirBtn.__printing = true;
+            let startedPrint = false;
 
             try {
+            try {
+                const pickBbt = String(document.getElementById('ihrPickBbtInput')?.value || '').trim();
+                const formBbt = document.getElementById('bbt');
+                if (pickBbt && formBbt && !String(formBbt.value || '').trim()) formBbt.value = pickBbt;
+                if (typeof window._syncIhracatPickBbt === 'function') {
+                    window._syncIhracatPickBbt(pickBbt || (formBbt && formBbt.value) || '');
+                }
+            } catch (e) {}
+
             // ✅ Oturum kontrolü
             if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                 const isValidSession = await window.SessionManager.requireValidSession();
@@ -567,16 +577,19 @@ function setupTakipFormButtons() {
                     : null),
             };
 
-            // Plaka + şoför: yazdırmayı bekletme (ağ yavaşsa pencere hiç açılmıyordu)
-            if (plateFromForm) {
-                Promise.resolve(saveCurrentVehicleToDatabase(plateFromForm)).catch((e) => {
-                    console.warn('Yazdırma sırasında araç kaydı atlandı:', e);
-                });
-            }
-
             window.__afterTakipPrintRequested = true;
             try { upsertEslestirmeFromTakipForm(); } catch(e){}
 
+            const schedulePrintPathVehicleSave = function () {
+                const savePlate = function () {
+                    Promise.resolve(saveCurrentVehicleToDatabase(plateFromForm)).catch((e) => {
+                        console.warn('Yazdırma sırasında araç kaydı atlandı:', e);
+                    });
+                };
+                setTimeout(savePlate, 700);
+            };
+
+            // Yazdırma penceresi açılsın; araç kaydı o sırada sekmeyi kilitlemesin
             const runYazdir = () => {
             let w = null;
             let printErr = null;
@@ -589,9 +602,11 @@ function setupTakipFormButtons() {
             Promise.resolve(openPrint()).then((win) => {
                 w = win;
                 handlePrintWindow(w, printErr);
+                if (plateFromForm) schedulePrintPathVehicleSave();
             }).catch((err) => {
                 printErr = err;
                 handlePrintWindow(null, printErr);
+                if (plateFromForm) schedulePrintPathVehicleSave();
             });
             return;
 
@@ -602,35 +617,30 @@ function setupTakipFormButtons() {
             if (!w) {
                 const msg = err && err.message === 'print-not-loaded'
                   ? 'Yazdırma bileşeni hazır değil. Sayfayı yenileyip tekrar deneyin.'
-                  : 'Yazdırma penceresi açılamadı. Tarayıcıda açılır pencere (popup) iznini kontrol edin veya sayfayı yenileyin.';
+                  : 'Yazdırma başlatılamadı. Sayfayı yenileyip tekrar deneyin.';
                 alert('❌ ' + msg);
                 window.__afterTakipPrintRequested = false;
                 return;
             }
 
-            // ✅ Fallback: bazı tarayıcılarda opener.afterTakipPrint gelmeyebilir.
-            try {
-                if (w && typeof w.closed !== 'undefined') {
-                    const t = setInterval(() => {
-                        if (!window.__afterTakipPrintRequested) { clearInterval(t); return; }
-                        if (w.closed) {
-                            clearInterval(t);
-                            try { window.afterTakipPrint && window.afterTakipPrint(); } catch(e){}
-                        }
-                    }, 400);
-                }
-            } catch(e) {}
+            // Iframe yazdırmada sekme kapanmaz; onay onafterprint ile gelir.
+            if (w && w.__takipPrintFrame) return;
             }
             };
-            const sigLoad = (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function')
-              ? window.SignatureRegistry.loadSignatures(true)
-              : Promise.resolve();
-            Promise.resolve(sigLoad)
-              .then(() => (typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null))
-              .then(runYazdir)
-              .catch(function(){ alert('Yazdırma bileşeni yüklenemedi. Sayfayı yenileyip tekrar deneyin.'); });
+            if (window.Print && typeof window.Print.yazdirForm === 'function') {
+              startedPrint = true;
+              runYazdir();
+            } else {
+              startedPrint = true;
+              Promise.resolve(typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null)
+                .then(runYazdir)
+                .catch(function(){ alert('Yazdırma bileşeni yüklenemedi. Sayfayı yenileyip tekrar deneyin.'); });
+            }
+            } catch (printClickErr) {
+                console.warn('Yazdırma hatası:', printClickErr);
+                try { alert('Yazdırma başlatılamadı. Sayfayı yenileyip tekrar deneyin.'); } catch (e) {}
             } finally {
-                setTimeout(() => { yazdirBtn.__printing = false; }, 800);
+                setTimeout(() => { yazdirBtn.__printing = false; }, startedPrint ? 800 : 0);
             }
         });
     }
@@ -674,16 +684,18 @@ function setupTakipFormButtons() {
 
             try { saveSoforHistoryFromTakipForm(); } catch(e) {}
             try { upsertEslestirmeFromTakipForm(); } catch(e){}
-            Promise.resolve(
-              (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function')
-                ? window.SignatureRegistry.loadSignatures(true)
-                : null
-            )
-              .then(() => (typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null))
-              .then(function(){
+            const runPreview = function(){
                 try { window.Print?.yazdirForm({ preview: true }); } catch(e){}
-              })
+              };
+            if (window.Print && typeof window.Print.yazdirForm === 'function') {
+              runPreview();
+            } else {
+            Promise.resolve(
+              (typeof window.ensurePrintLoaded === 'function' ? window.ensurePrintLoaded() : null)
+            )
+              .then(runPreview)
               .catch(function(){ alert('Önizleme bileşeni yüklenemedi.'); });
+            }
         });
     }
 

@@ -38,54 +38,53 @@
   function toPrintBgSrc(url) {
     const s = String(url || '').trim();
     if (!s) return PRINT_BG_LEGACY;
-    if (/^data:/i.test(s) || /^https?:\/\//i.test(s)) return s;
+    if (/^https?:\/\//i.test(s)) return s;
     const origin = getPrintOrigin();
     if (!origin) return PRINT_BG_LEGACY;
     if (s.startsWith('/')) return origin + s;
     return origin + '/' + s;
   }
 
-  function isRealImageDataUrl(url) {
-    return /^data:image\/(jpeg|jpg|png)/i.test(String(url || ''));
+  function isHttpPrintBgUrl(url) {
+    const s = String(url || '').trim();
+    return /^https?:\/\//i.test(s) || s.startsWith('/');
+  }
+
+  /** Yazdırma penceresi için HTTP veya hazır blob URL. */
+  function resolvePrintBgSrcForWindow() {
+    try {
+      if (window.__printBgBlobUrl) return window.__printBgBlobUrl;
+    } catch (_) {}
+    try {
+      const custom = String(localStorage.getItem('printBgUrl') || '').trim();
+      if (custom && isHttpPrintBgUrl(custom) && !/^data:/i.test(custom)) return toPrintBgSrc(custom);
+    } catch (_) {}
+    const origin = getPrintOrigin();
+    return origin ? origin + PRINT_BG_API : PRINT_BG_API;
+  }
+
+  function prefetchPrintBgImage() {
+    try {
+      if (window.__printBgBlobUrl) return;
+      const origin = getPrintOrigin();
+      const httpSrc = origin ? origin + PRINT_BG_API : PRINT_BG_API;
+      const img = new Image();
+      img.src = httpSrc;
+      fetch(httpSrc, { credentials: 'same-origin', cache: 'force-cache' })
+        .then(function (r) { return r.ok ? r.blob() : null; })
+        .then(function (blob) {
+          if (!blob || blob.size < 500) return;
+          try {
+            if (window.__printBgBlobUrl) URL.revokeObjectURL(window.__printBgBlobUrl);
+          } catch (_) {}
+          window.__printBgBlobUrl = URL.createObjectURL(blob);
+        })
+        .catch(function () {});
+    } catch (_) {}
   }
 
   async function resolvePrintBgUrl() {
-    try {
-      const custom = String(localStorage.getItem('printBgUrl') || '').trim();
-      if (custom) return toPrintBgSrc(custom);
-    } catch (_) {}
-
-    try {
-      const cached = localStorage.getItem(PRINT_BG_CACHE_KEY);
-      if (cached && isRealImageDataUrl(cached)) return cached;
-    } catch (_) {}
-
-    const origin = getPrintOrigin();
-    const sources = [
-      origin ? origin + PRINT_BG_API : '',
-      origin ? origin + PRINT_BG_ASSET : '',
-      origin ? origin + PRINT_BG_ASSET_JPG : '',
-      PRINT_BG_LEGACY,
-    ].filter(Boolean);
-
-    for (const src of sources) {
-      try {
-        const r = await fetch(src, { credentials: 'same-origin', cache: 'force-cache' });
-        if (!r.ok) continue;
-        const ct = String(r.headers.get('content-type') || '').toLowerCase();
-        if (ct.includes('xml') || ct.includes('html') || ct.includes('json') || ct.includes('svg')) continue;
-        const blob = await r.blob();
-        if (!blob || blob.size < 500) continue;
-        const dataUrl = await blobToDataUrl(blob);
-        if (!isRealImageDataUrl(dataUrl)) continue;
-        try { localStorage.setItem(PRINT_BG_CACHE_KEY, dataUrl); } catch (_) {}
-        if (src === PRINT_BG_LEGACY) syncPrintFormBgToServer(dataUrl);
-        return dataUrl;
-      } catch (_) {}
-    }
-
-    // Orijinal JPG yoksa harici link — SVG/builtin asla kullanılmaz
-    return origin ? origin + PRINT_BG_API : PRINT_BG_LEGACY;
+    return resolvePrintBgSrcForWindow();
   }
 
   function loadImageAsDataUrl(url) {
@@ -112,71 +111,56 @@
     });
   }
 
+  function isRealImageDataUrl(url) {
+    return /^data:image\/(jpeg|jpg|png)/i.test(String(url || ''));
+  }
+
   async function ensurePrintBgDataUrl() {
-    try {
-      const cached = localStorage.getItem(PRINT_BG_CACHE_KEY);
-      if (cached && isRealImageDataUrl(cached)) return cached;
-      if (cached && !isRealImageDataUrl(cached)) {
-        try { localStorage.removeItem(PRINT_BG_CACHE_KEY); } catch (_) {}
-      }
-    } catch (_) {}
+    return resolvePrintBgSrcForWindow();
+  }
 
-    let url = await resolvePrintBgUrl();
-    if (isRealImageDataUrl(url)) return url;
-
-    const origin = getPrintOrigin();
-    const candidates = [
-      toPrintBgSrc(url),
-      origin ? origin + PRINT_BG_API : '',
-      origin ? origin + PRINT_BG_ASSET : '',
-      origin ? origin + PRINT_BG_ASSET_JPG : '',
-      PRINT_BG_LEGACY,
-    ].filter(Boolean);
-
-    const seen = new Set();
-    for (const src of candidates) {
-      if (seen.has(src)) continue;
-      seen.add(src);
-      try {
-        const sameOrigin = !!(origin && src.startsWith(origin));
-        const r = await fetch(src, {
-          credentials: sameOrigin ? 'same-origin' : 'omit',
-          mode: sameOrigin ? 'same-origin' : 'cors',
-          cache: 'no-cache',
+  function getTakipPrintFrame(visible) {
+    let frame = document.getElementById('takipPrintFrame');
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.id = 'takipPrintFrame';
+      frame.title = 'Yazdırma';
+      document.body.appendChild(frame);
+    }
+    let bar = document.getElementById('takipPrintFrameBar');
+    if (visible) {
+      frame.style.cssText = 'position:fixed;left:16px;right:16px;top:56px;bottom:16px;z-index:2147483000;width:auto;height:auto;border:1px solid #94a3b8;border-radius:8px;background:#fff;';
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'takipPrintFrameBar';
+        bar.style.cssText = 'position:fixed;left:16px;right:16px;top:12px;z-index:2147483001;display:flex;justify-content:flex-end;gap:8px;';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Kapat';
+        btn.style.cssText = 'border:0;background:#1e293b;color:#fff;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;';
+        btn.addEventListener('click', function () {
+          frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:148mm;border:0;';
+          bar.style.display = 'none';
+          frame.setAttribute('aria-hidden', 'true');
         });
-        if (!r.ok) continue;
-        const ct = String(r.headers.get('content-type') || '').toLowerCase();
-        if (ct.includes('json') || ct.includes('html') || ct.includes('xml') || ct.includes('svg')) continue;
-        const blob = await r.blob();
-        if (!blob || blob.size < 500) continue;
-        const dataUrl = await blobToDataUrl(blob);
-        if (!isRealImageDataUrl(dataUrl)) continue;
-        try { localStorage.setItem(PRINT_BG_CACHE_KEY, dataUrl); } catch (_) {}
-        syncPrintFormBgToServer(dataUrl);
-        return dataUrl;
-      } catch (_) {}
-    }
-
-    try {
-      const dataUrl = await loadImageAsDataUrl(PRINT_BG_LEGACY);
-      if (isRealImageDataUrl(dataUrl)) {
-        try { localStorage.setItem(PRINT_BG_CACHE_KEY, dataUrl); } catch (_) {}
-        syncPrintFormBgToServer(dataUrl);
-        return dataUrl;
+        bar.appendChild(btn);
+        document.body.appendChild(bar);
       }
-    } catch (_) {}
-
-    if (window.PrintFormBgUpload && typeof window.PrintFormBgUpload.pickAndUpload === 'function') {
-      const picked = await window.PrintFormBgUpload.pickAndUpload({ silent: false });
-      if (picked && isRealImageDataUrl(picked)) return picked;
+      bar.style.display = 'flex';
+      frame.setAttribute('aria-hidden', 'false');
+    } else {
+      if (bar) bar.style.display = 'none';
+      frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:148mm;border:0;';
+      frame.setAttribute('aria-hidden', 'true');
     }
-
-    return null;
+    return frame;
   }
 
   window.PrintFormBg = {
     resolvePrintBgUrl,
+    resolvePrintBgSrcForWindow,
     ensurePrintBgDataUrl,
+    prefetchPrintBgImage,
     toPrintBgSrc,
     syncPrintFormBgToServer,
     cacheKey: PRINT_BG_CACHE_KEY,
@@ -1910,12 +1894,12 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     };
     if (opts.layoutSnapshot && window.PrintLayoutSettings?.setPreviewSnapshot) {
       window.PrintLayoutSettings.setPreviewSnapshot(opts.layoutSnapshot);
-    } else if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.ensureSynced === 'function') {
-      // Ayarlar'da kaydedilen düzen ile sistem yazdırması aynı olsun
-      try { await window.PrintLayoutSettings.ensureSynced(); } catch (e) { /* ignore */ }
-      // Canlı önizleme ile aynı motor: güncel düzeni snapshot olarak kilitle
+    } else if (window.PrintLayoutSettings) {
+      const PLS = window.PrintLayoutSettings;
+      if (typeof PLS.ensureSyncedOnce === 'function') {
+        try { PLS.ensureSyncedOnce().catch(function () {}); } catch (e) { /* ignore */ }
+      }
       try {
-        const PLS = window.PrintLayoutSettings;
         if (PLS.setPreviewSnapshot && PLS.getAllFieldRects && PLS.FIELD_DEFS) {
           const fields = PLS.getAllFieldRects();
           const fieldStyles = {};
@@ -1935,7 +1919,7 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
 
     try {
     if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
-      try { await window.SignatureRegistry.loadSignatures(); } catch (e) { /* ignore */ }
+      try { window.SignatureRegistry.loadSignatures().catch(function () {}); } catch (e) { /* ignore */ }
     }
 
     const isDemo = !!opts.demo;
@@ -1958,14 +1942,8 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     // ✅ localStorage'dan seçili sayfa boyutunu oku
     const pageSize = localStorage.getItem('selectedPageSize') || 'A5';
     
-    // ✅ Yazdırma şablonu — mutlaka data URL (about:blank penceresinde güvenilir)
-    const bgDataUrl = await ensurePrintBgDataUrl();
-    if (!bgDataUrl) {
-      alert('Takip formu arka plan görseli yüklenemedi. Ayarlar → Yazdırma bölümünden şablon JPG yükleyin veya sunucuyu yeniden başlatın.');
-      clearLayoutSnapshot();
-      return null;
-    }
-    const bgUrl = bgDataUrl;
+    const bgUrl = resolvePrintBgSrcForWindow();
+    prefetchPrintBgImage();
 
     const firmaKodu = readFormValue('firmaKodu');
     const malzeme = readFormValue('malzeme');
@@ -2968,14 +2946,15 @@ ${layoutPrintCss}
 
 
     
-    const shellPath = '/print-shell.html';
-    const shellUrl = (getPrintOrigin() || '') + shellPath;
-    const w = window.open(shellUrl, '_blank');
+    const isPreview = !!opts.preview;
+    const frame = getTakipPrintFrame(isPreview);
+    const w = frame && frame.contentWindow;
     if (!w || !w.document) {
-      alert("❌ Yazdırma penceresi açılamadı (popup engeli veya tarayıcı kısıtı). Site için açılır pencere izni verip tekrar deneyin.");
+      alert("❌ Yazdırma hazır değil. Sayfayı yenileyip tekrar deneyin.");
       clearLayoutSnapshot();
       return null;
     }
+    try { w.__takipPrintFrame = true; } catch (e) {}
     w.document.open();
     w.document.write(printHTML);
     w.document.close();
@@ -2983,8 +2962,7 @@ ${layoutPrintCss}
     // ✅ pageSize'ı window objesine attach et (onload'da kullanmak için)
     w.__pageSize = pageSize;
 
-    // ✅ Önizleme modunda: sadece sekmeyi aç, otomatik yazdırma yapma
-    const isPreview = !!opts.preview;
+    // ✅ Önizleme: aynı iframe görünür; yazdırma: gizli iframe → sistem yazıcı diyaloğu
 
     // WYSIWYG: önizleme ile yazdır aynı görünüm — ekstra ölçek/margin YOK
     const applyPrintSafeScale = () => {
@@ -3009,24 +2987,23 @@ ${layoutPrintCss}
       if (isPreview) return;
       try {
         applyPrintSafeScale();
-        w.focus();
-        w.print();
+        try { w.focus(); } catch (e) {}
         w.onafterprint = () => {
           try {
-            const parent = w.opener;
-            if (parent && typeof parent.afterTakipPrint === 'function') {
-              parent.afterTakipPrint();
-            }
+            if (typeof window.afterTakipPrint === 'function') window.afterTakipPrint();
           } catch (e) {}
-          try { w.close(); } catch (e) {}
         };
+        w.print();
       } catch (e) {
-        // fallback: yine de kapatma
-        try { w.close(); } catch (_) {}
+        try {
+          if (typeof window.afterTakipPrint === 'function') window.afterTakipPrint();
+        } catch (e2) {}
       }
     };
 
-    w.onload = () => {
+    const onPrintWindowReady = () => {
+      if (w.__printReadyRan) return;
+      w.__printReadyRan = true;
       const useLayoutRenderer = !!w.document.querySelector('.plf-page');
       if (useLayoutRenderer) {
         const finishPreview = () => {
@@ -3039,29 +3016,29 @@ ${layoutPrintCss}
             }
           } catch (e) { /* ignore */ }
           if (!isPreview) {
-            try {
-              w.focus();
-              w.print();
-            } catch (e) { /* ignore */ }
+            doPrint();
           } else {
             try { w.focus(); } catch (e) { /* ignore */ }
           }
         };
         const waitForImages = (done) => {
+          let finished = false;
+          const finish = () => { if (finished) return; finished = true; done(); };
           const pending = [];
           const bg = w.document.querySelector('.plf-bg');
           if (bg && !bg.complete) pending.push(bg);
-          w.document.querySelectorAll('.plf-body--sig img').forEach((img) => {
-            if (!img.complete) pending.push(img);
+          w.document.querySelectorAll('.plf-body--sig img, .imza-img').forEach((img) => {
+            if (img && !img.complete) pending.push(img);
           });
-          if (!pending.length) { done(); return; }
+          if (!pending.length) { finish(); return; }
           let left = pending.length;
-          const tick = () => { if (--left <= 0) done(); };
+          const tick = () => { if (--left <= 0) finish(); };
           pending.forEach((img) => {
             img.addEventListener('load', tick, { once: true });
             img.addEventListener('error', tick, { once: true });
+            if (img.complete) tick();
           });
-          setTimeout(done, 2500);
+          setTimeout(finish, 280);
         };
         waitForImages(finishPreview);
         return;
@@ -3251,24 +3228,29 @@ ${layoutPrintCss}
       };
 
       const waitForImages = (done) => {
+        let finished = false;
+        const finish = () => { if (finished) return; finished = true; done(); };
         const pending = [];
         const bg = w.document.querySelector('.bg');
         if (bg && !bg.complete) pending.push(bg);
         w.document.querySelectorAll('.imza-img').forEach((img) => {
-          if (!img.complete) pending.push(img);
+          if (img && !img.complete) pending.push(img);
         });
-        if (!pending.length) { done(); return; }
+        if (!pending.length) { finish(); return; }
         let left = pending.length;
-        const tick = () => { if (--left <= 0) done(); };
+        const tick = () => { if (--left <= 0) finish(); };
         pending.forEach((img) => {
           img.addEventListener('load', tick, { once: true });
           img.addEventListener('error', tick, { once: true });
+          if (img.complete) tick();
         });
-        setTimeout(done, 2500);
+        setTimeout(finish, 280);
       };
 
       waitForImages(() => setTimeout(finishLayoutThenPrint, 0));
     };
+
+    onPrintWindowReady();
 
     // ✅ Çağıran tarafta pencere referansı kullanılabilsin (closed polling)
     return w;
@@ -3285,7 +3267,7 @@ ${layoutPrintCss}
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: '20260718-br-fix-v33',
+    __aracBosRev: 'print-v8-iframe',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;

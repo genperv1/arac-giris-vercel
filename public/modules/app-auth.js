@@ -1083,8 +1083,13 @@ function enterAppWithDelay(ms = 0) {
           if (typeof window.ensureXlsxLoaded === 'function') {
             window.ensureXlsxLoaded().catch(() => {});
           }
+          if (typeof window.warmupPrintPipeline === 'function') {
+            window.warmupPrintPipeline();
+          } else if (typeof window.schedulePrintWarmup === 'function') {
+            window.schedulePrintWarmup();
+          }
           if (window.SignatureRegistry && typeof window.SignatureRegistry.loadSignatures === 'function') {
-            window.SignatureRegistry.loadSignatures(true).catch(() => {});
+            window.SignatureRegistry.loadSignatures().catch(() => {});
           }
           loadVehicles().finally(() => { isEnteringApp = false; });
         } catch (e) {

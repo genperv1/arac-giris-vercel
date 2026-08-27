@@ -56,7 +56,7 @@ api.get("/signatures", async (req, res) => {
 
 api.get("/signatures/map", async (req, res) => {
   try {
-    const r = await q(`SELECT id, display_name, role, image_kind, image_data FROM signatures WHERE active = TRUE`);
+    const r = await q(`SELECT id, display_name, role FROM signatures WHERE active = TRUE`);
     const map = { kantar: {}, saha: {} };
     (r.rows || []).forEach((row) => {
       const role = String(row.role || '').toLowerCase();

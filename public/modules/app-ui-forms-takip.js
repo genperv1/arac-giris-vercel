@@ -1246,6 +1246,12 @@ try {
             enableEnterNavigation(document.getElementById('takipFormuModal') || formContainer);
 
             document.getElementById('takipFormuModal').classList.remove('hidden');
+            try {
+              if (typeof window.warmupPrintPipeline === 'function') window.warmupPrintPipeline();
+              if (window.OperationNotesAlert && typeof window.OperationNotesAlert.prefetch === 'function') {
+                window.OperationNotesAlert.prefetch();
+              }
+            } catch (e) {}
 
             // ✅ A4/A5 sayfa boyutu seçim butonları
             const btnA5 = document.getElementById('btnPageSizeA5');
@@ -1668,14 +1674,31 @@ try {
               }
             } catch (e) {}
 
+            try {
+              const pickBbt = String(document.getElementById('ihrPickBbtInput')?.value || '').trim();
+              const formBbt = document.getElementById('bbt');
+              if (pickBbt && formBbt && !String(formBbt.value || '').trim()) formBbt.value = pickBbt;
+              if (typeof window._syncIhracatPickBbt === 'function' && (pickBbt || (formBbt && formBbt.value))) {
+                window._syncIhracatPickBbt(pickBbt || formBbt.value);
+              }
+            } catch (e) {}
+
             required.forEach(r => {
                 const el = document.getElementById(r.id);
-                const val = (el && 'value' in el) ? String(el.value || '').trim() : '';
+                let val = (el && 'value' in el) ? String(el.value || '').trim() : '';
+                if (!val && r.id === 'bbt') {
+                    val = String(document.getElementById('ihrPickBbtInput')?.value || '').trim();
+                    if (val && el) el.value = val;
+                }
                 if (!val) {
                     issues.push(r.label);
-                    if (el) {
-                        el.classList.add('input-error');
-                        if (!firstEl) firstEl = el;
+                    const focusEl = (r.id === 'bbt' && document.getElementById('ihrPickBbtInput'))
+                      ? document.getElementById('ihrPickBbtInput')
+                      : el;
+                    if (el) el.classList.add('input-error');
+                    if (focusEl) {
+                        focusEl.classList.add('input-error');
+                        if (!firstEl) firstEl = focusEl;
                     }
                 }
             });
@@ -1923,7 +1946,6 @@ try {
                             try { window.storage?.save('vehicle_' + updated.id, updated); } catch(e) {}
                             state.vehicles = (state.vehicles || []).map(v => String(v.id) === String(updated.id) ? updated : v);
                             try { saveVehicleToDatabase(updated); } catch (e) {}
-                            try { await _ihracatFetchRemotePrintReports(true); } catch (e) {}
                             try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
 
                             try {

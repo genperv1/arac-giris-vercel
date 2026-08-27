@@ -1085,6 +1085,34 @@ function _ihracatSyncVehiclePlatesFromTakipForm() {
   _ihracatRefreshOpenModalStatuses();
 }
 
+function _ihracatPatchLocalPrintReport(printEv, commitTs, phId) {
+  const cache = window.__ihracatRemotePrintCache;
+  if (!cache) return;
+  const ts = Number(commitTs) || Date.now();
+  const rec = {
+    id: phId || ('local-' + ts),
+    type: 'PRINT',
+    data: printEv || {},
+    snapshot: printEv || {},
+    ts,
+  };
+  const list = Array.isArray(cache.reports) ? cache.reports.slice() : [];
+  const dropId = String(rec.id);
+  const localId = 'local-' + ts;
+  const next = list.filter((r) => {
+    const id = String((r && r.id) || '');
+    if (!id) return true;
+    return id !== dropId && id !== localId;
+  });
+  cache.reports = [rec].concat(next);
+  cache.ts = Date.now();
+  if (cache.loaded) {
+    try { _ihracatRefreshOpenModalStatuses(); } catch (e) {}
+  }
+  try { window.dispatchEvent(new CustomEvent('nakliye-excel-changed')); } catch (e) {}
+}
+window._ihracatPatchLocalPrintReport = _ihracatPatchLocalPrintReport;
+
 function _ihracatOnReportsChanged() {
   try { _ihracatInvalidatePrintReportsCache(); } catch (e) {}
   _ihracatFetchRemotePrintReports(true)

@@ -299,6 +299,7 @@
   }
 
   function ensureSyncedOnce() {
+    if (_memCache) return Promise.resolve(_memCache);
     if (!_syncPromise) {
       _syncPromise = ensureSynced().finally(function () {
         _syncPromise = null;
@@ -840,7 +841,7 @@
 <body>
 <div id="printViewport"><div id="printRoot">
   <div class="plf-page">
-    <img class="plf-bg" src="${bgUrl}" alt="">
+    <img class="plf-bg" src="${bgUrl}" alt="" decoding="async" fetchpriority="high">
     <div class="plf-fields">${fieldsHtml}</div>
   </div>
 </div></div>
