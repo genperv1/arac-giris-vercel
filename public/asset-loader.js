@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v8-iframe';
+  var PRINT_REV = 'print-v11-fastdialog';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

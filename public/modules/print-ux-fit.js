@@ -159,15 +159,17 @@ window.fitYuklemeNotuOnScreen = fitYuklemeNotuOnScreen;
 
     const orig = window.Print.yazdirForm;
     window.Print.yazdirForm = function(opts){
-      try {
-        // ambalaj bilgisi + yükleme notu uzun olabiliyor
-        fitToBoxInput(document.getElementById('ambalajBilgisi'), 9, 16);
-        fitToBoxInput(document.getElementById('sevkYeri'), 9, 16);
-        fitYuklemeNotuOnScreen(document.getElementById('yuklemeNotu'));
-        if (window.fitMalzemeInput) {
-          try { window.fitMalzemeInput(document.getElementById('malzeme')); } catch (e) {}
-        }
-      } catch(e) {}
+      // Yazdırma diyaloğunu geciktirmesin; sığdırma yalnızca önizlemede
+      if (opts && opts.preview) {
+        try {
+          fitToBoxInput(document.getElementById('ambalajBilgisi'), 9, 16);
+          fitToBoxInput(document.getElementById('sevkYeri'), 9, 16);
+          fitYuklemeNotuOnScreen(document.getElementById('yuklemeNotu'));
+          if (window.fitMalzemeInput) {
+            try { window.fitMalzemeInput(document.getElementById('malzeme')); } catch (e) {}
+          }
+        } catch(e) {}
+      }
       return orig.call(window.Print, opts);
     };
   } catch(e) {}
@@ -216,32 +218,7 @@ function fitToBoxDiv(el, minPx = 8, maxPx = 14, allowHeightOverflow = false) {
 
     const orig = window.Print.yazdirForm;
     window.Print.yazdirForm = function(opts){
-      const ret = orig.call(window.Print, opts);
-      try {
-        if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.useStrictPrintLayout === 'function'
-            && window.PrintLayoutSettings.useStrictPrintLayout()) {
-          return ret;
-        }
-        setTimeout(() => {
-          try { fitToBoxDiv(document.getElementById('printAmbalaj'), 10, 22, true); } catch(e) {}
-          try { fitToBoxDiv(document.getElementById('printSevkYeri'), 10, 22, true); } catch(e) {}
-          try {
-            const pw = ret && ret.document ? ret : null;
-            if (pw && pw.document) window.fitYuklemeNotuPrint(pw.document.getElementById('printNot'), pw);
-          } catch (e) {}
-        }, 0);
-        setTimeout(() => {
-          try {
-            const pw = ret && ret.document ? ret : null;
-            if (pw && pw.document) {
-              window.fitYuklemeNotuPrint(pw.document.getElementById('printNot'), pw);
-              const malzEl = pw.document.querySelector('#printMalzeme .malz-inline');
-              if (malzEl) fitMalzemeInlineEl(malzEl, pw);
-            }
-          } catch (e) {}
-        }, 150);
-      } catch(e) {}
-      return ret;
+      return orig.call(window.Print, opts);
     };
   } catch(e) {}
   try { window.__printUxFitLoaded = true; } catch (e) {}

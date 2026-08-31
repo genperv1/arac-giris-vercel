@@ -797,9 +797,6 @@ function _printIhracatDetailsFromModal(modal, ctx) {
       margin: 0 0 12px;
       padding: 8px 10px;
       border: 1px solid #000;
-      break-inside: avoid-page;
-      page-break-inside: avoid;
-      -webkit-column-break-inside: avoid;
     }
     .ihr-print-excel-box { margin-bottom: 6px; }
     .ihr-print-excel-box .ihr-excel-desc { margin: 0 !important; border-radius: 0; }
@@ -811,9 +808,7 @@ function _printIhracatDetailsFromModal(modal, ctx) {
     .ihr-print-label { display: block; font-size: 9px; font-weight: 800; text-transform: uppercase; margin-bottom: 2px; }
     .ihr-print-value { display: block; font-size: 11px; font-weight: 700; line-height: 1.3; word-break: break-word; }
     .ihr-print-table-shell {
-      break-inside: avoid-page;
-      page-break-inside: avoid;
-      -webkit-column-break-inside: avoid;
+      display: block;
     }
     .ihr-print-plaka-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0; }
     .ihr-print-plaka-table thead { display: table-header-group; }
@@ -866,16 +861,11 @@ function _printIhracatDetailsFromModal(modal, ctx) {
     @media print {
       html, body { margin: 0 !important; padding: 0 !important; }
       body, th, td, .ihr-print-field { background: #fff !important; color: #000 !important; }
-      .ihr-print-block-unit,
-      .ihr-print-table-shell,
       .ihr-print-excel-box,
       .ihr-print-block-fields {
-        break-inside: avoid-page !important;
-        page-break-inside: avoid !important;
-        -webkit-column-break-inside: avoid !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
-      .ihr-print-plaka-table { page-break-inside: avoid !important; break-inside: avoid-page !important; }
-      .ihr-print-plaka-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
       .ihr-print-block-unit + .ihr-print-block-unit {
         page-break-before: auto;
       }

@@ -468,6 +468,71 @@
       font-weight: 700;
       font-size: 15px;
     }
+    .nb-sheet-grid tr.nb-plate td.nb-side-cift {
+      background: #fff3e0;
+      color: #e65100;
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.01em;
+      white-space: normal;
+      line-height: 1.25;
+    }
+    .nb-sheet-grid tr.nb-plate--cift td.nb-plaka {
+      background: #fff8e1;
+    }
+    .nb-cift-note {
+      grid-column: 1 / -1;
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0 0 12px;
+      padding: 12px 14px 10px;
+      background: #fffbeb;
+      border: 2px solid #f59e0b;
+      border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(180, 83, 9, 0.12);
+      color: #7c2d12;
+      font-family: 'Segoe UI', Calibri, Arial, sans-serif;
+      text-align: left;
+    }
+    .nb-cift-note-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .nb-cift-note-title {
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #b45309;
+    }
+    .nb-btn--cift-copy {
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #9a3412;
+      padding: 0.28rem 0.55rem;
+      font-size: 0.7rem;
+    }
+    .nb-btn--cift-copy:hover { background: #ffedd5; }
+    .nb-cift-note-lead {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .nb-cift-note-list {
+      margin: 0;
+      padding: 0 0 0 1.15rem;
+    }
+    .nb-cift-note-list li {
+      margin: 0 0 6px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .nb-cift-note-list li:last-child { margin-bottom: 0; }
     .nb-sheet-grid tr.nb-plate td.nb-side-inside {
       background: #fff;
       color: #047857;
@@ -742,7 +807,7 @@
   <main class="max-w-[96rem] mx-auto p-3 sm:p-4">
     <section class="nb-panel">
       <div class="nb-panel-row">
-        <p class="nb-hint" id="nbModeHint">Giden kg dolu veya içerde / içeride / içe yazan araçlar çıkmış sayılır; listede durmaz, BBT kalandan düşer.</p>
+        <p class="nb-hint" id="nbModeHint">Giden kg dolu veya içerde / içeride / içe yazan araçlar çıkmış sayılır; listede durmaz, BBT kalandan düşer. Aynı plaka iki sevkiyattan yük alıyorsa satırda GELMEYEN ARAÇ + ÇİFT KANTAR yazar; üstte not penceresi hangi malzemeden kaç BBT alacağını belirtir.</p>
         <div class="nb-tools">
           <input type="search" id="nbSearch" class="nb-input" placeholder="YD / LOT ara…" />
           <button type="button" id="nbRefreshBtn" class="nb-btn"><i class="fas fa-sync-alt"></i> Yenile</button>
@@ -770,9 +835,9 @@
   <div id="nbToast" class="nb-toast" role="status"></div>
 
   <script src="idb.js"></script>
-  <script src="dailyStore.js?v=20260821-multiexcel7"></script>
+  <script src="dailyStore.js?v=20260901-persist-idb"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
-  <script src="nakliye-bekleyen-core.js?v=20260826-iceride-cikis"></script>
-  <script src="nakliye-bekleyen.js?v=20260826-excel-only"></script>
+  <script src="nakliye-bekleyen-core.js?v=20260901-cift-note"></script>
+  <script src="nakliye-bekleyen.js?v=20260901-cift-note"></script>
 </body>
 </html>

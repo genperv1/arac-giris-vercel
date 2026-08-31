@@ -1439,6 +1439,7 @@
 
   const WAITING_VEHICLE_LABEL = 'GELMEYEN ARAÇ';
   const INSIDE_VEHICLE_LABEL = 'İÇERDE';
+  const CIFT_KANTAR_LABEL = 'ÇİFT KANTAR';
   const OZMAL_VEHICLE_LABEL = 'ÖZMAL';
 
   const DEFAULT_OZMAL_PLATES = [
@@ -1525,19 +1526,144 @@
     return String(a?.plaka || '').localeCompare(String(b?.plaka || ''), 'tr');
   }
 
+  function plateShipmentScopeKey(item) {
+    return [
+      String(item && item.fileName || '').trim(),
+      String(item && item.blockKey || '').trim(),
+      String(item && item.ydKey || '').trim(),
+      String(item && item.malzemeLabel || '').trim(),
+    ].join('::');
+  }
+
+  /** Aynı plaka iki+ farklı sevkiyatta bekliyorsa çift kantar. */
+  function collectCiftKantarPlateKeys(items) {
+    const scopes = new Map();
+    (items || []).forEach((item) => {
+      if (!item) return;
+      const scope = plateShipmentScopeKey(item);
+      const pools = [].concat(item.waitingPlates || [], item.insidePlates || []);
+      pools.forEach((p) => {
+        if (!p || p.isOzmal) return;
+        const pk = plateKey(p.plaka);
+        if (!pk) return;
+        if (!scopes.has(pk)) scopes.set(pk, new Set());
+        scopes.get(pk).add(scope);
+      });
+    });
+    const out = new Set();
+    scopes.forEach((set, pk) => {
+      if (set.size >= 2) out.add(pk);
+    });
+    return out;
+  }
+
+  function markCiftKantarPlates(items) {
+    const keys = collectCiftKantarPlateKeys(items);
+    (items || []).forEach((item) => {
+      if (!item) return;
+      (item.waitingPlates || []).forEach((p) => {
+        if (p && keys.has(plateKey(p.plaka))) p.ciftKantar = true;
+      });
+      (item.insidePlates || []).forEach((p) => {
+        if (p && keys.has(plateKey(p.plaka))) p.ciftKantar = true;
+      });
+    });
+    return items;
+  }
+
+  function plateStatusLabel(entry) {
+    const override = String(entry && entry.statusOverride || '').trim();
+    if (override) return override;
+    if (entry && entry.isOzmal) return ozmalRowStatusLabel(entry.plaka);
+    if (entry && entry.ciftKantar && !entry.isInside) {
+      return WAITING_VEHICLE_LABEL + ' + ' + CIFT_KANTAR_LABEL;
+    }
+    if (entry && entry.isInside) {
+      return entry.ciftKantar ? INSIDE_VEHICLE_LABEL + ' + ' + CIFT_KANTAR_LABEL : INSIDE_VEHICLE_LABEL;
+    }
+    return WAITING_VEHICLE_LABEL;
+  }
+
+  function formatCiftKantarLeg(leg) {
+    const malzeme = String(leg && leg.malzeme || '').trim();
+    const yd = String(leg && leg.ydKey || '').trim();
+    const bbt = parseNum(leg && leg.bbt);
+    const qty = bbt > 0 ? `${bbt} BBT` : 'yük';
+    if (malzeme && yd) return `${yd} ${malzeme} malzemesinden ${qty}`;
+    if (malzeme) return `${malzeme} malzemesinden ${qty}`;
+    if (yd) return `${yd} sevkiyatından ${qty}`;
+    return `sevkiyattan ${qty}`;
+  }
+
+  function formatCiftKantarNoteText(entry) {
+    const plate = compactPlate(entry && entry.plaka);
+    const legs = (entry && entry.legs ? entry.legs : []).map(formatCiftKantarLeg).filter(Boolean);
+    if (!plate || legs.length < 2) return '';
+    const joined = legs.length === 2
+      ? legs[0] + ' ve ' + legs[1]
+      : legs.slice(0, -1).join(', ') + ' ve ' + legs[legs.length - 1];
+    return `${plate} plakası ${joined} alacak; bu yüzden çift kantar yapacaktır.`;
+  }
+
+  function buildCiftKantarNotes(items) {
+    const keys = collectCiftKantarPlateKeys(items);
+    const byPlate = new Map();
+    (items || []).forEach((item) => {
+      if (!item) return;
+      const scope = plateShipmentScopeKey(item);
+      const pools = [].concat(item.waitingPlates || [], item.insidePlates || []);
+      pools.forEach((p) => {
+        if (!p || p.isOzmal) return;
+        const pk = plateKey(p.plaka);
+        if (!pk || !keys.has(pk)) return;
+        if (!byPlate.has(pk)) {
+          byPlate.set(pk, { plaka: p.plaka, compact: compactPlate(p.plaka), legs: [], seen: new Set() });
+        }
+        const rec = byPlate.get(pk);
+        const addBbt = parseNum(p.bbt);
+        if (rec.seen.has(scope)) {
+          const existing = rec.legs.find((l) => l.scope === scope);
+          if (existing) existing.bbt = (parseNum(existing.bbt) || 0) + addBbt;
+          return;
+        }
+        rec.seen.add(scope);
+        rec.legs.push({
+          scope,
+          malzeme: String(item.malzemeLabel || item.malzeme || '').trim(),
+          ydKey: String(item.ydKey || '').trim(),
+          lotLabel: String(item.lotLabel || '').trim(),
+          bbt: addBbt,
+        });
+      });
+    });
+    const notes = [];
+    byPlate.forEach((rec) => {
+      delete rec.seen;
+      if (rec.legs.length < 2) return;
+      const text = formatCiftKantarNoteText(rec);
+      if (!text) return;
+      notes.push(Object.assign({}, rec, { text }));
+    });
+    notes.sort((a, b) => String(a.compact || '').localeCompare(String(b.compact || ''), 'tr'));
+    return notes;
+  }
+
   function buildPlateRowFromEntry(entry, blockItem) {
     const ozmal = !!entry?.isOzmal;
     const bassofor = ozmal && isBassoforPlate(entry.plaka);
     const inside = !ozmal && !!entry?.isInside;
+    const ciftKantar = !ozmal && !!entry?.ciftKantar;
     const no = parseSiraNo(entry?.sira);
+    const status = plateStatusLabel(entry);
     return {
       kind: 'plate',
       no: no != null ? no : '',
       ozmal,
       bassofor,
       inside,
+      ciftKantar,
       a: compactPlate(entry.plaka),
-      b: ozmal ? ozmalRowStatusLabel(entry.plaka) : inside ? INSIDE_VEHICLE_LABEL : WAITING_VEHICLE_LABEL,
+      b: status,
       c: formatWaitingPlateBbtText(entry.bbt),
       plaka: String(entry?.plaka || '').trim(),
       bbt: entry?.bbt != null ? entry.bbt : null,
@@ -1680,15 +1806,16 @@
       ? formatBlockSourceLabel(item)
       : (multiSourceDates ? item.sourceDateLabel : '');
     const rows = [];
+    const headerOverride = String(item.nbHeaderOverride || '').trim();
     rows.push({
       kind: 'header',
-      a: formatHeaderExcelText(
+      a: headerOverride || (formatHeaderExcelText(
         item.ydKey,
         item.planBbt,
         item.malzemeLabel,
         sourcePrefix,
         item.lotLabel
-      ) + formatCikanSuffix(item),
+      ) + formatCikanSuffix(item)),
       lotLabel: item.lotLabel || '',
       blockKey: String(item.blockKey || '').trim(),
       fileName: String(item.fileName || '').trim(),
@@ -1696,7 +1823,8 @@
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
     const hasWaiting = (item.waitingPlates || []).length > 0;
-    const pendingText = formatFooterStatusText(item);
+    const pendingOverride = String(item.nbPendingOverride || '').trim();
+    const pendingText = pendingOverride || formatFooterStatusText(item);
     if (item.shipmentDone && !hasWaiting && rem <= 0) {
       rows.push({
         kind: 'done',
@@ -1705,7 +1833,7 @@
         blockKey: String(item.blockKey || '').trim(),
         fileName: String(item.fileName || '').trim(),
       });
-    } else if (pendingText && (pendingAssignQty(item) > 0 || item._emptyYdPending)) {
+    } else if (pendingText && (pendingAssignQty(item) > 0 || item._emptyYdPending || pendingOverride)) {
       rows.push({
         kind: 'pending',
         a: pendingText,
@@ -1907,6 +2035,7 @@
         blockKey: bk,
         fileName: rowSourceFile(r),
         rowRef: `${bk}::${plateKey(plaka)}::${String(r.sira || '').trim()}::${String(r.id || '').trim()}`,
+        statusOverride: String(r.nbStatusOverride || '').trim(),
       };
       if (entry.isOzmal) {
         ozmalPlates.push(entry);
@@ -1996,6 +2125,8 @@
       knownPlateKeys,
       explicitNotes,
       status,
+      nbHeaderOverride: String(sample.nbHeaderOverride || '').trim(),
+      nbPendingOverride: String(sample.nbPendingOverride || '').trim(),
       _emptyYdPending: !!emptyYdUnknownPlan,
       message: buildMessage(ydKey, planBbt, remainingBbt, waitingPlates, explicitNotes),
     };
@@ -2084,7 +2215,7 @@
     }
 
     pending.sort(compareBlockExcelOrder);
-    return pending;
+    return markCiftKantarPlates(pending);
   }
 
   /** Bakiye deneme: Excel’deki her sevkiyat bloğu (bitenler dahil). */
@@ -2596,6 +2727,12 @@
     DEFAULT_OZMAL_PLATES,
     WAITING_VEHICLE_LABEL,
     INSIDE_VEHICLE_LABEL,
+    CIFT_KANTAR_LABEL,
     OZMAL_VEHICLE_LABEL,
+    collectCiftKantarPlateKeys,
+    markCiftKantarPlates,
+    buildCiftKantarNotes,
+    formatCiftKantarNoteText,
+    formatCiftKantarLeg,
   };
 });

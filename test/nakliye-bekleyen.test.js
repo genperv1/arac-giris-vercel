@@ -608,6 +608,63 @@ test('çift kantar — same plate in two blocks stays pending in both', () => {
   const pending = core.analyzeNakliyePending(rows);
   assert.equal(pending.length, 2);
   assert.ok(pending.every((p) => p.waitingPlates.some((w) => w.plaka === '64BE703')));
+  assert.ok(pending.every((p) => p.waitingPlates.some((w) => w.plaka === '64BE703' && w.ciftKantar)));
+});
+
+test('buildExcelSheetParts — same plate in two shipments is marked ÇİFT KANTAR', () => {
+  const rows = [
+    { blockKey: 'B1', blockHeaderRow: 10, headerText: 'YD10 / 30 BBT / HP 0,60-1,20', plaka: '20ABC123', bbt: '20', gidenTonaj: '' },
+    { blockKey: 'B2', blockHeaderRow: 50, headerText: 'YD20 / 16 BBT / HP 1,20-2,40', plaka: '20ABC123', bbt: '10', gidenTonaj: '' },
+    { blockKey: 'B2', blockHeaderRow: 50, headerText: 'YD20 / 16 BBT / HP 1,20-2,40', plaka: '03DH540', bbt: '6', gidenTonaj: '' },
+  ];
+  const pending = core.analyzeNakliyePending(rows);
+  const parts = core.buildExcelSheetParts(pending);
+  const dual = parts.nakliyeRows.filter((r) => r.kind === 'plate' && r.a === '20ABC123');
+  assert.equal(dual.length, 2);
+  assert.ok(dual.every((r) => r.ciftKantar === true));
+  assert.ok(dual.every((r) => r.b === 'GELMEYEN ARAÇ + ÇİFT KANTAR'));
+  const single = parts.nakliyeRows.find((r) => r.kind === 'plate' && r.a === '03DH540');
+  assert.equal(single.ciftKantar, false);
+  assert.equal(single.b, 'GELMEYEN ARAÇ');
+  const notes = core.buildCiftKantarNotes(pending);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /20ABC123 plakası/);
+  assert.match(notes[0].text, /HP 0,60-1,20 malzemesinden 20 BBT/);
+  assert.match(notes[0].text, /HP 1,20-2,40 malzemesinden 10 BBT/);
+  assert.match(notes[0].text, /çift kantar yapacaktır/);
+});
+
+test('buildExcelBlockRows — header and pending overrides survive rebuild', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'H1',
+      headerText: 'YD10 / 30 BBT',
+      plaka: '03DH540',
+      bbt: '10',
+      gidenTonaj: '',
+      nbHeaderOverride: 'YD10 30 BBT · ACİL',
+      nbPendingOverride: '20 BBT’ye plaka verilecektir.',
+    },
+  ]);
+  assert.equal(item.nbHeaderOverride, 'YD10 30 BBT · ACİL');
+  const rows = core.buildExcelBlockRows(item);
+  assert.equal(rows[0].a, 'YD10 30 BBT · ACİL');
+  const pending = rows.find((r) => r.kind === 'pending');
+  assert.ok(pending);
+  assert.equal(pending.a, '20 BBT’ye plaka verilecektir.');
+});
+
+test('same plate twice in one shipment is not çift kantar', () => {
+  const rows = [
+    { blockKey: 'B1', blockHeaderRow: 10, headerText: 'YD82 / 30 BBT', plaka: '64BE703', bbt: '20', gidenTonaj: '', sira: '1' },
+    { blockKey: 'B1', blockHeaderRow: 10, headerText: 'YD82 / 30 BBT', plaka: '64BE703', bbt: '10', gidenTonaj: '', sira: '2' },
+  ];
+  const pending = core.analyzeNakliyePending(rows);
+  assert.equal(pending.length, 1);
+  assert.ok(pending[0].waitingPlates.every((w) => !w.ciftKantar));
+  const parts = core.buildExcelSheetParts(pending);
+  const plates = parts.nakliyeRows.filter((r) => r.kind === 'plate');
+  assert.ok(plates.every((r) => r.b === 'GELMEYEN ARAÇ'));
 });
 
 test('departed in one block does not hide plate in another block', () => {

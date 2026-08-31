@@ -185,6 +185,18 @@
   async function _hydrateFromIdbIfNeeded(){
     const ls = _lsLoad();
     const idb = await _idbLoad();
+    let backend = '';
+    try { backend = String(localStorage.getItem(LS_BACKEND_KEY) || '').trim(); } catch (e) {}
+    // Son yazılan depo tam anlık görüntü — eski IDB/LS satırlarını birleştirme
+    // (silinen plaka merge ile geri gelmesin).
+    if (backend === 'ls' && ls.rows.length) {
+      _applyLocal(ls);
+      return cache;
+    }
+    if (backend === 'idb' && idb && idb.rows.length) {
+      _applyLocal(idb);
+      return cache;
+    }
     const merged = _mergeStores(ls, idb);
     if (merged.rows.length) {
       _applyLocal(merged);
@@ -254,9 +266,9 @@
     cache.loaded = true;
     cache.indexByPlate = null;
     _pruneLocalStorageForDailySave();
-    if (_lsSave(cache.rows, cache.meta)) return true;
-    if (await _idbSave(cache.rows, cache.meta)) return true;
-    return false;
+    const lsOk = _lsSave(cache.rows, cache.meta);
+    const idbOk = await _idbSave(cache.rows, cache.meta);
+    return !!(lsOk || idbOk);
   }
 
   async function clear(){

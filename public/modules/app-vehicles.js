@@ -427,11 +427,19 @@ function setupTakipFormButtons() {
                 }
             } catch (e) {}
 
-            // ✅ Oturum kontrolü
-            if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
-                const isValidSession = await window.SessionManager.requireValidSession();
-                if (!isValidSession) {
-                    return; // Oturum geçersizse işlemi durdur
+            // ✅ Oturum kontrolü (ağ beklemesi yazıcı diyaloğunu sessizce kesmesin)
+            if (window.SessionManager) {
+                let loggedIn = false;
+                try {
+                    loggedIn = (typeof window.isAppLoggedIn === 'function')
+                      ? !!window.isAppLoggedIn()
+                      : (localStorage.getItem('isLoggedIn') === 'true');
+                } catch (e) {}
+                if (!loggedIn && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) {
+                        return;
+                    }
                 }
             }
 
@@ -593,19 +601,22 @@ function setupTakipFormButtons() {
             const runYazdir = () => {
             let w = null;
             let printErr = null;
-            const openPrint = async () => {
+            const openPrint = () => {
                 if (!window.Print || typeof window.Print.yazdirForm !== 'function') {
                     throw new Error('print-not-loaded');
                 }
                 return window.Print.yazdirForm({ preview: false });
             };
-            Promise.resolve(openPrint()).then((win) => {
-                w = win;
-                handlePrintWindow(w, printErr);
+            try {
+                w = openPrint();
+            } catch (err) {
+                printErr = err;
+            }
+            Promise.resolve(printErr ? null : w).then((win) => {
+                handlePrintWindow(win, printErr);
                 if (plateFromForm) schedulePrintPathVehicleSave();
             }).catch((err) => {
-                printErr = err;
-                handlePrintWindow(null, printErr);
+                handlePrintWindow(null, err || printErr);
                 if (plateFromForm) schedulePrintPathVehicleSave();
             });
             return;

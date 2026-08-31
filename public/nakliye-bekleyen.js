@@ -212,16 +212,28 @@
     return new Date().toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
   }
 
-  function persistRows(rows, meta) {
+  async function persistRows(rows, meta) {
     const m = meta || loadMeta();
+    if (window.DailyStore && typeof DailyStore.setAsync === 'function') {
+      const ok = await DailyStore.setAsync(rows, m);
+      if (ok) return true;
+    }
     if (window.DailyStore && typeof DailyStore.set === 'function') {
-      DailyStore.set(rows, m);
-      return;
+      return !!DailyStore.set(rows, m);
     }
     try {
       localStorage.setItem('daily_shipments_current', JSON.stringify(rows));
       localStorage.setItem('daily_shipments_meta', JSON.stringify(m || {}));
-    } catch (e) {}
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isNbEditing() {
+    if (document.body.classList.contains('nb-edit-on')) return true;
+    const ae = document.activeElement;
+    return !!(ae && ae.classList && ae.classList.contains('nb-cell') && ae.isContentEditable);
   }
 
   function bumpBlockPendingNotes(rows, blockKey, deltaBbt) {
@@ -320,18 +332,51 @@
       nextRow.plaka = newPlakaRaw;
     }
 
-    if (newBbt === oldBbt && nextRow.plaka === cur.plaka) {
-      if (bbtCell) bbtCell.textContent = newBbt > 0 ? newBbt + ' BBT' : '';
-      return;
+    const statusCell = tr.querySelector('td.nb-side-red .nb-cell, td.nb-side-inside .nb-cell, td.nb-side-cift .nb-cell, td.nb-side-ozmal .nb-cell, td.nb-side-bassofor .nb-cell');
+    const numCell = tr.querySelector('td.nb-num .nb-cell');
+    const newStatus = statusCell ? String(statusCell.textContent || '').trim() : '';
+    const newSira = numCell ? String(numCell.textContent || '').trim() : '';
+    const autoStatus = new Set(
+      [
+        core.WAITING_VEHICLE_LABEL,
+        core.INSIDE_VEHICLE_LABEL,
+        core.CIFT_KANTAR_LABEL,
+        'GELMEYEN ARAÇ',
+        'İÇERDE',
+        'ÇİFT KANTAR',
+        'GELMEYEN ARAÇ + ÇİFT KANTAR',
+        'İÇERDE + ÇİFT KANTAR',
+      ].filter(Boolean)
+    );
+    if (statusCell) {
+      if (!newStatus || autoStatus.has(newStatus)) {
+        if (nextRow.nbStatusOverride) delete nextRow.nbStatusOverride;
+      } else {
+        nextRow.nbStatusOverride = newStatus;
+      }
     }
+    if (newSira !== String(cur.sira || '').trim()) nextRow.sira = newSira;
 
     nextRow.bbt = newBbt > 0 ? String(newBbt) : '';
     rows[idx] = nextRow;
 
+    const sameBbt = newBbt === oldBbt;
+    const samePlaka = nextRow.plaka === cur.plaka;
+    const sameStatus = (nextRow.nbStatusOverride || '') === (cur.nbStatusOverride || '');
+    const sameSira = String(nextRow.sira || '') === String(cur.sira || '');
+    if (sameBbt && samePlaka && sameStatus && sameSira) {
+      if (bbtCell) bbtCell.textContent = newBbt > 0 ? newBbt + ' BBT' : '';
+      return;
+    }
+
     // Atanan BBT arttıysa kalan düşer, azaldıysa artar
     const noteDelta = oldBbt - newBbt;
     const bumped = bumpBlockPendingNotes(rows, blockKey, noteDelta);
-    persistRows(bumped.rows, loadMeta());
+    const saved = await persistRows(bumped.rows, loadMeta());
+    if (!saved) {
+      toast('Kayıt yazılamadı — düzenleme kaybolabilir');
+      return;
+    }
 
     tr.setAttribute('data-nb-bbt', String(newBbt || ''));
     if (bbtCell) bbtCell.textContent = newBbt > 0 ? newBbt + ' BBT' : '';
@@ -399,9 +444,36 @@
 
     rows.push(newRow);
     const bumped = bumpBlockPendingNotes(rows, blockKey, -bbt);
-    persistRows(bumped.rows, loadMeta());
+    const saved = await persistRows(bumped.rows, loadMeta());
+    if (!saved) {
+      toast('Kayıt yazılamadı — plaka eklenemedi');
+      return;
+    }
     toast(core.compactPlate(plakaTrim) + ' eklendi · ' + bbt + ' BBT düşüldü');
     await renderList();
+  }
+
+  async function syncBlockTextFromDom(tr) {
+    if (!core || !tr) return;
+    const kind = tr.getAttribute('data-nb-row-kind') || '';
+    if (kind !== 'header' && kind !== 'pending' && kind !== 'done') return;
+    const blockEl = tr.closest('.nb-sheet-block');
+    const blockKey = (blockEl && blockEl.getAttribute('data-nb-block')) || '';
+    if (!blockKey) return;
+    const cell = tr.querySelector('.nb-cell');
+    const text = cell ? String(cell.textContent || '').trim() : '';
+    const field = kind === 'header' ? 'nbHeaderOverride' : 'nbPendingOverride';
+    const rows = loadRows().slice();
+    let changed = false;
+    const next = rows.map((r) => {
+      if (!r || core.blockGroupKey(r) !== blockKey) return r;
+      if (String(r[field] || '') === text) return r;
+      changed = true;
+      return Object.assign({}, r, { [field]: text });
+    });
+    if (!changed) return;
+    const saved = await persistRows(next, loadMeta());
+    if (!saved) toast('Kayıt yazılamadı — düzenleme kaybolabilir');
   }
 
   function findMatchingShipmentIndex(rows, plateMeta) {
@@ -497,7 +569,11 @@
     }
 
     const bumped = bumpBlockPendingNotes(rows, blockKey, bbt);
-    persistRows(bumped.rows, loadMeta());
+    const saved = await persistRows(bumped.rows, loadMeta());
+    if (!saved) {
+      toast('Kayıt yazılamadı — satır silinemedi');
+      return;
+    }
 
     pushUndo({
       snapshot,
@@ -524,7 +600,11 @@
       next = bumpBlockPendingNotes(next, entry.blockKey, -Math.abs(entry.noteBump)).rows;
     }
     next = next.concat([entry.snapshot]);
-    persistRows(next, loadMeta());
+    const saved = await persistRows(next, loadMeta());
+    if (!saved) {
+      toast('Kayıt yazılamadı — geri alma tamamlanamadı');
+      return;
+    }
     toast(`${core.compactPlate(entry.snapshot.plaka)} geri alındı`);
     await renderList();
   }
@@ -949,15 +1029,18 @@
           ? 'nb-side-bassofor'
           : row.ozmal
             ? 'nb-side-ozmal'
-            : row.inside
-              ? 'nb-side-inside'
-              : 'nb-side-red';
+            : row.ciftKantar
+              ? 'nb-side-cift'
+              : row.inside
+                ? 'nb-side-inside'
+                : 'nb-side-red';
         const excludeCopy = row.ozmal || row.bassofor ? ' nb-plate--exclude-copy' : '';
         const canPersistDelete = !row.ozmal && !row.bassofor;
         html +=
           '<tr class="nb-plate' +
           (row.bassofor ? ' nb-plate--bassofor' : '') +
           (row.ozmal ? ' nb-plate--ozmal' : '') +
+          (row.ciftKantar ? ' nb-plate--cift' : '') +
           (canPersistDelete ? ' nb-plate--persist-del' : '') +
           excludeCopy +
           '" data-nb-row-kind="plate" data-nb-plaka="' +
@@ -1050,6 +1133,49 @@
     );
   }
 
+  function buildCiftKantarNoteHtml(items) {
+    if (!core || typeof core.buildCiftKantarNotes !== 'function') return '';
+    const notes = core.buildCiftKantarNotes(items) || [];
+    if (!notes.length) return '';
+    let html =
+      '<aside class="nb-cift-note" id="nbCiftNote">' +
+      '<div class="nb-cift-note-head">' +
+      '<span class="nb-cift-note-title">ÇİFT KANTAR NOTU</span>' +
+      '<button type="button" class="nb-btn nb-btn--cift-copy nb-no-capture" data-nb-copy-cift-note title="Notu metin olarak kopyala">' +
+      '<i class="fas fa-copy" aria-hidden="true"></i> Notu kopyala</button>' +
+      '</div>' +
+      '<p class="nb-cift-note-lead">Aşağıdaki plakalar farklı malzemelerden yük alacağı için çift kantar yapacaktır.</p>' +
+      '<ul class="nb-cift-note-list">';
+    notes.forEach((n) => {
+      html += '<li>' + esc(n.text) + '</li>';
+    });
+    html += '</ul></aside>';
+    return html;
+  }
+
+  async function copyCiftKantarNoteText() {
+    if (!core || typeof core.buildCiftKantarNotes !== 'function') {
+      toast('Çift kantar notu yok');
+      return;
+    }
+    const notes = core.buildCiftKantarNotes(filterItems(_allItems)) || [];
+    if (!notes.length) {
+      toast('Çift kantar plakası yok');
+      return;
+    }
+    const text =
+      'ÇİFT KANTAR NOTU\n' +
+      notes.map((n) => n.text).join('\n');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        toast('Çift kantar notu kopyalandı');
+        return;
+      }
+    } catch (e) {}
+    window.prompt('Notu kopyalayın', text);
+  }
+
   function buildBlocksColumnHtml(blockGroups, startIdx, titleRows) {
     let idx = startIdx || 0;
     let html = '';
@@ -1118,7 +1244,8 @@
       '<span class="nb-excel-fxbar">' + esc(dateLabel || 'Nakliye bekleyenleri') + '</span>' +
       '</div>' +
       '<div class="nb-excel-workspace">' +
-      '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">';
+      '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">' +
+      buildCiftKantarNoteHtml(items);
     const titleRows = blockTitleRows(dateLabel);
     if (useSideBySide) {
       html += '<div class="nb-sheet-columns nb-sheet-columns--side">';
@@ -1257,12 +1384,14 @@
       };
     } catch (e) {}
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') void refreshFromStore();
+      if (document.visibilityState !== 'visible') return;
+      if (isNbEditing()) return;
+      void refreshFromStore();
     });
     if (_autoTimer) clearInterval(_autoTimer);
     _autoTimer = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
-      if (document.body.classList.contains('nb-edit-on')) return;
+      if (isNbEditing()) return;
       void refreshFromStore();
     }, 60000);
   }
@@ -1284,7 +1413,14 @@
     document.getElementById('nbCopyBlocksBtn')?.addEventListener('click', () => {
       void downloadSheetImage();
     });
-    document.getElementById('nbEditBtn')?.addEventListener('click', () => {
+    document.getElementById('nbEditBtn')?.addEventListener('click', async () => {
+      try {
+        const ae = document.activeElement;
+        if (ae && ae.classList && ae.classList.contains('nb-cell') && typeof ae.blur === 'function') {
+          ae.blur();
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      } catch (e) {}
       const on = document.body.classList.toggle('nb-edit-on');
       const btn = document.getElementById('nbEditBtn');
       if (btn) {
@@ -1324,6 +1460,12 @@
         void copyBlockImage(block);
         return;
       }
+      const ciftCopy = e.target.closest('[data-nb-copy-cift-note]');
+      if (ciftCopy && outer.contains(ciftCopy)) {
+        e.preventDefault();
+        void copyCiftKantarNoteText();
+        return;
+      }
       const addBtn = e.target.closest('[data-nb-add-plate]');
       if (addBtn && outer.contains(addBtn)) {
         e.preventDefault();
@@ -1343,12 +1485,13 @@
     outer?.addEventListener('focusout', (e) => {
       const cell = e.target.closest('.nb-cell');
       if (!cell || !outer.contains(cell)) return;
-      const tr = cell.closest('tr.nb-plate');
+      const tr = cell.closest('tr');
       if (!tr) return;
-      // BBT veya plaka hücresinden çıkınca kaydet + kalanı güncelle
-      const td = cell.closest('td');
-      if (!td || (!td.classList.contains('nb-bbt') && !td.classList.contains('nb-plaka'))) return;
-      void syncPlateBbtFromDom(tr);
+      if (tr.classList.contains('nb-plate')) {
+        void syncPlateBbtFromDom(tr);
+        return;
+      }
+      void syncBlockTextFromDom(tr);
     });
 
     outer?.addEventListener('keydown', (e) => {
