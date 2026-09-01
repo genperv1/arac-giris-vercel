@@ -732,6 +732,13 @@ function _applyExcelShipmentFieldsToTakipForm(chosen) {
     }
   }
 
+  if (yuklemeNotu && !String(yuklemeNotu.value || '').trim()) {
+    const note = typeof _resolveShipmentYuklemeNotu === 'function'
+      ? _resolveShipmentYuklemeNotu(chosen)
+      : String(chosen.yuklemeNotu || chosen.blockFooterNote || '').trim();
+    if (note) yuklemeNotu.value = note;
+  }
+
   applyShipmentTonajAndIrsaliye(chosen);
 }
 

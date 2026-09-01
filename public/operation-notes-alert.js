@@ -345,18 +345,21 @@
       .replace(/"/g, '&quot;');
   }
 
-  async function confirmBeforePrint(opts) {
+  function confirmBeforePrint(opts) {
     opts = opts || {};
-    // Yalnızca Takip Formu'nda Yazdır tıklanınca göster (form açılışı / Enter ile yanlış tetiklenmesin)
     if (opts.source !== 'yazdir') return true;
     const modal = document.getElementById('takipFormuModal');
     if (!modal || modal.classList.contains('hidden')) return true;
 
     const ctx = buildPrintContext(opts);
-    const notes = await fetchActiveNotes();
-    const matches = notes.filter((n) => noteMatches(n, ctx));
+    const fresh = _cache.notes && (Date.now() - _cache.ts) < CACHE_MS;
+    if (!fresh) {
+      fetchActiveNotes().catch(() => {});
+      return true;
+    }
+    const matches = _cache.notes.filter((n) => noteMatches(n, ctx));
     if (!matches.length) return true;
-    await showAlertsModal(matches);
+    showAlertsModal(matches).catch(() => {});
     return true;
   }
 

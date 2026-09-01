@@ -388,6 +388,43 @@ function _ihracatFirmaMatchesExcel(firmaRaw, excelFirma) {
 
 /** Sunucudaki yazdırma kayıtları (/api/reports = print_history). F5 sonrası localStorage yetmez. */
 window.__ihracatRemotePrintCache = window.__ihracatRemotePrintCache || { ts: 0, reports: [], loading: null, loaded: false };
+const IHR_PRINT_CACHE_TTL_MS = 180000;
+
+function _ihracatIstanbulDayStartMs(dateKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
+  const ms = Date.parse(String(dateKey) + 'T00:00:00+03:00');
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/** Yazdırıldı durumu / YD seçimi: Excel günü + gece vardiyası; tam geçmiş değil. */
+function _ihracatPrintReportsWindow() {
+  let dateKey = '';
+  try {
+    const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+    dateKey = String(
+      (typeof _resolveIhracatDateKey === 'function' ? _resolveIhracatDateKey(meta) : '')
+      || meta.dateKey
+      || ''
+    ).trim();
+  } catch (e) { /* ignore */ }
+  const dayStart = _ihracatIstanbulDayStartMs(dateKey);
+  if (dayStart) {
+    return {
+      since: dayStart - 6 * 60 * 60 * 1000,
+      until: dayStart + 38 * 60 * 60 * 1000,
+    };
+  }
+  const now = Date.now();
+  return { since: now - 3 * 24 * 60 * 60 * 1000, until: now + 60 * 60 * 1000 };
+}
+
+function _ihracatPrintReportsQuery() {
+  const win = _ihracatPrintReportsWindow();
+  const parts = ['slim=1', 'limit=1500', 'since=' + win.since];
+  if (win.until) parts.push('until=' + win.until);
+  parts.push('_=' + Date.now());
+  return parts.join('&');
+}
 
 function _ihracatInvalidatePrintReportsCache() {
   const cache = window.__ihracatRemotePrintCache;
@@ -398,11 +435,12 @@ function _ihracatInvalidatePrintReportsCache() {
   cache.loading = null;
 }
 window._ihracatInvalidatePrintReportsCache = _ihracatInvalidatePrintReportsCache;
+window._ihracatPrintReportsWindow = _ihracatPrintReportsWindow;
 
 async function _ihracatFetchRemotePrintReports(force) {
   const cache = window.__ihracatRemotePrintCache;
   const now = Date.now();
-  if (!force && cache.loaded && (now - cache.ts) < 45000) {
+  if (!force && cache.loaded && (now - cache.ts) < IHR_PRINT_CACHE_TTL_MS) {
     return cache.reports;
   }
   if (cache.loading) {
@@ -410,7 +448,7 @@ async function _ihracatFetchRemotePrintReports(force) {
   }
   cache.loading = (async () => {
     try {
-      const r = await fetch('/api/reports?limit=8000&_=' + now, {
+      const r = await fetch('/api/reports?' + _ihracatPrintReportsQuery(), {
         method: 'GET',
         credentials: 'same-origin',
         cache: 'no-store',
@@ -433,21 +471,22 @@ async function _ihracatFetchRemotePrintReports(force) {
 }
 window._ihracatFetchRemotePrintReports = _ihracatFetchRemotePrintReports;
 
-/** Modal açılışı: önbellek taze ise anında; eskiyse arka planda yenile. İlk yükleme devam ediyorsa aynı isteği paylaş. */
+/** Modal açılışı: önbellek taze ise anında; eskiyse arka planda yenile. Yazdırma yolunu kilitlemez. */
 function _ihracatPreparePrintReportsForModal() {
   const cache = window.__ihracatRemotePrintCache;
+  const after = (reports) => {
+    if (document.getElementById('ihracatDetailsModal')) {
+      try { _ihracatRefreshOpenModalStatuses(); } catch (e) {}
+    }
+    return reports;
+  };
   if (cache.loading) {
-    return cache.loading.catch(() => cache.reports);
+    return cache.loading.then(after).catch(() => cache.reports);
   }
-  const fresh = cache.loaded && (Date.now() - cache.ts) < 45000;
+  const fresh = cache.loaded && (Date.now() - cache.ts) < IHR_PRINT_CACHE_TTL_MS;
   if (fresh) return Promise.resolve(cache.reports);
   return _ihracatFetchRemotePrintReports(true)
-    .then((reports) => {
-      if (document.getElementById('ihracatDetailsModal')) {
-        try { _ihracatRefreshOpenModalStatuses(); } catch (e) {}
-      }
-      return reports;
-    })
+    .then(after)
     .catch(() => cache.reports);
 }
 
@@ -906,8 +945,8 @@ function _printIhracatDetailsFromModal(modal, ctx) {
       alert('Yazdırma başlatılamadı.');
     }
   };
-  if (doc.readyState === 'complete') setTimeout(doPrint, 200);
-  else frame.onload = () => setTimeout(doPrint, 200);
+  if (doc.readyState === 'complete') setTimeout(doPrint, 0);
+  else frame.onload = () => setTimeout(doPrint, 0);
 }
 
 /** Yazdırılmış plaka: rapor listesi (print_history) tek kaynak; silinince durum düşer. */
@@ -1127,14 +1166,8 @@ async function showIhracatDetailsModal() {
     }
   } catch (e) { /* ignore */ }
 
-  const cache = window.__ihracatRemotePrintCache;
   const prepPromise = _ihracatPreparePrintReportsForModal();
-  // Sayfa ilk açılışında prefetch bitmediyse bekle; önbellek taze ise modalı bloklama
-  if (cache.loading && !cache.loaded) {
-    try { await prepPromise; } catch (e) { /* ignore */ }
-  } else {
-    prepPromise.catch(() => {});
-  }
+  prepPromise.catch(() => {});
 
   try {
     if (window.Report && typeof window.Report.getEvents === 'function') {
@@ -1510,6 +1543,10 @@ async function showIhracatDetailsModal() {
 
   const modal = document.getElementById('ihracatDetailsModal');
   if (!modal || !ihracatStatusApi) return;
+
+  prepPromise.then(() => {
+    try { _ihracatRefreshOpenModalStatuses(); } catch (e) {}
+  }).catch(() => {});
 
   modal.__ihrMeta = meta;
   modal.__ihrExcelFirmalar = excelFirmalar;

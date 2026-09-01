@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v11-fastdialog';
+  var PRINT_REV = 'print-v14-syncprint';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

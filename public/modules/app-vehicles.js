@@ -411,8 +411,7 @@ function setupTakipFormButtons() {
     const yazdirBtn = document.getElementById('yazdirButton');
     if (yazdirBtn && !yazdirBtn.__printHandlerBound) {
         yazdirBtn.__printHandlerBound = true;
-        yazdirBtn.addEventListener('click', async function(e) {
-            // Prevent multiple rapid clicks
+        yazdirBtn.addEventListener('click', function(e) {
             if (yazdirBtn.__printing) return;
             yazdirBtn.__printing = true;
             let startedPrint = false;
@@ -427,7 +426,6 @@ function setupTakipFormButtons() {
                 }
             } catch (e) {}
 
-            // ✅ Oturum kontrolü (ağ beklemesi yazıcı diyaloğunu sessizce kesmesin)
             if (window.SessionManager) {
                 let loggedIn = false;
                 try {
@@ -435,18 +433,16 @@ function setupTakipFormButtons() {
                       ? !!window.isAppLoggedIn()
                       : (localStorage.getItem('isLoggedIn') === 'true');
                 } catch (e) {}
-                if (!loggedIn && typeof window.SessionManager.requireValidSession === 'function') {
-                    const isValidSession = await window.SessionManager.requireValidSession();
-                    if (!isValidSession) {
-                        return;
-                    }
+                if (!loggedIn) {
+                    try { alert('Oturum gerekli. Sayfayı yenileyip tekrar giriş yapın.'); } catch (e) {}
+                    return;
                 }
             }
 
             try {
                 if (typeof window.ensureIhracatExcelPickBeforePrint === 'function') {
-                    const okIhr = await window.ensureIhracatExcelPickBeforePrint();
-                    if (!okIhr) return;
+                    const okIhr = window.ensureIhracatExcelPickBeforePrint();
+                    if (okIhr === false) return;
                 }
             } catch (e) {}
 
@@ -460,13 +456,16 @@ function setupTakipFormButtons() {
 
             try {
                 const activeVehicle = window.__activeTakipVehicle;
-                if (activeVehicle && activeVehicle.id !== 'manual') {
-                    const okContact = await maybeConfirmIncompleteContact(activeVehicle, 'Yazdırma');
-                    if (!okContact) return;
+                if (activeVehicle && activeVehicle.id !== 'manual'
+                    && typeof getVehicleContactWarnings === 'function'
+                    && getVehicleContactWarnings(activeVehicle).length) {
+                    const lines = getVehicleContactWarnings(activeVehicle).join(', ');
+                    if (!window.confirm('Bu araçta eksik bilgi var: ' + lines + '.\n\nYazdırma işlemine yine de devam edilsin mi?')) {
+                        return;
+                    }
                 }
             } catch (contactErr) { /* ignore */ }
 
-            // ✅ KANTAR: seçimi zorunlu tekrar tekrar istemesin
             try {
                 const k = document.getElementById('imzaKantarAd');
                 if (k) {
@@ -480,13 +479,12 @@ function setupTakipFormButtons() {
                 }
             } catch(e) {}
 
-            // boşsa otomatik sıra ata
             try {
                 const ys = document.getElementById('yuklemeSirasi');
-                if (ys && !(ys.value || '').trim()) ys.value = String(getSuggestedYuklemeSirasi(get('basimYeri')));
+                const basimNow = String(document.getElementById('basimYeri')?.value || '').trim();
+                if (ys && !(ys.value || '').trim()) ys.value = String(getSuggestedYuklemeSirasi(basimNow));
             } catch(e){}
 
-            // ✅ Şoför geçmişini kaydet (plaka sabit, şoför değişebilir)
             try { saveSoforHistoryFromTakipForm(); } catch(e) {}
 
             const nowTs = Date.now();
@@ -518,7 +516,7 @@ function setupTakipFormButtons() {
 
             try {
                 if (window.OperationNotesAlert && typeof window.OperationNotesAlert.confirmBeforePrint === 'function') {
-                    await window.OperationNotesAlert.confirmBeforePrint({
+                    window.OperationNotesAlert.confirmBeforePrint({
                         plaka: plateFromForm,
                         get,
                         source: 'yazdir'
@@ -529,9 +527,11 @@ function setupTakipFormButtons() {
             }
 
             try {
-                if (typeof window.maybeWarnExcelConsistencyBeforePrint === 'function') {
-                    const okExcel = await window.maybeWarnExcelConsistencyBeforePrint();
-                    if (!okExcel) return;
+                if (typeof window.checkExcelConsistency === 'function') {
+                    const r = window.checkExcelConsistency();
+                    if (!r.ok && r.level === 'danger') {
+                        if (!window.confirm(r.messages.join('\n') + '\n\nYine de yazdırmak istiyor musunuz?')) return;
+                    }
                 }
             } catch (exErr) {
                 console.warn('Excel tutarlılık:', exErr);

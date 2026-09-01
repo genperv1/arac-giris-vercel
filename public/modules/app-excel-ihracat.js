@@ -1202,6 +1202,14 @@ function notifyIhracatExcelChanged() {
     }
     if (window.__ihracatExcelBC) window.__ihracatExcelBC.postMessage({ type: 'changed', at: Date.now() });
   } catch (e) {}
+  try {
+    if (typeof window._ihracatInvalidatePrintReportsCache === 'function') {
+      window._ihracatInvalidatePrintReportsCache();
+    }
+    if (typeof window._ihracatFetchRemotePrintReports === 'function') {
+      window._ihracatFetchRemotePrintReports(true).catch(() => {});
+    }
+  } catch (e) {}
 }
 try { window.notifyIhracatExcelChanged = notifyIhracatExcelChanged; } catch (e) {}
 
@@ -1414,7 +1422,12 @@ function fillTakipFormFromExcelRow(chosen) {
   set('bbt', chosen.bbt);
   set('palet', chosen.palet);
   set('bosBbt', chosen.bosBbt);
-  set('yuklemeNotu', chosen.yuklemeNotu);
+  set(
+    'yuklemeNotu',
+    typeof _resolveShipmentYuklemeNotu === 'function'
+      ? _resolveShipmentYuklemeNotu(chosen)
+      : (chosen.yuklemeNotu || chosen.blockFooterNote || '')
+  );
 
   const cuval = document.getElementById('cuval');
   const bosCuval = document.getElementById('bosCuval');
@@ -2786,6 +2799,17 @@ function _buildIhracatHeaderDisplay(sample) {
   };
 }
 
+/** Form / yazdırma açıklaması: satır notu, yoksa Excel blok uyarısı. Geçmiş yazdırmaya gitmez. */
+function _resolveShipmentYuklemeNotu(chosen) {
+  const own = String(chosen && chosen.yuklemeNotu || '').trim();
+  if (own) return own;
+  const footer = typeof getIhracatBlockFooterNote === 'function'
+    ? String(getIhracatBlockFooterNote(chosen) || '').trim()
+    : String(chosen && chosen.blockFooterNote || '').trim();
+  return footer;
+}
+window._resolveShipmentYuklemeNotu = _resolveShipmentYuklemeNotu;
+
 /** İhracat Excel üst kutusundaki müşteri / sevkiyat uyarı metni (kırmızı alan) */
 function getIhracatBlockFooterNote(shipment) {
   if (!shipment) return '';
@@ -3398,15 +3422,21 @@ function _ihracatPickLabel(item) {
   return [yd, plan, lot, mal, date, src].filter(Boolean).join(' · ');
 }
 
-async function listTodayIhracatReportBlocks() {
+async function listTodayIhracatReportBlocks(opts) {
+  const allowFetch = !opts || opts.allowFetch !== false;
   const core = typeof window !== 'undefined' ? window.NakliyeBekleyenCore : null;
-  let reports = [];
+  const cache = window.__ihracatRemotePrintCache || {};
+  let reports = Array.isArray(cache.reports) ? cache.reports : [];
   try {
-    if (typeof window._ihracatFetchRemotePrintReports === 'function') {
-      reports = await window._ihracatFetchRemotePrintReports(false);
+    if (allowFetch && typeof window._ihracatFetchRemotePrintReports === 'function') {
+      if (!cache.loaded) {
+        reports = await window._ihracatFetchRemotePrintReports(false);
+      } else if ((Date.now() - (cache.ts || 0)) > 180000) {
+        window._ihracatFetchRemotePrintReports(false).catch(() => {});
+      }
     }
   } catch (e) {
-    reports = [];
+    reports = Array.isArray(cache.reports) ? cache.reports : [];
   }
   if (core && typeof core.normalizePrintReports === 'function') {
     reports = core.normalizePrintReports(reports);
@@ -3459,11 +3489,11 @@ async function listTodayIhracatReportBlocks() {
   return Array.from(map.values());
 }
 
-async function collectIhracatPickRows() {
+async function collectIhracatPickRows(opts) {
   const excel = listIhracatExcelBlocksForPicker();
   const seen = new Set(excel.map(_ihracatPickDedupeKey).filter((k) => k && k !== '|'));
   const extra = [];
-  (await listTodayIhracatReportBlocks()).forEach((it) => {
+  (await listTodayIhracatReportBlocks(opts)).forEach((it) => {
     const k = _ihracatPickDedupeKey(it);
     if (!k || k === '|' || seen.has(k)) return;
     seen.add(k);
@@ -3628,7 +3658,7 @@ function openIhracatExcelBlockPicker() {
   });
 }
 
-async function ensureIhracatExcelPickBeforePrint() {
+function ensureIhracatExcelPickBeforePrint() {
   try {
     if (window.__takipJobKind === 'piyasa' || window.__skipIhracatExcelPick) return true;
     if (window.piyasa && typeof window.piyasa.getLockedPickInfo === 'function' && window.piyasa.getLockedPickInfo()) {
@@ -3660,7 +3690,7 @@ async function ensureIhracatExcelPickBeforePrint() {
       if (rows && rows.length) {
         renderIhracatPickPanelSync(rows);
       } else {
-        rows = await renderIhracatPickPanel();
+        try { renderIhracatPickPanel().catch(() => {}); } catch (e) {}
       }
     }
     if (!(rows && rows.length) && !hasRowsOnScreen) return true;

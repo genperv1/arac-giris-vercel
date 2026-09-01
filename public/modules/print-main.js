@@ -119,14 +119,27 @@
     return resolvePrintBgSrcForWindow();
   }
 
-  function hideTakipPrintFrame() {
-    const overlay = document.getElementById('takipPrintOverlay');
-    const frame = document.getElementById('takipPrintFrame');
-    if (overlay) overlay.style.display = 'none';
+  function parkTakipPrintOverlay(overlay, frame) {
+    const pageSize = localStorage.getItem('selectedPageSize') || 'A5';
+    const h = pageSize === 'A4' ? '297mm' : '148mm';
+    if (overlay) {
+      overlay.style.cssText =
+        'display:block;position:fixed;top:0;left:0;width:210mm;height:' + h +
+        ';z-index:-1;opacity:0;overflow:hidden;pointer-events:none;';
+    }
+    const bar = document.getElementById('takipPrintFrameBar');
+    if (bar) bar.style.display = 'none';
     if (frame) {
-      frame.style.cssText = 'flex:0 0 auto;width:210mm;height:148mm;border:0;background:#fff;margin:16px auto;';
+      frame.style.cssText = 'display:block;width:210mm;height:' + h + ';border:0;background:#fff;';
       frame.setAttribute('aria-hidden', 'true');
     }
+  }
+
+  function hideTakipPrintFrame() {
+    parkTakipPrintOverlay(
+      document.getElementById('takipPrintOverlay'),
+      document.getElementById('takipPrintFrame')
+    );
   }
 
   function sizeTakipPrintFrame(frame, pageSize) {
@@ -214,10 +227,13 @@
     if (bar.parentElement !== overlay) overlay.insertBefore(bar, frame);
 
     if (visible) {
-      overlay.style.display = 'flex';
+      overlay.style.cssText =
+        'display:flex;position:fixed;inset:0;z-index:2147483000;background:#020617;flex-direction:column;width:100vw;height:100vh;max-width:100vw;max-height:100vh;overflow:auto;pointer-events:auto;';
+      if (bar) bar.style.display = 'flex';
+      sizeTakipPrintFrame(frame, localStorage.getItem('selectedPageSize') || 'A5');
       frame.setAttribute('aria-hidden', 'false');
     } else {
-      hideTakipPrintFrame();
+      parkTakipPrintOverlay(overlay, frame);
     }
     return frame;
   }
@@ -813,13 +829,23 @@
       applySizes();
 
       if (useLayoutNote) {
-        let layoutGuard = 0;
-        while (layoutGuard < 24 && (inner.scrollHeight > availH() + 1 || rowTooWide())) {
-          if (descPt > minDescPt) descPt -= 0.08;
-          else if (headEl && headPt > minHeadPt) headPt -= 0.08;
-          else break;
-          applySizes();
-          layoutGuard++;
+        if (kind !== 'ihracat') {
+          let layoutGuard = 0;
+          while (layoutGuard < 24 && (inner.scrollHeight > availH() + 1 || rowTooWide())) {
+            if (descPt > minDescPt) descPt -= 0.08;
+            else if (headEl && headPt > minHeadPt) headPt -= 0.08;
+            else break;
+            applySizes();
+            layoutGuard++;
+          }
+        } else {
+          const overflow = inner.scrollHeight > availH() + 1 || rowTooWide();
+          if (overflow) {
+            const scale = Math.max(0.72, Math.min(1, (availH() / inner.scrollHeight) * 0.98));
+            inner.style.transform = `scale(${scale})`;
+            inner.style.transformOrigin = 'top left';
+            if (scale < 1) inner.style.width = `${(100 / scale).toFixed(2)}%`;
+          }
         }
         return;
       }
@@ -842,9 +868,7 @@
       };
 
       applyLegacySizes();
-      const skipShrink =
-        (kind === 'piyasa' && descRows.length <= 4) ||
-        (kind === 'ihracat' && descRows.length <= 3);
+      const skipShrink = kind === 'ihracat' || (kind === 'piyasa' && descRows.length <= 4);
       let guard = 0;
       if (!skipShrink) {
         while (guard < 48 && (inner.scrollHeight > availH() + 1 || rowTooWide())) {
@@ -1963,6 +1987,7 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
       try { window.SignatureRegistry.loadSignatures().catch(function () {}); } catch (e) { /* ignore */ }
     }
 
+    const isPreview = !!opts.preview;
     const isDemo = !!opts.demo;
     const demoData = isDemo
       ? (opts.demoData || (typeof window.PrintLayoutSettings?.getDemoPrintData === 'function'
@@ -1985,8 +2010,7 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     
     const bgUrl = resolvePrintBgSrcForWindow();
     prefetchPrintBgImage();
-    getTakipPrintFrame(true);
-    sizeTakipPrintFrame(document.getElementById('takipPrintFrame'), pageSize);
+    getTakipPrintFrame(isPreview);
 
     const firmaKodu = readFormValue('firmaKodu');
     const malzeme = readFormValue('malzeme');
@@ -2989,20 +3013,9 @@ ${layoutPrintCss}
 
 
     
-    const isPreview = !!opts.preview;
-    const frame = getTakipPrintFrame(true);
-    sizeTakipPrintFrame(frame, pageSize);
+    const frame = getTakipPrintFrame(isPreview);
+    if (isPreview) sizeTakipPrintFrame(frame, pageSize);
     let w = frame && frame.contentWindow;
-    if ((!w || !w.document) && frame) {
-      await new Promise((resolve) => {
-        const done = () => resolve();
-        const t = setTimeout(done, 80);
-        try {
-          frame.addEventListener('load', () => { clearTimeout(t); done(); }, { once: true });
-        } catch (e) {}
-      });
-      w = frame.contentWindow;
-    }
     if (!w || !w.document) {
       alert("❌ Yazdırma hazır değil. Sayfayı yenileyip tekrar deneyin.");
       clearLayoutSnapshot();
@@ -3050,6 +3063,10 @@ ${layoutPrintCss}
     const onPrintWindowReady = () => {
       if (w.__printReadyRan) return;
       w.__printReadyRan = true;
+      if (!isPreview) {
+        doPrint();
+        return;
+      }
       const useLayoutRenderer = !!w.document.querySelector('.plf-page');
       if (useLayoutRenderer) {
         const finishPreview = () => {
@@ -3313,7 +3330,7 @@ ${layoutPrintCss}
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: 'print-v11-fastdialog',
+    __aracBosRev: 'print-v14-syncprint',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;
