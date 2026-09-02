@@ -34,16 +34,15 @@ const reportsRoute = fs.readFileSync(
   'utf8'
 );
 
-test('Yazdır her basımda yeni çerçeve açar; önizleme overlay kullanmaz', () => {
+test('Yazdır tablo görseli yüklenmeden print açmaz', () => {
   assert.match(printMain, /function createDirectPrintFrame/);
-  assert.match(printMain, /function removeDirectPrintFrame/);
   assert.match(printMain, /takipDirectPrintFrame/);
   assert.match(printMain, /w\.print\(\)/);
+  assert.match(printMain, /waitForPrintDocumentImages\(w\.document, doPrint/);
   assert.doesNotMatch(printMain, /window\.open\('', 'takipPrint'\)/);
-  assert.doesNotMatch(printMain, /if \(isChromeOrEdge\(\)\) return/);
-  assert.match(printMain, /if \(!isPreview\) \{\s*doPrint\(\);/);
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
   assert.doesNotMatch(giris, /id="onizlemeButton"/);
+  assert.doesNotMatch(giris, /direkt-yazdir\.js/);
 });
 
 test('Yazdır çerçeve görseli HTTP URL kullanır (blob Chrome yazdırmada düşer)', () => {

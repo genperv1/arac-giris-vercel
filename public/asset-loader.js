@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v17-reprint';
+  var PRINT_REV = 'print-v18-formbg';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

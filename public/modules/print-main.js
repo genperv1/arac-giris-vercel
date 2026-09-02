@@ -81,9 +81,9 @@
     try {
       const pending = [];
       const bg = doc.querySelector('.plf-bg, .bg');
-      if (bg && !(bg.complete && bg.naturalWidth > 0)) pending.push(bg);
+      if (bg) pending.push(bg);
       doc.querySelectorAll('.plf-body--sig img, .imza-img').forEach(function (img) {
-        if (img && !(img.complete && img.naturalWidth > 0)) pending.push(img);
+        if (img) pending.push(img);
       });
       if (!pending.length) {
         finish();
@@ -94,15 +94,22 @@
         if (--left <= 0) finish();
       };
       pending.forEach(function (img) {
-        img.addEventListener('load', tick, { once: true });
+        const ready = function () {
+          if (img.decode) {
+            img.decode().then(tick, tick);
+          } else {
+            tick();
+          }
+        };
+        img.addEventListener('load', ready, { once: true });
         img.addEventListener('error', tick, { once: true });
-        if (img.complete && img.naturalWidth > 0) tick();
+        if (img.complete && img.naturalWidth > 0) ready();
       });
     } catch (_) {
       finish();
       return;
     }
-    setTimeout(finish, timeoutMs || 2500);
+    setTimeout(finish, timeoutMs || 4000);
   }
 
   async function resolvePrintBgUrl() {
@@ -174,15 +181,22 @@
     const started = Date.now();
     const closePopup = !win.__takipPrintFrame;
     win.onafterprint = function () {
-      if (Date.now() - started < 400) return;
-      try { hideTakipPrintFrame(); } catch (e) {}
-      try { removeDirectPrintFrame(); } catch (e) {}
-      if (closePopup) {
-        try { win.close(); } catch (e) {}
-      }
+      if (Date.now() - started < 800) return;
       try {
         if (typeof window.afterTakipPrint === 'function') window.afterTakipPrint();
       } catch (e) {}
+      if (closePopup) {
+        try { win.close(); } catch (e) {}
+      }
+      // Görseli silme — sadece ekrandan çek. Sonraki Yazdır yeni iframe açar.
+      setTimeout(function () {
+        const el = document.getElementById('takipDirectPrintFrame');
+        if (el) {
+          el.style.left = '-10000px';
+          el.style.pointerEvents = 'none';
+        }
+        try { hideTakipPrintFrame(); } catch (e) {}
+      }, 800);
     };
   }
 
@@ -3129,7 +3143,7 @@ ${layoutPrintCss}
     const onPrintWindowReady = () => {
       try { w.__printReadyRan = false; } catch (e) {}
       if (!isPreview) {
-        doPrint();
+        waitForPrintDocumentImages(w.document, doPrint, 4000);
         return;
       }
       if (w.__printReadyRan) return;
@@ -3397,7 +3411,7 @@ ${layoutPrintCss}
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: 'print-v17-reprint',
+    __aracBosRev: 'print-v18-formbg',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;
