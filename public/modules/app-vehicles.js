@@ -656,8 +656,9 @@ function setupTakipFormButtons() {
         });
     }
 
-    // Önizleme button
+    // Önizleme kaldırıldı; Yazdır doğrudan yazıcı penceresini açar.
     const onizlemeBtn = document.getElementById('onizlemeButton');
+    if (onizlemeBtn) onizlemeBtn.hidden = true;
     if (onizlemeBtn && !onizlemeBtn.__previewHandlerBound) {
         onizlemeBtn.__previewHandlerBound = true;
         onizlemeBtn.addEventListener('click', async function(e) {

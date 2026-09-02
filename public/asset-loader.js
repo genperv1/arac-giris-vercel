@@ -4,7 +4,7 @@
   var VER =
     typeof window !== 'undefined' && window.__ASSET_VER != null && String(window.__ASSET_VER).trim() !== ''
       ? String(window.__ASSET_VER).trim()
-      : '1.0.2-20260827-printfast';
+      : '1.0.2-20260902-directprint';
 
   function qs() {
     return 'v=' + encodeURIComponent(VER);
@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v15-frameprint';
+  var PRINT_REV = 'print-v17-reprint';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

@@ -51,7 +51,11 @@
       const n = parseFloat(raw.replace(/\./g, '').replace(',', '.'));
       return Number.isFinite(n) ? n : 0;
     }
-    return parseNum(v);
+    const n = parseNum(v);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    // Excel kantar ton: 25.22 / 25,220 (ekranda 25.220). BBT kopyası 24 kalır.
+    if (n >= 8 && n < 80 && !Number.isInteger(n)) return Math.round(n * 1000);
+    return n;
   }
 
   /**

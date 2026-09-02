@@ -34,19 +34,20 @@ const reportsRoute = fs.readFileSync(
   'utf8'
 );
 
-test('Yazdır tam ekran önizleme overlay açmaz; yalnızca Önizleme açar', () => {
-  assert.match(printMain, /function parkTakipPrintOverlay/);
-  assert.match(printMain, /opacity:0/);
-  assert.match(printMain, /getTakipPrintFrame\(isPreview\)/);
-  assert.doesNotMatch(printMain, /getTakipPrintFrame\(true\)/);
+test('Yazdır her basımda yeni çerçeve açar; önizleme overlay kullanmaz', () => {
+  assert.match(printMain, /function createDirectPrintFrame/);
+  assert.match(printMain, /function removeDirectPrintFrame/);
+  assert.match(printMain, /takipDirectPrintFrame/);
   assert.match(printMain, /w\.print\(\)/);
+  assert.doesNotMatch(printMain, /window\.open\('', 'takipPrint'\)/);
   assert.doesNotMatch(printMain, /if \(isChromeOrEdge\(\)\) return/);
-  assert.match(printMain, /if \(!isPreview\) \{\s*waitForPrintDocumentImages\(w\.document, doPrint/);
+  assert.match(printMain, /if \(!isPreview\) \{\s*doPrint\(\);/);
+  const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
+  assert.doesNotMatch(giris, /id="onizlemeButton"/);
 });
 
-test('Yazdır çerçeve görseli yüklenmeden print açmaz', () => {
+test('Yazdır çerçeve görseli HTTP URL kullanır (blob Chrome yazdırmada düşer)', () => {
   assert.match(printMain, /function waitForPrintDocumentImages/);
-  assert.match(printMain, /waitForPrintDocumentImages\(w\.document, doPrint/);
   assert.match(printMain, /\.plf-bg, \.bg/);
   assert.doesNotMatch(printMain, /if \(window\.__printBgBlobUrl\) return window\.__printBgBlobUrl/);
   assert.match(printMain, /blob: Chrome yazdırmada çerçeveyi düşürür/);

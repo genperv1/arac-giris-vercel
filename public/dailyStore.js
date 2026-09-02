@@ -18,6 +18,7 @@
   };
 
   let _hydratePromise = null;
+  let _hydrateSeq = 0;
 
   function _safeJsonParse(raw, fallback){
     try{ const v = JSON.parse(raw); return v ?? fallback; }catch(e){ return fallback; }
@@ -41,20 +42,32 @@
     }
   }
 
-  async function _idbSave(rows, meta){
+  function _promoteIdbAsPrimary(){
+    try {
+      localStorage.setItem(LS_BACKEND_KEY, 'idb');
+      localStorage.removeItem(LS_ROWS_KEY);
+      localStorage.removeItem(LS_META_KEY);
+    } catch (e) { /* ignore */ }
+  }
+
+  async function _idbSave(rows, meta, opts){
     if (!_idbAvailable()) return false;
     try {
       await IDBStore.kvSet(LS_ROWS_KEY, rows || []);
       await IDBStore.kvSet(LS_META_KEY, meta || {});
-      try {
-        localStorage.setItem(LS_BACKEND_KEY, 'idb');
-        localStorage.removeItem(LS_ROWS_KEY);
-        localStorage.removeItem(LS_META_KEY);
-      } catch (e) { /* ignore */ }
+      // LS sığdıysa onu silme — ilk açılışta liste boş kalmasın.
+      // Kota dolunca IDB asıl depo olur.
+      if (opts && opts.promoteToPrimary) _promoteIdbAsPrimary();
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  function _notifyHydrated(){
+    try { window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo(); } catch (_) {}
+    try { window.refreshAppPartial && window.refreshAppPartial(); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent('daily-store-ready')); } catch (_) {}
   }
 
   async function _idbClear(){
@@ -182,9 +195,10 @@
     };
   }
 
-  async function _hydrateFromIdbIfNeeded(){
+  async function _hydrateFromIdbIfNeeded(seq){
     const ls = _lsLoad();
     const idb = await _idbLoad();
+    if (seq != null && seq !== _hydrateSeq) return cache;
     let backend = '';
     try { backend = String(localStorage.getItem(LS_BACKEND_KEY) || '').trim(); } catch (e) {}
     // Son yazılan depo tam anlık görüntü — eski IDB/LS satırlarını birleştirme
@@ -227,12 +241,24 @@
   }
 
   async function ensureReady(){
-    if (cache.rows.length) {
-      cache.loaded = true;
+    if (cache.loaded) return cache;
+    if (_hydratePromise) {
+      try { await _hydratePromise; } catch (e) { /* ignore */ }
       return cache;
     }
-    cache.loaded = false;
-    _hydratePromise = _hydrateFromIdbIfNeeded();
+    const seq = _hydrateSeq;
+    _hydratePromise = _hydrateFromIdbIfNeeded(seq)
+      .then((c) => {
+        if (seq === _hydrateSeq) {
+          cache.loaded = true;
+          _notifyHydrated();
+        }
+        return c;
+      })
+      .catch((err) => {
+        if (seq === _hydrateSeq) _hydratePromise = null;
+        throw err;
+      });
     try { await _hydratePromise; } catch (e) { /* ignore */ }
     return cache;
   }
@@ -252,6 +278,7 @@
   }
 
   async function reload() {
+    _hydrateSeq += 1;
     cache.rows = [];
     cache.meta = {};
     cache.loaded = false;
@@ -267,7 +294,7 @@
     cache.indexByPlate = null;
     _pruneLocalStorageForDailySave();
     const lsOk = _lsSave(cache.rows, cache.meta);
-    const idbOk = await _idbSave(cache.rows, cache.meta);
+    const idbOk = await _idbSave(cache.rows, cache.meta, { promoteToPrimary: !lsOk });
     return !!(lsOk || idbOk);
   }
 
@@ -283,6 +310,7 @@
   }
 
   async function syncFromServer() {
+    _hydrateSeq += 1;
     cache.loaded = false;
     _hydratePromise = null;
     return init();

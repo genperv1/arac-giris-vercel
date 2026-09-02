@@ -1666,6 +1666,15 @@ test('parseKg — Turkish thousand separators', () => {
   assert.equal(core.parseKg('33000'), 33000);
 });
 
+test('parseKg — Excel ton decimal 25.220 is kg', () => {
+  assert.equal(core.parseKg(25.22), 25220);
+  assert.equal(core.parseKg('25.22'), 25220);
+  assert.equal(core.parseKg('25,220'), 25220);
+  assert.equal(core.parseKg('25.220'), 25220);
+  assert.equal(core.parseKg(24), 24);
+  assert.equal(core.parseKg('24'), 24);
+});
+
 test('isRowDeparted — Excel 33.000 giden is departed', () => {
   assert.equal(
     core.isRowDeparted({
@@ -1676,6 +1685,37 @@ test('isRowDeparted — Excel 33.000 giden is departed', () => {
     }),
     true
   );
+});
+
+test('isRowDeparted — 43KG042 Excel 25.220 ton is departed, not gelmeyen', () => {
+  assert.equal(
+    core.isRowDeparted({
+      plaka: '43KG042',
+      bbt: '20',
+      gidenTonaj: 25.22,
+      netTonaj: 25.04,
+    }),
+    true
+  );
+  assert.equal(
+    core.isRowDeparted({
+      plaka: '43KG042',
+      bbt: '20',
+      gidenTonaj: '25.220',
+    }),
+    true
+  );
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'K',
+      headerText: 'YD1 / 20 BBT',
+      plaka: '43KG042',
+      bbt: '20',
+      gidenTonaj: 25.22,
+      netTonaj: 25.04,
+    },
+  ]);
+  assert.equal(item, null);
 });
 
 test('analyzeBlock — 0PLAKA0 / EU BBT goes to remaining, not gelmeyen', () => {

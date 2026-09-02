@@ -2059,7 +2059,7 @@ function rebuildListsFromExcelRows(rows){
     }
   }catch(e){}
 }
-/** Bilinen liman/terminal adları — uzun eşleşmeler önce (GEMPORT/SAFIPORT karışmasın diye genel PORT yok) */
+/** Bilinen liman/terminal adları — uzun eşleşmeler önce (EXPORT REF içindeki PORT karışmasın diye çıplak PORT yok) */
 const IHR_PORT_DEFS = [
   { re: /\bDP\s+WORLD\b/i, label: 'DP WORLD' },
   { re: /\bBORUSAN\s*\/\s*GEML[Iİ]K\b/i, label: 'BORUSAN/GEMLİK' },
@@ -2069,6 +2069,7 @@ const IHR_PORT_DEFS = [
   { re: /\bAKDEN[Iİ]Z\s+PORT\b/i, label: 'AKDENİZ PORT' },
   { re: /\bASYA\s+PORTS?\b/i, label: 'ASYA PORT' },
   { re: /\bHAYDARPA[SŞ]A\b/i, label: 'HAYDARPAŞA' },
+  { re: /\bRODA[\s\-]*PORT\b/i, label: 'RODAPORT' },
   { re: /\bGEMPORT\b/i, label: 'GEMPORT' },
   { re: /\bSAF[Iİ]PORT\b/i, label: 'SAFİPORT' },
   { re: /\bMARDA[SŞ]\b/i, label: 'MARDAŞ' },
@@ -2083,6 +2084,9 @@ const IHR_PORT_DEFS = [
   { re: /\bK[OÖ]RFEZ\b/i, label: 'KÖRFEZ' },
 ];
 
+/** EXPORT/IMPORT (2 harf + PORT) bilinçli dışarıda; PASSPORT gibi İngilizce kelimeler gürültü */
+const IHR_PORT_WORD_NOISE = /^(PASSPORT|AIRPORT|TRANSPORT|SUPPORT|HELIPORT|VIEWPORT)$/i;
+
 function _findKnownPortsInText(text) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
   if (!s) return [];
@@ -2091,12 +2095,23 @@ function _findKnownPortsInText(text) {
     const m = s.match(def.re);
     if (m && m.index != null) hits.push({ label: def.label, index: m.index });
   }
+  const seenFold = new Set(hits.map((h) => _foldPortKey(h.label)));
+  const wordRe = /\b([A-ZÇĞİÖŞÜa-zçğıöşü]{3,}PORT)\b/gi;
+  let wm;
+  while ((wm = wordRe.exec(s))) {
+    const label = String(wm[1] || '').toLocaleUpperCase('tr-TR');
+    const fold = _foldPortKey(label);
+    if (!fold || IHR_PORT_WORD_NOISE.test(fold) || seenFold.has(fold)) continue;
+    seenFold.add(fold);
+    hits.push({ label, index: wm.index });
+  }
   hits.sort((a, b) => a.index - b.index);
   const seen = new Set();
   const out = [];
   for (const h of hits) {
-    if (seen.has(h.label)) continue;
-    seen.add(h.label);
+    const key = _foldPortKey(h.label) || h.label;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(h.label);
   }
   return out;
@@ -2116,8 +2131,10 @@ function _sevkYeriFromPortSegment(segment, knownPorts) {
   const last = knownPorts[knownPorts.length - 1] || '';
   if (!seg) return last;
   const compact = _foldPortKey(seg);
+  const squeezed = compact.replace(/[\s\-]+/g, '');
   for (const p of knownPorts) {
-    if (compact === _foldPortKey(p)) return p;
+    const pk = _foldPortKey(p);
+    if (compact === pk || squeezed === pk.replace(/[\s\-]+/g, '')) return p;
   }
   // Excel'deki kırmızı depo/liman ifadesinin tamamını koru
   return seg;
@@ -2244,7 +2261,7 @@ function cleanAmbalajText(text) {
     .replace(/\bGEM[İI]\b.*$/i, '')
     .replace(/\bGEMI\b.*$/i, '')
     .replace(/\bEXPORT\b.*$/i, '')
-    .replace(/\b(GEMPORT|SAF[Iİ]PORT|KUMPORT|MARPORT|MARDA[SŞ]|EVYAP|YILPORT)\b.*$/i, '')
+    .replace(/\b(GEMPORT|SAF[Iİ]PORT|KUMPORT|MARPORT|MARDA[SŞ]|EVYAP|YILPORT|RODA[\s\-]*PORT)\b.*$/i, '')
     .replace(/\bTON\b.*$/i, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -2597,7 +2614,8 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
 
   if (mainItem) {
     out.mainHeader = mainItem.main;
-    const portFromMain = extractPortFromHeaderText(mainItem.main);
+    const portFromMain = extractPortFromHeaderText(mainItem.main)
+      || _pickIhracatPortFromRow(mainItem.row);
     if (portFromMain) out.portLine = portFromMain;
     const split = _splitMainHeaderBlackLines(mainItem.main);
     out.blackLine1 = split.line1;
@@ -3490,6 +3508,11 @@ async function listTodayIhracatReportBlocks(opts) {
 }
 
 async function collectIhracatPickRows(opts) {
+  try {
+    if (window.DailyStore && typeof DailyStore.ensureReady === 'function') {
+      await DailyStore.ensureReady();
+    }
+  } catch (e) { /* ignore */ }
   const excel = listIhracatExcelBlocksForPicker();
   const seen = new Set(excel.map(_ihracatPickDedupeKey).filter((k) => k && k !== '|'));
   const extra = [];

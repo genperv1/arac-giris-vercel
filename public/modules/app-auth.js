@@ -665,14 +665,22 @@ document.getElementById('showMoreButton')?.addEventListener('click', function ()
   try { if (typeof updateShowMorePartial === 'function') updateShowMorePartial(); } catch (e) {}
 });
 
-            // Chip click: yüklüyse doğrudan ilgili detay / sipariş penceresi
+            // Chip click: depo hazır olunca detay penceresi (IDB hydrate bitmeden boş sanılmasın)
             addOnce(document.getElementById('chipIhracat'), 'click', () => {
-              const cnt = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
-              if (cnt > 0) {
-                showIhracatDetailsModal();
-              } else {
-                showToast('❌ İhracat Excel yüklü değil.');
-              }
+              const open = async () => {
+                try {
+                  if (window.DailyStore && typeof DailyStore.ensureReady === 'function') {
+                    await DailyStore.ensureReady();
+                  }
+                } catch (e) { /* ignore */ }
+                const cnt = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
+                if (cnt > 0) {
+                  showIhracatDetailsModal();
+                } else {
+                  showToast('❌ İhracat Excel yüklü değil.');
+                }
+              };
+              open();
             });
 
             addOnce(document.getElementById('chipPiyasa'), 'click', () => {
@@ -1074,6 +1082,12 @@ function enterAppWithDelay(ms = 0) {
       if (mainApp) {
         mainApp.style.setProperty('display', 'block', 'important');
       }
+
+      try {
+        if (window.DailyStore && typeof DailyStore.ensureReady === 'function') {
+          await DailyStore.ensureReady();
+        }
+      } catch (e) { /* ignore */ }
 
       state.vehiclesLoading = true;
       try { if (typeof render === 'function') render({ full: true }); } catch (e) {}

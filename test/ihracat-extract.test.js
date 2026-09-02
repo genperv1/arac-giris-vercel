@@ -89,3 +89,25 @@ test('getLimanCandidates lists ports independently', () => {
   assert.strictEqual(cands[0], 'GEMPORT');
   assert.ok(cands.includes('SAFİPORT'));
 });
+
+test('extractPortFromHeaderText reads RODAPORT and other *PORT names', () => {
+  assert.strictEqual(
+    extractPortFromHeaderText('YD28 / NET 1250 KG BIGBAG / RODAPORT'),
+    'RODAPORT'
+  );
+  assert.strictEqual(
+    extractPortFromHeaderText('YD82 / NET 1350 KG BASKILI LINERLI BIGBAG / RODA PORT'),
+    'RODAPORT'
+  );
+  assert.strictEqual(extractPortFromHeaderText('RODAPORT'), 'RODAPORT');
+  assert.strictEqual(
+    extractPortFromHeaderText('YD40 / BOOKING NO : ABC / EGEPORT'),
+    'EGEPORT'
+  );
+  assert.strictEqual(
+    extractPortFromHeaderText('YD28 / NET 1250 KG BIGBAG / EXPORT REF : ABC123'),
+    ''
+  );
+  const cands = getLimanCandidates('YD28 / NET 1250 KG BIGBAG / RODAPORT');
+  assert.strictEqual(cands[0], 'RODAPORT');
+});

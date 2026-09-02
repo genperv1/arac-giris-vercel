@@ -1368,6 +1368,9 @@
     window.addEventListener('nakliye-excel-changed', () => {
       void refreshFromStore();
     });
+    window.addEventListener('daily-store-ready', () => {
+      void renderList();
+    });
     window.addEventListener('storage', (e) => {
       if (
         e.key === 'daily_shipments_current' ||

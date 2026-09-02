@@ -144,15 +144,12 @@
   function parkTakipPrintOverlay(overlay, frame) {
     const pageSize = localStorage.getItem('selectedPageSize') || 'A5';
     const h = pageSize === 'A4' ? '297mm' : '148mm';
-    if (overlay) {
-      overlay.style.cssText =
-        'display:block;position:fixed;top:0;left:0;width:210mm;height:' + h +
-        ';z-index:-1;opacity:0;overflow:hidden;pointer-events:none;';
-    }
     const bar = document.getElementById('takipPrintFrameBar');
+    if (overlay) overlay.style.cssText = 'display:none;';
     if (bar) bar.style.display = 'none';
     if (frame) {
-      frame.style.cssText = 'display:block;width:210mm;height:' + h + ';border:0;background:#fff;';
+      frame.style.cssText =
+        'display:block;width:210mm;height:' + h + ';border:0;background:#fff;';
       frame.setAttribute('aria-hidden', 'true');
     }
   }
@@ -175,13 +172,40 @@
   function bindTakipPrint(win) {
     if (!win) return;
     const started = Date.now();
+    const closePopup = !win.__takipPrintFrame;
     win.onafterprint = function () {
       if (Date.now() - started < 400) return;
       try { hideTakipPrintFrame(); } catch (e) {}
+      try { removeDirectPrintFrame(); } catch (e) {}
+      if (closePopup) {
+        try { win.close(); } catch (e) {}
+      }
       try {
         if (typeof window.afterTakipPrint === 'function') window.afterTakipPrint();
       } catch (e) {}
     };
+  }
+
+  function removeDirectPrintFrame() {
+    const el = document.getElementById('takipDirectPrintFrame');
+    if (!el) return;
+    try { el.remove(); } catch (e) {}
+  }
+
+  /** Her yazdırmada yeni iframe — Chrome aynı çerçeveye ikinci print() çağrısını yutuyor. */
+  function createDirectPrintFrame() {
+    try { hideTakipPrintFrame(); } catch (e) {}
+    removeDirectPrintFrame();
+    const iframe = document.createElement('iframe');
+    iframe.id = 'takipDirectPrintFrame';
+    iframe.title = 'Yazdırma';
+    const pageSize = localStorage.getItem('selectedPageSize') || 'A5';
+    const h = pageSize === 'A4' ? '297mm' : '148mm';
+    iframe.style.cssText =
+      'position:fixed;left:0;top:0;width:210mm;height:' + h +
+      ';border:0;margin:0;background:#fff;z-index:2147483000;display:block;visibility:visible;opacity:1;';
+    document.body.appendChild(iframe);
+    return iframe;
   }
 
   function getTakipPrintFrame(visible) {
@@ -1975,7 +1999,8 @@ window.fitMalzemeInput = fitMalzemeInput;
 window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
 
         // Takip Formunu Yazdır
-    async function yazdirForm(opts = {}) {
+    function yazdirForm(opts = {}) {
+    const isPreview = !!opts.preview;
     const clearLayoutSnapshot = () => {
       try { window.PrintLayoutSettings?.clearPreviewSnapshot?.(); } catch (e) { /* ignore */ }
     };
@@ -2009,7 +2034,6 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
       try { window.SignatureRegistry.loadSignatures().catch(function () {}); } catch (e) { /* ignore */ }
     }
 
-    const isPreview = !!opts.preview;
     const isDemo = !!opts.demo;
     const demoData = isDemo
       ? (opts.demoData || (typeof window.PrintLayoutSettings?.getDemoPrintData === 'function'
@@ -2032,7 +2056,7 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     
     const bgUrl = resolvePrintBgSrcForWindow();
     prefetchPrintBgImage();
-    getTakipPrintFrame(isPreview);
+    if (isPreview) getTakipPrintFrame(true);
 
     const firmaKodu = readFormValue('firmaKodu');
     const malzeme = readFormValue('malzeme');
@@ -3048,15 +3072,22 @@ ${layoutPrintCss}
 
 
     
-    const frame = getTakipPrintFrame(isPreview);
-    if (isPreview) sizeTakipPrintFrame(frame, pageSize);
-    let w = frame && frame.contentWindow;
+    let w = null;
+    if (isPreview) {
+      const frame = getTakipPrintFrame(true);
+      sizeTakipPrintFrame(frame, pageSize);
+      w = frame && frame.contentWindow;
+      try { if (w) w.__takipPrintFrame = true; } catch (e) {}
+    } else {
+      const frame = createDirectPrintFrame();
+      w = frame && frame.contentWindow;
+      try { if (w) w.__takipPrintFrame = true; } catch (e) {}
+    }
     if (!w || !w.document) {
       alert("❌ Yazdırma hazır değil. Sayfayı yenileyip tekrar deneyin.");
       clearLayoutSnapshot();
       return null;
     }
-    try { w.__takipPrintFrame = true; } catch (e) {}
     w.document.open();
     w.document.write(printHTML);
     w.document.close();
@@ -3064,7 +3095,7 @@ ${layoutPrintCss}
     // ✅ pageSize'ı window objesine attach et (onload'da kullanmak için)
     w.__pageSize = pageSize;
 
-    // Önizleme ve yazdırma: aynı görünür iframe; yazdırma sistem diyaloğunu açar
+    // Yazdır: önizleme yok, sistem yazıcı diyaloğu hemen açılır
 
     // WYSIWYG: önizleme ile yazdır aynı görünüm — ekstra ölçek/margin YOK
     const applyPrintSafeScale = () => {
@@ -3096,12 +3127,13 @@ ${layoutPrintCss}
     };
 
     const onPrintWindowReady = () => {
-      if (w.__printReadyRan) return;
-      w.__printReadyRan = true;
+      try { w.__printReadyRan = false; } catch (e) {}
       if (!isPreview) {
-        waitForPrintDocumentImages(w.document, doPrint, 2500);
+        doPrint();
         return;
       }
+      if (w.__printReadyRan) return;
+      w.__printReadyRan = true;
       const useLayoutRenderer = !!w.document.querySelector('.plf-page');
       if (useLayoutRenderer) {
         const finishPreview = () => {
@@ -3365,7 +3397,7 @@ ${layoutPrintCss}
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: 'print-v15-frameprint',
+    __aracBosRev: 'print-v17-reprint',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;
