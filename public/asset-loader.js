@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v14-syncprint';
+  var PRINT_REV = 'print-v15-frameprint';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {
@@ -123,7 +123,7 @@
     if (printPromise) return printPromise;
     printPromise = loadScriptIfMissing(function () { return !!window.SignatureRegistry; }, '/signatures-registry.js')
       .then(function () { return loadScriptIfMissing(function () { return !!window.PrintFormBgUpload; }, '/print-form-bg-upload.js'); })
-      .then(function () { return loadScriptIfMissing(function () { return !!window.PrintLayoutSettings; }, '/print-layout-settings.js'); })
+      .then(function () { return loadScriptIfMissing(function () { return !!window.PrintLayoutSettings; }, '/print-layout-settings.js?rev=' + encodeURIComponent(PRINT_REV)); })
       .then(function () {
         if (window.PrintLayoutSettings && typeof window.PrintLayoutSettings.ensureSyncedOnce === 'function') {
           return window.PrintLayoutSettings.ensureSyncedOnce().catch(function () {});

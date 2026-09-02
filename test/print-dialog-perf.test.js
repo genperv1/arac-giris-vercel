@@ -41,7 +41,15 @@ test('Yazdır tam ekran önizleme overlay açmaz; yalnızca Önizleme açar', ()
   assert.doesNotMatch(printMain, /getTakipPrintFrame\(true\)/);
   assert.match(printMain, /w\.print\(\)/);
   assert.doesNotMatch(printMain, /if \(isChromeOrEdge\(\)\) return/);
-  assert.match(printMain, /if \(!isPreview\) \{\s*doPrint\(\);/);
+  assert.match(printMain, /if \(!isPreview\) \{\s*waitForPrintDocumentImages\(w\.document, doPrint/);
+});
+
+test('Yazdır çerçeve görseli yüklenmeden print açmaz', () => {
+  assert.match(printMain, /function waitForPrintDocumentImages/);
+  assert.match(printMain, /waitForPrintDocumentImages\(w\.document, doPrint/);
+  assert.match(printMain, /\.plf-bg, \.bg/);
+  assert.doesNotMatch(printMain, /if \(window\.__printBgBlobUrl\) return window\.__printBgBlobUrl/);
+  assert.match(printMain, /blob: Chrome yazdırmada çerçeveyi düşürür/);
 });
 
 test('ihracat açıklaması yazdırmada 35 adımlık büyütme döngüsü yok', () => {

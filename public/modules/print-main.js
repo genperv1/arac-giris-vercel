@@ -50,14 +50,13 @@
     return /^https?:\/\//i.test(s) || s.startsWith('/');
   }
 
-  /** Yazdırma penceresi için HTTP veya hazır blob URL. */
+  /** Yazdırma belgesi için HTTP URL (blob: Chrome yazdırmada çerçeveyi düşürür). */
   function resolvePrintBgSrcForWindow() {
     try {
-      if (window.__printBgBlobUrl) return window.__printBgBlobUrl;
-    } catch (_) {}
-    try {
       const custom = String(localStorage.getItem('printBgUrl') || '').trim();
-      if (custom && isHttpPrintBgUrl(custom) && !/^data:/i.test(custom)) return toPrintBgSrc(custom);
+      if (custom && isHttpPrintBgUrl(custom) && !/^data:/i.test(custom) && !/^blob:/i.test(custom)) {
+        return toPrintBgSrc(custom);
+      }
     } catch (_) {}
     const origin = getPrintOrigin();
     return origin ? origin + PRINT_BG_API : PRINT_BG_API;
@@ -65,22 +64,45 @@
 
   function prefetchPrintBgImage() {
     try {
-      if (window.__printBgBlobUrl) return;
       const origin = getPrintOrigin();
       const httpSrc = origin ? origin + PRINT_BG_API : PRINT_BG_API;
       const img = new Image();
       img.src = httpSrc;
-      fetch(httpSrc, { credentials: 'same-origin', cache: 'force-cache' })
-        .then(function (r) { return r.ok ? r.blob() : null; })
-        .then(function (blob) {
-          if (!blob || blob.size < 500) return;
-          try {
-            if (window.__printBgBlobUrl) URL.revokeObjectURL(window.__printBgBlobUrl);
-          } catch (_) {}
-          window.__printBgBlobUrl = URL.createObjectURL(blob);
-        })
-        .catch(function () {});
     } catch (_) {}
+  }
+
+  function waitForPrintDocumentImages(doc, done, timeoutMs) {
+    let finished = false;
+    const finish = function () {
+      if (finished) return;
+      finished = true;
+      done();
+    };
+    try {
+      const pending = [];
+      const bg = doc.querySelector('.plf-bg, .bg');
+      if (bg && !(bg.complete && bg.naturalWidth > 0)) pending.push(bg);
+      doc.querySelectorAll('.plf-body--sig img, .imza-img').forEach(function (img) {
+        if (img && !(img.complete && img.naturalWidth > 0)) pending.push(img);
+      });
+      if (!pending.length) {
+        finish();
+        return;
+      }
+      let left = pending.length;
+      const tick = function () {
+        if (--left <= 0) finish();
+      };
+      pending.forEach(function (img) {
+        img.addEventListener('load', tick, { once: true });
+        img.addEventListener('error', tick, { once: true });
+        if (img.complete && img.naturalWidth > 0) tick();
+      });
+    } catch (_) {
+      finish();
+      return;
+    }
+    setTimeout(finish, timeoutMs || 2500);
   }
 
   async function resolvePrintBgUrl() {
@@ -2485,7 +2507,7 @@ const bosBbtText = amb.bosBbt;
         }
       }
 
-      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
 
   .bg{
     position:absolute;
@@ -2494,6 +2516,19 @@ const bosBbtText = amb.bosBbt;
     height: 100%;
     display:block;
     object-fit: fill;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color-adjust: exact;
+  }
+  @media print {
+    .bg {
+      visibility: visible !important;
+      display: block !important;
+      opacity: 1 !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
   }
 
   .field{
@@ -2896,7 +2931,7 @@ ${layoutPrintCss}
 </head>
 <body><div id="printViewport"><div id="printRoot">
 <div class="page">
-<img class="bg" src="${bgUrl}" alt="">
+<img class="bg" src="${bgUrl}" alt="" decoding="sync" fetchpriority="high">
 
     <div class="field pf-field pf-yuklemeSirasi field-center" style="${pfPos('yuklemeSirasi', 'text-align:right;padding-right:1mm;')}">
         ${yuklemeSirasi}
@@ -3064,7 +3099,7 @@ ${layoutPrintCss}
       if (w.__printReadyRan) return;
       w.__printReadyRan = true;
       if (!isPreview) {
-        doPrint();
+        waitForPrintDocumentImages(w.document, doPrint, 2500);
         return;
       }
       const useLayoutRenderer = !!w.document.querySelector('.plf-page');
@@ -3330,7 +3365,7 @@ ${layoutPrintCss}
     yazdirForm,
     getNextYuklemeSirasi,
     getLocalDateKey,
-    __aracBosRev: 'print-v14-syncprint',
+    __aracBosRev: 'print-v15-frameprint',
   };
   window.fitYuklemeNotuPrint = fitYuklemeNotuPrint;
   window.resolveYuklemeNotuKind = resolveYuklemeNotuKind;

@@ -806,7 +806,7 @@
 <title>Sevkiyat Formu</title>
 <style>
   @page { size: ${pageParams.size}; margin: 0; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
   html, body {
     margin: 0; padding: 0;
     width: ${pageParams.width}; height: ${pageParams.height};
@@ -826,7 +826,7 @@
     transform: none;
     transform-origin: top center;
   }
-  .plf-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; z-index: 0; display: block; }
+  .plf-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; z-index: 0; display: block; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
   .plf-fields { position: absolute; inset: 0; z-index: 1; }
   .plf-field { position: absolute; overflow: hidden; }
   @media print {
@@ -835,13 +835,21 @@
       transform: none !important;
       margin: 0 auto !important;
     }
+    .plf-bg {
+      visibility: visible !important;
+      display: block !important;
+      opacity: 1 !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
   }
 </style>
 </head>
 <body>
 <div id="printViewport"><div id="printRoot">
   <div class="plf-page">
-    <img class="plf-bg" src="${bgUrl}" alt="" decoding="async" fetchpriority="high">
+    <img class="plf-bg" src="${bgUrl}" alt="" decoding="sync" fetchpriority="high">
     <div class="plf-fields">${fieldsHtml}</div>
   </div>
 </div></div>
