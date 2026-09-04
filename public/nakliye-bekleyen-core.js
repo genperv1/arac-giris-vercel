@@ -255,9 +255,194 @@
     return String(sample.ydKey || sample.firma || 'GENEL').trim().toUpperCase() || 'GENEL';
   }
 
+  const NB_PORT_DEFS = [
+    { re: /\bDP\s+WORLD\b/i, label: 'DP WORLD' },
+    { re: /\bBORUSAN\s*\/\s*GEML[Iİ]K\b/i, label: 'BORUSAN/GEMLİK' },
+    { re: /\bKUMPORT\s+L[Iİ]MAN[Iİ]?\b/i, label: 'KUMPORT LİMANI' },
+    { re: /\bK[OÖ]RFEZ\s+MEDLOG\b/i, label: 'KÖRFEZ MEDLOG' },
+    { re: /\bYILPORT\s+GEML[Iİ]K\b/i, label: 'YILPORT GEMLİK' },
+    { re: /\bAKDEN[Iİ]Z\s+PORT\b/i, label: 'AKDENİZ PORT' },
+    { re: /\bASYA\s+PORTS?\b/i, label: 'ASYA PORT' },
+    { re: /\bHAYDARPA[SŞ]A\b/i, label: 'HAYDARPAŞA' },
+    { re: /\bRODA[\s\-]*PORT\b/i, label: 'RODAPORT' },
+    { re: /\bGEMPORT\b/i, label: 'GEMPORT' },
+    { re: /\bSAF[Iİ]PORT\b/i, label: 'SAFİPORT' },
+    { re: /\bMARDA[SŞ]\b/i, label: 'MARDAŞ' },
+    { re: /\bMARPORT\b/i, label: 'MARPORT' },
+    { re: /\bKUMPORT\b/i, label: 'KUMPORT' },
+    { re: /\bL[Iİ]MA[SŞ]\b/i, label: 'LİMAŞ' },
+    { re: /\bALSANCAK\b/i, label: 'ALSANCAK' },
+    { re: /\bYILPORT\b/i, label: 'YILPORT' },
+    { re: /\bEVYAP\b/i, label: 'EVYAP' },
+    { re: /\bGEML[Iİ]K\b/i, label: 'GEMLİK' },
+    { re: /\bMEDLOG\b/i, label: 'MEDLOG' },
+    { re: /\bK[OÖ]RFEZ\b/i, label: 'KÖRFEZ' },
+  ];
+  const NB_PORT_WORD_NOISE = /^(PASSPORT|AIRPORT|TRANSPORT|SUPPORT|HELIPORT|VIEWPORT)$/i;
+
+  function foldPortKey(s) {
+    return String(s || '')
+      .toLocaleUpperCase('tr-TR')
+      .replace(/İ/g, 'I')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function stripLimanDolumDate(raw) {
+    return String(raw || '')
+      .replace(/L[Iİ]MAN\s*DOLUM\s*TAR[Iİ]H[Iİ]\s*:?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?:\s+[A-ZÇĞİÖŞÜa-zçğıöşü]+)?/gi, '')
+      .replace(/-{2,}/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isUsablePortLabel(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return false;
+    if (/EXPORT\s*REF|NETSIS|S[Iİ]PAR[Iİ][SŞ]\s*NO/i.test(s)) return false;
+    if (/L[Iİ]MAN\s*DOLUM/i.test(s)) return false;
+    return true;
+  }
+
+  function findKnownPortsInText(text) {
+    const s = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!s) return [];
+    const hits = [];
+    for (const def of NB_PORT_DEFS) {
+      const m = s.match(def.re);
+      if (m && m.index != null) hits.push({ label: def.label, index: m.index });
+    }
+    const seenFold = new Set(hits.map((h) => foldPortKey(h.label)));
+    const wordRe = /\b([A-ZÇĞİÖŞÜa-zçğıöşü]{3,}PORT)\b/gi;
+    let wm;
+    while ((wm = wordRe.exec(s))) {
+      const label = String(wm[1] || '').toLocaleUpperCase('tr-TR');
+      const fold = foldPortKey(label);
+      if (!fold || NB_PORT_WORD_NOISE.test(fold) || seenFold.has(fold)) continue;
+      seenFold.add(fold);
+      hits.push({ label, index: wm.index });
+    }
+    hits.sort((a, b) => a.index - b.index);
+    const seen = new Set();
+    const out = [];
+    for (const h of hits) {
+      const key = foldPortKey(h.label) || h.label;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(h.label);
+    }
+    return out;
+  }
+
+  function portLabelFromSegment(segment, knownPorts) {
+    const seg = String(segment || '').replace(/\s+/g, ' ').trim();
+    const last = knownPorts[knownPorts.length - 1] || '';
+    if (!seg) return last;
+    const compact = foldPortKey(seg);
+    const squeezed = compact.replace(/[\s\-]+/g, '');
+    for (const p of knownPorts) {
+      const pk = foldPortKey(p);
+      if (compact === pk || squeezed === pk.replace(/[\s\-]+/g, '')) return p;
+    }
+    return seg;
+  }
+
+  function extractPortFromText(text) {
+    const s = stripLimanDolumDate(text);
+    if (!s) return '';
+    const parts = s.split('/').map((p) => p.trim()).filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (!isUsablePortLabel(parts[i])) continue;
+      const segPorts = findKnownPortsInText(parts[i]);
+      if (segPorts.length) return portLabelFromSegment(parts[i], segPorts);
+    }
+    const all = findKnownPortsInText(s);
+    return all.length ? portLabelFromSegment(s, all) : '';
+  }
+
   function extractPort(sample) {
     if (!sample) return '';
-    return String(sample.sevkYeri || sample.blockMeta?.portLine || '').trim();
+    const meta = sample.blockMeta || {};
+    const stored = [sample.sevkYeri, sample.port, meta.portLine, meta.borusanLine]
+      .map((x) => stripLimanDolumDate(x))
+      .find((x) => isUsablePortLabel(x));
+    if (stored) {
+      const fromStored = extractPortFromText(stored);
+      return fromStored || stored.toLocaleUpperCase('tr-TR');
+    }
+    const blobs = [sample.headerText, meta.mainHeader]
+      .concat(Array.isArray(meta.subLines) ? meta.subLines : [])
+      .filter(Boolean);
+    return extractPortFromText(blobs.join(' / '));
+  }
+
+  const TR_WEEKDAYS = ['PAZAR', 'PAZARTESİ', 'SALI', 'ÇARŞAMBA', 'PERŞEMBE', 'CUMA', 'CUMARTESİ'];
+
+  function padDateLabel(raw) {
+    const m = String(raw || '').match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (!m) return String(raw || '').trim();
+    const y = m[3].length === 2 ? '20' + m[3] : m[3];
+    return m[1].padStart(2, '0') + '.' + m[2].padStart(2, '0') + '.' + y;
+  }
+
+  function turkishWeekdayFromDateLabel(dmy) {
+    const m = String(dmy || '').match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (!m) return '';
+    const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+    const d = new Date(y, Number(m[2]) - 1, Number(m[1]));
+    if (isNaN(d.getTime())) return '';
+    return TR_WEEKDAYS[d.getDay()] || '';
+  }
+
+  function parseLimanDolumLabel(raw) {
+    const s = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    const m = s.match(
+      /L[Iİ]MAN\s*DOLUM\s*(?:TAR[Iİ]H[Iİ])?\s*:?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})(?:\s+([A-ZÇĞİÖŞÜa-zçğıöşü]+))?/i
+    );
+    if (!m) return '';
+    const date = padDateLabel(m[1]);
+    let day = String(m[2] || '').trim().toLocaleUpperCase('tr-TR');
+    if (!/^(PAZAR|PAZARTES[Iİ]|SALI|[CÇ]AR[SŞ]AMBA|PER[SŞ]EMBE|CUMA|CUMARTES[Iİ])$/i.test(day)) {
+      day = turkishWeekdayFromDateLabel(date);
+    }
+    return day ? `LİMAN DOLUM TARİHİ : ${date} ${day}` : `LİMAN DOLUM TARİHİ : ${date}`;
+  }
+
+  function dateKeyFromLimanDolumLabel(label) {
+    const m = String(label || '').match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+    if (!m) return '';
+    const y = m[3].length === 2 ? '20' + m[3] : m[3];
+    return y + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  }
+
+  function limanDolumUrgency(label, nowTs) {
+    const dk = dateKeyFromLimanDolumLabel(label);
+    if (!dk) return '';
+    const today = istanbulDayKey(nowTs != null ? nowTs : Date.now());
+    if (!today) return '';
+    if (dk === today) return 'today';
+    if (dk < today) return 'overdue';
+    return '';
+  }
+
+  function extractLimanDolumLabel(sample) {
+    if (!sample) return '';
+    const meta = sample.blockMeta || {};
+    const blobs = [
+      sample.limanDolumLabel,
+      sample.limanDolumTarihi,
+      sample.limanDolum,
+      meta.exportLine,
+      meta.limanDolumLine,
+      sample.headerText,
+      meta.mainHeader,
+    ].concat(Array.isArray(meta.subLines) ? meta.subLines : []);
+    for (const blob of blobs) {
+      const hit = parseLimanDolumLabel(blob);
+      if (hit) return hit;
+    }
+    return '';
   }
 
   function rowSourceFile(row) {
@@ -1418,6 +1603,20 @@
     return '';
   }
 
+  function formatYuklemeYeriLabel(values) {
+    const order = ['AVDAN', '1.OSB', '2.OSB'];
+    const seen = new Set();
+    (Array.isArray(values) ? values : [values]).forEach((v) => {
+      String(v || '')
+        .split('/')
+        .forEach((part) => {
+          const n = normalizeYuklemeYeri(part);
+          if (n) seen.add(n);
+        });
+    });
+    return order.filter((x) => seen.has(x)).join(' / ');
+  }
+
   function extractYuklemeYeri(sample) {
     if (!sample) return '';
     const meta = sample.blockMeta || {};
@@ -1439,6 +1638,18 @@
       if (hit) return hit;
     }
     return '';
+  }
+
+  function collectYuklemeYeriLabel(items, sample) {
+    const hits = [];
+    (items || []).forEach((r) => {
+      if (!r) return;
+      if (r.yuklemeYeri) hits.push(r.yuklemeYeri);
+      if (r.blockMeta && r.blockMeta.yuklemeYeri) hits.push(r.blockMeta.yuklemeYeri);
+    });
+    const fromRows = formatYuklemeYeriLabel(hits);
+    if (fromRows) return fromRows;
+    return extractYuklemeYeri(sample);
   }
 
   const WAITING_VEHICLE_LABEL = 'GELMEYEN ARAÇ';
@@ -1732,17 +1943,19 @@
     return parseNum(item && item.excelLeftBbt);
   }
 
-  function formatCikanSuffix(item) {
-    const bits = [];
-    const date = String((item && item.sourceDateLabel) || '').trim()
-      || (item && item.excelDateKey ? formatDateKeyTR(item.excelDateKey) : '');
-    if (date) bits.push(date);
-    const stem = extractFileStemLabel(item && item.fileName);
-    const yd = normalizeYdKey(item && (item.ydKey || item.headerText || stem));
-    if (stem && !dateKeyFromFileName(item && item.fileName) && !(yd && filenameMentionsYd(stem, yd))) {
-      bits.push(stem);
-    }
-    return bits.length ? ' · ' + bits.join(' · ') : '';
+  function formatCikanSuffix() {
+    return '';
+  }
+
+  function formatHeaderPort(item) {
+    return String((item && item.port) || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function formatDatePortLabel(dateLabel, port) {
+    const date = String(dateLabel || '').trim();
+    const p = String(port || '').trim();
+    if (date && p) return date + ' / ' + p;
+    return date || p;
   }
 
   function formatFooterStatusText(item) {
@@ -1805,21 +2018,31 @@
   function buildExcelBlockRows(item, opts) {
     if (!item) return [];
     const multiFile = !!(opts && opts.multiFile);
-    const multiSourceDates = !!(opts && opts.multiSourceDates);
-    const sourcePrefix = multiFile
+    const sourceDateLabel = String(item.sourceDateLabel || '').trim();
+    const port = formatHeaderPort(item);
+    const sourcePrefix = (!sourceDateLabel && multiFile)
       ? formatBlockSourceLabel(item)
-      : (multiSourceDates ? item.sourceDateLabel : '');
+      : '';
     const rows = [];
     const headerOverride = String(item.nbHeaderOverride || '').trim();
+    const dolumLabel = headerOverride ? '' : String(item.limanDolumLabel || extractLimanDolumLabel(item) || '').trim();
+    let headerText = headerOverride || formatHeaderExcelText(
+      item.ydKey,
+      item.planBbt,
+      item.malzemeLabel,
+      sourcePrefix,
+      item.lotLabel
+    );
+    if (dolumLabel && !headerOverride && !/·\s*$/.test(headerText)) headerText += ' ·';
     rows.push({
       kind: 'header',
-      a: headerOverride || (formatHeaderExcelText(
-        item.ydKey,
-        item.planBbt,
-        item.malzemeLabel,
-        sourcePrefix,
-        item.lotLabel
-      ) + formatCikanSuffix(item)),
+      a: headerText,
+      port: headerOverride ? '' : port,
+      dateLabel: formatDatePortLabel(sourceDateLabel, headerOverride ? '' : port),
+      sourceDateLabel,
+      dolumLabel,
+      dolumUrgent: dolumLabel ? limanDolumUrgency(dolumLabel) : '',
+      yuklemeYeri: String(item.yuklemeYeri || '').trim(),
       lotLabel: item.lotLabel || '',
       blockKey: String(item.blockKey || '').trim(),
       fileName: String(item.fileName || '').trim(),
@@ -2093,7 +2316,7 @@
     const port = extractPort(sample);
     const malzemeLabel = extractMalzemeLabel(sample);
     const lotLabel = extractLotLabel(sample);
-    const yuklemeYeri = extractYuklemeYeri(sample);
+    const yuklemeYeri = collectYuklemeYeriLabel(items, sample);
     const status =
       remainingBbt <= 0 && waitingPlates.length === 0
         ? 'done'
@@ -2118,6 +2341,7 @@
       remainingBbt,
       excelLeftBbt: remainingBbt,
       port,
+      limanDolumLabel: extractLimanDolumLabel(sample),
       headerText: String(sample.headerText || sample.blockMeta?.mainHeader || '').trim(),
       malzeme: String(sample.malzeme || '').trim(),
       malzemeLabel,
@@ -2675,12 +2899,22 @@
     formatFooterStatusText,
     pendingAssignQty,
     formatCikanSuffix,
+    formatHeaderPort,
+    formatDatePortLabel,
+    extractPort,
+    extractPortFromText,
+    extractLimanDolumLabel,
+    parseLimanDolumLabel,
+    dateKeyFromLimanDolumLabel,
+    limanDolumUrgency,
     sumRemainingBbt,
     formatWaitingPlateBbtText,
     sumWaitingBbt,
     extractMalzemeLabel,
     extractLotLabel,
     extractYuklemeYeri,
+    collectYuklemeYeriLabel,
+    formatYuklemeYeriLabel,
     normalizeYuklemeYeri,
     extractPlanBbt,
     extractYdLabel,

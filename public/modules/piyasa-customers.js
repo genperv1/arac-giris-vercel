@@ -375,25 +375,25 @@
     const exact = _customerStore.byKod.get(key);
     if (exact) return exact;
 
-    let best = null;
-    let bestLen = 0;
-    for (const c of _customerStore.customers) {
-      const ck = normFirmaKodKey(c.kod);
-      if (!ck || ck.length < 2) continue;
-      if (ck === key) return c;
-      if (key.startsWith(ck) && ck.length > bestLen) {
-        best = c;
-        bestLen = ck.length;
-      }
-    }
-    if (best) return best;
-
-    const stripped = key.replace(/([A-Z0-9İĞÜŞÖÇ])$/, '');
-    if (stripped && stripped !== key && stripped.length >= 2) {
-      const hit = _customerStore.byKod.get(stripped);
+    const stripped = key.match(/^(.+[0-9])[A-Z]+$/);
+    if (stripped) {
+      const hit = _customerStore.byKod.get(stripped[1]);
       if (hit) return hit;
+    }
+
+    if (/[0-9]$/.test(key)) {
+      const prefixHits = [];
       for (const c of _customerStore.customers) {
-        if (normFirmaKodKey(c.kod) === stripped) return c;
+        const ck = normFirmaKodKey(c.kod);
+        if (!ck || ck === key || !ck.startsWith(key)) continue;
+        const rest = ck.slice(key.length);
+        if (!/^[A-Z]+$/.test(rest)) continue;
+        prefixHits.push(c);
+      }
+      if (prefixHits.length === 1) return prefixHits[0];
+      if (prefixHits.length > 1) {
+        const names = new Set(prefixHits.map((c) => String(c.ad || '').trim().toUpperCase()).filter(Boolean));
+        if (names.size === 1) return prefixHits[0];
       }
     }
 
@@ -703,22 +703,15 @@
       const cust = resolvePiyasaCustomerByKod(k);
       if (cust && cust.ad) return cust.ad;
       const list = (window.firmaListesi && Array.isArray(window.firmaListesi)) ? window.firmaListesi : (typeof firmaListesi !== 'undefined' && Array.isArray(firmaListesi) ? firmaListesi : []);
-      // Try exact or prefix match (e.g. 'HP3' matches 'HP3 / BOZÜYÜK')
+      const kc = normFirmaKodKey(k);
       for (const entry of list){
         if (!entry) continue;
         const e = String(entry||'').trim();
         if (!e) continue;
-        // normalize
-        const up = e.toUpperCase();
-        const kc = k.toUpperCase();
         const parts = e.split('/').map(x=>x.trim()).filter(Boolean);
         const left = parts[0] || e;
         const right = parts.length > 1 ? parts.slice(1).join(' / ').trim() : '';
-        if (String(left).toUpperCase() === kc) return right || e;
-        // allow left starting with code (e.g. 'HP3  / ...')
-        if (String(left).toUpperCase().startsWith(kc)) return right || e;
-        // also allow entry to contain code somewhere
-        if (up.includes(kc)) return right || e;
+        if (normFirmaKodKey(left) === kc) return right || e;
       }
     }catch(e){}
     return '';

@@ -27,10 +27,12 @@ test('slim rapor tam snapshot taşımaz, açıklama ve YD alanlarını bırakır
       sevkYeri: 'EVYAP',
       bbt: '21',
       hugeExcelGrid: new Array(500).fill('x').join(''),
+      firmaAdi: 'EVYAP',
     }),
   };
   const slim = mapPrintHistoryRowToReport(row, { slim: true });
   assert.equal(slim.snapshot, null);
+  assert.equal(slim.data.firmaAdi, 'EVYAP');
   assert.equal(slim.data.yuklemeNotu, 'SEVKİYATLARDA DİKKAT EDİLECEK HUSUSLAR');
   assert.equal(slim.data.headerText, 'YD20 / HP 0,15-0,30 / EVYAP');
   assert.equal(slim.data.sevkYeri, 'EVYAP');

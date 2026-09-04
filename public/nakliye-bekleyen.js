@@ -161,13 +161,24 @@
     return html;
   }
 
-  function blockTitleRows(dateLabel) {
+  function blockTitleRows(dateLabel, port, siteLabel) {
     const rows = [];
-    const site = loadSelectedSite();
+    const site = String(siteLabel || '').trim();
     if (site) rows.push({ kind: 'site', a: site });
-    const date = String(dateLabel || '').trim();
-    if (date) rows.push({ kind: 'date', a: date });
+    const line =
+      core && typeof core.formatDatePortLabel === 'function'
+        ? core.formatDatePortLabel(dateLabel, port)
+        : [String(dateLabel || '').trim(), String(port || '').trim()].filter(Boolean).join(' / ');
+    if (line) rows.push({ kind: 'date', a: line });
     return rows;
+  }
+
+  function blockTitleRowsForBlock(blockRows, fallbackDate) {
+    const hdr = (blockRows || []).find((r) => r && r.kind === 'header');
+    const date = String((hdr && hdr.sourceDateLabel) || fallbackDate || '').trim();
+    const port = String((hdr && hdr.port) || '').trim();
+    const site = String((hdr && hdr.yuklemeYeri) || '').trim();
+    return blockTitleRows(date, port, site);
   }
 
   function applySheetSiteLabel() {
@@ -990,6 +1001,24 @@
     }
   }
 
+  function dolumLineHtml(row) {
+    const label = String((row && row.dolumLabel) || '').trim();
+    if (!label) return '';
+    const urgent = String((row && row.dolumUrgent) || '').trim();
+    if (!urgent) return '<div class="nb-hdr-dolum">' + esc(label) + '</div>';
+    const dateBit = label.replace(/^\s*L[Iİ]MAN\s*DOLUM\s*TAR[Iİ]H[Iİ]\s*:\s*/i, '').trim() || label;
+    const kicker = urgent === 'overdue' ? '⚠ LİMAN DOLUM GEÇTİ ⚠' : '⚠ LİMAN DOLUM BUGÜN ⚠';
+    return (
+      '<div class="nb-hdr-dolum nb-hdr-dolum--urgent">' +
+      '<div class="nb-hdr-dolum-kicker">' +
+      kicker +
+      '</div>' +
+      '<div class="nb-hdr-dolum-date">' +
+      esc(dateBit) +
+      ' !!!</div></div>'
+    );
+  }
+
   function buildSheetTableHtml(sheetRows) {
     if (!sheetRows.length) return '';
     let html =
@@ -1021,6 +1050,7 @@
           '"><td colspan="4" class="nb-editable-td">' +
           rowDeleteBtnHtml() +
           editableCellHtml(row.a) +
+          (row.kind === 'header' ? dolumLineHtml(row) : '') +
           '</td></tr>';
         return;
       }
@@ -1080,8 +1110,12 @@
     return hdr && hdr.a ? String(hdr.a) : 'blok';
   }
 
-  function siteButtonHtml(site, iconClass) {
-    const on = loadSelectedSite() === site;
+  function siteButtonHtml(site, iconClass, blockSite) {
+    const parts = String(blockSite || '')
+      .split('/')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const on = parts.indexOf(site) >= 0;
     return (
       '<button type="button" class="nb-btn nb-btn--site' +
       (on ? ' is-on' : '') +
@@ -1089,9 +1123,9 @@
       esc(site) +
       '" aria-pressed="' +
       (on ? 'true' : 'false') +
-      '" title="Bu bloğun üstüne ' +
-      esc(site) +
-      ' yaz">' +
+      '" title="Excel YÜKLEME YERİ: ' +
+      esc(blockSite || site) +
+      '">' +
       '<i class="fas ' +
       iconClass +
       '" aria-hidden="true"></i> ' +
@@ -1100,11 +1134,13 @@
     );
   }
 
-  function buildBlockUnitHtml(blockRows, blockIdx, title) {
+  function buildBlockUnitHtml(blockRows, blockIdx, fallbackDate) {
     const label = blockLabelFromRows(blockRows);
     const blockKey =
       (blockRows || []).map((r) => r && r.blockKey).find((k) => k) || '';
-    const titled = (title && title.length ? title : []).concat(blockRows || []);
+    const excelSite =
+      ((blockRows || []).find((r) => r && r.kind === 'header') || {}).yuklemeYeri || '';
+    const titled = blockTitleRowsForBlock(blockRows, fallbackDate).concat(blockRows || []);
     return (
       '<div class="nb-sheet-block" data-nb-block-idx="' +
       esc(String(blockIdx)) +
@@ -1119,8 +1155,8 @@
       '</div></div>' +
       '<div class="nb-block-bar nb-no-capture">' +
       '<div class="nb-site-group" role="group" aria-label="Yükleme yeri">' +
-      siteButtonHtml('AVDAN', 'fa-map-marker-alt') +
-      siteButtonHtml('1.OSB', 'fa-industry') +
+      siteButtonHtml('AVDAN', 'fa-map-marker-alt', excelSite) +
+      siteButtonHtml('1.OSB', 'fa-industry', excelSite) +
       '</div>' +
       '<span class="nb-block-bar-sep" aria-hidden="true"></span>' +
       '<button type="button" class="nb-btn nb-btn--block-copy" data-nb-copy-block title="Bu bloğu görsel kopyala">' +
@@ -1176,11 +1212,11 @@
     window.prompt('Notu kopyalayın', text);
   }
 
-  function buildBlocksColumnHtml(blockGroups, startIdx, titleRows) {
+  function buildBlocksColumnHtml(blockGroups, startIdx, fallbackDate) {
     let idx = startIdx || 0;
     let html = '';
     (blockGroups || []).forEach((block) => {
-      html += buildBlockUnitHtml(block, idx, titleRows);
+      html += buildBlockUnitHtml(block, idx, fallbackDate);
       idx += 1;
     });
     return { html, nextIdx: idx };
@@ -1246,14 +1282,14 @@
       '<div class="nb-excel-workspace">' +
       '<div class="nb-sheet-wrap' + wrapExtra + '" id="nbSheetCarrier">' +
       buildCiftKantarNoteHtml(items);
-    const titleRows = blockTitleRows(dateLabel);
+    const titleDate = dateLabel;
     if (useSideBySide) {
       html += '<div class="nb-sheet-columns nb-sheet-columns--side">';
       let idx = 0;
       fileGroups.forEach((fileItems) => {
         const fileParts = core.buildExcelSheetParts(fileItems, { multiFile: true });
         const fileBlocks = core.groupSheetRowsByBlock(fileParts.nakliyeRows);
-        const built = buildBlocksColumnHtml(fileBlocks, idx, titleRows);
+        const built = buildBlocksColumnHtml(fileBlocks, idx, titleDate);
         idx = built.nextIdx;
         html += '<div class="nb-sheet-col">' + built.html + '</div>';
       });
@@ -1263,13 +1299,13 @@
       html += '<div class="nb-sheet-columns">';
       let idx = 0;
       cols.forEach((colBlocks) => {
-        const built = buildBlocksColumnHtml(colBlocks, idx, titleRows);
+        const built = buildBlocksColumnHtml(colBlocks, idx, titleDate);
         idx = built.nextIdx;
         html += '<div class="nb-sheet-col">' + built.html + '</div>';
       });
       html += '</div>';
     } else {
-      html += buildBlocksColumnHtml(blocks, 0, titleRows).html;
+      html += buildBlocksColumnHtml(blocks, 0, titleDate).html;
     }
     html += '</div></div>';
     html +=
@@ -1447,13 +1483,6 @@
       const siteBtn = e.target.closest('[data-nb-site]');
       if (siteBtn && outer.contains(siteBtn)) {
         e.preventDefault();
-        const site = siteBtn.getAttribute('data-nb-site') || '';
-        const current = loadSelectedSite();
-        saveSelectedSite(current === site ? '' : site);
-        syncSiteButtons();
-        applySheetSiteLabel();
-        const selected = loadSelectedSite();
-        toast(selected ? selected + ' — her bloğun üstüne yazıldı' : 'Yükleme yeri kaldırıldı');
         return;
       }
       const copyBtn = e.target.closest('[data-nb-copy-block]');

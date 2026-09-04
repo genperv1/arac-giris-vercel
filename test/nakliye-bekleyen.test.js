@@ -770,6 +770,48 @@ test('extractYuklemeYeri — AVDAN and 1.OSB from Excel field or header', () => 
   assert.equal(core.extractYuklemeYeri({ headerText: 'YD40 / 200 BBT' }), '');
 });
 
+test('formatYuklemeYeriLabel — all AVDAN, all 1.OSB, or mixed', () => {
+  assert.equal(core.formatYuklemeYeriLabel(['AVDAN', 'AVDAN']), 'AVDAN');
+  assert.equal(core.formatYuklemeYeriLabel(['1.OSB', '1.OSB', '1 OSB']), '1.OSB');
+  assert.equal(core.formatYuklemeYeriLabel(['1.OSB', 'AVDAN', '1.OSB']), 'AVDAN / 1.OSB');
+  assert.equal(core.formatYuklemeYeriLabel(['AVDAN / 1.OSB']), 'AVDAN / 1.OSB');
+  assert.equal(core.formatYuklemeYeriLabel(['', null, '']), '');
+});
+
+test('analyzeBlock — mixed YÜKLEME YERİ becomes AVDAN / 1.OSB', () => {
+  const mixed = core.analyzeBlock([
+    {
+      blockKey: 'M1',
+      headerText: 'YD15 / 40 BBT',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43AGK142',
+      bbt: '20',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'M1',
+      headerText: 'YD15 / 40 BBT',
+      yuklemeYeri: '1.OSB',
+      plaka: '03DH540',
+      bbt: '20',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(mixed.yuklemeYeri, 'AVDAN / 1.OSB');
+  assert.equal(core.buildExcelBlockRows(mixed)[0].yuklemeYeri, 'AVDAN / 1.OSB');
+
+  const osb = core.analyzeBlock([
+    {
+      blockKey: 'O1',
+      headerText: 'YD15(M) / 240 BBT',
+      yuklemeYeri: '1.OSB',
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  assert.equal(osb.yuklemeYeri, '1.OSB');
+  assert.equal(core.buildExcelBlockRows(osb)[0].yuklemeYeri, '1.OSB');
+});
+
 test('buildExcelBlockRows — yükleme yeri is not added to yellow header', () => {
   const avdan = core.analyzeBlock([
     {
@@ -797,6 +839,70 @@ test('buildExcelBlockRows — yükleme yeri is not added to yellow header', () =
   ]);
   assert.equal(osb.yuklemeYeri, '1.OSB');
   assert.equal(core.buildExcelBlockRows(osb)[0].a, 'YD40(G) 200 BBT');
+});
+
+test('buildExcelBlockRows — date row is DATE / PORT, yellow has liman dolum', () => {
+  const exportLine =
+    '---------- EXPORT REF NO : 0 / NETSIS SİPARİŞ NO : M20202600000611 ---------- LİMAN DOLUM TARİHİ : 07.09.2026 PAZARTESİ';
+  const safi = core.analyzeBlock([
+    {
+      blockKey: 'S1',
+      headerText: 'YD15(M) / 240 BBT / LOT NO 26 04 50 / HP 0,15-0,40 / SAFİPORT',
+      sevkYeri: 'SAFİPORT',
+      fileName: '05.09.2026.xlsx',
+      blockMeta: { exportLine },
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  assert.equal(safi.port, 'SAFİPORT');
+  assert.equal(safi.sourceDateLabel, '05.09.2026');
+  assert.equal(safi.limanDolumLabel, 'LİMAN DOLUM TARİHİ : 07.09.2026 PAZARTESİ');
+  const safiRows = core.buildExcelBlockRows(safi);
+  assert.equal(safiRows[0].kind, 'header');
+  assert.equal(safiRows[0].a, 'YD15(M) 240 BBT · LOT 26 04 50 (HP 0,15-0,40) ·');
+  assert.equal(safiRows[0].port, 'SAFİPORT');
+  assert.equal(safiRows[0].dateLabel, '05.09.2026 / SAFİPORT');
+  assert.equal(safiRows[0].dolumLabel, 'LİMAN DOLUM TARİHİ : 07.09.2026 PAZARTESİ');
+  assert.equal(core.limanDolumUrgency('LİMAN DOLUM TARİHİ : 04.09.2026 CUMA', Date.parse('2026-09-04T12:00:00+03:00')), 'today');
+  assert.equal(core.limanDolumUrgency('LİMAN DOLUM TARİHİ : 03.09.2026 PERŞEMBE', Date.parse('2026-09-04T12:00:00+03:00')), 'overdue');
+  assert.equal(core.limanDolumUrgency('LİMAN DOLUM TARİHİ : 07.09.2026 PAZARTESİ', Date.parse('2026-09-04T12:00:00+03:00')), '');
+  assert.equal(core.formatDatePortLabel('05.09.2026', 'SAFİPORT'), '05.09.2026 / SAFİPORT');
+  assert.equal(
+    core.parseLimanDolumLabel(exportLine),
+    'LİMAN DOLUM TARİHİ : 07.09.2026 PAZARTESİ'
+  );
+  assert.equal(
+    core.parseLimanDolumLabel('LİMAN DOLUM TARİHİ : 04.09.2026'),
+    'LİMAN DOLUM TARİHİ : 04.09.2026 CUMA'
+  );
+
+  const evyap = core.analyzeBlock([
+    {
+      blockKey: 'E1',
+      headerText: 'YD92(M) / 100 BBT / LOT NO 26 08 10 / HP 0,074-0,30',
+      sevkYeri: 'EVYAP',
+      fileName: '03.09.2026.xlsx',
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  assert.equal(evyap.port, 'EVYAP');
+  const evyapRows = core.buildExcelBlockRows(evyap);
+  assert.equal(evyapRows[0].a, 'YD92(M) 100 BBT · LOT 26 08 10 (HP 0,074-0,30)');
+  assert.equal(evyapRows[0].port, 'EVYAP');
+  assert.equal(evyapRows[0].dateLabel, '03.09.2026 / EVYAP');
+  assert.equal(evyapRows[0].dolumLabel, '');
+  assert.equal(/03\.09\.2026/.test(evyapRows[0].a), false);
+
+  const fromHeader = core.analyzeBlock([
+    {
+      blockKey: 'H1',
+      headerText: 'YD92(M) / 200 BBT / LOT NO 26 07 14 / HP 0,074-0,30 / EVYAP',
+      fileName: '04.09.2026.xlsx',
+      _ihracatEmptyBlock: true,
+    },
+  ]);
+  assert.equal(fromHeader.port, 'EVYAP');
+  assert.equal(core.buildExcelBlockRows(fromHeader)[0].dateLabel, '04.09.2026 / EVYAP');
 });
 
 test('buildBlockPlateRows — sorts by Excel sira within block', () => {
@@ -888,10 +994,12 @@ test('buildExcelSheetParts — multi Excel dates appear in block headers', () =>
     },
   ]);
   const parts = core.buildExcelSheetParts(pending);
-  const headers = parts.nakliyeRows.filter((r) => r.kind === 'header').map((r) => r.a);
+  const headers = parts.nakliyeRows.filter((r) => r.kind === 'header');
   assert.equal(headers.length, 2);
-  assert.match(headers[0], /13\.07\.2026/);
-  assert.match(headers[1], /14\.07\.2026/);
+  assert.equal(headers[0].dateLabel, '13.07.2026');
+  assert.equal(headers[1].dateLabel, '14.07.2026');
+  assert.equal(/13\.07\.2026/.test(headers[0].a), false);
+  assert.equal(/14\.07\.2026/.test(headers[1].a), false);
   assert.equal(parts.multiFile, true);
 });
 
@@ -925,12 +1033,14 @@ test('buildExcelSheetParts — multi Excel without date uses file name in block 
     },
   ]);
   const parts = core.buildExcelSheetParts(pending);
-  const headers = parts.nakliyeRows.filter((r) => r.kind === 'header').map((r) => r.a);
+  const headers = parts.nakliyeRows.filter((r) => r.kind === 'header');
   assert.equal(headers.length, 3);
-  assert.match(headers[0], /20\.07\.2026 · YD331/);
-  assert.match(headers[1], /20\.07\.2026 · YD113/);
-  assert.match(headers[2], /YD33 2444 BBT/);
-  assert.equal(/YD33 \(1\)/.test(headers[2]), false);
+  assert.equal(headers[0].a, 'YD331 120 BBT (HP 0,074-0,40)');
+  assert.equal(headers[0].dateLabel, '20.07.2026');
+  assert.equal(headers[1].a, 'YD113 100 BBT (HP 1,20-2,80)');
+  assert.equal(headers[1].dateLabel, '20.07.2026');
+  assert.match(headers[2].a, /YD33 2444 BBT/);
+  assert.equal(/YD33 \(1\)/.test(headers[2].a), false);
 });
 
 test('groupItemsByExcelFile — same file blocks stay in one group', () => {

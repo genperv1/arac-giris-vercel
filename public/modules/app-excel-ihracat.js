@@ -530,31 +530,57 @@ function splitFirmaCodeAndName(raw) {
   return { code: s.slice(0, cut).trim(), name: s.slice(cut + 1).trim() };
 }
 
-function resolvePrintFirmaAdi(code, explicitAdi) {
-  const parsed = splitFirmaCodeAndName(code);
-  let name = String(explicitAdi || '').trim() || parsed.name;
-  if (name) return name;
-  const lookupCode = parsed.code || String(code || '').trim();
+function _normFirmaCodeCmp(s) {
+  return String(s || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\u0130/g, 'I')
+    .replace(/İ/g, 'I')
+    .replace(/\s+/g, '')
+    .split('/')[0];
+}
+
+function _firmaAdiFromMatchingSource(obj, firma) {
+  if (!obj || typeof obj !== 'object') return '';
+  const adi = String(obj.firmaAdi || obj._hSutunValue || '').trim();
+  if (!adi) return '';
+  const objFirma = _normFirmaCodeCmp(obj.firma || obj.firmaKodu || '');
+  const formFirma = _normFirmaCodeCmp(firma);
+  if (!formFirma) return adi;
+  if (!objFirma || objFirma !== formFirma) return '';
+  return adi;
+}
+
+function lookupOfficialFirmaAdi(lookupCode) {
+  const code = String(lookupCode || '').trim();
+  if (!code) return '';
   try {
     if (window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function') {
-      const c = window.piyasa.resolveCustomerByKod(lookupCode);
+      const c = window.piyasa.resolveCustomerByKod(code);
       if (c && c.ad) return String(c.ad).trim();
     }
   } catch (e) {}
   try {
     if (window.piyasa && typeof window.piyasa.getFirmaFullName === 'function') {
-      const n = window.piyasa.getFirmaFullName(lookupCode);
+      const n = window.piyasa.getFirmaFullName(code);
       if (n) return String(n).trim();
     }
   } catch (e) {}
+  return '';
+}
+
+function resolvePrintFirmaAdi(code, explicitAdi) {
+  const parsed = splitFirmaCodeAndName(code);
+  const lookupCode = parsed.code || String(code || '').trim();
+  const official = lookupOfficialFirmaAdi(lookupCode);
+  if (official) return official;
+  const name = String(explicitAdi || '').trim() || parsed.name;
+  if (name) return name;
   try {
     const last = window.piyasa && window.piyasa._state && window.piyasa._state._lastAppliedOrder;
     if (last) {
-      const lastAdi = String(last.firmaAdi || last._hSutunValue || '').trim();
-      const lastCode = String(last.firma || '').trim();
-      if (lastAdi && (!lookupCode || lastCode.toUpperCase() === lookupCode.toUpperCase())) {
-        return lastAdi;
-      }
+      const lastAdi = _firmaAdiFromMatchingSource(last, lookupCode);
+      if (lastAdi) return lastAdi;
     }
   } catch (e) {}
   return lookupCode;
@@ -585,8 +611,8 @@ function captureTakipPrintPayloadForReport(get) {
     || ''
   ).trim();
   const lastOrder = (window.piyasa && window.piyasa._state && window.piyasa._state._lastAppliedOrder) || null;
-  const excelAdi = String((excel && (excel.firmaAdi || excel._hSutunValue)) || '').trim();
-  const orderAdi = String((lastOrder && (lastOrder.firmaAdi || lastOrder._hSutunValue)) || '').trim();
+  const excelAdi = _firmaAdiFromMatchingSource(excel, firma);
+  const orderAdi = _firmaAdiFromMatchingSource(lastOrder, firma);
   const driver = getTakipFormDriverPayload();
   const packaging = getTakipPackagingPayload();
   return {
@@ -959,7 +985,7 @@ function buildPrintEventDataFromPending(pending, vehicle, printCount, tarihTr) {
     firmaSelect: String(pp?.firmaSelect || formGet('firmaSelect') || snap.firmaSelect || '').trim(),
     firmaAdi: resolvePrintFirmaAdi(
       firma,
-      pp?.firmaAdi || snap.firmaAdi || (excel && (excel.firmaAdi || excel._hSutunValue)) || ''
+      pp?.firmaAdi || snap.firmaAdi || _firmaAdiFromMatchingSource(excel, firma) || ''
     ),
     malzeme,
     sevkYeri: String(
@@ -2561,6 +2587,20 @@ function _normalizeYuklemeYeri(raw) {
   return '';
 }
 
+function _formatYuklemeYeriLabel(hits) {
+  const order = ['AVDAN', '1.OSB', '2.OSB'];
+  const seen = new Set();
+  (hits || []).forEach((v) => {
+    String(v || '')
+      .split('/')
+      .forEach((part) => {
+        const n = _normalizeYuklemeYeri(part);
+        if (n) seen.add(n);
+      });
+  });
+  return order.filter((x) => seen.has(x)).join(' / ');
+}
+
 function _pickYuklemeYeriFromRow(row) {
   for (const v of row || []) {
     const hit = _normalizeYuklemeYeri(v);
@@ -2660,6 +2700,17 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
   }
 
   out.borusanLine = out.portLine;
+
+  if (!out.portLine) {
+    for (const item of above) {
+      const port = _pickIhracatPortFromRow(item.row) || extractPortFromHeaderText(item.text);
+      if (port) {
+        out.portLine = port;
+        out.borusanLine = port;
+        break;
+      }
+    }
+  }
 
   const headerRow = grid[tableHeaderRowIdx] || [];
   const scanRows = above.map((item) => item.row).concat([headerRow]);
@@ -2970,7 +3021,11 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     const sevkYeri = extractPrimaryPortFromShipment({ headerText, blockMeta }) || '';
     const ambalaj = extractPrimaryAmbalajFromHeader(headerText) || '';
     const noteColumnIndex = (cols.aciklama !== undefined ? cols.aciklama : 1);
-    let yuklemeYeri = blockMeta.yuklemeYeri || _normalizeYuklemeYeri(sheetName) || '';
+    const yuklemeCol =
+      blockCols.yuklemeYeri !== undefined ? blockCols.yuklemeYeri
+        : (cols.yuklemeYeri !== undefined ? cols.yuklemeYeri : undefined);
+    const yuklemeYeriHits = [];
+    let yuklemeYeri = '';
     let blockYuklemeNotu = '';
     let blockTotals = null;
     const ydFromHeader = ((headerText || '').match(/\b(YD\d{1,4})\b/i) || [])[1]?.toUpperCase() || '';
@@ -2996,6 +3051,11 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
       }
       if (/\bKALAN\b/.test(rowTextUpper)) break;
 
+      if (yuklemeCol !== undefined) {
+        const colHit = _normalizeYuklemeYeri(d[yuklemeCol]);
+        if (colHit) yuklemeYeriHits.push(colHit);
+      }
+
       const plakaRaw = blockCols.plaka !== undefined ? d[blockCols.plaka] : null;
       const maybeNote = String(d[noteColumnIndex] || '').trim();
       const rowText = _rowToText(d).toUpperCase();
@@ -3005,13 +3065,6 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         continue;
       }
       if (!plakaRaw) continue;
-
-      if (!yuklemeYeri) {
-        if (cols.yuklemeYeri !== undefined) {
-          yuklemeYeri = _normalizeYuklemeYeri(d[cols.yuklemeYeri]) || yuklemeYeri;
-        }
-        if (!yuklemeYeri) yuklemeYeri = _pickYuklemeYeriFromRow(d) || '';
-      }
 
       if (isIhracatPendingPlakaCell(plakaRaw)) {
         blockPendingPlakaNotes.push({
@@ -3067,11 +3120,16 @@ firma: (firma || '').slice(0, 40),
   firma,
   sevkYeri,
   ambalaj,
-  yuklemeYeri,
+  yuklemeYeri: (yuklemeCol !== undefined ? _normalizeYuklemeYeri(d[yuklemeCol]) : '') || '',
   sheetName,
   blockPendingPlakaNotes,
 });
     }
+
+    yuklemeYeri = _formatYuklemeYeriLabel(yuklemeYeriHits)
+      || blockMeta.yuklemeYeri
+      || _normalizeYuklemeYeri(sheetName)
+      || '';
 
     blockRows.forEach((br) => {
       br.blockPendingPlakaNotes = blockPendingPlakaNotes;

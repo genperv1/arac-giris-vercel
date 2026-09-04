@@ -293,7 +293,12 @@
   }
 
   function normFirmaCodeKey(s) {
-    return String(s || '').trim().toUpperCase().replace(/\s+/g, '');
+    return String(s || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\u0130/g, 'I')
+      .replace(/İ/g, 'I')
+      .replace(/\s+/g, '');
   }
 
   function splitFirmaCodeAndName(raw) {
@@ -302,6 +307,12 @@
     const cut = s.indexOf('/');
     if (cut < 0) return { code: s, name: '' };
     return { code: s.slice(0, cut).trim(), name: s.slice(cut + 1).trim() };
+  }
+
+  /** MD1S → MD1, T88D → T88. Digit-ending stem + letter-only product suffix. */
+  function shortFirmaCodeWithoutLetterSuffix(k) {
+    const m = String(k || '').match(/^(.+[0-9])[A-Z]+$/);
+    return m ? m[1] : '';
   }
 
   function ingestFirmaCustomers(list) {
@@ -317,14 +328,26 @@
       _firmaNameByCode.set(k, ad);
       added += 1;
     }
+    const pending = new Map();
+    _firmaNameByCode.forEach((ad, k) => {
+      const short = shortFirmaCodeWithoutLetterSuffix(k);
+      if (!short || _firmaNameByCode.has(short)) return;
+      if (!pending.has(short)) pending.set(short, new Map());
+      pending.get(short).set(String(ad).trim().toUpperCase(), ad);
+    });
+    pending.forEach((names, short) => {
+      if (_firmaNameByCode.has(short) || names.size !== 1) return;
+      _firmaNameByCode.set(short, names.values().next().value);
+      added += 1;
+    });
     return added;
   }
 
   function lookupFirmaName(code) {
     const parsed = splitFirmaCodeAndName(code);
     const k = normFirmaCodeKey(parsed.code || code);
-    if (!k) return parsed.name || '';
-    return _firmaNameByCode.get(k) || parsed.name || '';
+    if (!k) return '';
+    return _firmaNameByCode.get(k) || '';
   }
 
   function resolveReportFirma(d, fallbackCode) {
@@ -334,9 +357,10 @@
     ).trim();
     const parsed = splitFirmaCodeAndName(raw);
     const code = parsed.code;
-    let name = String(src.firmaAdi || src.musteriAdi || src.customerName || '').trim() || parsed.name;
-    if (!name && code) name = lookupFirmaName(code);
-    if (!name && code) name = code;
+    const official = code ? lookupFirmaName(code) : '';
+    const stored = String(src.firmaAdi || src.musteriAdi || src.customerName || '').trim() || parsed.name;
+    let name = official || stored;
+    if (name && code && normFirmaCodeKey(name) === normFirmaCodeKey(code)) name = '';
     return { code, name };
   }
 
