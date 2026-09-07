@@ -1681,6 +1681,202 @@
     return key ? getOzmalPlateKeySet().has(key) : false;
   }
 
+  function carrierKey(raw) {
+    return normTr(raw).replace(/[^A-Z0-9]+/g, '');
+  }
+
+  function isOzmalCarrierName(raw) {
+    const k = carrierKey(raw);
+    return k === 'GPM' || k === 'OZMAL';
+  }
+
+  function isJunkCarrierToken(raw) {
+    const k = carrierKey(raw);
+    if (!k) return true;
+    if (k === 'GPM' || k === 'OZMAL') return false;
+    if (k === 'AVDAN' || /OSB$/.test(k)) return true;
+    return /(LIMAN|PORT|BOOKING|TARIH|SEVK|SHIP|EXPORT|NETSIS|FATURA|FIRMA|LOT|GEMI|TEDARIK|PERFORMANS|KANTAR|SOFOR|TELEFON|PLAKA|SIRANO|TONAJ|PALET|CUVAL|IRSALIYE|YUKLEME|MUSTERI|MADENCILIK|GENPER|COSCO|DETAY)/.test(k);
+  }
+
+  function isRealCarrierName(raw) {
+    if (isOzmalCarrierName(raw)) return true;
+    const s = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!s || s.split(' ').filter(Boolean).length > 1) return false;
+    if (s.length > 24) return false;
+    const k = carrierKey(s);
+    if (!k || k.length < 2 || k.length > 16) return false;
+    if (/\d/.test(k)) return false;
+    return !isJunkCarrierToken(s);
+  }
+
+  function displayTasiyici(raw, ozmalFallback) {
+    const s = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (isOzmalCarrierName(s)) return 'GPM';
+    if (s && isRealCarrierName(s)) return s.toLocaleUpperCase('tr-TR');
+    return ozmalFallback ? 'GPM' : '';
+  }
+
+  function collectTasiyiciNames(rows) {
+    const names = [];
+    const seen = new Set();
+    function add(raw, ozmalFallback) {
+      const name = displayTasiyici(raw, ozmalFallback);
+      if (!name || !isRealCarrierName(name)) return;
+      const key = carrierKey(name);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      names.push(name);
+    }
+    (rows || []).forEach((r) => {
+      if (!r) return;
+      add(r.tasiyici, isOzmalPlate(r.plaka));
+      add(r.nakliyeci, false);
+      const meta = r.blockMeta;
+      if (!meta) return;
+      add(meta.tasiyici, false);
+      if (Array.isArray(meta.tasiyiciNames)) meta.tasiyiciNames.forEach((n) => add(n, false));
+    });
+    return names;
+  }
+
+  function rowsNeedTasiyiciRepair(rows) {
+    return (rows || []).some((r) => {
+      if (!r || r._ihracatEmptyBlock) return false;
+      if (displayTasiyici(r.tasiyici, false)) return false;
+      if (isOzmalPlate(r.plaka)) return false;
+      return isValidPlateCell(String(r.plaka || '').trim());
+    });
+  }
+
+  function buildTasiyiciMapFromGrid(grid) {
+    const byPlate = Object.create(null);
+    const byYd = Object.create(null);
+    let defaultNakliyeci = '';
+
+    function rememberDefault(name) {
+      const n = displayTasiyici(name);
+      if (!n || isOzmalCarrierName(n) || !isRealCarrierName(n)) return;
+      if (!defaultNakliyeci) defaultNakliyeci = n;
+    }
+
+    (grid || []).forEach((row) => {
+      if (!row || !row.length) return;
+      const plates = [];
+      const names = [];
+      row.forEach((cell) => {
+        const s = String(cell ?? '').trim();
+        if (!s) return;
+        if (isValidPlateCell(s)) plates.push(s);
+        const n = displayTasiyici(s);
+        if (n && isRealCarrierName(n)) names.push(n);
+      });
+      const colHit = [12, 13, 0, 17]
+        .map((i) => displayTasiyici(row[i]))
+        .find((n) => n && isRealCarrierName(n));
+      const rowCarrier = colHit
+        || names.find((n) => !isOzmalCarrierName(n))
+        || names[0]
+        || '';
+      plates.forEach((plaka) => {
+        const n = displayTasiyici(rowCarrier);
+        const pk = plateKey(plaka);
+        if (!pk || !n) return;
+        byPlate[pk] = n;
+        rememberDefault(n);
+      });
+      if (!plates.length) {
+        const headerCarrier = names.find((n) => !isOzmalCarrierName(n));
+        if (headerCarrier) {
+          rememberDefault(headerCarrier);
+          const text = row.map((c) => String(c ?? '')).join(' ');
+          const yd = normalizeYdKey(text);
+          if (yd && yd !== 'GENEL') byYd[yd] = headerCarrier;
+        }
+      }
+    });
+    return { byPlate, byYd, defaultNakliyeci };
+  }
+
+  function applyTasiyiciMapToRows(rows, map) {
+    if (!Array.isArray(rows) || !map) return rows || [];
+    let changed = false;
+    const out = rows.map((r) => {
+      if (!r) return r;
+      const existing = displayTasiyici(r.tasiyici, false);
+      if (existing) return r;
+      const pk = plateKey(r.plaka);
+      const yd = normalizeYdKey(r.ydKey || r.headerText || '');
+      let name = '';
+      if (pk && map.byPlate && map.byPlate[pk]) name = map.byPlate[pk];
+      else if (isOzmalPlate(r.plaka)) name = 'GPM';
+      else if (yd && map.byYd && map.byYd[yd]) name = map.byYd[yd];
+      else name = map.defaultNakliyeci || '';
+      const resolved = displayTasiyici(name, isOzmalPlate(r.plaka));
+      if (!resolved) return r;
+      changed = true;
+      const blockMeta = r.blockMeta && typeof r.blockMeta === 'object'
+        ? Object.assign({}, r.blockMeta)
+        : {};
+      const names = Array.isArray(blockMeta.tasiyiciNames) ? blockMeta.tasiyiciNames.slice() : [];
+      function pushName(n) {
+        const d = displayTasiyici(n);
+        if (!d || !isRealCarrierName(d)) return;
+        if (names.some((x) => carrierKey(x) === carrierKey(d))) return;
+        names.push(d);
+      }
+      pushName(map.defaultNakliyeci);
+      pushName(resolved);
+      if (isOzmalPlate(r.plaka)) pushName('GPM');
+      if (!blockMeta.tasiyici) {
+        blockMeta.tasiyici = isOzmalCarrierName(resolved)
+          ? (map.defaultNakliyeci || resolved)
+          : resolved;
+      }
+      blockMeta.tasiyiciNames = names;
+      return Object.assign({}, r, { tasiyici: resolved, blockMeta });
+    });
+    out._tasiyiciPatched = changed;
+    return out;
+  }
+
+  function rowIsOzmal(r) {
+    if (!r) return false;
+    if (isOzmalCarrierName(r.tasiyici)) return true;
+    return isOzmalPlate(String(r.plaka || '').trim());
+  }
+
+  function formatSiteCarrierLabel(site, tasiyici, bbt) {
+    const s = String(site || '').trim();
+    const t = String(tasiyici || '').trim();
+    let label = s && t ? s + ' / ' + t : s || t;
+    const n = parseNum(bbt);
+    if (label && n > 0) {
+      label += ' · ' + n + ' BBT';
+    }
+    return label;
+  }
+
+  function carrierHeaderBbt(item, gpmBbt) {
+    if (!item) return 0;
+    if (isOzmalCarrierItem(item)) {
+      return sumWaitingBbt(item.ozmalPlates && item.ozmalPlates.length ? item.ozmalPlates : item.waitingPlates);
+    }
+    const waiting = sumWaitingBbt(item.waitingPlates);
+    const rem = parseNum(item.remainingBbt);
+    const plan = parseNum(item.planBbt);
+    const gpm = parseNum(gpmBbt);
+    if (plan > 0 && gpm > 0 && rem > 0) {
+      return Math.max(0, plan - gpm);
+    }
+    return waiting + rem;
+  }
+
+  function isOzmalCarrierItem(item) {
+    if (!item) return false;
+    if (item.carrierKind === 'ozmal') return true;
+    return isOzmalCarrierName(item.tasiyici);
+  }
+
   const DEFAULT_BASSOFOR_PLATE = '43 ADS 408';
   const FALLBACK_BASSOFOR_KEY = plateKey(DEFAULT_BASSOFOR_PLATE);
 
@@ -1694,7 +1890,7 @@
   }
 
   function ozmalRowStatusLabel(plaka) {
-    if (isBassoforPlate(plaka)) return 'BAŞŞOFÖR';
+    void plaka;
     return OZMAL_VEHICLE_LABEL;
   }
 
@@ -1710,6 +1906,7 @@
     if (item.shipmentDone) return false;
     if (parseNum(item.remainingBbt) > 0) return true;
     if ((item.waitingPlates || []).length > 0) return true;
+    if ((item.ozmalPlates || []).length > 0) return true;
     return !!item._emptyYdPending;
   }
 
@@ -1865,7 +2062,7 @@
 
   function buildPlateRowFromEntry(entry, blockItem) {
     const ozmal = !!entry?.isOzmal;
-    const bassofor = ozmal && isBassoforPlate(entry.plaka);
+    const bassofor = false;
     const inside = !ozmal && !!entry?.isInside;
     const ciftKantar = !ozmal && !!entry?.ciftKantar;
     const no = parseSiraNo(entry?.sira);
@@ -1891,8 +2088,11 @@
   }
 
   function buildBlockPlateRows(item) {
-    // Özmal / başşoför plakaları nakliyeci listesinde gösterilmez (gelmeyen olsa dahi)
-    const plates = (item.waitingPlates || []).map((p) => Object.assign({}, p, { isOzmal: false }));
+    const ozmalView = isOzmalCarrierItem(item);
+    const source = ozmalView
+      ? (item.waitingPlates && item.waitingPlates.length ? item.waitingPlates : item.ozmalPlates || [])
+      : (item.waitingPlates || []);
+    const plates = source.map((p) => Object.assign({}, p, { isOzmal: ozmalView ? true : false }));
     plates.sort(comparePlatesBySira);
     return plates.map((p) => buildPlateRowFromEntry(p, item));
   }
@@ -2043,13 +2243,24 @@
       dolumLabel,
       dolumUrgent: dolumLabel ? limanDolumUrgency(dolumLabel) : '',
       yuklemeYeri: String(item.yuklemeYeri || '').trim(),
+      tasiyici: String(item.tasiyici || '').trim(),
+      carrierKind: String(item.carrierKind || '').trim(),
+      siteCarrierLabel: String(
+        item.siteCarrierLabel
+        || formatSiteCarrierLabel(
+          item.yuklemeYeri,
+          item.tasiyici,
+          carrierHeaderBbt(item)
+        )
+      ).trim(),
       lotLabel: item.lotLabel || '',
       blockKey: String(item.blockKey || '').trim(),
       fileName: String(item.fileName || '').trim(),
     });
     buildBlockPlateRows(item).forEach((row) => rows.push(row));
     const rem = parseNum(item.remainingBbt);
-    const hasWaiting = (item.waitingPlates || []).length > 0;
+    const hasWaiting = (item.waitingPlates || []).length > 0
+      || (isOzmalCarrierItem(item) && (item.ozmalPlates || []).length > 0);
     const pendingOverride = String(item.nbPendingOverride || '').trim();
     const pendingText = pendingOverride || formatFooterStatusText(item);
     if (item.shipmentDone && !hasWaiting && rem <= 0) {
@@ -2252,11 +2463,14 @@
 
       const bk = blockGroupKey(r);
       const inside = rowCountsAsInside(r);
+      const ozmal = rowIsOzmal(r);
+      const tasiyici = displayTasiyici(r.tasiyici, ozmal);
       const entry = {
         plaka,
         bbt: rowBbt > 0 ? rowBbt : null,
-        isOzmal: isOzmalPlate(plaka),
+        isOzmal: ozmal,
         isInside: inside,
+        tasiyici,
         sira: String(r.sira || '').trim(),
         id: String(r.id || '').trim(),
         blockKey: bk,
@@ -2317,6 +2531,7 @@
     const malzemeLabel = extractMalzemeLabel(sample);
     const lotLabel = extractLotLabel(sample);
     const yuklemeYeri = collectYuklemeYeriLabel(items, sample);
+    const tasiyiciNames = collectTasiyiciNames(items);
     const status =
       remainingBbt <= 0 && waitingPlates.length === 0
         ? 'done'
@@ -2347,6 +2562,7 @@
       malzemeLabel,
       lotLabel,
       yuklemeYeri,
+      tasiyiciNames,
       waitingPlates,
       insidePlates,
       ozmalPlates,
@@ -2366,7 +2582,12 @@
     const ra = Number(a?.blockHeaderRow) || 0;
     const rb = Number(b?.blockHeaderRow) || 0;
     if (ra !== rb) return ra - rb;
-    return String(a?.headerText || '').localeCompare(String(b?.headerText || ''), 'tr');
+    const ha = String(a?.headerText || '').localeCompare(String(b?.headerText || ''), 'tr');
+    if (ha !== 0) return ha;
+    const ozA = isOzmalCarrierItem(a) ? 1 : 0;
+    const ozB = isOzmalCarrierItem(b) ? 1 : 0;
+    if (ozA !== ozB) return ozA - ozB;
+    return String(a?.tasiyici || '').localeCompare(String(b?.tasiyici || ''), 'tr');
   }
 
   function rowHasValidPlate(r) {
@@ -2376,7 +2597,7 @@
 
   function rowHasCarrierPlate(r) {
     if (!rowHasValidPlate(r)) return false;
-    return !isOzmalPlate(String(r.plaka || '').trim());
+    return !rowIsOzmal(r);
   }
 
   function rowHasRealKgDeparture(r) {
@@ -2397,6 +2618,128 @@
       if (item) pending.push(item);
     });
     return pending;
+  }
+
+  function cloneItemForCarrier(item, patch, gpmBbt) {
+    const next = Object.assign({}, item, patch);
+    next.siteCarrierLabel = formatSiteCarrierLabel(
+      next.yuklemeYeri,
+      next.tasiyici,
+      carrierHeaderBbt(next, gpmBbt)
+    );
+    return next;
+  }
+
+  function pickRemainingCarrierTarget(nakliyeGroups, hasOzmal, rem) {
+    if (parseNum(rem) <= 0) return null;
+    const named = nakliyeGroups.filter((g) => g && g.name);
+    if (named.length) {
+      named.sort((a, b) => (b.plates.length - a.plates.length) || String(a.name).localeCompare(String(b.name), 'tr'));
+      return named[0];
+    }
+    const empty = nakliyeGroups.find((g) => g && !g.name);
+    if (empty) return empty;
+    if (hasOzmal) return 'gpm';
+    return nakliyeGroups[0] || (hasOzmal ? 'gpm' : null);
+  }
+
+  function splitOneItemByCarrier(item) {
+    if (!item) return [];
+    const waiting = item.waitingPlates || [];
+    const ozmal = item.ozmalPlates || [];
+    const names = Array.isArray(item.tasiyiciNames) ? item.tasiyiciNames : [];
+    const nakliyeMap = new Map();
+    const unlabeled = [];
+
+    function ensureGroup(rawName) {
+      const name = displayTasiyici(rawName);
+      if (!name || isOzmalCarrierName(name) || !isRealCarrierName(name)) return null;
+      const key = carrierKey(name);
+      if (!nakliyeMap.has(key)) nakliyeMap.set(key, { name: name, plates: [] });
+      return nakliyeMap.get(key);
+    }
+
+    function ensureEmptyGroup() {
+      const key = '__empty__';
+      if (!nakliyeMap.has(key)) nakliyeMap.set(key, { name: '', plates: [] });
+      return nakliyeMap.get(key);
+    }
+
+    waiting.forEach((p) => {
+      if (!p || p.isOzmal || isOzmalCarrierName(p.tasiyici)) return;
+      const name = displayTasiyici(p.tasiyici);
+      if (!name || !isRealCarrierName(name)) {
+        unlabeled.push(p);
+        return;
+      }
+      const g = ensureGroup(name);
+      if (g) g.plates.push(p);
+    });
+    names.forEach((n) => {
+      ensureGroup(n);
+    });
+
+    const namedGroups = Array.from(nakliyeMap.values()).filter((g) => g.name);
+    if (unlabeled.length) {
+      if (namedGroups.length === 1) {
+        namedGroups[0].plates.push.apply(namedGroups[0].plates, unlabeled);
+      } else if (namedGroups.length > 1) {
+        namedGroups.sort((a, b) => (b.plates.length - a.plates.length) || String(a.name).localeCompare(String(b.name), 'tr'));
+        namedGroups[0].plates.push.apply(namedGroups[0].plates, unlabeled);
+      } else {
+        const empty = ensureEmptyGroup();
+        empty.plates.push.apply(empty.plates, unlabeled);
+      }
+    }
+
+    const nakliyeGroups = Array.from(nakliyeMap.values());
+    const hasOzmal = ozmal.length > 0 || names.some(isOzmalCarrierName);
+    const rem = parseNum(item.remainingBbt);
+    const remTarget = pickRemainingCarrierTarget(nakliyeGroups, hasOzmal, rem);
+    const gpmBbt = sumWaitingBbt(ozmal);
+    const out = [];
+
+    nakliyeGroups.forEach((g) => {
+      const isRem = remTarget === g;
+      const hasPlates = g.plates.length > 0;
+      if (!hasPlates && !isRem) return;
+      if (!hasPlates && !g.name && !isRem) return;
+      out.push(cloneItemForCarrier(item, {
+        tasiyici: g.name,
+        carrierKind: 'nakliye',
+        waitingPlates: g.plates.slice(),
+        ozmalPlates: [],
+        remainingBbt: isRem ? rem : 0,
+        excelLeftBbt: isRem ? rem : 0,
+        _emptyYdPending: isRem ? !!item._emptyYdPending : false,
+      }, gpmBbt));
+    });
+
+    const gpmGetsRem = remTarget === 'gpm';
+    if (hasOzmal || gpmGetsRem) {
+      if (ozmal.length || gpmGetsRem) {
+        out.push(cloneItemForCarrier(item, {
+          tasiyici: 'GPM',
+          carrierKind: 'ozmal',
+          waitingPlates: [],
+          ozmalPlates: ozmal.map((p) => Object.assign({}, p, { isOzmal: true, tasiyici: 'GPM' })),
+          remainingBbt: gpmGetsRem ? rem : 0,
+          excelLeftBbt: gpmGetsRem ? rem : 0,
+          _emptyYdPending: gpmGetsRem ? !!item._emptyYdPending : false,
+        }, gpmBbt));
+      }
+    }
+
+    if (!out.length) return [item];
+    return out;
+  }
+
+  function splitPendingItemsByCarrier(items) {
+    const out = [];
+    (items || []).forEach((item) => {
+      splitOneItemByCarrier(item).forEach((part) => out.push(part));
+    });
+    return out;
   }
 
   function analyzeNakliyePending(rows, meta, opts) {
@@ -2443,7 +2786,7 @@
     }
 
     pending.sort(compareBlockExcelOrder);
-    return markCiftKantarPlates(pending);
+    return splitPendingItemsByCarrier(markCiftKantarPlates(pending));
   }
 
   /** Bakiye deneme: Excel’deki her sevkiyat bloğu (bitenler dahil). */
@@ -2959,6 +3302,15 @@
     summarizeIhracatBalance,
     DEFAULT_AVG_BBT,
     isOzmalPlate,
+    isOzmalCarrierName,
+    displayTasiyici,
+    formatSiteCarrierLabel,
+    rowsNeedTasiyiciRepair,
+    buildTasiyiciMapFromGrid,
+    applyTasiyiciMapToRows,
+    splitPendingItemsByCarrier,
+    isOzmalCarrierItem,
+    isRealCarrierName,
     hasNakliyeBlockContent,
     hasBlockSheetContent,
     hasOzmalSheetContent,

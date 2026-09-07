@@ -139,9 +139,59 @@ function copyNetsisVehicleText(vehicle) {
 function copyNetsisData(vehicle) {
   const text = copyNetsisVehicleText(vehicle);
   if (!text) { showToast('⚠️ NETSIS verisi bulunamadı.'); return; }
+  copyTextWithToast(text, '✅ NETSIS verileri kopyalandı.');
+}
+
+function safeExcelText(value) {
+  return String(value || '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ').trim();
+}
+
+function formatPhoneForExcel(value) {
+  const raw = safeExcelText(value);
+  if (!raw || raw === '-') return '-';
+  const digits = raw.replace(/\D/g, '');
+  let local = digits;
+  if (local.length === 11 && local.startsWith('0')) local = local.slice(1);
+  if (local.length !== 10) return raw;
+  return '(' + local.slice(0, 3) + ') ' + local.slice(3, 6) + '-' + local.slice(6);
+}
+
+function formatExcelDateTime(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const tarih = new Intl.DateTimeFormat('tr-TR', { timeZone: 'Europe/Istanbul' }).format(d);
+  const saat = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Istanbul',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    hourCycle: 'h23'
+  }).format(d);
+  return [tarih, saat].filter(Boolean).join(' ');
+}
+
+/** rapor.html Excel kopyası ile aynı sütunlar: ad soyad, telefon, giriş, çıkış (tab). Ana sayfada saat günceldir. */
+function copyExcelVehicleText(vehicle, now) {
+  if (!vehicle) return '';
+  const firstName = safeExcelText(vehicle.soforAdi);
+  const lastName = safeExcelText(vehicle.soforSoyadi);
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || '-';
+  const phone = formatPhoneForExcel(vehicle.iletisim || '-');
+  const when = formatExcelDateTime(now || new Date()) || '-';
+  return [fullName, phone, when, when].join('\t');
+}
+
+function copyExcelData(vehicle) {
+  const text = copyExcelVehicleText(vehicle);
+  if (!text) { showToast('⚠️ Excel verisi bulunamadı.'); return; }
+  copyTextWithToast(text, '✅ Excel için kopyalandı.');
+}
+
+function copyTextWithToast(text, okMsg) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(() => {
-      showToast('✅ NETSIS verileri kopyalandı.');
+      showToast(okMsg);
     }).catch(() => {
       showToast('❌ Kopyalama yapılamadı.');
     });
@@ -154,7 +204,7 @@ function copyNetsisData(vehicle) {
     textarea.select();
     try {
       document.execCommand('copy');
-      showToast('✅ NETSIS verileri kopyalandı.');
+      showToast(okMsg);
     } catch (e) {
       showToast('❌ Kopyalama yapılamadı.');
     }
@@ -437,6 +487,7 @@ function formatPlakaInput(input) {
 
 // NETSIS — şoför kartı butonu (sadece logo)
 const NETSIS_ICON_SRC = 'https://www.evoset.com.tr/wp-content/uploads/2024/11/netsis.png';
+const EXCEL_COPY_ICON_SRC = '/assets/excel-copy.png';
 
 const WHATSAPP_ICON_SRC = 'https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg';
 const WHATSAPP_WINDOW_NAME = 'whatsapp_chat';

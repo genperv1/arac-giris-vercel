@@ -64,6 +64,63 @@
     return rows;
   }
 
+  let _tasiyiciRepairTried = false;
+
+  function loadXlsxLib() {
+    if (typeof XLSX !== 'undefined') return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = '/vendor/xlsx.full.min.js';
+      s.onload = () => resolve(typeof XLSX !== 'undefined');
+      s.onerror = () => {
+        s.src = 'https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js';
+        s.onload = () => resolve(typeof XLSX !== 'undefined');
+        s.onerror = () => resolve(false);
+      };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function loadTasiyiciMapFromStoredExcel() {
+    const src = window.IhracatExcelSource;
+    if (!src || typeof src.readStoredExcelFile !== 'function') return null;
+    let file = null;
+    try {
+      file = await src.readStoredExcelFile();
+    } catch (e) {
+      file = null;
+    }
+    if (!file || file.__missing || file.__notSelected) return null;
+    const ok = await loadXlsxLib();
+    if (!ok || typeof XLSX === 'undefined') return null;
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const sheetName = (src.getCachedSheetName && src.getCachedSheetName()) || (wb.SheetNames && wb.SheetNames[0]);
+    const ws = wb.Sheets[sheetName] || wb.Sheets[wb.SheetNames[0]];
+    if (!ws) return null;
+    const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+    return core.buildTasiyiciMapFromGrid(grid);
+  }
+
+  async function repairRowsTasiyiciIfNeeded(rows) {
+    if (!core || !rows || !rows.length) return rows;
+    if (typeof core.rowsNeedTasiyiciRepair === 'function' && !core.rowsNeedTasiyiciRepair(rows)) {
+      return rows;
+    }
+    if (_tasiyiciRepairTried) return rows;
+    _tasiyiciRepairTried = true;
+    try {
+      const map = await loadTasiyiciMapFromStoredExcel();
+      if (!map || typeof core.applyTasiyiciMapToRows !== 'function') return rows;
+      const next = core.applyTasiyiciMapToRows(rows, map);
+      if (next && next._tasiyiciPatched) {
+        await persistRows(next, loadMeta());
+        return next;
+      }
+    } catch (e) {}
+    return rows;
+  }
+
   async function loadRowsWithLiveDeparted() {
     const rows = loadRows();
     if (!rows.length || !core) return { rows, reports: [] };
@@ -161,10 +218,10 @@
     return html;
   }
 
-  function blockTitleRows(dateLabel, port, siteLabel) {
+  function blockTitleRows(dateLabel, port, siteLabel, ozmal) {
     const rows = [];
     const site = String(siteLabel || '').trim();
-    if (site) rows.push({ kind: 'site', a: site });
+    if (site) rows.push({ kind: 'site', a: site, ozmal: !!ozmal });
     const line =
       core && typeof core.formatDatePortLabel === 'function'
         ? core.formatDatePortLabel(dateLabel, port)
@@ -177,8 +234,9 @@
     const hdr = (blockRows || []).find((r) => r && r.kind === 'header');
     const date = String((hdr && hdr.sourceDateLabel) || fallbackDate || '').trim();
     const port = String((hdr && hdr.port) || '').trim();
-    const site = String((hdr && hdr.yuklemeYeri) || '').trim();
-    return blockTitleRows(date, port, site);
+    const site = String((hdr && (hdr.siteCarrierLabel || hdr.yuklemeYeri)) || '').trim();
+    const ozmal = !!(hdr && (hdr.carrierKind === 'ozmal' || (core && typeof core.isOzmalCarrierName === 'function' && core.isOzmalCarrierName(hdr.tasiyici))));
+    return blockTitleRows(date, port, site, ozmal);
   }
 
   function applySheetSiteLabel() {
@@ -449,6 +507,7 @@
       bbt: String(bbt),
       gidenTonaj: '',
       sira: '',
+      tasiyici: String(blockEl.getAttribute('data-nb-tasiyici') || sample.tasiyici || '').trim(),
       _ihracatEmptyBlock: false,
     });
     delete newRow.blockPendingPlakaNotes;
@@ -642,9 +701,12 @@
         it.malzeme,
         it.lotLabel,
         it.yuklemeYeri,
+        it.tasiyici,
+        it.siteCarrierLabel,
         String(it.planBbt),
         String(it.remainingBbt),
         ...(it.waitingPlates || []).map((p) => p.plaka),
+        ...(it.ozmalPlates || []).map((p) => p.plaka),
       ]
         .join(' ')
         .toUpperCase()
@@ -912,9 +974,11 @@
       return null;
     }
 
-    const hasCarrier =
-      visible.some((x) => core.hasNakliyeBlockContent(x)) ||
-      (core.buildExcelSheetParts(visible).nakliyeRows || []).length > 0;
+    const hasCarrier = visible.some((x) => {
+      if (!x) return false;
+      if (core.isOzmalCarrierItem && core.isOzmalCarrierItem(x)) return false;
+      return core.hasNakliyeBlockContent(x);
+    });
     if (!hasCarrier) {
       toast('Kopyalanacak nakliyeci listesi yok');
       return null;
@@ -1036,7 +1100,7 @@
             : row.kind === 'ozmal-header'
               ? 'nb-ozmal-hdr'
               : row.kind === 'site'
-                ? 'nb-site-hdr'
+                ? 'nb-site-hdr' + (row.ozmal ? ' nb-site-hdr--ozmal' : '')
                 : row.kind === 'date'
                   ? 'nb-date-hdr'
                   : row.kind === 'done'
@@ -1136,18 +1200,24 @@
 
   function buildBlockUnitHtml(blockRows, blockIdx, fallbackDate) {
     const label = blockLabelFromRows(blockRows);
+    const hdr = (blockRows || []).find((r) => r && r.kind === 'header') || {};
     const blockKey =
       (blockRows || []).map((r) => r && r.blockKey).find((k) => k) || '';
-    const excelSite =
-      ((blockRows || []).find((r) => r && r.kind === 'header') || {}).yuklemeYeri || '';
+    const excelSite = hdr.yuklemeYeri || '';
+    const tasiyici = String(hdr.tasiyici || '').trim();
+    const ozmal = hdr.carrierKind === 'ozmal' || (core && typeof core.isOzmalCarrierName === 'function' && core.isOzmalCarrierName(tasiyici));
     const titled = blockTitleRowsForBlock(blockRows, fallbackDate).concat(blockRows || []);
     return (
-      '<div class="nb-sheet-block" data-nb-block-idx="' +
+      '<div class="nb-sheet-block' +
+      (ozmal ? ' nb-sheet-block--ozmal' : '') +
+      '" data-nb-block-idx="' +
       esc(String(blockIdx)) +
       '" data-nb-block-label="' +
       esc(label) +
       '" data-nb-block="' +
       esc(blockKey) +
+      '" data-nb-tasiyici="' +
+      esc(tasiyici) +
       '">' +
       '<div class="nb-sheet-block-main">' +
       '<div class="nb-sheet-block-body">' +
@@ -1348,7 +1418,8 @@
       do {
         _renderQueued = false;
         const loaded = await loadRowsWithLiveDeparted();
-        const rows = loaded && loaded.rows ? loaded.rows : loaded || [];
+        let rows = loaded && loaded.rows ? loaded.rows : loaded || [];
+        rows = await repairRowsTasiyiciIfNeeded(rows);
 
         if (!rows.length) {
           empty?.classList.add('hidden');

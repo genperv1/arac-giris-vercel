@@ -1561,7 +1561,7 @@ async function showIhracatDetailsModal() {
       showToast('✅ İhracat verileri kaydedildi. Takip formunda plaka seçince güncel değerler gelir.');
       closeModal();
     } else {
-      showToast('❌ Kaydetme başarısız — tarayıcı deposu dolu olabilir. F12 → Application → Local Storage temizleyip tekrar deneyin.', 'error');
+      showToast('❌ Kaydetme başarısız. Satırlar güncellenemedi. Sayfayı yenileyip (Ctrl+F5) tekrar deneyin.', 'error');
     }
     return ok;
   };

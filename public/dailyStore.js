@@ -203,17 +203,20 @@
     try { backend = String(localStorage.getItem(LS_BACKEND_KEY) || '').trim(); } catch (e) {}
     // Son yazılan depo tam anlık görüntü — eski IDB/LS satırlarını birleştirme
     // (silinen plaka merge ile geri gelmesin).
-    if (backend === 'ls' && ls.rows.length) {
-      _applyLocal(ls);
-      return cache;
-    }
     if (backend === 'idb' && idb && idb.rows.length) {
       _applyLocal(idb);
       return cache;
     }
-    const merged = _mergeStores(ls, idb);
-    if (merged.rows.length) {
-      _applyLocal(merged);
+    if (backend === 'ls' && ls.rows.length) {
+      _applyLocal(ls);
+      return cache;
+    }
+    if (ls.rows.length) {
+      _applyLocal(ls);
+      return cache;
+    }
+    if (idb && idb.rows.length) {
+      _applyLocal(idb);
       return cache;
     }
     _applyLocal(ls);
@@ -268,6 +271,8 @@
   }
 
   function set(rows, meta){
+    _hydrateSeq += 1;
+    _hydratePromise = null;
     cache.rows = Array.isArray(rows) ? rows : [];
     cache.meta = (meta && typeof meta === 'object') ? meta : {};
     cache.loaded = true;
@@ -288,6 +293,8 @@
   }
 
   async function setAsync(rows, meta){
+    _hydrateSeq += 1;
+    _hydratePromise = null;
     cache.rows = Array.isArray(rows) ? rows : [];
     cache.meta = (meta && typeof meta === 'object') ? meta : {};
     cache.loaded = true;

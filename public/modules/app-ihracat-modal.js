@@ -91,6 +91,44 @@ function _ihracatPurgeEmptyBlockPlaceholders(rows) {
   });
 }
 
+/** Aynı Excel satırını (blok + sıra + plaka) tek kayıtta tut — id/irsaliye değişince kopya üretme */
+function _ihracatRowDedupeKey(s) {
+  if (!s) return '';
+  const scope = _ihracatBlockGroupKey(s);
+  if (s._ihracatEmptyBlock) {
+    return `${scope}::__empty__${String(s.blockKey || s.id || '').trim()}`;
+  }
+  const sira = String(s.sira || '').trim();
+  const plaka = String(s.plaka || '').replace(/\s+/g, '').toUpperCase();
+  if (sira) return `${scope}::sira:${sira}::${plaka}`;
+  return `${scope}::${plaka}::${String(s.irsaliyeNo || s.id || '').trim()}`;
+}
+
+function _ihracatDedupeShipmentRows(rows) {
+  const map = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((r) => {
+    if (!r) return;
+    const k = _ihracatRowDedupeKey(r);
+    if (!k) return;
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, r);
+      return;
+    }
+    const prevTs = Number(prev._ihracatEditedAt || 0);
+    const nextTs = Number(r._ihracatEditedAt || 0);
+    map.set(k, nextTs >= prevTs ? r : prev);
+  });
+  return Array.from(map.values());
+}
+
+function _ihracatPutUpdatedRow(byKey, oldKey, updated) {
+  if (!byKey || !updated) return;
+  const newKey = _ihracatShipmentKey(updated);
+  if (oldKey && oldKey !== newKey) byKey.delete(oldKey);
+  byKey.set(newKey, updated);
+}
+
 function _ihracatEmptyBlockHintRowHtml(sample) {
   return `
     <tr data-ihr-empty-block-hint="1">
@@ -979,9 +1017,9 @@ async function _saveIhracatDetailsFromModal(originalShipments, meta) {
     }
     if (!cur) return;
 
-    const updated = _ihracatReadRowFields(row, cur, blockSevk, blockAmb);
+    const updated = _ihracatReadRowFields(row, { ...cur }, blockSevk, blockAmb);
     if (!updated) return;
-    byKey.set(_ihracatShipmentKey(updated), updated);
+    _ihracatPutUpdatedRow(byKey, key, updated);
   });
 
   let deletedKeys = [];
@@ -996,7 +1034,8 @@ async function _saveIhracatDetailsFromModal(originalShipments, meta) {
   _ihracatApplyBlockFieldsToMap(byKey, blockSevk, blockAmb);
 
   let rows = _ihracatPurgeEmptyBlockPlaceholders(Array.from(byKey.values()));
-  let metaToSave = _ihracatMergeBlockOverridesIntoMeta(metaWork, blockSevk, blockAmb, Array.from(byKey.values()));
+  rows = _ihracatDedupeShipmentRows(rows);
+  let metaToSave = _ihracatMergeBlockOverridesIntoMeta(metaWork, blockSevk, blockAmb, rows);
   if (typeof repairIhracatRowFileNames === 'function') {
     const repaired = repairIhracatRowFileNames(rows, metaToSave);
     rows = repaired.rows;
@@ -1006,8 +1045,8 @@ async function _saveIhracatDetailsFromModal(originalShipments, meta) {
   const plateAfter = typeof ihracatCountPlateRows === 'function'
     ? ihracatCountPlateRows(rows)
     : rows.filter((r) => r && !r._ihracatEmptyBlock).length;
-  if (plateBefore > 0 && plateAfter < plateBefore) {
-    console.error('[ihracat] Kaydetme iptal: plaka satırı düşürüldü', plateBefore, '→', plateAfter);
+  if (plateBefore >= 3 && plateAfter === 0) {
+    console.error('[ihracat] Kaydetme iptal: tüm plakalar silindi', plateBefore, '→', plateAfter);
     return false;
   }
 

@@ -486,9 +486,12 @@ ${overlay}
         </div>
         ${rejectionInline}
       </div>
-      <div class="vehicle-card__brand" title="NETSIS verilerini kopyala">
-        <button type="button" class="netsis-btn" data-vehicle="${dv}" aria-label="NETSIS verilerini kopyala">
+      <div class="vehicle-card__brand">
+        <button type="button" class="netsis-btn" data-vehicle="${dv}" title="NETSIS verilerini kopyala" aria-label="NETSIS verilerini kopyala">
           <img class="netsis-btn-icon" src="${NETSIS_ICON_SRC}" alt="NETSIS" onerror="if(!this.dataset.fb){this.dataset.fb='1';this.src='/assets/netsis.png';}" />
+        </button>
+        <button type="button" class="excel-copy-btn" data-vehicle="${dv}" title="Excel için kopyala" aria-label="Excel için kopyala">
+          <img class="excel-copy-btn-icon" src="${EXCEL_COPY_ICON_SRC}" alt="Excel" />
         </button>
       </div>
     </div>

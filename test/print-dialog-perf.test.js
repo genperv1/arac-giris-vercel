@@ -116,5 +116,7 @@ test('Yazdır tıklanınca ağ veya vardiya notu beklemez', () => {
 test('slim rapor listesi since/until destekler', () => {
   assert.match(reportsRoute, /parseReportsListQuery/);
   assert.match(reportsRoute, /listQ\.slim/);
+  assert.match(reportsRoute, /printHistoryListColumns\(slim\)/);
   assert.match(reportsRoute, /tarih >= \$/);
+  assert.match(reportsRoute, /id = \$/);
 });

@@ -252,16 +252,42 @@
     try{ const r = await fetch('/api/piyasa'); if (r.ok) return await r.json(); }catch(e){}
     return {};
   }
+  function istanbulDayStartMs(iso) {
+    const key = String(iso || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return 0;
+    const ms = Date.parse(key + 'T00:00:00+03:00');
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function istanbulNextDayStartMs(iso) {
+    const start = istanbulDayStartMs(iso);
+    return start ? start + 24 * 60 * 60 * 1000 : 0;
+  }
+
+  function currentReportsRangeKey() {
+    return String(window.__reportsDateFrom || '').trim() + '|' + String(window.__reportsDateTo || '').trim();
+  }
+
+  function buildReportsListQuery() {
+    const params = new URLSearchParams();
+    params.set('slim', '1');
+    const from = String(window.__reportsDateFrom || '').trim();
+    const to = String(window.__reportsDateTo || '').trim();
+    const since = istanbulDayStartMs(from);
+    const until = istanbulNextDayStartMs(to);
+    if (since) params.set('since', String(since));
+    if (until) params.set('until', String(until));
+    params.set('limit', since || until ? '2500' : '4000');
+    params.set('_', String(Date.now()));
+    return params.toString();
+  }
+
   async function getEvents(){
     try{ 
-      const r = await fetch('/api/reports?_=' + Date.now(), {
+      const r = await fetch('/api/reports?' + buildReportsListQuery(), {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Pragma': 'no-cache'
-        },
-        credentials: 'include'
+        credentials: 'include',
+        cache: 'no-store'
       }); 
       if (r.ok) {
         return await r.json();
@@ -281,6 +307,8 @@
   let _lastDupExtraIds = [];
   let _eventsLoadPromise = null;
   let _eventsLoaded = false;
+  let _loadedRangeKey = '';
+  let _loadingRangeKey = '';
   const _vehicleLookupCache = new Map();
   const _firmaNameByCode = new Map();
 
@@ -439,18 +467,24 @@
   }
 
   async function ensureEventsLoaded(force) {
-    if (!force && _eventsLoaded) return _latestEvents;
-    if (!force && _eventsLoadPromise) return _eventsLoadPromise;
+    const rangeKey = currentReportsRangeKey();
+    if (!force && _eventsLoaded && _loadedRangeKey === rangeKey) return _latestEvents;
+    if (!force && _eventsLoadPromise && _loadingRangeKey === rangeKey) return _eventsLoadPromise;
     const p = (async () => {
       const events = await getEvents();
       ingestEvents(events);
+      _loadedRangeKey = rangeKey;
       return events;
     })();
     _eventsLoadPromise = p;
+    _loadingRangeKey = rangeKey;
     try {
       return await p;
     } finally {
-      if (_eventsLoadPromise === p) _eventsLoadPromise = null;
+      if (_eventsLoadPromise === p) {
+        _eventsLoadPromise = null;
+        _loadingRangeKey = '';
+      }
     }
   }
 
@@ -556,9 +590,15 @@
   if (!window.__reportsPageSize) window.__reportsPageSize = 10; // default page size
   if (window.__reportsOzmalFilter == null) window.__reportsOzmalFilter = false;
   if (window.__reportsBasimYeriFilter == null) window.__reportsBasimYeriFilter = '';
+  if (window.__reportsDateFrom == null && window.__reportsDateTo == null && window.__reportsDatePreset == null) {
+    const todayIso = getIstanbulTodayIso();
+    window.__reportsDateFrom = todayIso;
+    window.__reportsDateTo = todayIso;
+    window.__reportsDatePreset = 'today';
+  }
   if (window.__reportsDateFrom == null) window.__reportsDateFrom = '';
   if (window.__reportsDateTo == null) window.__reportsDateTo = '';
-  if (window.__reportsDatePreset == null) window.__reportsDatePreset = 'all';
+  if (window.__reportsDatePreset == null) window.__reportsDatePreset = 'today';
   if (window.__reportsShiftFilter == null) window.__reportsShiftFilter = '';
   if (window.__reportsKindFilter == null) window.__reportsKindFilter = '';
   if (window.__reportsDupFilter == null) window.__reportsDupFilter = false;
@@ -1570,7 +1610,8 @@
   async function render(opts){
     const forceReload = !!(opts && opts.force);
     const tbody = document.getElementById('tbody');
-    const showLoading = forceReload || !_eventsLoaded;
+    const rangeChanged = currentReportsRangeKey() !== _loadedRangeKey;
+    const showLoading = forceReload || !_eventsLoaded || rangeChanged;
     if (showLoading && tbody) {
       tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">Yükleniyor...</td></tr>';
     }
@@ -2053,6 +2094,8 @@
     });
 
     bindDateRangePicker(applyDateRange);
+    syncDateInputs();
+    syncActiveFiltersBar();
 
     const clearFiltersBtn = document.getElementById('clearFiltersBtn');
     if (clearFiltersBtn) {
@@ -2325,10 +2368,9 @@
     if ((!needsNote && !needsAmb) || !phId) return out;
     try {
       // Tek kayıt: listeden id ile bul (snapshot dahil)
-      const r = await fetch('/api/reports?limit=300&_=' + Date.now(), {
+      const r = await fetch('/api/reports?id=' + encodeURIComponent(phId) + '&limit=1&_=' + Date.now(), {
         credentials: 'include',
         cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
       });
       if (!r.ok) return out;
       const list = await r.json();
@@ -2523,11 +2565,13 @@
     }catch(e){ return false; }
   }
 
+    const bootLoad = ensureEventsLoaded();
     bind();
     render();
     loadFirmaNameMap().then((added) => {
       if (added) render();
     });
+    bootLoad.catch(() => {});
     
     // 🔄 UNIFIED CROSS-TAB SYNCHRONIZATION
     function initReportSync() {

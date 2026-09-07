@@ -1190,30 +1190,44 @@ function slimIhracatRowsForStorage(rows) {
 
 async function saveDailyShipments(rows, meta) {
   try {
-    const payload = slimIhracatRowsForStorage(rows);
+    const deduped = (typeof _ihracatDedupeShipmentRows === 'function')
+      ? _ihracatDedupeShipmentRows(rows)
+      : rows;
+    const payload = slimIhracatRowsForStorage(deduped);
     const metaObj = (meta && typeof meta === 'object') ? meta : {};
     if (window.DailyStore && typeof DailyStore.ensureReady === 'function') {
       await DailyStore.ensureReady();
     }
     let ok = false;
-    if (window.DailyStore && typeof DailyStore.setAsync === 'function') {
-      ok = await DailyStore.setAsync(payload, metaObj);
-    } else if (window.DailyStore && typeof DailyStore.set === 'function') {
-      ok = DailyStore.set(payload, metaObj);
-    } else {
+    const write = async () => {
+      if (window.DailyStore && typeof DailyStore.setAsync === 'function') {
+        return DailyStore.setAsync(payload, metaObj);
+      }
+      if (window.DailyStore && typeof DailyStore.set === 'function') {
+        return DailyStore.set(payload, metaObj);
+      }
       localStorage.setItem(DAILY_SHIPMENT_KEY, JSON.stringify(payload));
       localStorage.setItem(DAILY_SHIPMENT_META, JSON.stringify(metaObj));
-      ok = true;
+      return true;
+    };
+    ok = await write();
+    if (!ok) {
+      try {
+        if (window.DailyStore && typeof DailyStore.clear === 'function') {
+          await DailyStore.clear();
+        }
+      } catch (e) { /* ignore */ }
+      ok = await write();
     }
     if (!ok) return false;
     const cached = (window.DailyStore && typeof DailyStore.getRows === 'function')
       ? (DailyStore.getRows() || [])
       : payload;
-    const saved = Array.isArray(cached) && cached.length === payload.length;
-    if (saved) {
-      notifyIhracatExcelChanged();
+    if (Array.isArray(cached) && cached.length !== payload.length && window.DailyStore && typeof DailyStore.set === 'function') {
+      DailyStore.set(payload, metaObj);
     }
-    return saved;
+    notifyIhracatExcelChanged();
+    return true;
   } catch (e) {
     return false;
   }
@@ -1498,7 +1512,14 @@ async function clearDailyShipments() {
       localStorage.removeItem(DAILY_SHIPMENT_META);
       ok = true;
     }
-    if (ok) notifyIhracatExcelChanged();
+    if (ok) {
+      notifyIhracatExcelChanged();
+      try {
+        if (window.IhracatExcelSource && typeof window.IhracatExcelSource.clearStoredBinding === 'function') {
+          window.IhracatExcelSource.clearStoredBinding();
+        }
+      } catch (e) {}
+    }
     return ok;
   } catch(e){ return false; }
 }
@@ -1682,24 +1703,7 @@ async function removeDailyShipmentsBySourceAsync(sourceName) {
     kept = [];
   }
   if (!kept.length) {
-    try {
-      if (window.DailyStore && typeof DailyStore.clear === 'function') {
-        const ok = await DailyStore.clear();
-        if (ok) notifyIhracatExcelChanged();
-        return ok;
-      }
-      if (window.DailyStore && typeof DailyStore.setAsync === 'function') {
-        const ok = await DailyStore.setAsync([], {});
-        if (ok) notifyIhracatExcelChanged();
-        return ok;
-      }
-      localStorage.removeItem(DAILY_SHIPMENT_KEY);
-      localStorage.removeItem(DAILY_SHIPMENT_META);
-      notifyIhracatExcelChanged();
-      return true;
-    } catch (e) {
-      return false;
-    }
+    return clearDailyShipments();
   }
   const prevFiles = normalizeIhracatMetaFiles(meta);
   const nextFiles = prevFiles.filter((f) => String(f).trim() !== target);
@@ -1742,24 +1746,7 @@ async function removeDailyShipmentsByBlocksAsync(selectedBlocks) {
   const kept = rows.filter((r) => !selectedIds.has(_ihracatLoadedRowBlockId(r)));
 
   if (!kept.length) {
-    try {
-      if (window.DailyStore && typeof DailyStore.clear === 'function') {
-        const ok = await DailyStore.clear();
-        if (ok) notifyIhracatExcelChanged();
-        return ok;
-      }
-      if (window.DailyStore && typeof DailyStore.setAsync === 'function') {
-        const ok = await DailyStore.setAsync([], {});
-        if (ok) notifyIhracatExcelChanged();
-        return ok;
-      }
-      localStorage.removeItem(DAILY_SHIPMENT_KEY);
-      localStorage.removeItem(DAILY_SHIPMENT_META);
-      notifyIhracatExcelChanged();
-      return true;
-    } catch (e) {
-      return false;
-    }
+    return clearDailyShipments();
   }
 
   const rowFiles = [];
@@ -1996,6 +1983,8 @@ function refreshHeaderExcelInfo(){
       chipIhr.title = info.ihrCount > 0 ? `İHRACAT Excel: ${info.ihrLine}` : 'İHRACAT Excel yüklü değil';
     }
     if (chipIhrText) chipIhrText.textContent = _buildIhracatChipText(info);
+    const refreshChip = document.getElementById('excelIhracatRefreshButtonChip');
+    if (refreshChip) refreshChip.classList.toggle('hidden', !(info.ihrCount > 0));
 
     const chipPiy = document.getElementById('chipPiyasa');
     const chipPiyText = document.getElementById('chipPiyasaText');
@@ -2013,6 +2002,11 @@ function refreshHeaderExcelInfo(){
       if (ihrChip && (info.warnings || []).length) ihrChip.classList.add('chip-alert');
     } catch (e) {}
     _refreshExcelDateWarnBanner();
+    try {
+      if (window.IhracatExcelSource && typeof window.IhracatExcelSource.syncLastUpdateUiFromLocal === 'function') {
+        window.IhracatExcelSource.syncLastUpdateUiFromLocal();
+      }
+    } catch (e) {}
   } catch(e) {}
 }
 
@@ -2362,6 +2356,7 @@ function findColumnIndices(headerRow) {
     { key: 'plaka', names: ['PLAKA'] },
     { key: 'aciklama', names: ['AÇIKLAMA','ACIKLAMA','NOT','YÜKLEME NOTU','YUKLEME NOTU'] },
     { key: 'yuklemeYeri', names: ['YÜKLEME YERİ','YUKLEME YERI','YÜKLEME YERI','YUKLEME YERİ'] },
+    { key: 'tasiyici', names: ['NAKLİYECİ','NAKLIYECI','TAŞIYICI','TASIYICI','NAKLİYE FİRMASI','NAKLIYE FIRMASI','NAKLİYE FİRMA','NAKLIYE FIRMA'] },
     { key: 'firma', names: ['FİRMA / MÜŞTERİ KODU','FIRMA / MÜŞTERİ KODU','FİRMA / MÜŞTERİ','MÜŞTERİ KODU','MUSTERI KODU'] },
     { key: 'irsaliyeNo', names: ['İRSALİYE NO', 'IRSALIYE NO', 'İRSALİYE','IRSALIYE'] },
     { key: 'malzeme', names: ['MALIN CİNSİ','MALIN CINSI','MALZEME'] },
@@ -2587,6 +2582,156 @@ function _normalizeYuklemeYeri(raw) {
   return '';
 }
 
+function _normTasiyiciToken(raw) {
+  return String(raw || '')
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C')
+    .replace(/[^A-Z0-9]+/g, '');
+}
+
+function _isOzmalTasiyici(raw) {
+  const k = _normTasiyiciToken(raw);
+  return k === 'GPM' || k === 'OZMAL';
+}
+
+/** Liman / Excel etiketleri taşıyıcı sanılmasın (SAFİPORT, LİMAN, BOOKING…) */
+function _isJunkTasiyiciToken(raw) {
+  const k = _normTasiyiciToken(raw);
+  if (!k) return true;
+  if (k === 'GPM' || k === 'OZMAL') return false;
+  if (k === 'AVDAN' || /OSB$/.test(k)) return true;
+  return /(LIMAN|PORT|BOOKING|TARIH|SEVK|SHIP|EXPORT|NETSIS|FATURA|FIRMA|LOT|GEMI|TEDARIK|PERFORMANS|KANTAR|SOFOR|TELEFON|PLAKA|SIRANO|TONAJ|PALET|CUVAL|IRSALIYE|YUKLEME|MUSTERI|MADENCILIK|GENPER|COSCO|DETAY)/.test(k);
+}
+
+function _looksLikeTasiyiciHeader(cell) {
+  const n = String(cell || '')
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!n) return false;
+  if (/YUKLEME/.test(n)) return false;
+  return /NAKLIYECI/.test(n) || /TASIYICI/.test(n) || /NAKLIYE\s*FIRMA/.test(n);
+}
+
+function _normalizeTasiyiciDisplay(raw) {
+  const s = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!s || s.length > 24) return '';
+  if (_isOzmalTasiyici(s)) return 'GPM';
+  if (_normalizeYuklemeYeri(s)) return '';
+  if (s.split(' ').filter(Boolean).length > 1) return '';
+  const k = _normTasiyiciToken(s);
+  if (!k || k.length < 2 || k.length > 20) return '';
+  if (/\d/.test(k)) return '';
+  if (/(PLAKA|SIRANO|BBT|TONAJ|GIDEN|FARK|TOPLAM|KALAN|IRSALIYE|CUVAL|PALET|NET|YUKLEME|FIRMA|MUSTERI|SOFOR|TELEFON|KANTAR)/.test(k)) return '';
+  if (_isJunkTasiyiciToken(s)) return '';
+  return s.toLocaleUpperCase('tr-TR');
+}
+
+function _pickTasiyiciFromRow(row) {
+  const names = [];
+  const seen = new Set();
+  (row || []).forEach((v) => {
+    const n = _normalizeTasiyiciDisplay(v);
+    if (!n) return;
+    const k = _normTasiyiciToken(n);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    names.push(n);
+  });
+  return names;
+}
+
+function readRowTasiyici(d, tasiyiciCol, yuklemeCol) {
+  const idxs = [];
+  if (tasiyiciCol !== undefined && tasiyiciCol !== null) idxs.push(tasiyiciCol);
+  if (yuklemeCol != null) {
+    idxs.push(yuklemeCol - 2, yuklemeCol - 1);
+  }
+  idxs.push(12, 13, 0);
+  const found = [];
+  const seen = new Set();
+  idxs.forEach((c) => {
+    if (c == null || c < 0) return;
+    const n = _normalizeTasiyiciDisplay(d && d[c]);
+    if (!n) return;
+    const k = _normTasiyiciToken(n);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    found.push(n);
+  });
+  const gpm = found.find((n) => _isOzmalTasiyici(n));
+  if (gpm) return 'GPM';
+  return found[0] || '';
+}
+
+function detectTasiyiciColumnIndex(grid, headerRowIdx, skipCols, yuklemeCol) {
+  const headerRow = (grid && grid[headerRowIdx]) || [];
+  for (let c = 0; c < headerRow.length; c++) {
+    if (_looksLikeTasiyiciHeader(headerRow[c])) return c;
+  }
+  const skip = new Set((skipCols || []).filter((x) => x != null && x !== ''));
+  if (yuklemeCol != null) skip.add(yuklemeCol);
+  const scores = new Map();
+  const gpmHits = new Map();
+  const start = Number(headerRowIdx) || 0;
+  for (let rr = start + 1; rr < Math.min((grid || []).length, start + 80); rr++) {
+    const d = grid[rr] || [];
+    if (rr > start + 1 && typeof isIhracatBlockHeaderRow === 'function' && isIhracatBlockHeaderRow(d)) break;
+    const rowText = typeof _rowToText === 'function' ? _rowToText(d).toUpperCase() : '';
+    if (/\bTOPLAM\b/.test(rowText) && !/ARA\s+TOPLAM/.test(rowText)) break;
+    if (/\bKALAN\b/.test(rowText)) break;
+    for (let c = 0; c < d.length; c++) {
+      const val = _normalizeTasiyiciDisplay(d[c]);
+      if (!val) continue;
+      if (skip.has(c) && !_isOzmalTasiyici(val)) continue;
+      scores.set(c, (scores.get(c) || 0) + (_isOzmalTasiyici(val) ? 5 : 1));
+      if (_isOzmalTasiyici(val)) gpmHits.set(c, (gpmHits.get(c) || 0) + 1);
+    }
+  }
+  if (yuklemeCol != null) {
+    [yuklemeCol - 2, yuklemeCol - 1].forEach((c) => {
+      if (c >= 0 && (scores.get(c) || 0) > 0) scores.set(c, (scores.get(c) || 0) + 4);
+    });
+  }
+  let best = -1;
+  let bestScore = 0;
+  scores.forEach((sc, c) => {
+    let adj = sc;
+    if (c === 12 || c === 13) adj += 2;
+    if (gpmHits.get(c)) adj += 6;
+    if (adj > bestScore) {
+      bestScore = adj;
+      best = c;
+    }
+  });
+  if (best < 0) return undefined;
+  const rawBest = scores.get(best) || 0;
+  if (bestScore >= 2 || rawBest >= 3 || (gpmHits.get(best) || 0) > 0) return best;
+  return undefined;
+}
+
+function resolveTasiyiciCol(grid, headerRowIdx, blockCols, cols, yuklemeCol) {
+  if (blockCols && blockCols.tasiyici !== undefined) return blockCols.tasiyici;
+  if (cols && cols.tasiyici !== undefined) return cols.tasiyici;
+  const skip = [];
+  const src = Object.assign({}, cols || {}, blockCols || {});
+  ['sirano', 'plaka', 'bbt', 'cuval', 'palet', 'bosBbt', 'bosCuval', 'netTonaj', 'ogrTonaj', 'gidenTonaj', 'fark', 'yuklemeYeri', 'irsaliyeNo', 'aciklama', 'firma', 'malzeme', 'tonajKg'].forEach((key) => {
+    if (src[key] !== undefined) skip.push(src[key]);
+  });
+  return detectTasiyiciColumnIndex(grid, headerRowIdx, skip, yuklemeCol);
+}
+
 function _formatYuklemeYeriLabel(hits) {
   const order = ['AVDAN', '1.OSB', '2.OSB'];
   const seen = new Set();
@@ -2721,6 +2866,20 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
       break;
     }
   }
+
+  const tasiyiciNames = [];
+  const seenT = new Set();
+  above.forEach((item) => {
+    _pickTasiyiciFromRow(item.row).forEach((n) => {
+      const k = _normTasiyiciToken(n);
+      if (!k || seenT.has(k)) return;
+      seenT.add(k);
+      tasiyiciNames.push(n);
+    });
+  });
+  out.tasiyiciNames = tasiyiciNames;
+  const nonGpm = tasiyiciNames.filter((n) => !_isOzmalTasiyici(n));
+  out.tasiyici = nonGpm[0] || tasiyiciNames[0] || '';
 
   return out;
 }
@@ -3024,7 +3183,9 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     const yuklemeCol =
       blockCols.yuklemeYeri !== undefined ? blockCols.yuklemeYeri
         : (cols.yuklemeYeri !== undefined ? cols.yuklemeYeri : undefined);
+    const tasiyiciCol = resolveTasiyiciCol(grid, r, blockCols, cols, yuklemeCol);
     const yuklemeYeriHits = [];
+    const tasiyiciHits = [];
     let yuklemeYeri = '';
     let blockYuklemeNotu = '';
     let blockTotals = null;
@@ -3055,6 +3216,8 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         const colHit = _normalizeYuklemeYeri(d[yuklemeCol]);
         if (colHit) yuklemeYeriHits.push(colHit);
       }
+      let rowTasiyici = readRowTasiyici(d, tasiyiciCol, yuklemeCol);
+      if (rowTasiyici) tasiyiciHits.push(rowTasiyici);
 
       const plakaRaw = blockCols.plaka !== undefined ? d[blockCols.plaka] : null;
       const maybeNote = String(d[noteColumnIndex] || '').trim();
@@ -3121,6 +3284,7 @@ firma: (firma || '').slice(0, 40),
   sevkYeri,
   ambalaj,
   yuklemeYeri: (yuklemeCol !== undefined ? _normalizeYuklemeYeri(d[yuklemeCol]) : '') || '',
+  tasiyici: rowTasiyici || '',
   sheetName,
   blockPendingPlakaNotes,
 });
@@ -3131,6 +3295,22 @@ firma: (firma || '').slice(0, 40),
       || _normalizeYuklemeYeri(sheetName)
       || '';
 
+    const tasiyiciNames = [];
+    const seenTasiyici = new Set();
+    function addTasiyiciName(name) {
+      const key = _normTasiyiciToken(name);
+      if (!key || seenTasiyici.has(key)) return;
+      seenTasiyici.add(key);
+      tasiyiciNames.push(name);
+    }
+    tasiyiciHits.forEach(addTasiyiciName);
+    (blockMeta && blockMeta.tasiyiciNames ? blockMeta.tasiyiciNames : []).forEach(addTasiyiciName);
+    if (blockMeta && blockMeta.tasiyici) addTasiyiciName(blockMeta.tasiyici);
+    const nonGpmNames = tasiyiciNames.filter((n) => !_isOzmalTasiyici(n));
+    const defaultNakliyeci = nonGpmNames[0] || '';
+    const singleTasiyici = tasiyiciNames.length === 1 ? tasiyiciNames[0] : '';
+    if (blockMeta && typeof blockMeta === 'object') blockMeta.tasiyiciNames = tasiyiciNames.slice();
+
     blockRows.forEach((br) => {
       br.blockPendingPlakaNotes = blockPendingPlakaNotes;
       if (blockTotals) br.blockTotals = blockTotals;
@@ -3138,6 +3318,10 @@ firma: (firma || '').slice(0, 40),
         br.yuklemeYeri = yuklemeYeri;
         if (br.blockMeta && typeof br.blockMeta === 'object') br.blockMeta.yuklemeYeri = yuklemeYeri;
       }
+      if (!br.tasiyici) {
+        br.tasiyici = singleTasiyici || defaultNakliyeci;
+      }
+      if (br.blockMeta && typeof br.blockMeta === 'object') br.blockMeta.tasiyiciNames = tasiyiciNames.slice();
     });
     if (yuklemeYeri && blockMeta) blockMeta.yuklemeYeri = yuklemeYeri;
 
@@ -3161,6 +3345,7 @@ firma: (firma || '').slice(0, 40),
         sevkYeri,
         ambalaj,
         yuklemeYeri,
+        tasiyici: singleTasiyici || defaultNakliyeci,
         sheetName,
         tonajKg: '',
         bbt: '',
@@ -3222,82 +3407,17 @@ firma: (firma || '').slice(0, 40),
   };
 }
 
-async function commitIhracatImport(uniq2, meta, file) {
-  let rowsToSave = uniq2;
-  let metaToSave = meta;
-
-  try {
-    const existing = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
-    const existingMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
-
-    if (Array.isArray(existing) && existing.length > 0) {
-      const doAppend = await confirm(
-        `Mevcut Excel verisi var: ${existing.length} kayıt.\n\nYeni dosya EKLENSİN mi?\n• OK  = Ekle (2 Excel aynı anda)\n• İptal = Değiştir (eskisi silinir)`
-      );
-
-      if (doAppend) {
-        if (!uniq2.length) {
-          return {
-            ok: false,
-            msg: 'Yeni Excel’de sevkiyat bloğu bulunamadı. Mevcut liste değiştirilmedi.',
-          };
-        }
-        const newFileName = String((file && file.name) || meta.fileName || '').trim();
-        const existingTagged = existing.map((r) => {
-          if (!r) return r;
-          const parts = splitIhracatFileNames(r.fileName);
-          if (parts.length === 1) return r;
-          const prevFiles = normalizeIhracatMetaFiles(existingMeta);
-          const fallback = prevFiles[0] || parts[0] || '';
-          if (!fallback) return r;
-          return { ...r, fileName: fallback };
-        });
-        const incoming = uniq2.map((r) => {
-          if (!r) return r;
-          if (newFileName && String(r.fileName || '').trim() !== newFileName) {
-            return { ...r, fileName: newFileName };
-          }
-          return r;
-        });
-        rowsToSave = existingTagged.concat(incoming);
-        if (typeof repairIhracatRowFileNames === 'function') {
-          const repaired = repairIhracatRowFileNames(rowsToSave, {
-            ...existingMeta,
-            ...meta,
-            files: normalizeIhracatMetaFiles(existingMeta).concat(newFileName),
-          });
-          rowsToSave = repaired.rows;
-        }
-        const files = []
-          .concat(normalizeIhracatMetaFiles(existingMeta))
-          .concat(newFileName);
-        const seenF = new Set();
-        const uniqFiles = [];
-        files.forEach((f) => {
-          splitIhracatFileNames(f).forEach((part) => {
-            if (!part || seenF.has(part)) return;
-            seenF.add(part);
-            uniqFiles.push(part);
-          });
-        });
-        metaToSave = {
-          ...existingMeta,
-          ...meta,
-          importedAt: existingMeta.importedAt || meta.importedAt,
-          files: uniqFiles,
-          fileName: uniqFiles.join(' + '),
-          count: rowsToSave.length,
-          appendedAt: new Date().toISOString(),
-        };
-      } else {
-        rowsToSave = uniq2;
-        metaToSave = meta;
-      }
-    }
-  } catch (e) {
-    rowsToSave = uniq2;
-    metaToSave = meta;
-  }
+async function commitIhracatImport(uniq2, meta, file, opts) {
+  let rowsToSave = typeof _ihracatDedupeShipmentRows === 'function'
+    ? _ihracatDedupeShipmentRows(uniq2)
+    : uniq2;
+  let metaToSave = Object.assign({}, meta || {}, {
+    files: [String((file && file.name) || (meta && meta.fileName) || '').trim()].filter(Boolean),
+    fileName: String((file && file.name) || (meta && meta.fileName) || '').trim(),
+    count: Array.isArray(rowsToSave) ? rowsToSave.length : 0,
+    replacedAt: new Date().toISOString(),
+  });
+  if (!metaToSave.fileName && meta && meta.fileName) metaToSave.fileName = meta.fileName;
 
   try {
     if (window.DailyStore && typeof DailyStore.ensureReady === 'function') {
@@ -3309,7 +3429,7 @@ async function commitIhracatImport(uniq2, meta, file) {
   if (!ok) {
     return {
       ok: false,
-      msg: 'Kaydetme başarısız (tarayıcı deposu dolu). F12 → Application → Local Storage içindeki eski yedekleri silin veya Ctrl+F5 sonrası tekrar deneyin.',
+      msg: 'Kaydetme başarısız. Sayfayı yenileyip tekrar deneyin (Ctrl+F5).',
     };
   }
 
@@ -3317,6 +3437,16 @@ async function commitIhracatImport(uniq2, meta, file) {
   rebuildListsFromExcelRows(rowsToSave);
   try {
     window.refreshHeaderExcelInfo && window.refreshHeaderExcelInfo();
+  } catch (e) {}
+  try {
+    if (window.IhracatExcelSource && typeof window.IhracatExcelSource.rememberAfterImport === 'function') {
+      const srcPath = file && typeof file.path === 'string' ? file.path : '';
+      window.IhracatExcelSource.rememberAfterImport({
+        fileName: String((file && file.name) || metaToSave.fileName || '').trim(),
+        sheetName: metaToSave.sheetName || '',
+        filePath: srcPath,
+      }).catch(function () {});
+    }
   } catch (e) {}
 
   return { ok: true, msg: `✅ Excel yüklendi: ${uniq2.length} satır`, meta: metaToSave };
@@ -3873,4 +4003,65 @@ async function importDailyExcel(file) {
   const committed = await commitIhracatImport(parsed.rows, { ...parsed.meta, fileFingerprint: fp }, file);
   return committed;
 }
+
+/** Seçili Excel'i (Güncelle) aynı parser ile yeniden oku — dosya seçici / önizleme açılmaz. */
+async function applyIhracatExcelReread(file) {
+  if (!file) {
+    return {
+      ok: false,
+      code: 'EXCEL_FILE_NOT_FOUND',
+      msg: 'İhracat Excel dosyası bulunamadı. Lütfen dosyayı tekrar seçin.',
+    };
+  }
+  try {
+    if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
+  } catch (e) {
+    return { ok: false, msg: 'XLSX kütüphanesi yüklenemedi. İnternet bağlantınızı kontrol edin.' };
+  }
+  if (typeof XLSX === 'undefined') {
+    return { ok: false, msg: 'XLSX kütüphanesi yüklenemedi. (xlsx.full.min.js)' };
+  }
+
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: 'array' });
+  const storedSheet = (window.IhracatExcelSource && typeof window.IhracatExcelSource.getCachedSheetName === 'function')
+    ? window.IhracatExcelSource.getCachedSheetName()
+    : '';
+  const metaSheet = ((typeof loadDailyMeta === 'function' ? loadDailyMeta() : {}) || {}).sheetName;
+  let sheetName = storedSheet || metaSheet || (wb.SheetNames && wb.SheetNames[0]);
+  if (sheetName && wb.SheetNames && wb.SheetNames.indexOf(sheetName) < 0) {
+    sheetName = wb.SheetNames[0];
+  }
+  if (!sheetName) return { ok: false, msg: 'Excel sayfası bulunamadı.' };
+
+  let fp = '';
+  try {
+    if (window.ExcelUtils && window.ExcelUtils.fingerprintFile) fp = await window.ExcelUtils.fingerprintFile(file);
+  } catch (e) {}
+
+  const parsed = parseIhracatRowsFromWorkbook(wb, sheetName, {
+    fileName: file.name,
+    fileFingerprint: fp,
+  });
+  if (!parsed.ok) return { ok: false, msg: parsed.msg || 'Excel okunamadı.' };
+
+  window.__ihracatImportContext = { wb, sheetName, fileName: file.name, file };
+
+  const committed = await commitIhracatImport(
+    parsed.rows,
+    { ...parsed.meta, fileFingerprint: fp },
+    file,
+    { replaceAll: true }
+  );
+  if (committed && committed.ok) {
+    try {
+      document.getElementById('ihracatDetailsModal')?.remove();
+    } catch (e) {}
+    try {
+      if (typeof window.renderIhracatPickPanel === 'function') window.renderIhracatPickPanel();
+    } catch (e) {}
+  }
+  return committed;
+}
+window.applyIhracatExcelReread = applyIhracatExcelReread;
 

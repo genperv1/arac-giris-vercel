@@ -164,7 +164,7 @@ async function deleteVehicle(id) {
             if (!container || container.__cardClickBound) return;
             container.__cardClickBound = true;
             container.addEventListener('click', function (e) {
-                const t = e.target.closest('.edit-btn, .form-btn, .netsis-btn, .copy-card-btn, .delete-btn, .vehicle-card__draft-warn--clickable');
+                const t = e.target.closest('.edit-btn, .form-btn, .netsis-btn, .excel-copy-btn, .copy-card-btn, .delete-btn, .vehicle-card__draft-warn--clickable');
                 if (!t || !container.contains(t)) return;
                 try {
                     if (t.classList.contains('delete-btn')) {
@@ -180,6 +180,7 @@ async function deleteVehicle(id) {
                     } else if (t.classList.contains('edit-btn')) editVehicle(vehicle);
                     else if (t.classList.contains('form-btn')) showTakipFormu(vehicle);
                     else if (t.classList.contains('netsis-btn')) copyNetsisData(vehicle);
+                    else if (t.classList.contains('excel-copy-btn')) copyExcelData(vehicle);
                     else if (t.classList.contains('copy-card-btn')) copyCardInfo(vehicle);
                 } catch (err) { console.error('vehicle click handler error:', err); }
             });

@@ -1667,12 +1667,16 @@ test('analyzeNakliyePending — YD33 waiting plates stay visible next to empty Y
       files: ['YD33 LOT NO 26 07 23 1.OSB.xlsx', '20.08.2026.xlsx'],
     }
   );
-  assert.equal(pending.length, 2);
-  const yd33 = pending.find((p) => core.normalizeYdKey(p.ydKey) === 'YD33');
+  assert.equal(pending.length, 3);
+  const yd33Parts = pending.filter((p) => core.normalizeYdKey(p.ydKey) === 'YD33');
+  const yd33 = yd33Parts.find((p) => p.carrierKind !== 'ozmal') || yd33Parts[0];
+  const yd33Gpm = yd33Parts.find((p) => p.carrierKind === 'ozmal');
   const yd276 = pending.find((p) => core.normalizeYdKey(p.ydKey) === 'YD276');
   assert.ok(yd33);
+  assert.ok(yd33Gpm);
   assert.ok(yd276);
   assert.equal(yd33.waitingPlates.length, 2);
+  assert.equal(yd33Gpm.ozmalPlates.length, 1);
   assert.deepEqual(
     yd33.waitingPlates.map((p) => core.compactPlate(p.plaka)).sort(),
     ['16CBL713', '16PK167']
@@ -3075,7 +3079,9 @@ test('YD113 — özmal atanmış, extra yazdırma kalan 86 BBT yi yemez', () => 
   assert.equal(out[0].shipmentDone, false);
   assert.equal(out[0].remainingBbt, 86);
   const sheet = core.buildExcelBlockRows(out[0]);
-  assert.equal(sheet.filter((r) => r.kind === 'plate').length, 0);
+  assert.equal(sheet.filter((r) => r.kind === 'plate').length, 6);
+  assert.equal(out[0].tasiyici, 'GPM');
+  assert.equal(out[0].carrierKind, 'ozmal');
   assertCleanNakliyeciHeader(sheet[0].a);
   const footer = sheet.find((r) => r.kind === 'pending');
   assert.ok(footer, 'turuncu kalan satır yok');
@@ -3145,5 +3151,307 @@ test('Excel kaynak — rapor gelmeyen 4 plakayı kapatmaz, kalan 86 BBT', () => 
   const fromSistemArg = core.analyzeNakliyePendingFromSource(rows, reports, meta, 'sistem');
   assert.equal(fromSistemArg[0].waitingPlates.length, 4);
 });
+
+test('displayTasiyici / isOzmalCarrierName — GPM özmal, diğerleri nakliyeci', () => {
+  assert.equal(core.isOzmalCarrierName('GPM'), true);
+  assert.equal(core.isOzmalCarrierName('gpm'), true);
+  assert.equal(core.isOzmalCarrierName('ÖZMAL'), true);
+  assert.equal(core.isOzmalCarrierName('AKYÜZ'), false);
+  assert.equal(core.displayTasiyici('gpm'), 'GPM');
+  assert.equal(core.displayTasiyici('akyüz'), 'AKYÜZ');
+  assert.equal(core.formatSiteCarrierLabel('AVDAN', 'AKYÜZ'), 'AVDAN / AKYÜZ');
+  assert.equal(core.formatSiteCarrierLabel('AVDAN', 'GPM'), 'AVDAN / GPM');
+  assert.equal(core.formatSiteCarrierLabel('AVDAN', 'GPM', 120), 'AVDAN / GPM · 120 BBT');
+  assert.equal(core.formatSiteCarrierLabel('AVDAN', 'AKYÜZ', 680), 'AVDAN / AKYÜZ · 680 BBT');
+  assert.equal(core.formatSiteCarrierLabel('AVDAN', ''), 'AVDAN');
+  assert.equal(core.formatSiteCarrierLabel('AVDAN', '', 680), 'AVDAN · 680 BBT');
+});
+
+test('analyzeBlock — GPM yazısı plaka listesinde olmasa da özmal sayılır', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD92(M) / 100 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADG403',
+      bbt: '20',
+      tasiyici: 'GPM',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD92(M) / 100 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADK694',
+      bbt: '24',
+      tasiyici: 'AKYÜZ',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(item.ozmalPlates.length, 1);
+  assert.equal(item.waitingPlates.length, 1);
+  assert.equal(item.ozmalPlates[0].plaka.replace(/\s+/g, ''), '43ADG403');
+  assert.equal(item.waitingPlates[0].tasiyici, 'AKYÜZ');
+  assert.ok(item.tasiyiciNames.includes('GPM'));
+  assert.ok(item.tasiyiciNames.includes('AKYÜZ'));
+});
+
+test('splitPendingItemsByCarrier — aynı sevkiyatta AKYÜZ ve GPM ayrı kart', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD92(M) / 100 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADK694',
+      bbt: '24',
+      tasiyici: 'AKYÜZ',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD92(M) / 100 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADG403',
+      bbt: '20',
+      tasiyici: 'GPM',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD92(M) / 100 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADS411',
+      bbt: '20',
+      tasiyici: 'GPM',
+      gidenTonaj: '',
+    },
+  ]);
+  const parts = core.splitPendingItemsByCarrier([item]);
+  assert.equal(parts.length, 2);
+  const nak = parts.find((p) => p.carrierKind === 'nakliye');
+  const gpm = parts.find((p) => p.carrierKind === 'ozmal');
+  assert.ok(nak);
+  assert.ok(gpm);
+  assert.equal(nak.tasiyici, 'AKYÜZ');
+  assert.equal(nak.siteCarrierLabel, 'AVDAN / AKYÜZ · 60 BBT');
+  assert.equal(nak.waitingPlates.length, 1);
+  assert.equal(nak.ozmalPlates.length, 0);
+  assert.equal(nak.remainingBbt, 36);
+  assert.equal(gpm.tasiyici, 'GPM');
+  assert.equal(gpm.siteCarrierLabel, 'AVDAN / GPM · 40 BBT');
+  assert.equal(gpm.ozmalPlates.length, 2);
+  assert.equal(gpm.remainingBbt, 0);
+
+  const nakRows = core.buildExcelBlockRows(nak);
+  assert.equal(nakRows[0].siteCarrierLabel, 'AVDAN / AKYÜZ · 60 BBT');
+  assert.ok(nakRows.find((r) => r.a === '43ADK694'));
+  assert.equal(nakRows.find((r) => r.a === '43ADG403'), undefined);
+
+  const gpmRows = core.buildExcelBlockRows(gpm);
+  assert.equal(gpmRows[0].siteCarrierLabel, 'AVDAN / GPM · 40 BBT');
+  const gpmPlates = gpmRows.filter((r) => r.kind === 'plate');
+  assert.equal(gpmPlates.length, 2);
+  assert.equal(gpmPlates[0].ozmal, true);
+  assert.ok(gpmPlates.some((r) => r.a === '43ADG403'));
+  assert.ok(gpmPlates.some((r) => r.c === '20 BBT'));
+});
+
+test('analyzeNakliyePending — GPM nakliyeci listesine karışmaz', () => {
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD92(M) / 100 BBT',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADK694',
+      bbt: '24',
+      tasiyici: 'AKYÜZ',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD92(M) / 100 BBT',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADG403',
+      bbt: '20',
+      tasiyici: 'GPM',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(pending.length, 2);
+  assert.equal(pending[0].tasiyici, 'AKYÜZ');
+  assert.equal(pending[1].tasiyici, 'GPM');
+  const parts = core.buildExcelSheetParts(pending);
+  const plates = parts.nakliyeRows.filter((r) => r.kind === 'plate').map((r) => r.a);
+  assert.deepEqual(plates, ['43ADK694', '43ADG403']);
+  const headers = parts.nakliyeRows.filter((r) => r.kind === 'header');
+  assert.equal(headers[0].siteCarrierLabel, 'AVDAN / AKYÜZ · 80 BBT');
+  assert.equal(headers[1].siteCarrierLabel, 'AVDAN / GPM · 20 BBT');
+});
+
+test('GPM kartında başşoför plakası da ÖZMAL yazar', () => {
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD05 / 800 BBT',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43 ADS 408',
+      bbt: '20',
+      tasiyici: 'GPM',
+      gidenTonaj: '',
+    },
+    {
+      blockKey: 'BLK_G',
+      blockHeaderRow: 11,
+      headerText: 'YD05 / 800 BBT',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43 ADT 550',
+      bbt: '20',
+      tasiyici: 'GPM',
+      gidenTonaj: '',
+    },
+  ]);
+  const gpm = core.splitPendingItemsByCarrier([item])[0];
+  const rows = core.buildExcelBlockRows(gpm);
+  const plates = rows.filter((r) => r.kind === 'plate');
+  assert.equal(plates.length, 2);
+  plates.forEach((r) => {
+    assert.equal(r.b, 'ÖZMAL');
+    assert.equal(r.bassofor, false);
+    assert.equal(r.ozmal, true);
+  });
+  assert.equal(rows[0].siteCarrierLabel, 'AVDAN / GPM · 40 BBT');
+});
+
+test('aynı 800 BBT sevkiyat — GPM 120, kalan 680 AKYÜZ başlığında; isimsiz plaka da AKYÜZ olur', () => {
+  const meta = { tasiyici: 'AKYÜZ', tasiyiciNames: ['AKYÜZ', 'GPM', 'SAFİPORT', 'LİMAN', 'BOOKING'] };
+  const gpmPlates = ['43ADS403', '43ADS408', '43ADT546', '43ADT550', '43ADT553', '43ADT557'];
+  const rows = [
+    {
+      blockKey: 'BLK_800',
+      blockHeaderRow: 11,
+      headerText: 'YD05(M) / 800 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADK534',
+      bbt: '24',
+      tasiyici: '',
+      gidenTonaj: '30360',
+      tonajKg: '30360',
+      blockMeta: meta,
+    },
+    ...gpmPlates.map((plaka) => ({
+      blockKey: 'BLK_800',
+      blockHeaderRow: 11,
+      headerText: 'YD05(M) / 800 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka,
+      bbt: '20',
+      tasiyici: '',
+      gidenTonaj: '',
+      blockMeta: meta,
+    })),
+    {
+      blockKey: 'BLK_800',
+      blockHeaderRow: 11,
+      headerText: 'YD05(M) / 800 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43AAE599',
+      bbt: '22',
+      tasiyici: '',
+      gidenTonaj: '',
+      blockMeta: meta,
+    },
+  ];
+  const pending = core.analyzeNakliyePending(rows);
+  assert.equal(pending.length, 2);
+  const nak = pending.find((p) => p.carrierKind === 'nakliye');
+  const gpm = pending.find((p) => p.carrierKind === 'ozmal');
+  assert.ok(nak);
+  assert.ok(gpm);
+  assert.equal(nak.tasiyici, 'AKYÜZ');
+  assert.equal(nak.siteCarrierLabel, 'AVDAN / AKYÜZ · 680 BBT');
+  assert.equal(nak.waitingPlates.length, 1);
+  assert.equal(nak.waitingPlates[0].plaka.replace(/\s+/g, ''), '43AAE599');
+  assert.equal(gpm.tasiyici, 'GPM');
+  assert.equal(gpm.siteCarrierLabel, 'AVDAN / GPM · 120 BBT');
+  assert.equal(gpm.ozmalPlates.length, 6);
+  assert.ok(!nak.tasiyiciNames.includes('SAFİPORT'));
+});
+
+test('Excel grid haritası — kayıtlı satırda tasiyici yoksa AKYÜZ / 680 BBT dolar', () => {
+  const header = new Array(18).fill('');
+  header[0] = 'AKYÜZ';
+  header[1] = 'YD05(M) / LOT 26 08 14 / 800 BBT / SAFİPORT';
+  header[17] = 'AKYÜZ';
+  const akyuz = new Array(18).fill('');
+  akyuz[2] = '43AAE599';
+  akyuz[3] = 22;
+  akyuz[12] = 'AKYÜZ';
+  akyuz[14] = 'AVDAN';
+  const gpmRow = new Array(18).fill('');
+  gpmRow[2] = '43ADS403';
+  gpmRow[3] = 20;
+  gpmRow[12] = 'GPM';
+  gpmRow[14] = 'AVDAN';
+  const map = core.buildTasiyiciMapFromGrid([header, akyuz, gpmRow]);
+  assert.equal(map.defaultNakliyeci, 'AKYÜZ');
+  assert.equal(map.byPlate[core.plateKey('43AAE599')], 'AKYÜZ');
+  assert.equal(map.byPlate[core.plateKey('43ADS403')], 'GPM');
+  assert.equal(map.byYd.YD05, 'AKYÜZ');
+
+  const gpmPlates = ['43ADS403', '43ADS408', '43ADT546', '43ADT550', '43ADT553', '43ADT557'];
+  const raw = [
+    {
+      blockKey: 'BLK_800',
+      blockHeaderRow: 11,
+      headerText: 'YD05(M) / 800 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43ADK534',
+      bbt: '24',
+      tasiyici: '',
+      gidenTonaj: '30360',
+      tonajKg: '30360',
+    },
+    ...gpmPlates.map((plaka) => ({
+      blockKey: 'BLK_800',
+      blockHeaderRow: 11,
+      headerText: 'YD05(M) / 800 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka,
+      bbt: '20',
+      tasiyici: '',
+      gidenTonaj: '',
+    })),
+    {
+      blockKey: 'BLK_800',
+      blockHeaderRow: 11,
+      headerText: 'YD05(M) / 800 BBT / HP 0,074-0,30',
+      yuklemeYeri: 'AVDAN',
+      plaka: '43AAE599',
+      bbt: '22',
+      tasiyici: '',
+      gidenTonaj: '',
+    },
+  ];
+  assert.equal(core.rowsNeedTasiyiciRepair(raw), true);
+  const rows = core.applyTasiyiciMapToRows(raw, map);
+  assert.equal(rows._tasiyiciPatched, true);
+  assert.equal(rows.find((r) => r.plaka === '43AAE599').tasiyici, 'AKYÜZ');
+  assert.equal(rows.find((r) => r.plaka === '43ADS403').tasiyici, 'GPM');
+  const pending = core.analyzeNakliyePending(rows);
+  const nak = pending.find((p) => p.carrierKind === 'nakliye');
+  const gpm = pending.find((p) => p.carrierKind === 'ozmal');
+  assert.equal(nak.tasiyici, 'AKYÜZ');
+  assert.equal(nak.siteCarrierLabel, 'AVDAN / AKYÜZ · 680 BBT');
+  assert.equal(gpm.siteCarrierLabel, 'AVDAN / GPM · 120 BBT');
+});
+
 
 

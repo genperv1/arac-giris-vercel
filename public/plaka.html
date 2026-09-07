@@ -5,749 +5,413 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <link rel="apple-touch-icon" href="logo.png" />
-  <meta name="theme-color" content="#4f46e5" />
+  <meta name="theme-color" content="#111111" />
   <title>Plaka Ayırma — Yönetim Paneli</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="tailwind-built.css">
-  <link rel="stylesheet" href="styles.css?v=20260611-navfix">
-  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="core-dom.js"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
   <script src="session-manager.js?v=20260605-fixes-v1"></script>
   <style>
     :root {
-      --rp-bg: #f1f5f9;
-      --rp-surface: #ffffff;
-      --rp-surface2: #f8fafc;
-      --rp-surface-tint: #f5f3ff;
-      --rp-border: #e2e8f0;
-      --rp-border2: #cbd5e1;
-      --rp-text: #334155;
-      --rp-muted: #64748b;
-      --rp-accent: #4f46e5;
-      --rp-accent-hover: #4338ca;
-      --rp-accent-soft: #eef2ff;
-      --rp-danger: #dc2626;
-      --rp-danger-hover: #b91c1c;
-      --rp-header-from: #1e293b;
-      --rp-header-to: #4338ca;
-      --rp-mono: ui-monospace, Consolas, 'Liberation Mono', monospace;
-      --rp-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-      --rp-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+      --ink: #111111;
+      --muted: #7a756e;
+      --line: #e6e1d8;
+      --paper: #f4f1eb;
+      --card: #fffcf7;
+      --red: #c81e1e;
+      --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+      --sans: "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
     }
 
-    body.rp-page {
-      background: var(--rp-bg);
-      color: var(--rp-text);
-      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
       min-height: 100vh;
-      line-height: 1.5;
     }
 
-    .rp-header {
-      background: linear-gradient(to right, var(--rp-header-from), var(--rp-header-to));
-      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: var(--rp-shadow-md);
+    body.pl-page {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.45;
     }
 
-    .rp-logo-box {
-      width: 44px;
-      height: 44px;
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: var(--rp-mono);
-      font-weight: 700;
-      font-size: 13px;
-      color: #fff;
-      flex-shrink: 0;
-    }
-
-    .rp-header-title {
-      font-size: 1.125rem;
-      font-weight: 600;
-      color: #fff;
-      line-height: 1.3;
-    }
-
-    .rp-header-sub {
-      font-size: 0.8125rem;
-      color: rgba(255, 255, 255, 0.78);
-      margin-top: 2px;
-    }
-
-    .rp-btn-header {
-      font-size: 0.8125rem;
-      color: #fff;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.22);
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      font-weight: 500;
-      cursor: pointer;
-      text-decoration: none;
-    }
-
-    .rp-btn-header:hover {
-      background: rgba(255, 255, 255, 0.18);
-    }
-
-    .rp-page-title {
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: #0f172a;
-      letter-spacing: -0.02em;
-      line-height: 1.25;
-    }
-
-    .rp-page-desc {
-      font-size: 0.875rem;
-      color: var(--rp-muted);
-      margin-top: 0.25rem;
-    }
-
-    .pl-stats {
+    .pl-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 1.25rem;
+      gap: 16px;
+      padding: 18px 28px;
+      border-bottom: 1px solid var(--line);
+      background: var(--card);
     }
 
-    .pl-stat-card {
-      background: var(--rp-surface);
-      border: 1px solid #e0e7ff;
-      border-radius: 10px;
-      padding: 10px 18px;
-      min-width: 100px;
-      box-shadow: var(--rp-shadow-sm);
-    }
-
-    .pl-stat-label {
-      font-size: 0.625rem;
-      color: var(--rp-muted);
+    .pl-brand {
+      font-size: 13px;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      font-weight: 600;
+      font-weight: 650;
+      color: var(--ink);
     }
 
-    .pl-stat-val {
-      font-size: 1.375rem;
-      font-weight: 700;
-      font-family: var(--rp-mono);
+    .pl-home {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .pl-home:hover { color: var(--ink); }
+
+    .pl-wrap {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 36px 0 64px;
+    }
+
+    .pl-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+
+    .pl-title {
+      margin: 0;
+      font-size: 34px;
+      font-weight: 560;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+    }
+
+    .pl-metrics {
+      display: flex;
+      gap: 28px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .pl-metric b {
+      display: block;
       margin-top: 4px;
-      color: var(--rp-accent);
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      text-transform: none;
     }
 
-    .pl-stat-card--ok {
-      border-color: #bbf7d0;
+    .pl-note {
+      display: none;
+      margin: 0 0 22px;
+      padding: 12px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      color: var(--red);
+      font-size: 13px;
     }
 
-    .pl-stat-card--ok .pl-stat-val {
-      color: #15803d;
+    .pl-note.show { display: block; }
+
+    .pl-note strong {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 4px;
     }
 
-    .pl-stat-card--bad {
-      border-color: #fecaca;
-    }
-
-    .pl-stat-card--bad .pl-stat-val {
-      color: #b91c1c;
-    }
-
-    .pl-stat-card--pending .pl-stat-val {
-      color: var(--rp-muted);
+    .pl-note ul {
+      margin: 8px 0 0;
+      padding: 0;
+      list-style: none;
+      font-family: var(--mono);
+      font-size: 12px;
+      columns: 2;
+      column-gap: 28px;
     }
 
     .pl-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
+      grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+      gap: 22px;
     }
 
-    .pl-panel {
-      background: var(--rp-surface);
-      border: 1px solid var(--rp-border);
-      border-radius: 12px;
+    .pl-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
       padding: 18px;
-      box-shadow: var(--rp-shadow-sm);
+      min-height: 420px;
+      display: flex;
+      flex-direction: column;
     }
 
-    .pl-btn-row {
+    .pl-card-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .pl-actions {
       display: flex;
       gap: 8px;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
     }
 
     .pl-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.375rem;
-      padding: 0.5rem 0.875rem;
-      border-radius: 8px;
-      border: 1px solid var(--rp-border2);
-      background: var(--rp-surface2);
-      color: var(--rp-text);
-      font-size: 0.8125rem;
+      appearance: none;
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: #fff;
+      border-radius: 999px;
+      padding: 8px 16px;
+      font: inherit;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
     }
 
-    .pl-btn:hover {
-      background: #e2e8f0;
-      border-color: #94a3b8;
+    .pl-btn:hover { opacity: 0.88; }
+
+    .pl-btn-ghost {
+      background: transparent;
+      color: var(--ink);
     }
 
-    .pl-btn-primary {
-      background: var(--rp-accent);
-      border-color: var(--rp-accent);
-      color: #fff;
+    .pl-btn.is-busy {
+      opacity: 0.55;
+      pointer-events: none;
     }
 
-    .pl-btn-primary:hover {
-      background: var(--rp-accent-hover);
-      border-color: var(--rp-accent-hover);
-    }
-
-    .pl-btn-danger {
-      background: var(--rp-danger);
-      border-color: var(--rp-danger);
-      color: #fff;
-    }
-
-    .pl-btn-danger:hover {
-      background: var(--rp-danger-hover);
-      border-color: var(--rp-danger-hover);
-    }
-
-    .pl-btn-sm {
-      padding: 0.375rem 0.6875rem;
-      font-size: 0.6875rem;
-      font-weight: 500;
+    #input,
+    #search {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 12px;
+      outline: none;
+      font-family: var(--mono);
     }
 
     #input {
-      width: 100%;
-      min-height: 260px;
-      padding: 12px 14px;
-      background: var(--rp-surface2);
-      border: 1px solid var(--rp-border);
-      border-radius: 8px;
-      color: var(--rp-text);
-      font-family: var(--rp-mono);
-      font-size: 12px;
-      resize: vertical;
+      flex: 1;
+      min-height: 320px;
+      padding: 16px;
+      font-size: 13px;
       line-height: 1.7;
-      outline: none;
-    }
-
-    #input:focus {
-      border-color: var(--rp-accent);
-      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
-      background: #fff;
-    }
-
-    #input::placeholder {
-      color: #94a3b8;
+      resize: vertical;
     }
 
     #search {
-      width: 100%;
-      padding: 9px 12px;
-      background: var(--rp-surface2);
-      border: 1px solid var(--rp-border);
-      border-radius: 8px;
-      color: var(--rp-text);
-      font-family: var(--rp-mono);
-      font-size: 12px;
-      outline: none;
+      padding: 10px 12px;
+      font-size: 13px;
       margin-bottom: 10px;
     }
 
+    #input:focus,
     #search:focus {
-      border-color: var(--rp-accent);
-      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
-      background: #fff;
+      border-color: #bbb4a8;
     }
 
+    #input::placeholder,
     #search::placeholder {
-      color: #94a3b8;
+      color: #b3ada4;
     }
 
-    .pl-copy-row {
+    .pl-copy {
       display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
+      gap: 14px;
       margin-bottom: 10px;
     }
+
+    .pl-copy button {
+      appearance: none;
+      border: 0;
+      background: none;
+      padding: 0;
+      font: inherit;
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .pl-copy button:hover { color: var(--ink); }
 
     .pl-table-wrap {
-      border: 1px solid var(--rp-border);
-      border-radius: 8px;
-      background: #fff;
+      flex: 1;
+      overflow: auto;
     }
 
     .pl-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
-    }
-
-    .pl-table thead {
-      background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
     }
 
     .pl-table th {
-      padding: 9px 10px;
-      font-size: 0.6875rem;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--rp-muted);
-      font-weight: 700;
-      border-bottom: 2px solid var(--rp-border);
+      color: var(--muted);
+      padding: 8px 6px 10px;
+      border-bottom: 1px solid var(--line);
     }
+
+    .pl-table th:first-child,
+    .pl-table td:first-child { width: 42px; }
+
+    .pl-table th:last-child,
+    .pl-table td:last-child { text-align: right; }
 
     .pl-table td {
-      padding: 8px 10px;
-      border-bottom: 1px solid #f1f5f9;
-      font-family: var(--rp-mono);
-      color: var(--rp-text);
-    }
-
-    .pl-table tr:last-child td {
-      border-bottom: none;
+      padding: 11px 6px;
+      border-bottom: 1px solid #efeae2;
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--ink);
+      vertical-align: top;
     }
 
     .pl-table tbody tr {
       cursor: pointer;
     }
 
-    .pl-table tbody tr:hover {
-      background: var(--rp-surface2);
+    .pl-table tbody tr:hover td {
+      background: rgba(17, 17, 17, 0.025);
     }
 
-    .pl-table tbody tr.selected {
-      background: var(--rp-accent-soft);
+    .pl-table tbody tr.selected td {
+      background: rgba(17, 17, 17, 0.05);
+    }
+
+    .pl-table tbody tr.reg-row td {
+      color: var(--ink);
+    }
+
+    .pl-table tbody tr.unreg-row td {
+      color: var(--red);
     }
 
     .td-sira {
-      text-align: center;
-      color: var(--rp-muted);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .td-plate {
+      font-weight: 650;
+      letter-spacing: 0.02em;
     }
 
     .td-bbt {
-      text-align: right;
-      color: var(--rp-accent);
       font-weight: 600;
     }
 
+    .pl-driver {
+      display: block;
+      margin-top: 3px;
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0;
+    }
+
     mark {
-      background: #c7d2fe;
-      color: #3730a3;
-      border-radius: 2px;
+      background: #efe6c8;
+      color: inherit;
+      border-radius: 3px;
       padding: 0 2px;
     }
 
     .empty-row td {
       text-align: center;
-      color: var(--rp-muted);
-      padding: 28px;
+      color: var(--muted);
+      padding: 48px 10px;
+      font-family: var(--sans);
       font-size: 13px;
     }
 
     .toast {
       position: fixed;
-      bottom: 24px;
       left: 50%;
+      bottom: 24px;
       transform: translateX(-50%);
-      background: #1e293b;
-      border: 1px solid #334155;
-      color: #f8fafc;
-      padding: 10px 22px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 500;
-      box-shadow: var(--rp-shadow-md);
+      background: var(--ink);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.2s;
-      z-index: 999;
+      z-index: 20;
     }
 
-    .toast.show {
-      opacity: 1;
-    }
+    .toast.show { opacity: 1; }
 
-    .toast.warn {
-      background: #7f1d1d;
-      border-color: #991b1b;
-    }
+    .toast.warn { background: var(--red); }
 
-    .dup-banner {
-      display: none;
-      align-items: flex-start;
-      gap: 10px;
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      border-left: 4px solid var(--rp-danger);
-      border-radius: 12px;
-      padding: 14px 18px;
-      margin-bottom: 20px;
-      font-size: 13px;
-      color: #991b1b;
-      box-shadow: var(--rp-shadow-sm);
-    }
+    @media (max-width: 820px) {
+      .pl-top,
+      .pl-wrap { padding-left: 16px; padding-right: 16px; }
 
-    .dup-banner.show {
-      display: flex;
-    }
+      .pl-wrap { width: 100%; padding-top: 24px; }
 
-    .dup-banner strong {
-      display: block;
-      margin-bottom: 4px;
-      color: #7f1d1d;
-    }
+      .pl-head,
+      .pl-grid { display: block; }
 
-    .dup-banner ul {
-      margin: 6px 0 0 18px;
-      font-family: var(--rp-mono);
-      font-size: 12px;
-    }
+      .pl-metrics { margin-top: 18px; }
 
-    tbody tr.dup-row {
-      background: #fef2f2;
-    }
+      .pl-card { min-height: 0; margin-bottom: 16px; }
 
-    tbody tr.dup-row:hover {
-      background: #fee2e2;
-    }
+      .pl-title { font-size: 28px; }
 
-    tbody tr.dup-row.selected {
-      background: #fecaca;
-    }
-
-    .dup-badge {
-      display: inline-block;
-      margin-left: 6px;
-      padding: 1px 6px;
-      font-size: 9px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-      background: var(--rp-danger);
-      color: #fff;
-      border-radius: 4px;
-      vertical-align: middle;
-    }
-
-    .reg-badge,
-    .unreg-badge {
-      display: inline-block;
-      margin-left: 6px;
-      padding: 2px 7px;
-      font-size: 9px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-      border-radius: 4px;
-      vertical-align: middle;
-    }
-
-    .reg-badge {
-      background: #16a34a;
-      color: #fff;
-    }
-
-    .unreg-badge {
-      background: #dc2626;
-      color: #fff;
-    }
-
-    tbody tr.reg-row {
-      background: #f0fdf4;
-    }
-
-    tbody tr.reg-row:hover {
-      background: #dcfce7;
-    }
-
-    tbody tr.reg-row.selected {
-      background: #bbf7d0;
-    }
-
-    tbody tr.unreg-row {
-      background: #fef2f2;
-    }
-
-    tbody tr.unreg-row:hover {
-      background: #fee2e2;
-    }
-
-    tbody tr.unreg-row.selected {
-      background: #fecaca;
-    }
-
-    .pl-driver-hint {
-      display: block;
-      font-size: 10px;
-      color: #15803d;
-      font-weight: 500;
-      margin-top: 2px;
-      font-family: system-ui, sans-serif;
-    }
-
-    .pl-filter-row {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-
-    .pl-filter-btn {
-      padding: 0.35rem 0.75rem;
-      border-radius: 999px;
-      border: 1px solid var(--rp-border2);
-      background: #fff;
-      color: var(--rp-muted);
-      font-size: 0.6875rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      cursor: pointer;
-    }
-
-    .pl-filter-btn.active {
-      background: var(--rp-accent-soft);
-      border-color: #a5b4fc;
-      color: var(--rp-accent);
-    }
-
-    .pl-filter-btn--ok.active {
-      background: #dcfce7;
-      border-color: #86efac;
-      color: #15803d;
-    }
-
-    .pl-filter-btn--bad.active {
-      background: #fee2e2;
-      border-color: #fca5a5;
-      color: #b91c1c;
-    }
-
-    .unreg-banner {
-      display: none;
-      align-items: flex-start;
-      gap: 10px;
-      background: #fff7ed;
-      border: 1px solid #fed7aa;
-      border-left: 4px solid #ea580c;
-      border-radius: 12px;
-      padding: 14px 18px;
-      margin-bottom: 20px;
-      font-size: 13px;
-      color: #9a3412;
-      box-shadow: var(--rp-shadow-sm);
-    }
-
-    .unreg-banner.show {
-      display: flex;
-    }
-
-    .unreg-banner strong {
-      display: block;
-      margin-bottom: 4px;
-      color: #7c2d12;
-    }
-
-    .unreg-banner ul {
-      margin: 6px 0 0 18px;
-      font-family: var(--rp-mono);
-      font-size: 12px;
-      columns: 2;
-      column-gap: 24px;
-    }
-
-    .pl-btn.is-busy {
-      opacity: 0.75;
-      pointer-events: none;
-    }
-
-    .pl-btn.is-busy .fa-spinner {
-      animation: pl-spin 0.8s linear infinite;
-    }
-
-    @keyframes pl-spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .td-durum {
-      text-align: center;
-      white-space: nowrap;
-    }
-
-    .td-durum .fa-check-circle {
-      color: #16a34a;
-    }
-
-    .td-durum .fa-times-circle {
-      color: #dc2626;
-    }
-
-    @media (max-width: 768px) {
-      .pl-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .pl-table--responsive thead {
-        display: none;
-      }
-
-      .pl-table--responsive tbody tr {
-        display: block;
-        margin-bottom: 0.65rem;
-        padding: 0.65rem 0.75rem;
-        border: 1px solid var(--rp-border);
-        border-radius: 10px;
-        background: var(--rp-surface);
-      }
-
-      .pl-table--responsive tbody tr.dup-row {
-        background: #fef2f2;
-      }
-
-      .pl-table--responsive tbody tr.reg-row {
-        background: #f0fdf4;
-      }
-
-      .pl-table--responsive tbody tr.unreg-row {
-        background: #fef2f2;
-      }
-
-      .unreg-banner ul {
-        columns: 1;
-      }
-
-      .pl-table--responsive tbody tr.selected {
-        outline: 2px solid var(--rp-accent);
-        outline-offset: -1px;
-      }
-
-      .pl-table--responsive td {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.35rem 0;
-        border: none;
-        text-align: right;
-      }
-
-      .pl-table--responsive td::before {
-        content: attr(data-label);
-        font-size: 0.6875rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--rp-muted);
-        text-align: left;
-        flex-shrink: 0;
-      }
-
-      .pl-table--responsive .td-sira {
-        font-weight: 700;
-      }
-
-      .pl-table--responsive .td-bbt {
-        font-weight: 700;
-        color: var(--rp-accent);
-      }
-
-      .pl-btn-row,
-      .pl-copy-row {
-        flex-wrap: wrap;
-      }
-
-      .pl-btn {
-        min-height: 2.75rem;
-      }
+      .pl-note ul { columns: 1; }
 
       #input,
-      #search {
-        font-size: 16px;
-      }
+      #search { font-size: 16px; }
     }
   </style>
 </head>
-<body class="rp-page">
+<body class="pl-page">
 
-<header class="rp-header">
-  <div class="max-w-7xl mx-auto px-4 py-5 flex items-center justify-between gap-4 flex-wrap">
-    <div class="flex items-center gap-3 min-w-0">
-      <div class="rp-logo-box" aria-hidden="true">AT</div>
-      <div class="min-w-0">
-        <div class="rp-header-title">Araç Takip</div>
-        <div class="rp-header-sub">Yönetim Paneli</div>
-      </div>
-    </div>
-    <button type="button" id="backBtn" class="rp-btn-header">Ana Sayfa</button>
-  </div>
+<header class="pl-top">
+  <div class="pl-brand">Araç Takip</div>
+  <button type="button" id="backBtn" class="pl-home">Ana Sayfa</button>
 </header>
 
-<main class="max-w-7xl mx-auto px-4 py-6">
-  <div class="mb-6">
-    <h1 class="rp-page-title">Plaka Ayırma</h1>
-    <p class="rp-page-desc">Toplu plaka listesini yapıştırın, BBT değerlerini ayırın; sistem kayıtlı plakaları yeşil, kayıtsızları kırmızı gösterir.</p>
-  </div>
-
-  <div class="pl-stats">
-    <div class="pl-stat-card">
-      <div class="pl-stat-label">Toplam BBT</div>
-      <div class="pl-stat-val" id="totalBBT">0</div>
-    </div>
-    <div class="pl-stat-card">
-      <div class="pl-stat-label">Plaka sayısı</div>
-      <div class="pl-stat-val" id="count">0</div>
-    </div>
-    <div class="pl-stat-card pl-stat-card--ok">
-      <div class="pl-stat-label">Kayıtlı</div>
-      <div class="pl-stat-val" id="countReg">—</div>
-    </div>
-    <div class="pl-stat-card pl-stat-card--bad">
-      <div class="pl-stat-label">Kayıtsız</div>
-      <div class="pl-stat-val" id="countUnreg">—</div>
+<main class="pl-wrap">
+  <div class="pl-head">
+    <h1 class="pl-title">Plaka Ayırma</h1>
+    <div class="pl-metrics">
+      <div>BBT<b id="totalBBT">0</b></div>
+      <div>Plaka<b id="count">0</b></div>
     </div>
   </div>
 
-  <div id="dupBanner" class="dup-banner" role="alert">
-    <div>
-      <strong>Tekrarlayan plaka tespit edildi</strong>
-      <span>Aynı plaka listede birden fazla kez var. Nakliyeci yanlışlıkla çift girmiş olabilir.</span>
-      <ul id="dupList"></ul>
-    </div>
-  </div>
-
-  <div id="unregBanner" class="unreg-banner" role="status">
-    <div>
-      <strong id="unregBannerTitle">Kayıtsız plakalar</strong>
-      <span>Sistemde bulunmayan plakalar kırmızı ile işaretlendi. Ayarlar sayfasından yeni araç ekleyebilirsiniz.</span>
-      <ul id="unregList"></ul>
-    </div>
+  <div id="dupBanner" class="pl-note" role="alert">
+    <strong>Aynı plaka birden fazla kez var</strong>
+    <ul id="dupList"></ul>
   </div>
 
   <div class="pl-grid">
-    <div class="pl-panel">
-      <div class="pl-btn-row">
-        <button type="button" class="pl-btn pl-btn-primary" id="parseBtn" onclick="parse()">
-          <i class="fas fa-cut" id="parseBtnIcon" aria-hidden="true"></i> Ayır
-        </button>
-        <button type="button" class="pl-btn pl-btn-danger" onclick="clearAll()">
-          <i class="fas fa-eraser" aria-hidden="true"></i> Temizle
-        </button>
+    <section class="pl-card">
+      <div class="pl-card-bar">
+        <div class="pl-actions">
+          <button type="button" class="pl-btn" id="parseBtn" onclick="parse()">Ayır</button>
+          <button type="button" class="pl-btn pl-btn-ghost" onclick="clearAll()">Temizle</button>
+        </div>
       </div>
       <textarea id="input" placeholder="Plakaları buraya yapıştır...
 Örnek:
@@ -755,34 +419,28 @@
 03EN380	25
 03ADP790 22  ORHANİZE
 43ABT566 22"></textarea>
-    </div>
+    </section>
 
-    <div class="pl-panel">
-      <input type="search" id="search" placeholder="Plaka ara (ör: 34ABC123)" autocomplete="off">
-      <div class="pl-filter-row" id="filterRow" hidden>
-        <button type="button" class="pl-filter-btn active" data-filter="all">Tümü</button>
-        <button type="button" class="pl-filter-btn pl-filter-btn--ok" data-filter="registered">Kayıtlı</button>
-        <button type="button" class="pl-filter-btn pl-filter-btn--bad" data-filter="unregistered">Kayıtsız</button>
-      </div>
-      <div class="pl-copy-row">
-        <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(0)">Sıra no</button>
-        <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(1)">Plaka</button>
-        <button type="button" class="pl-btn pl-btn-sm" onclick="copyCol(2)">BBT</button>
+    <section class="pl-card">
+      <input type="search" id="search" placeholder="Plaka ara" autocomplete="off">
+      <div class="pl-copy">
+        <button type="button" onclick="copyCol(0)">Sıra</button>
+        <button type="button" onclick="copyCol(1)">Plaka</button>
+        <button type="button" onclick="copyCol(2)">BBT</button>
       </div>
       <div class="pl-table-wrap">
-        <table class="pl-table pl-table--responsive">
+        <table class="pl-table">
           <thead>
             <tr>
-              <th style="text-align:center">Sıra</th>
-              <th style="text-align:left">Plaka</th>
-              <th style="text-align:center">Durum</th>
-              <th style="text-align:right">BBT</th>
+              <th>#</th>
+              <th>Plaka</th>
+              <th>BBT</th>
             </tr>
           </thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
-    </div>
+    </section>
   </div>
 </main>
 
@@ -793,7 +451,6 @@
 let rows = [], fuse = null, currentTotal = 0, displayedList = [], selectedIndex = -1;
 let duplicatePlates = new Set();
 let toastTimer = null;
-let regFilter = 'all';
 let lookupDone = false;
 const LOOKUP_BATCH = 80;
 
@@ -839,11 +496,10 @@ function vehicleDriverLabel(v) {
 
 function setParseBusy(busy) {
   const btn = document.getElementById('parseBtn');
-  const icon = document.getElementById('parseBtnIcon');
-  if (!btn || !icon) return;
+  if (!btn) return;
   btn.classList.toggle('is-busy', !!busy);
   btn.disabled = !!busy;
-  icon.className = busy ? 'fas fa-spinner' : 'fas fa-cut';
+  btn.textContent = busy ? 'Ayrılıyor' : 'Ayır';
 }
 
 async function lookupPlatesBatch(plates) {
@@ -904,47 +560,6 @@ function countRegistrationStats() {
   return { reg, unreg };
 }
 
-function updateRegistrationStats() {
-  const regEl = document.getElementById('countReg');
-  const unregEl = document.getElementById('countUnreg');
-  if (!lookupDone) {
-    if (regEl) regEl.textContent = '—';
-    if (unregEl) unregEl.textContent = '—';
-    return;
-  }
-  const { reg, unreg } = countRegistrationStats();
-  if (regEl) regEl.textContent = String(reg);
-  if (unregEl) unregEl.textContent = String(unreg);
-}
-
-function updateUnregisteredBanner() {
-  const banner = document.getElementById('unregBanner');
-  const listEl = document.getElementById('unregList');
-  const titleEl = document.getElementById('unregBannerTitle');
-  if (!banner || !listEl) return;
-  if (!lookupDone) {
-    banner.classList.remove('show');
-    listEl.innerHTML = '';
-    return;
-  }
-  const unregPlates = [...new Set(rows.filter(r => r.registered === false).map(r => r.plate))].sort();
-  if (!unregPlates.length) {
-    banner.classList.remove('show');
-    listEl.innerHTML = '';
-    return;
-  }
-  if (titleEl) titleEl.textContent = unregPlates.length + ' kayıtsız plaka';
-  listEl.innerHTML = unregPlates.map(p => `<li>${escapeHtml(p)}</li>`).join('');
-  banner.classList.add('show');
-}
-
-function getFilteredRows(source) {
-  const base = source || rows;
-  if (regFilter === 'registered') return base.filter(r => r.registered === true);
-  if (regFilter === 'unregistered') return base.filter(r => r.registered === false);
-  return base;
-}
-
 function buildFuse() {
   const opts = { includeScore: true, includeMatches: true, threshold: 0.3, keys: ['plate'] };
   fuse = new Fuse(rows.map(r => ({ ...r, plateNorm: turkishNormalize(r.plate) })), opts);
@@ -994,19 +609,12 @@ async function parse() {
 
   currentTotal = total;
   lookupDone = false;
-  regFilter = 'all';
   selectedIndex = -1;
-  document.querySelectorAll('.pl-filter-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.filter === 'all');
-  });
 
   const dups = findDuplicatePlates(rows);
   updateDuplicateWarning(dups);
   buildFuse();
-  document.getElementById('filterRow').hidden = !rows.length;
-  renderRows(getFilteredRows(rows));
-  updateRegistrationStats();
-  updateUnregisteredBanner();
+  renderRows(rows);
 
   if (!rows.length) {
     toast('Geçerli plaka bulunamadı');
@@ -1019,12 +627,11 @@ async function parse() {
     applyRegistrationToRows(lookupMap);
     lookupDone = true;
     buildFuse();
-    renderRows(getFilteredRows(rows));
-    updateRegistrationStats();
-    updateUnregisteredBanner();
+    renderRows(rows);
 
-    const { reg, unreg } = countRegistrationStats();
-    let msg = rows.length + ' plaka ayrıldı — ' + reg + ' kayıtlı, ' + unreg + ' kayıtsız';
+    const { unreg } = countRegistrationStats();
+    let msg = rows.length + ' plaka ayrıldı';
+    if (unreg > 0) msg += ' — ' + unreg + ' kırmızı';
     const isWarn = unreg > 0 || dups.length > 0;
     if (dups.length) msg += ' · ' + dups.length + ' tekrar';
     toast(msg, isWarn, isWarn ? 4500 : 2800);
@@ -1056,43 +663,24 @@ function renderRows(list) {
   tb.innerHTML = '';
   displayedList = list || [];
   if (!displayedList.length) {
-    const emptyMsg = rows.length && regFilter !== 'all'
-      ? 'Bu filtrede sonuç yok'
-      : 'Sonuç bulunamadı';
-    tb.innerHTML = `<tr class="empty-row"><td colspan="4">${emptyMsg}</td></tr>`;
+    tb.innerHTML = `<tr class="empty-row"><td colspan="3">${rows.length ? 'Sonuç bulunamadı' : 'Liste bekleniyor'}</td></tr>`;
   } else {
     displayedList.forEach((r, i) => {
-      const isDup = duplicatePlates.has(r.plate);
       const isSel = i === selectedIndex ? 'selected' : '';
       let rowCls = '';
       if (lookupDone && r.registered === true) rowCls = 'reg-row';
       else if (lookupDone && r.registered === false) rowCls = 'unreg-row';
-      else if (isDup) rowCls = 'dup-row';
 
       const ph = r._plateHtml || escapeHtml(r.plate);
-      const dupBadge = isDup ? '<span class="dup-badge">Tekrar</span>' : '';
-
-      let statusHtml = '<span style="color:#94a3b8">—</span>';
-      if (lookupDone && r.registered === true) {
-        statusHtml = '<i class="fas fa-check-circle" title="Kayıtlı"></i>';
-      } else if (lookupDone && r.registered === false) {
-        statusHtml = '<i class="fas fa-times-circle" title="Kayıtsız"></i>';
-      }
-
-      const regBadge = lookupDone && r.registered === true
-        ? '<span class="reg-badge">Kayıtlı</span>'
-        : (lookupDone && r.registered === false ? '<span class="unreg-badge">Kayıtsız</span>' : '');
-
       const driverHint = (lookupDone && r.registered && r.driver)
-        ? `<span class="pl-driver-hint">${escapeHtml(r.driver)}</span>`
+        ? `<span class="pl-driver">${escapeHtml(r.driver)}</span>`
         : '';
 
       tb.insertAdjacentHTML('beforeend',
         `<tr data-idx="${i}" class="${isSel} ${rowCls}">
-          <td class="td-sira" data-label="Sıra">${i + 1}</td>
-          <td data-label="Plaka">${ph}${regBadge}${dupBadge}${driverHint}</td>
-          <td class="td-durum" data-label="Durum">${statusHtml}</td>
-          <td class="td-bbt" data-label="BBT">${r.bbt || ''}</td>
+          <td class="td-sira">${i + 1}</td>
+          <td class="td-plate">${ph}${driverHint}</td>
+          <td class="td-bbt">${r.bbt || ''}</td>
         </tr>`);
     });
     tb.querySelectorAll('tr[data-idx]').forEach(tr => {
@@ -1105,7 +693,6 @@ function renderRows(list) {
   }
   document.getElementById('totalBBT').textContent = currentTotal;
   document.getElementById('count').textContent = rows.length;
-  updateRegistrationStats();
 }
 
 function updateSelection() {
@@ -1126,19 +713,14 @@ function clearAll() {
   document.getElementById('tbody').innerHTML = '';
   document.getElementById('totalBBT').textContent = '0';
   document.getElementById('count').textContent = '0';
-  document.getElementById('countReg').textContent = '—';
-  document.getElementById('countUnreg').textContent = '—';
-  document.getElementById('filterRow').hidden = true;
   rows = []; fuse = null; currentTotal = 0; displayedList = []; selectedIndex = -1;
   duplicatePlates = new Set();
   lookupDone = false;
-  regFilter = 'all';
   updateDuplicateWarning([]);
-  updateUnregisteredBanner();
 }
 
 function copyCol(idx) {
-  const source = getFilteredRows(rows);
+  const source = rows;
   let txt = '';
   if (idx === 0) txt = source.map((_, i) => String(i + 1)).join('\r\n');
   if (idx === 1) txt = source.map(r => r.plate).join('\r\n');
@@ -1160,52 +742,26 @@ function toast(msg, isWarn, duration) {
 
 function debounce(fn, wait) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); }; }
 
-function highlightByQuery(text, q) {
-  try {
-    const nt = turkishNormalize(text || ''), nq = turkishNormalize(q || '');
-    const idx = nt.indexOf(nq); if (idx === -1) return escapeHtml(text || '');
-    const orig = String(text || ''); const sub = orig.substr(idx, q.length);
-    const s = orig.indexOf(sub); if (s === -1) return escapeHtml(text || '');
-    return highlightPlate(orig, [[s, s + sub.length - 1]]);
-  } catch(e) { return escapeHtml(text || ''); }
-}
-
 const onSearch = debounce(() => {
   const q = document.getElementById('search').value || '';
   selectedIndex = -1;
-  const filtered = getFilteredRows(rows);
-  if (!q) { renderRows(filtered); return; }
-  if (!fuse) { renderRows(filtered); return; }
-  const filteredSet = new Set(filtered.map(r => r.plate + '|' + r.bbt));
+  if (!q) { renderRows(rows); return; }
+  if (!fuse) { renderRows(rows); return; }
   const results = fuse.search(turkishNormalize(q));
-  const mapped = results
-    .map(res => {
-      const item = res.item || res;
-      const match = (res.matches && res.matches.find(m => m.key === 'plate')) || null;
-      return {
-        plate: item.plate,
-        bbt: item.bbt,
-        registered: item.registered,
-        vehicle: item.vehicle,
-        driver: item.driver,
-        _plateHtml: highlightPlate(item.plate, match ? match.indices : [])
-      };
-    })
-    .filter(r => filteredSet.has(r.plate + '|' + r.bbt));
+  const mapped = results.map(res => {
+    const item = res.item || res;
+    const match = (res.matches && res.matches.find(m => m.key === 'plate')) || null;
+    return {
+      plate: item.plate,
+      bbt: item.bbt,
+      registered: item.registered,
+      vehicle: item.vehicle,
+      driver: item.driver,
+      _plateHtml: highlightPlate(item.plate, match ? match.indices : [])
+    };
+  });
   renderRows(mapped);
 }, 220);
-
-document.querySelectorAll('.pl-filter-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    regFilter = btn.dataset.filter || 'all';
-    document.querySelectorAll('.pl-filter-btn').forEach(b => {
-      b.classList.toggle('active', b === btn);
-    });
-    selectedIndex = -1;
-    document.getElementById('search').value = '';
-    renderRows(getFilteredRows(rows));
-  });
-});
 
 document.getElementById('search').addEventListener('input', onSearch);
 document.getElementById('search').addEventListener('keydown', ev => {
@@ -1227,6 +783,7 @@ document.getElementById('backBtn')?.addEventListener('click', function () {
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
+  renderRows([]);
   try {
     if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
       const ok = await window.SessionManager.requireValidSession();
@@ -1240,7 +797,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (e) { /* ignore */ }
 });
-
 </script>
 </body>
 </html>

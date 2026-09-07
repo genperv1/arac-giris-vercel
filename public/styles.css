@@ -704,10 +704,103 @@ body.kiosk-mode .vehicle-card__value{
 
 .app-header-status {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-wrap: nowrap;
+  align-items: flex-start;
   gap: 0.4rem;
   font-size: 0.75rem;
+  overflow-x: auto;
+}
+
+.app-header-ihracat-excel {
+  display: inline-flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.28rem;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.app-header-ihracat-excel .status-chip--excel {
+  width: 100%;
+}
+
+.app-header-ihracat-excel__refresh {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  justify-content: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  border-color: #4338ca;
+  background: linear-gradient(105deg, #312e81 0%, #4f46e5 48%, #7c3aed 100%);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(79, 70, 229, 0.28);
+}
+
+.app-header-ihracat-excel__refresh > * {
+  position: relative;
+  z-index: 1;
+}
+
+.app-header-ihracat-excel__refresh:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.app-header-ihracat-excel__refresh:disabled,
+.app-header-ihracat-excel__refresh.is-busy {
+  cursor: wait;
+}
+
+.app-header-ihracat-excel__refresh::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.46));
+  pointer-events: none;
+}
+
+.app-header-ihracat-excel__when {
+  font-weight: 600;
+  color: #e0e7ff;
+}
+
+.app-header-ihracat-excel__when:not(.hidden):not(:empty)::before {
+  content: '·';
+  margin: 0 0.2rem 0 0.05rem;
+  font-weight: 500;
+  color: #c7d2fe;
+}
+
+@keyframes ihracat-refresh-fill {
+  0% {
+    transform: scaleX(0);
+    opacity: 0.4;
+  }
+  70% {
+    transform: scaleX(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
+  animation: ihracat-refresh-fill 1.15s ease-in-out infinite !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html .app-header-ihracat-excel__refresh.is-busy::after {
+    animation: none !important;
+    transform: scaleX(1);
+    opacity: 0.22;
+  }
 }
 
 .app-header-status .status-chip {
@@ -888,6 +981,144 @@ body.kiosk-mode .vehicle-card__value{
 .app-dropdown button:hover {
   background: #f3f4f6;
   color: #111827;
+}
+
+.app-dropdown--excel {
+  width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.55rem;
+  border-color: #e2e8f0;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+}
+
+.app-excel-suite {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.app-excel-suite__group {
+  padding: 0.5rem;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+.app-excel-suite__group--ihracat {
+  background: linear-gradient(180deg, #ecfdf5 0%, #f0fdf4 100%);
+  border-color: #bbf7d0;
+}
+
+.app-excel-suite__group--piyasa {
+  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+  border-color: #c7d2fe;
+}
+
+.app-excel-suite__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding: 0 0.1rem;
+}
+
+.app-excel-suite__badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.app-excel-suite__group--ihracat .app-excel-suite__badge {
+  color: #047857;
+}
+
+.app-excel-suite__group--piyasa .app-excel-suite__badge {
+  color: #4338ca;
+}
+
+.app-excel-suite__hint {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.app-excel-suite__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.app-dropdown .app-excel-tile,
+.app-excel-tile {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 2.65rem;
+  padding: 0.42rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.app-excel-tile__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 0.78rem;
+}
+
+.app-excel-tile__copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.app-excel-tile__copy b {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.app-excel-tile__copy small {
+  font-size: 0.62rem;
+  font-weight: 600;
+  opacity: 0.82;
+}
+
+.app-dropdown .app-excel-tile--load,
+.app-excel-tile--load {
+  background: linear-gradient(105deg, #312e81 0%, #4f46e5 52%, #7c3aed 100%);
+  border-color: #4338ca;
+  color: #fff;
+}
+
+.app-dropdown .app-excel-tile--wipe,
+.app-excel-tile--wipe {
+  background: linear-gradient(105deg, #9f1239 0%, #e11d48 58%, #fb7185 100%);
+  border-color: #be123c;
+  color: #fff;
+}
+
+.app-dropdown .app-excel-tile:hover,
+.app-excel-tile:hover {
+  background: inherit;
+  color: #fff;
+  filter: brightness(1.07);
+}
+
+.app-dropdown .app-excel-tile--load:hover {
+  background: linear-gradient(105deg, #312e81 0%, #4f46e5 52%, #7c3aed 100%);
+}
+
+.app-dropdown .app-excel-tile--wipe:hover {
+  background: linear-gradient(105deg, #9f1239 0%, #e11d48 58%, #fb7185 100%);
 }
 
 .app-meta-pill,
@@ -1183,6 +1414,7 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card:hover {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.35rem;
   padding: 0.2rem 0.35rem;
   background: #ffffff;
   border: 1px solid #e2e8f0;
@@ -1501,8 +1733,32 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card__tool {
   flex-shrink: 0;
 }
 
-html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .netsis-btn:hover {
+html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .netsis-btn:hover,
+html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .excel-copy-btn:hover {
   transform: scale(1.03);
+}
+
+.vehicle-card .excel-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  width: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.vehicle-card .excel-copy-btn-icon {
+  height: 24px;
+  width: 24px;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* Skeleton */

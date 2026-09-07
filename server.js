@@ -41,6 +41,7 @@ const { registerDriverTripRoutes } = require('./routes/driver-trip-routes');
 const { registerVehicleRoutes } = require('./routes/vehicles-routes');
 const { registerProblemRoutes } = require('./routes/problems-routes');
 const { registerDailyRoutes } = require('./routes/daily-routes');
+const { registerIhracatExcelRoutes } = require('./routes/ihracat-excel-routes');
 const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
@@ -1232,6 +1233,7 @@ api.post("/reports/bulk-delete", requireValidSession, async (req, res) => {
 
 registerVehicleRoutes(api, routeCtx);
 registerDailyRoutes(api, routeCtx);
+registerIhracatExcelRoutes(api, routeCtx);
 registerPiyasaRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);

@@ -2494,6 +2494,8 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                 ihrChip.title = _excelCnt > 0 ? ('İHRACAT Excel: ' + _ihrInfoLine) : 'İHRACAT Excel yüklü değil';
             }
             if (ihrText) ihrText.textContent = _buildIhracatChipText(_excelStatusInfo);
+            const refreshChip = document.getElementById('excelIhracatRefreshButtonChip');
+            if (refreshChip) refreshChip.classList.toggle('hidden', !_excelCnt);
             const piyChip = document.getElementById('chipPiyasa');
             const piyText = document.getElementById('chipPiyasaText');
             if (piyChip) {
@@ -2639,13 +2641,53 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           <summary class="app-nav-btn list-none select-none">
             Araçlar <span class="app-nav-chevron" aria-hidden="true">▾</span>
           </summary>
-          <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
-            <button id="excelBlockSelectButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Excel dosyasından sevkiyat bloklarını seçerek yükle">📌 İHRACAT Blok Seçerek Yükle</button>
-            <button id="excelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük excel verisini temizle">🗑️ İHRACAT Excel Sil</button>
-            <div class="my-1 border-t"></div>
-            <div class="px-3 py-1 text-xs text-gray-500 font-semibold">PİYASA</div>
-            <button type="button" id="piyasaExcelUploadButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel yükle">🧾 PİYASA Excel Yükle</button>
-            <button type="button" id="piyasaExcelClearButtonTop" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="İç piyasa excel verisini temizle">🗑️ PİYASA Excel Sil</button>
+          <div class="app-dropdown app-dropdown--nested app-dropdown--excel absolute left-0 mt-2 z-50">
+            <div class="app-excel-suite">
+              <section class="app-excel-suite__group app-excel-suite__group--ihracat">
+                <div class="app-excel-suite__head">
+                  <span class="app-excel-suite__badge">İHRACAT</span>
+                  <span class="app-excel-suite__hint">Sevkiyat Excel</span>
+                </div>
+                <div class="app-excel-suite__actions">
+                  <button type="button" id="excelBlockSelectButtonTop" class="app-excel-tile app-excel-tile--load" title="İhracat Excel Yükle">
+                    <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-file-import"></i></span>
+                    <span class="app-excel-tile__copy">
+                      <b>Yükle</b>
+                      <small>Excel seç</small>
+                    </span>
+                  </button>
+                  <button type="button" id="excelClearButtonTop" class="app-excel-tile app-excel-tile--wipe" title="İHRACAT Excel Sil">
+                    <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-trash-alt"></i></span>
+                    <span class="app-excel-tile__copy">
+                      <b>Sil</b>
+                      <small>Listeyi temizle</small>
+                    </span>
+                  </button>
+                </div>
+              </section>
+              <section class="app-excel-suite__group app-excel-suite__group--piyasa">
+                <div class="app-excel-suite__head">
+                  <span class="app-excel-suite__badge">PİYASA</span>
+                  <span class="app-excel-suite__hint">İç piyasa Excel</span>
+                </div>
+                <div class="app-excel-suite__actions">
+                  <button type="button" id="piyasaExcelUploadButtonTop" class="app-excel-tile app-excel-tile--load" title="PİYASA Excel Yükle">
+                    <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-file-invoice"></i></span>
+                    <span class="app-excel-tile__copy">
+                      <b>Yükle</b>
+                      <small>Excel seç</small>
+                    </span>
+                  </button>
+                  <button type="button" id="piyasaExcelClearButtonTop" class="app-excel-tile app-excel-tile--wipe" title="PİYASA Excel Sil">
+                    <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-trash-alt"></i></span>
+                    <span class="app-excel-tile__copy">
+                      <b>Sil</b>
+                      <small>Listeyi temizle</small>
+                    </span>
+                  </button>
+                </div>
+              </section>
+            </div>
             <div class="my-1 border-t"></div>
             <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
             <div class="my-1 border-t"></div>
@@ -2660,7 +2702,14 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <span class="status-chip" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b>${_statusMeta.userLabel}</b></span>
         <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
         <span class="status-chip">Tanımlı şoför: <b>${_totalVehicleCount}</b></span>
-        <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
+        <div class="app-header-ihracat-excel">
+          <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
+          <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${_excelCnt>0?'':'hidden'}" title="Yüklü İhracat Excel dosyasını yeniden oku">
+            <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
+            <span>Güncelle</span>
+            <span id="excelIhracatLastUpdateChip" class="app-header-ihracat-excel__when hidden" title="İhracat Excel son okuma zamanı"></span>
+          </button>
+        </div>
         <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">🧾 PİYASA: <b id="chipPiyasaText">${_piyChipText}</b></button>
       </div>
     </div>

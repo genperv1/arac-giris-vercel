@@ -317,9 +317,23 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             // Kart içi "SORUN X" butonları zaten document-level delegation ile açılıyor
 
 
-            // 📄 İhracat Excel — blok seçerek yükle / sil
-            document.getElementById('excelBlockSelectButtonTop')?.addEventListener('click', function(){
+            // 📄 İhracat Excel — dosya yalnızca burada seçilir; Güncelle aynı dosyayı yeniden okur
+            document.getElementById('excelBlockSelectButtonTop')?.addEventListener('click', async function(){
                 closeAppToolsMenu();
+                const src = window.IhracatExcelSource;
+                if (src && typeof src.pickFileWithHandle === 'function' && typeof window.showOpenFilePicker === 'function') {
+                    try {
+                        const picked = await src.pickFileWithHandle();
+                        if (picked && picked.file) {
+                            const res = await importExcelHeadersOnly_ShowSelection(picked.file);
+                            if (!res || !res.ok) showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.'));
+                        }
+                    } catch (e) {
+                        if (e && e.name === 'AbortError') return;
+                        showToast('❌ Excel dosyası seçilemedi.');
+                    }
+                    return;
+                }
                 let inp = document.getElementById('excelBlockFileInput');
                 if (!inp) {
                     inp = document.createElement('input');
@@ -331,6 +345,11 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                     inp.addEventListener('change', async function(ev){
                         const f = ev.target.files && ev.target.files[0];
                         if (!f) return;
+                        try {
+                            if (window.IhracatExcelSource && typeof window.IhracatExcelSource.rememberSelectedFile === 'function') {
+                                await window.IhracatExcelSource.rememberSelectedFile(f);
+                            }
+                        } catch (err) {}
                         const res = await importExcelHeadersOnly_ShowSelection(f);
                         if (!res || !res.ok) showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.'));
                     });
@@ -338,6 +357,13 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 inp.value = '';
                 inp.click();
             });
+
+            // Güncelle tıklaması ihracat-excel-source.js içinde (delegation) bağlanır.
+            try {
+                if (window.IhracatExcelSource && typeof window.IhracatExcelSource.hydrateFromBackend === 'function') {
+                    window.IhracatExcelSource.hydrateFromBackend();
+                }
+            } catch (e) {}
 
             document.getElementById('excelClearButtonTop')?.addEventListener('click', async function(){
                 closeAppToolsMenu();

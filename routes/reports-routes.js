@@ -2,6 +2,7 @@
 
 const {
   parseReportsListQuery,
+  printHistoryListColumns,
   mapPrintHistoryRowToReport,
 } = require('../lib/print-history-report-map');
 
@@ -11,13 +12,19 @@ function registerReportsRoutes(api, ctx) {
 api.get("/reports", async (req, res) => {
   try {
     const listQ = parseReportsListQuery(req.query);
+    const byId = String(listQ.id || '').trim();
+    const slim = !!(listQ.slim && !byId);
     const { limit, offset } = parsePagination(req, {
-      defaultLimit: listQ.slim ? 800 : 5000,
-      maxLimit: listQ.slim ? 3000 : 20000,
+      defaultLimit: slim ? 800 : (byId ? 1 : 5000),
+      maxLimit: slim ? 5000 : 20000,
     });
-    let sql = 'SELECT id, plaka, firma, malzeme, tonaj, basim_yeri, sevkiyat_id, sofor, sevk_yeri, yukleme_turu, iletisim, tc_kimlik, dorse_plaka, vehicle_id, tarih, snapshot FROM print_history';
+    let sql = 'SELECT ' + printHistoryListColumns(slim) + ' FROM print_history';
     const params = [];
     const where = [];
+    if (byId) {
+      params.push(byId);
+      where.push('id = $' + params.length);
+    }
     if (listQ.since > 0) {
       params.push(listQ.since);
       where.push('tarih >= $' + params.length);
@@ -36,7 +43,7 @@ api.get("/reports", async (req, res) => {
     const parsed = [];
     for (const row of (r.rows || [])) {
       try {
-        const mapped = mapPrintHistoryRowToReport(row, { slim: listQ.slim });
+        const mapped = mapPrintHistoryRowToReport(row, { slim });
         const { tarih: tarihStr, saat: saatStr } = formatReportInstant(mapped.ts);
         if (mapped.data && typeof mapped.data === 'object') {
           mapped.data.tarih = tarihStr;
