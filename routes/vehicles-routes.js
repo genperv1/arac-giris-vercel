@@ -11,6 +11,13 @@ const {
   fetchVehiclesRowsKeyset,
 } = require('../lib/vehicle-helpers');
 const { sanitizeString, validateTCNumber, validatePhoneNumber } = require('../lib/sanitize');
+const {
+  getVehicleListCache,
+  setVehicleListCache,
+  invalidateVehicleListCache,
+  etagFromFingerprint,
+  fetchVehicleFingerprint,
+} = require('../lib/vehicle-list-cache');
 
 /**
  * @param {import('express').Router} api
@@ -31,6 +38,17 @@ function registerVehicleRoutes(api, ctx) {
   api.get('/vehicles', async (req, res) => {
     try {
       const { limit, offset } = parsePagination(req, { defaultLimit: 5000, maxLimit: 20000 });
+      const fingerprint = await fetchVehicleFingerprint(q);
+      const etag = etagFromFingerprint(fingerprint, limit, offset);
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'private, max-age=15');
+      if (req.headers['if-none-match'] === etag) {
+        return res.status(304).end();
+      }
+      const cached = getVehicleListCache(limit, offset);
+      if (cached && cached.etag === etag) {
+        return res.json(cached.body);
+      }
       let rows;
       if (offset === 0) {
         rows = await fetchVehiclesRowsKeyset(pool, limit, VEH_LIST_KEYSET_BATCH, PG_STATEMENT_TIMEOUT);
@@ -44,6 +62,7 @@ function registerVehicleRoutes(api, ctx) {
         rows = r.rows || [];
       }
       const parsed = rows.map((row) => mapVehicleRowToApiVehicle(row));
+      setVehicleListCache(limit, offset, parsed, etag);
       res.json(parsed);
     } catch (err) {
       sendApiError(res, err, 500, 'VEHICLES_LIST_FAILED');
@@ -163,6 +182,7 @@ function registerVehicleRoutes(api, ctx) {
       const userId = sanitizeString((req.user && req.user.username) || v.editedBy || v.userId || '', 80);
       await maybeLogVehicleEdit(q, id, sanitized, userId);
       await upsertVehicleRecord({ query: (text, params) => q(text, params, { retry: true }) }, sanitized);
+      invalidateVehicleListCache();
       broadcastEvent('vehicle_created', { vehicle: sanitized, id });
       res.json({ ok: true, id });
     } catch (err) {
@@ -210,6 +230,7 @@ function registerVehicleRoutes(api, ctx) {
       const userId = sanitizeString((req.user && req.user.username) || v.editedBy || '', 80);
       await maybeLogVehicleEdit(q, id, sanitized, userId);
       await upsertVehicleRecord({ query: (text, params) => q(text, params, { retry: true }) }, sanitized);
+      invalidateVehicleListCache();
       broadcastEvent('vehicle_updated', { vehicle: sanitized, id });
       res.json({ ok: true, id });
     } catch (err) {
@@ -221,6 +242,7 @@ function registerVehicleRoutes(api, ctx) {
     try {
       const id = req.params.id;
       await q('DELETE FROM vehicles WHERE id = $1', [id]);
+      invalidateVehicleListCache();
       broadcastEvent('vehicle_deleted', { id });
       res.json({ ok: true, id });
     } catch (err) {
@@ -265,6 +287,7 @@ function registerVehicleRoutes(api, ctx) {
         `UPDATE vehicles SET rejection_status = $1, rejection_duration = $2, rejection_start_ts = $3, rejection_end_ts = $4 WHERE id = $5`,
         ['rejected', durationText, Date.now(), endTimestamp, id]
       );
+      invalidateVehicleListCache();
       broadcastEvent('vehicle_rejected', { id, duration: durationText, endTs: endTimestamp });
       res.json({ ok: true, id, duration: durationText, endTs: endTimestamp });
     } catch (err) {
@@ -312,6 +335,7 @@ function registerVehicleRoutes(api, ctx) {
         [durationText, now, endTimestamp, id]
       );
 
+      invalidateVehicleListCache();
       const vehicleResult = await q('SELECT data FROM vehicles WHERE id = $1', [id]);
       let vehicleData = {};
       if (vehicleResult.rows[0]) {
@@ -342,6 +366,7 @@ function registerVehicleRoutes(api, ctx) {
         [id]
       );
 
+      invalidateVehicleListCache();
       const vehicleResult = await q('SELECT data FROM vehicles WHERE id = $1', [id]);
       let vehicleData = {};
       if (vehicleResult.rows[0]) {

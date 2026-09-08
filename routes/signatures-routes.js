@@ -15,9 +15,10 @@ function registerSignatureImageRoute(api, ctx) {
         if (!m) return res.status(400).json({ error: 'invalid image' });
         const buf = Buffer.from(m[2], 'base64');
         res.setHeader('Content-Type', m[1]);
-        res.setHeader('Cache-Control', 'private, max-age=3600');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
         return res.send(buf);
       }
+      res.setHeader('Cache-Control', 'public, max-age=86400');
       return res.redirect(src);
     } catch (err) {
       console.error('GET /signatures/:id/image error', err);

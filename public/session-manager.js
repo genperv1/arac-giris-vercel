@@ -234,6 +234,7 @@
         'piyasa-cikanlar.html': 'gpm_page_piyasa_cikanlar',
         'sorunlar.html': 'gpm_page_sorunlar',
         'ayarlar.html': 'gpm_page_ayarlar',
+        'liste-kopyala.html': 'gpm_page_liste_kopyala',
         'plaka.html': 'gpm_page_plaka',
         'gunlukraporlar.html': 'gpm_page_gunluk',
         'advanced_reports.html': 'gpm_page_advanced'

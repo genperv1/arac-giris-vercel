@@ -222,6 +222,42 @@
     return parts.join(' - ');
   }
 
+  function girisBildirItemFromRow(tr) {
+    const d = parseRowEventData(tr) || {};
+    return {
+      plate: String((tr && tr.getAttribute('data-plate')) || d.plaka || d.cekiciPlaka || '').trim(),
+      firma: String(d.firma || d.firmaKodu || d.firmaSelect || '').trim(),
+      basimYeri: String(d.basimYeri || d.girisYeri || '').trim()
+    };
+  }
+
+  function buildGirisBildirText(items) {
+    const lines = (items || []).map((item) => {
+      const plate = String((item && (item.plate || item.plaka || item.cekiciPlaka)) || '').trim() || '-';
+      const firma = String((item && (item.firma || item.firmaKodu || item.firmaSelect)) || '').trim();
+      const basim = String((item && (item.basimYeri || item.girisYeri)) || '').trim();
+      return [plate, firma, basim].filter(Boolean).join(' - ');
+    }).filter(Boolean);
+    if (!lines.length) return '';
+    const footer = lines.length === 1 ? 'Bu araç giriş yaptı.' : 'Bu araçlar giriş yaptı.';
+    return lines.join('\n') + '\n\n' + footer;
+  }
+
+  function collectSelectedReportRows() {
+    return Array.from(document.querySelectorAll('#tbody .selectRowChk:checked'))
+      .map((chk) => chk.closest('tr'))
+      .filter(Boolean);
+  }
+
+  function syncSelectAllRowsChk() {
+    const master = document.getElementById('selectAllRowsChk');
+    if (!master) return;
+    const all = document.querySelectorAll('#tbody .selectRowChk');
+    const checked = document.querySelectorAll('#tbody .selectRowChk:checked');
+    master.checked = all.length > 0 && checked.length === all.length;
+    master.indeterminate = checked.length > 0 && checked.length < all.length;
+  }
+
   async function copyWhatsAppData(data) {
     const text = buildWhatsAppCopyText(data || {});
     try {
@@ -1704,6 +1740,7 @@
         const pc = document.getElementById('paginationControls');
         if (pc) pc.innerHTML = '';
       } catch (e) { /* ignore */ }
+      syncSelectAllRowsChk();
       return;
     }
 
@@ -1849,6 +1886,7 @@
     }
     tbodyEl.innerHTML = '';
     tbodyEl.appendChild(frag);
+    syncSelectAllRowsChk();
 
     // render pagination controls
     try{
@@ -1971,6 +2009,37 @@
     }
 
     // toplu silme (seçili satırlar)
+    const selectAllRowsChk = document.getElementById('selectAllRowsChk');
+    if (selectAllRowsChk && !selectAllRowsChk.__bound) {
+      selectAllRowsChk.__bound = true;
+      selectAllRowsChk.addEventListener('change', () => {
+        const on = !!selectAllRowsChk.checked;
+        document.querySelectorAll('#tbody .selectRowChk').forEach((chk) => { chk.checked = on; });
+        selectAllRowsChk.indeterminate = false;
+      });
+    }
+
+    const girisBildirBtn = document.getElementById('girisBildirBtn');
+    if (girisBildirBtn && !girisBildirBtn.__bound) {
+      girisBildirBtn.__bound = true;
+      girisBildirBtn.addEventListener('click', async () => {
+        const rows = collectSelectedReportRows();
+        if (!rows.length) {
+          uiAlert('Lütfen giriş bildirimi için en az bir satır seçin.', 'warning');
+          return;
+        }
+        const text = buildGirisBildirText(rows.map(girisBildirItemFromRow));
+        if (!text) {
+          uiAlert('Seçili satırlardan kopyalanacak plaka bulunamadı.', 'warning');
+          return;
+        }
+        flashBtnBusy(girisBildirBtn);
+        try {
+          if (await copyTextToClipboard(text)) flashBtnCopied(girisBildirBtn);
+        } catch (e) { /* ignore */ }
+      });
+    }
+
     const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
     if (deleteSelectedBtn) {
       deleteSelectedBtn.addEventListener('click', async () => {
@@ -2306,11 +2375,10 @@
     }
     if (!entry) entry = '-';
 
-    let exit = safeText([merged.cikisTarihi, merged.cikisSaati].filter(Boolean).join(' '));
-    if (!exit) exit = entry;
-    if (!exit) exit = '-';
+    const nowDt = trDateTimeFromMs(Date.now());
+    const copyWhen = nowDt ? safeText([nowDt.tarih, nowDt.saat].filter(Boolean).join(' ')) : '-';
 
-    const copyText = [fullName, phone, entry, exit].join('\t');
+    const copyText = [fullName, phone, entry, copyWhen].join('\t');
     await navigator.clipboard.writeText(copyText);
     flashBtnCopied(btn);
   }
@@ -2466,6 +2534,10 @@
     const tbody = document.getElementById('tbody');
     if (!tbody || tbody.__actionBound) return;
     tbody.__actionBound = true;
+
+    tbody.addEventListener('change', (ev) => {
+      if (ev.target && ev.target.classList.contains('selectRowChk')) syncSelectAllRowsChk();
+    });
 
     tbody.addEventListener('click', async (ev) => {
       const btn = ev.target.closest('.netsisBtn, .copyExcelBtn, .copyWhatsappBtn, .reprintBtn, .deleteRowBtn');

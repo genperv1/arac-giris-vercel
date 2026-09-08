@@ -73,14 +73,14 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v18-formbg';
+  var PRINT_REV = 'print-v19-formjpg';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {
     try {
       var origin = window.location.origin || '';
       var bg = new Image();
-      bg.src = origin + '/api/print-form-bg';
+      bg.src = origin + '/assets/takip-form-bg.jpg';
     } catch (e) {}
     try {
       if (window.PrintFormBg && typeof window.PrintFormBg.prefetchPrintBgImage === 'function') {

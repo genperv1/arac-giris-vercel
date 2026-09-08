@@ -5,6 +5,7 @@ const {
   getPrintFormBgRecord,
   setPrintFormBg,
   isAcceptablePrintFormBg,
+  localFileMeta,
 } = require('../lib/print-form-bg-store');
 
 function registerPrintFormBgImageRoute(api, ctx) {
@@ -12,9 +13,11 @@ function registerPrintFormBgImageRoute(api, ctx) {
 
   api.get('/print-form-bg/meta', async (req, res) => {
     try {
-      const record = await getPrintFormBgRecord(q);
+      const local = localFileMeta();
+      const record = local || await getPrintFormBgRecord(q);
       if (!record) return res.json({ ok: true, exists: false, acceptable: false, needsUpload: true });
-      const acceptable = isAcceptablePrintFormBg(record);
+      const acceptable = isAcceptablePrintFormBg(record) || !!local;
+      res.setHeader('Cache-Control', 'public, max-age=300');
       res.json({
         ok: true,
         exists: true,
@@ -33,8 +36,11 @@ function registerPrintFormBgImageRoute(api, ctx) {
     try {
       const image = await getPrintFormBgBuffer(q);
       if (!image) return res.status(404).json({ error: 'print form background not found' });
+      const etag = `W/"pbg-${image.buffer.length}-${image.contentType}"`;
+      if (req.headers['if-none-match'] === etag) return res.status(304).end();
       res.setHeader('Content-Type', image.contentType);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
       return res.send(image.buffer);
     } catch (err) {
       console.error('GET /print-form-bg error', err);

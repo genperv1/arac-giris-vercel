@@ -1546,18 +1546,15 @@
 
     async function refreshPrintFormBgStatus() {
       if (!statusEl) return;
-      try {
-        const r = await apiFetch('/api/print-form-bg/meta');
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || !data.exists || data.needsUpload) {
-          statusEl.textContent = 'Sunucuda şablon yok — proje köküne AA.jpg koyun veya buradan JPG yükleyin.';
-          return;
-        }
-        const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString('tr-TR') : '';
-        statusEl.textContent = 'Sunucuda kayıtlı şablon var' + (when ? ' · ' + when : '') + (data.source ? ' · ' + data.source : '') + '.';
-      } catch (e) {
-        statusEl.textContent = 'Şablon durumu okunamadı.';
-      }
+      const ok = await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img.naturalWidth >= 200);
+        img.onerror = () => resolve(false);
+        img.src = '/assets/takip-form-bg.jpg';
+      });
+      statusEl.textContent = ok
+        ? 'Şablon hazır · takip-form-bg.jpg (veritabanından çekilmez).'
+        : 'Şablon yok — buradan JPG yükleyin.';
     }
 
     async function showPrintFormBgPreview(src) {
@@ -1570,12 +1567,7 @@
     }
 
     async function loadPrintFormBgPreviewFromServer() {
-      try {
-        const r = await apiFetch('/api/print-form-bg');
-        if (!r.ok) return;
-        const blob = await r.blob();
-        showPrintFormBgPreview(URL.createObjectURL(blob));
-      } catch (e) { /* ignore */ }
+      showPrintFormBgPreview('/assets/takip-form-bg.jpg?t=' + Date.now());
     }
 
     document.getElementById('printFormBgFile')?.addEventListener('change', async (e) => {

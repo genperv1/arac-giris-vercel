@@ -638,6 +638,29 @@
       cursor: not-allowed;
     }
 
+    .rp-btn-whatsapp {
+      background: #16a34a;
+      color: #fff;
+      border-color: #15803d;
+    }
+
+    .rp-btn-whatsapp:hover {
+      background: #15803d;
+    }
+
+    .rp-select-all {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .rp-select-all input {
+      margin: 0;
+    }
+
     .rp-table-wrap {
       background: var(--rp-surface);
       border: 1px solid var(--rp-border);
@@ -1673,6 +1696,10 @@
               <i class="fas fa-clone" aria-hidden="true"></i>
               Fazlaları sil
             </button>
+            <button type="button" id="girisBildirBtn" class="rp-btn rp-btn-whatsapp" title="Seçili araçların WhatsApp giriş bildirimini kopyala">
+              <i class="fab fa-whatsapp" aria-hidden="true"></i>
+              Giriş Bildir
+            </button>
             <button type="button" id="deleteSelectedBtn" class="rp-btn rp-btn-danger">
               <i class="fas fa-trash-alt" aria-hidden="true"></i>
               Seçilenleri Sil
@@ -1693,7 +1720,12 @@
               <th class="col-basim">Basım Yeri</th>
               <th class="col-kantar">Kantar Personeli</th>
               <th class="col-tarih">Tarih</th>
-              <th class="col-islem">İşlem</th>
+              <th class="col-islem">
+                <label class="rp-select-all" title="Bu sayfadaki tüm satırları seç">
+                  <input type="checkbox" id="selectAllRowsChk">
+                  İşlem
+                </label>
+              </th>
             </tr>
           </thead>
           <tbody id="tbody">
@@ -1707,7 +1739,7 @@
       <div id="paginationControls" class="rp-pagination" aria-label="Sayfalama"></div>
       <div class="rp-info" role="note">
         <span class="rp-info-icon" aria-hidden="true"><i class="fas fa-info-circle"></i></span>
-        <p><strong>Tekrar Yazdır</strong> seçildiğinde araç seçim ekranı açılır; mevcut yazdırma akışı etkilenmez.</p>
+        <p><strong>Tekrar Yazdır</strong> seçildiğinde araç seçim ekranı açılır; mevcut yazdırma akışı etkilenmez. Satırları seçip <strong>Giriş Bildir</strong> ile WhatsApp metnini kopyalayın.</p>
       </div>
     </footer>
   </main>
@@ -1727,7 +1759,7 @@
   <script src="sync-manager.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260820-pwd"></script>
-  <script src="report.js?v=20260907-fastlist"></script>
+  <script src="report.js?v=20260909-giris-bildir"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

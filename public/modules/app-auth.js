@@ -248,6 +248,20 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 }
             });
 
+            document.getElementById('excelListCopyMenuButton')?.addEventListener('click', async (ev) => {
+                ev.preventDefault();
+                closeAppToolsMenu();
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('liste-kopyala.html');
+                } else {
+                    location.href = 'liste-kopyala.html';
+                }
+            });
+
             document.getElementById('ayarlarMenuButton')?.addEventListener('click', async (ev) => {
                 ev.preventDefault();
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {

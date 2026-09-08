@@ -1,5 +1,8 @@
 'use strict';
 
+const CIKANLAR_BACKFILL_MS = Number(process.env.PIYASA_CIKANLAR_BACKFILL_MS || 300000);
+let lastCikanlarBackfillAt = 0;
+
 function registerPiyasaRoutes(api, ctx) {
   const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs, piyasaServer, verifySettingsPassword, formatReportInstant } = ctx;
   const {
@@ -137,6 +140,9 @@ api.delete('/piyasa/customers', auth.verifyToken, async (req, res) => {
 api.get('/piyasa/cikanlar', async (req, res) => {
   try {
     try {
+      const now = Date.now();
+      if (now - lastCikanlarBackfillAt >= CIKANLAR_BACKFILL_MS) {
+      lastCikanlarBackfillAt = now;
       await q(`
         INSERT INTO piyasa_cikanlar (
           id, print_history_id, tarih, plaka, dorse_plaka, sofor, firma, firma_adi, sip_no,
@@ -197,6 +203,7 @@ api.get('/piyasa/cikanlar', async (req, res) => {
           AND (c.kantarci IS NULL OR btrim(c.kantarci) = '')
           AND COALESCE(NULLIF(s.snap->>'kantar', ''), NULLIF(s.snap->>'imzaKantarAd', ''), '') <> ''
       `);
+      }
     } catch (bfErr) {
       console.warn('piyasa_cikanlar backfill skipped:', bfErr.message || bfErr);
     }

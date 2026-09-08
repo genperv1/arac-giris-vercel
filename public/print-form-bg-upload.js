@@ -69,7 +69,7 @@
     } catch (_) {}
     try {
       const img = new Image();
-      img.src = API;
+      img.src = '/assets/takip-form-bg.jpg?t=' + Date.now();
     } catch (_) {}
     if (typeof window.showToast === 'function') {
       window.showToast('Form şablonu kaydedildi.');

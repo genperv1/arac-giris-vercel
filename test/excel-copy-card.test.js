@@ -16,7 +16,7 @@ function loadExcelCopyApi() {
   const end = utilsCode.indexOf('function copyExcelData(vehicle)');
   assert.ok(start >= 0, 'safeExcelText missing');
   assert.ok(end > start, 'copyExcelData missing');
-  return eval(`(function(){\n${utilsCode.slice(start, end)}\nreturn { formatPhoneForExcel, formatExcelDateTime, copyExcelVehicleText };\n})()`);
+  return eval(`(function(){\n${utilsCode.slice(start, end)}\nreturn { formatPhoneForExcel, formatExcelDateTime, copyExcelVehicleText, resolveExcelEntryDate };\n})()`);
 }
 
 test('excel copy icon is served from public/assets', () => {
@@ -35,28 +35,40 @@ test('driver card places excel copy button next to netsis', () => {
   assert.match(cardCode, /EXCEL_COPY_ICON_SRC/);
 });
 
-test('copyExcelVehicleText matches rapor.html Excel columns with current time', () => {
+test('copyExcelVehicleText uses form print time then copy time', () => {
   const api = loadExcelCopyApi();
-  const now = new Date('2026-09-08T15:34:44+03:00');
+  const printed = new Date('2026-09-07T15:34:44+03:00');
+  const copied = new Date('2026-09-08T16:10:05+03:00');
   const text = api.copyExcelVehicleText({
     soforAdi: 'YASİN',
     soforSoyadi: 'TEKİN',
-    iletisim: '0505 659 40 85'
-  }, now);
+    iletisim: '0505 659 40 85',
+    lastPrintSnapshot: { ts: printed.getTime() }
+  }, copied, printed);
   const parts = text.split('\t');
   assert.equal(parts.length, 4);
   assert.equal(parts[0], 'YASİN TEKİN');
   assert.equal(parts[1], '(505) 659-4085');
-  assert.equal(parts[2], parts[3], 'giriş ve çıkış aynı güncel saat olmalı');
   assert.match(parts[2], /2026/);
   assert.match(parts[2], /15:34:44/);
+  assert.match(parts[3], /16:10:05/);
+  assert.notEqual(parts[2], parts[3], 'giriş form basımı, ikinci saat kopyalama anı olmalı');
 });
 
-test('copyExcelVehicleText falls back when name or phone is missing', () => {
+test('copyExcelVehicleText falls back when name, phone or print time is missing', () => {
   const api = loadExcelCopyApi();
   const text = api.copyExcelVehicleText({ cekiciPlaka: '06 FLN 416' }, new Date('2026-09-08T00:00:00+03:00'));
   const parts = text.split('\t');
   assert.equal(parts[0], '-');
   assert.equal(parts[1], '-');
-  assert.equal(parts[2], parts[3]);
+  assert.equal(parts[2], '-');
+  assert.match(parts[3], /2026/);
+});
+
+test('resolveExcelEntryDate reads lastPrintSnapshot', () => {
+  const api = loadExcelCopyApi();
+  const printed = new Date('2026-09-07T11:22:33+03:00');
+  const got = api.resolveExcelEntryDate({ lastPrintSnapshot: { ts: printed.getTime() } });
+  assert.ok(got instanceof Date);
+  assert.equal(got.getTime(), printed.getTime());
 });

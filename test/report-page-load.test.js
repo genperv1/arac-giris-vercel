@@ -24,6 +24,6 @@ test('tekrar yazdır tek kaydı id ile alır', () => {
 });
 
 test('rapor html istek cache kırıcıyı güncel tutar', () => {
-  assert.match(raporHtml, /report\.js\?v=20260907-fastlist/);
+  assert.match(raporHtml, /report\.js\?v=20260909-giris-bildir/);
   assert.match(raporHtml, /Yükleniyor/);
 });

@@ -59,13 +59,13 @@
       }
     } catch (_) {}
     const origin = getPrintOrigin();
-    return origin ? origin + PRINT_BG_API : PRINT_BG_API;
+    return origin ? origin + PRINT_BG_ASSET_JPG : PRINT_BG_ASSET_JPG;
   }
 
   function prefetchPrintBgImage() {
     try {
       const origin = getPrintOrigin();
-      const httpSrc = origin ? origin + PRINT_BG_API : PRINT_BG_API;
+      const httpSrc = origin ? origin + PRINT_BG_ASSET_JPG : PRINT_BG_ASSET_JPG;
       const img = new Image();
       img.src = httpSrc;
     } catch (_) {}

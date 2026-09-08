@@ -1,4 +1,4 @@
-﻿// server.js
+// server.js
 // Express server + PostgreSQL (pg) + static file serving
 require("dotenv").config();
 
@@ -48,7 +48,18 @@ const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
 const { registerPrintFormBgImageRoute, registerPrintFormBgRoutes } = require('./routes/print-form-bg-routes');
 const { registerPrintLayoutReadRoute, registerPrintLayoutSettingsRoutes } = require('./routes/print-layout-routes');
-const { purgeUnacceptablePrintFormBg, seedPrintFormBgIfEmpty, syncPrintFormBgFromAaFile } = require('./lib/print-form-bg-store');
+const { purgeUnacceptablePrintFormBg } = require('./lib/print-form-bg-store');
+const {
+  PRINT_FORM_BG_KEY,
+  isKvSelect,
+  isKvDelete,
+  isKvUpsert,
+  isBlockedKvKey,
+  getCachedKvValue,
+  setCachedKvValue,
+  invalidateKvKey,
+} = require('./lib/kv-cache');
+const { isVehicleWrite, invalidateVehicleListCache } = require('./lib/vehicle-list-cache');
 const { plateNormSql, PLATE_NORM_SQL, PLATE_NORM_SQL_PH } = require('./lib/plate-norm-sql');
 const { signatureRowToSrc } = require('./lib/signature-helpers');
 const { createPiyasaServerApi } = require('./lib/piyasa-server');
@@ -466,13 +477,16 @@ async function prepareSchema() {
   }
 
   try {
-    const q = (text, params) => pool.query(text, params);
-    const purged = await purgeUnacceptablePrintFormBg(q);
-    if (purged) console.log('Gecersiz takip formu sablonu (SVG/builtin) silindi.');
-    const seeded = await syncPrintFormBgFromAaFile(q) || await seedPrintFormBgIfEmpty(q);
-    if (seeded) console.log('Takip formu arka plani DB ye yuklendi (print_form_bg_v1).');
+    await pool.query('DELETE FROM kv_store WHERE key = $1', [PRINT_FORM_BG_KEY]);
+    console.log('Takip formu arka plani DB blob olarak tutulmuyor (yerel dosyadan servis).');
   } catch (e) {
-    console.warn('seedPrintFormBgIfEmpty skipped:', e.message || e);
+    console.warn('print_form_bg_v1 purge skipped:', e.message || e);
+  }
+  try {
+    const q = (text, params) => pool.query(text, params);
+    await purgeUnacceptablePrintFormBg(q);
+  } catch (e) {
+    console.warn('purgeUnacceptablePrintFormBg skipped:', e.message || e);
   }
 
   try {
@@ -506,13 +520,8 @@ async function seedDefaultSignatures() {
     let imageData = item.path;
     let imageKind = 'path';
     if (fs.existsSync(filePath)) {
-      try {
-        const buf = fs.readFileSync(filePath);
-        imageData = `data:image/png;base64,${buf.toString('base64')}`;
-        imageKind = 'base64';
-      } catch (e) {
-        console.warn('seed signature read failed:', item.path, e.message || e);
-      }
+      imageData = item.path;
+      imageKind = 'path';
     }
     const id = `sig_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
     await pool.query(
@@ -631,7 +640,18 @@ function parsePagination(req, defaults = {}) {
 async function q(text, params = [], options = {}) {
   const defaultRetry = isReadOnlyQuery(text);
   const { retry = defaultRetry, timeout = PG_STATEMENT_TIMEOUT } = options;
-  
+  const kvKey = params && params[0];
+
+  if (isKvSelect(text) && typeof kvKey === 'string') {
+    if (isBlockedKvKey(kvKey)) {
+      return { rows: [], rowCount: 0 };
+    }
+    const cached = getCachedKvValue(kvKey);
+    if (cached !== undefined) {
+      return { rows: cached == null ? [] : [{ value: cached }], rowCount: cached == null ? 0 : 1 };
+    }
+  }
+
   const queryFn = async () => {
     const startedAt = Date.now();
     const result = await pool.query({
@@ -647,11 +667,17 @@ async function q(text, params = [], options = {}) {
   };
 
   try {
-    if (retry) {
-      return await retryQuery(queryFn);
-    } else {
-      return await queryFn();
+    const result = retry ? await retryQuery(queryFn) : await queryFn();
+    if (isKvSelect(text) && typeof kvKey === 'string' && !isBlockedKvKey(kvKey)) {
+      setCachedKvValue(kvKey, result.rows[0] ? result.rows[0].value : null);
+    } else if (isKvDelete(text) && typeof kvKey === 'string') {
+      invalidateKvKey(kvKey);
+    } else if (isKvUpsert(text) && typeof kvKey === 'string') {
+      if (params[1] !== undefined) setCachedKvValue(kvKey, params[1]);
+      else invalidateKvKey(kvKey);
     }
+    if (isVehicleWrite(text)) invalidateVehicleListCache();
+    return result;
   } catch (e) {
     console.error("SQL error:", e.message, "\nQuery:", summarizeQuery(text), "\nParams:", params);
     console.error("Stack:", e.stack);
@@ -1241,13 +1267,13 @@ registerReportsRoutes(api, routeCtx);
 
 
 // Export DB (Postgres'te .sqlite dosyasÄ± yok; JSON yedek indiriyoruz)
-api.get("/export/db", async (req, res) => {
+api.get("/export/db", requireValidSession, async (req, res) => {
   try {
     const [vehicles, daily_rows, problems, kv_store, report, events] = await Promise.all([
       q("SELECT * FROM vehicles"),
       q("SELECT * FROM daily_rows"),
       q("SELECT * FROM problems"),
-      q("SELECT * FROM kv_store"),
+      q("SELECT key, CASE WHEN key = $1 THEN '{}'::text ELSE value END AS value FROM kv_store", [PRINT_FORM_BG_KEY]),
       q("SELECT * FROM report"),
       q("SELECT * FROM events"),
     ]);
@@ -1278,6 +1304,7 @@ api.get("/export/db", async (req, res) => {
 api.get("/kv/:key", async (req, res) => {
   try {
     const key = sanitizeString(req.params.key, 100);
+    if (isBlockedKvKey(key)) return res.json(null);
     const r = await q("SELECT value FROM kv_store WHERE key = $1", [key]);
     if (!r.rows[0]) return res.json(null);
     try { return res.json(JSON.parse(r.rows[0].value)); } catch { return res.json(r.rows[0].value); }

@@ -52,6 +52,21 @@ test('Yazdır çerçeve görseli HTTP URL kullanır (blob Chrome yazdırmada dü
   assert.match(printMain, /blob: Chrome yazdırmada çerçeveyi düşürür/);
 });
 
+test('Takip formu şablonu statik JPG kullanır, her yazdırmada DB API çağırmaz', () => {
+  assert.match(printMain, /PRINT_BG_ASSET_JPG = '\/assets\/takip-form-bg\.jpg'/);
+  assert.match(printMain, /origin \+ PRINT_BG_ASSET_JPG/);
+  const resolveStart = printMain.indexOf('function resolvePrintBgSrcForWindow');
+  const resolveEnd = printMain.indexOf('function prefetchPrintBgImage');
+  assert.ok(resolveStart >= 0 && resolveEnd > resolveStart);
+  const resolveFn = printMain.slice(resolveStart, resolveEnd);
+  assert.match(resolveFn, /PRINT_BG_ASSET_JPG/);
+  assert.doesNotMatch(resolveFn, /PRINT_BG_API/);
+  const jpg = fs.readFileSync(path.join(__dirname, '../public/assets/takip-form-bg.jpg'));
+  assert.ok(jpg.length > 10000);
+  assert.strictEqual(jpg[0], 0xff);
+  assert.strictEqual(jpg[1], 0xd8);
+});
+
 test('ihracat açıklaması yazdırmada 35 adımlık büyütme döngüsü yok', () => {
   assert.doesNotMatch(printMain, /grow < 35/);
 });

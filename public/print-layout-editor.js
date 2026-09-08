@@ -514,7 +514,7 @@
       try {
         const src = (window.PrintFormBg && typeof window.PrintFormBg.resolvePrintBgSrcForWindow === 'function')
           ? window.PrintFormBg.resolvePrintBgSrcForWindow()
-          : '/api/print-form-bg';
+          : '/assets/takip-form-bg.jpg';
         if (src) {
           bg.onerror = tryNextFallback;
           bg.src = src;

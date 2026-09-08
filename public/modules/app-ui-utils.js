@@ -171,19 +171,33 @@ function formatExcelDateTime(date) {
   return [tarih, saat].filter(Boolean).join(' ');
 }
 
-/** rapor.html Excel kopyası ile aynı sütunlar: ad soyad, telefon, giriş, çıkış (tab). Ana sayfada saat günceldir. */
-function copyExcelVehicleText(vehicle, now) {
+function resolveExcelEntryDate(vehicle) {
+  try {
+    if (typeof vehicleCardLastPrintTs === 'function') {
+      const ts = Number(vehicleCardLastPrintTs(vehicle) || 0);
+      if (Number.isFinite(ts) && ts > 0) return new Date(ts);
+    }
+  } catch (e) { /* ignore */ }
+  const snap = vehicle && vehicle.lastPrintSnapshot;
+  const snapTs = Number((snap && (snap.ts || snap.timestamp)) || (vehicle && vehicle.lastPrintTs) || 0);
+  if (Number.isFinite(snapTs) && snapTs > 0) return new Date(snapTs);
+  return null;
+}
+
+/** rapor.html Excel kopyası: ad soyad, telefon, form basım saati, kopyalama saati (tab). */
+function copyExcelVehicleText(vehicle, now, entryDate) {
   if (!vehicle) return '';
   const firstName = safeExcelText(vehicle.soforAdi);
   const lastName = safeExcelText(vehicle.soforSoyadi);
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || '-';
   const phone = formatPhoneForExcel(vehicle.iletisim || '-');
-  const when = formatExcelDateTime(now || new Date()) || '-';
-  return [fullName, phone, when, when].join('\t');
+  const copyWhen = formatExcelDateTime(now || new Date()) || '-';
+  const entryWhen = entryDate ? (formatExcelDateTime(entryDate) || '-') : '-';
+  return [fullName, phone, entryWhen, copyWhen].join('\t');
 }
 
 function copyExcelData(vehicle) {
-  const text = copyExcelVehicleText(vehicle);
+  const text = copyExcelVehicleText(vehicle, new Date(), resolveExcelEntryDate(vehicle));
   if (!text) { showToast('⚠️ Excel verisi bulunamadı.'); return; }
   copyTextWithToast(text, '✅ Excel için kopyalandı.');
 }

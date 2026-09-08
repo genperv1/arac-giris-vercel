@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>Liste kopyala — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=1.0.14-20260909-akyuz">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260909-elc-page"></script>
+</head>
+<body class="elc-page">
+  <header class="elc-top">
+    <div class="elc-top__inner">
+      <div class="elc-brand">
+        <span class="elc-bolt-icon elc-bolt-icon--lg" aria-hidden="true"><i class="fas fa-bolt"></i></span>
+        <div>
+          <h1>Liste kopyala</h1>
+          <p>F358 kaynağını gör, hafta veya satır seç, güncel listeye yapıştır</p>
+        </div>
+      </div>
+      <button type="button" id="elcHomeBtn" class="elc-home">Ana Sayfa</button>
+    </div>
+  </header>
+
+  <main id="elcPage" class="elc-main">
+    <section class="elc-panel">
+      <div id="elcDrop" class="elc-drop" role="button" tabindex="0">
+        <strong>F358 kaynağını bırakın veya seçin</strong>
+        <span>Excel’deki gibi yıl / hafta grupları tam ekranda açılır. Komple kopyalanmaz.</span>
+        <div class="elc-drop__file">
+          <label class="elc-file-btn" for="elcFile">Dosya seç</label>
+          <input id="elcFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb" hidden>
+          <span id="elcFileName">Dosya seçilmedi</span>
+        </div>
+      </div>
+      <div class="elc-actions">
+        <button type="button" id="elcSolveBtn" class="elc-bolt-btn elc-bolt-btn--solve">
+          <span class="elc-bolt-icon" aria-hidden="true"><i class="fas fa-bolt"></i></span> Çöz
+        </button>
+        <button type="button" id="elcCopyBtn" class="elc-bolt-btn elc-bolt-btn--copy" disabled>
+          <span class="elc-bolt-icon" aria-hidden="true"><i class="fas fa-bolt"></i></span> Kopyala
+        </button>
+        <label class="elc-sira" for="elcStartSira">Başlangıç sıra
+          <input id="elcStartSira" type="number" min="1" step="1" value="1">
+        </label>
+        <p id="elcStatus" class="elc-status">HAFTA satırına tıklayınca o haftanın sevki seçilir.</p>
+      </div>
+    </section>
+
+    <section class="elc-sheet-wrap">
+      <div class="elc-toolbar">
+        <div>
+          <button type="button" class="elc-mini-btn" id="elcSelectAllBtn">Tümünü seç</button>
+          <button type="button" class="elc-mini-btn" id="elcClearSelBtn">Seçimi temizle</button>
+        </div>
+        <span id="elcCount">0 satır</span>
+      </div>
+      <div class="elc-sheet" id="elcSheet">
+        <div class="elc-sheet__cols">
+          <span></span>
+          <span>SIRA</span>
+          <span>KUTAHYA_CIKIS_TARIH</span>
+          <span>LIMAN_DOL_TARIH</span>
+          <span>MÜŞTERİ</span>
+          <span>ÜRÜN</span>
+          <span>SEVKPLANMIK</span>
+          <span>PAKET</span>
+          <span>BB_ADET</span>
+          <span>CV_ADET</span>
+          <span>PALET_TR</span>
+          <span>PALET_SAYISI</span>
+          <span>PALET_URUN_SAYISI</span>
+          <span>PRES</span>
+          <span>STREC</span>
+          <span>PALET_ORTUSU</span>
+          <span>SERIT</span>
+          <span>TEDARİKÇİ</span>
+        </div>
+        <div id="elcTree" class="elc-tree"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="elcToast"></div>
+
+  <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
+  <script src="modules/excel-list-copy.js?v=1.0.6-20260909-tarih2"></script>
+  <script>
+    (function () {
+      function toast(msg, isErr) {
+        var el = document.getElementById('elcToast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'toast show' + (isErr ? ' warn' : '');
+        clearTimeout(el._t);
+        el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
+      }
+
+      document.getElementById('elcHomeBtn')?.addEventListener('click', function () {
+        if (window.SessionManager && window.SessionManager.navigateToHome) {
+          window.SessionManager.navigateToHome();
+        } else {
+          location.href = 'GIRIS.html';
+        }
+      });
+
+      async function boot() {
+        if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+          var ok = await window.SessionManager.requireValidSession();
+          if (!ok) return;
+        }
+        if (window.ExcelListCopy && typeof window.ExcelListCopy.bindAppUi === 'function') {
+          window.ExcelListCopy.bindAppUi({ toast: toast });
+        }
+      }
+
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+</body>
+</html>

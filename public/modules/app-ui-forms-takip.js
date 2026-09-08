@@ -2690,6 +2690,10 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             </div>
             <div class="my-1 border-t"></div>
             <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
+            <button type="button" id="excelListCopyMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm elc-menu-btn" title="F358 listesini çöz ve seçerek kopyala">
+              <span class="elc-bolt-icon" aria-hidden="true"><i class="fas fa-bolt"></i></span>
+              Liste kopyala
+            </button>
             <div class="my-1 border-t"></div>
             <button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>
           </div>
