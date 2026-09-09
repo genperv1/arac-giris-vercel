@@ -2825,6 +2825,113 @@ test('isGidenInsideNote — içerik / içecek false positive değil', () => {
   assert.equal(core.isGidenInsideNote('içeri'), true);
 });
 
+test('isGidenOutsideNote — dışarda / dışarıda / dışa ve varyasyonlar', () => {
+  assert.equal(core.isGidenOutsideNote('dışarda'), true);
+  assert.equal(core.isGidenOutsideNote('dışarıda'), true);
+  assert.equal(core.isGidenOutsideNote('DIŞARIDA'), true);
+  assert.equal(core.isGidenOutsideNote('disarda'), true);
+  assert.equal(core.isGidenOutsideNote('disarida'), true);
+  assert.equal(core.isGidenOutsideNote('dışa'), true);
+  assert.equal(core.isGidenOutsideNote('dışarı'), true);
+  assert.equal(core.isGidenOutsideNote('dışardaki'), true);
+  assert.equal(core.isGidenOutsideNote('dışarıdaki'), true);
+  assert.equal(core.isGidenOutsideNote('dışarda araç'), true);
+  assert.equal(core.isGidenOutsideNote('32400 dışarıda'), true);
+  assert.equal(core.isGidenOutsideNote('dışarıda.'), true);
+  assert.equal(core.isGidenOutsideNote(''), false);
+  assert.equal(core.isGidenOutsideNote('32400'), false);
+  assert.equal(core.isGidenOutsideNote('içerde'), false);
+  assert.equal(core.isGidenOutsideNote('disaster'), false);
+  assert.equal(core.isGidenOutsideNote('dışarıdan'), false);
+});
+
+test('giden dışarda — listede yok, BBT kalandan düşer', () => {
+  assert.equal(core.isRowDeparted({ gidenTonaj: 'dışarda', bbt: '24', netTonaj: '32400' }), false);
+  assert.equal(core.isRowDeparted({ gidenTonaj: 'dışarıda', bbt: '24' }), false);
+  assert.equal(core.isRowDeparted({ gidenTonaj: '32400 dışarıda', bbt: '24', netTonaj: '32400' }), false);
+
+  const item = core.analyzeBlock([
+    {
+      blockKey: 'Y',
+      headerText: 'YD50(G) / 40 BBT',
+      plaka: '43ACM276',
+      bbt: '20',
+      gidenTonaj: 'dışarda',
+    },
+    {
+      blockKey: 'Y',
+      headerText: 'YD50(G) / 40 BBT',
+      plaka: '03DH540',
+      bbt: '20',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.ok(item);
+  assert.equal(item.departedBbt, 20);
+  assert.equal(item.remainingBbt, 0);
+  assert.equal(item.waitingPlates.length, 1);
+  assert.equal(item.insidePlates.length, 1);
+  assert.equal(item.insidePlates[0].isOutside, true);
+  assert.equal(item.insidePlates[0].isInside, false);
+  assert.equal(core.compactPlate(item.insidePlates[0].plaka), '43ACM276');
+  assert.equal(core.compactPlate(item.waitingPlates[0].plaka), '03DH540');
+  const rows = core.buildExcelBlockRows(item);
+  assert.equal(rows.find((r) => r.a === '43ACM276'), undefined);
+  const waitingRow = rows.find((r) => r.a === '03DH540');
+  assert.equal(waitingRow.b, 'GELMEYEN ARAÇ');
+  assert.equal(rows.some((r) => r.kind === 'pending'), false);
+});
+
+test('Excel dışarıda / dışarda / dışa çıkmış sayılır, listede yok, BBT düşer', () => {
+  const header = 'YD50(G) / 80 BBT';
+  const pending = core.analyzeNakliyePending([
+    { blockKey: 'Y', headerText: header, plaka: '43ACM276', bbt: '20', gidenTonaj: 'dışarıda' },
+    { blockKey: 'Y', headerText: header, plaka: '03DH540', bbt: '20', gidenTonaj: 'dışarda' },
+    { blockKey: 'Y', headerText: header, plaka: '03BN929', bbt: '20', gidenTonaj: 'dışa' },
+    { blockKey: 'Y', headerText: header, plaka: '03VE530', bbt: '20', gidenTonaj: '' },
+  ]);
+  assert.equal(pending[0].planBbt, 80);
+  assert.equal(pending[0].departedBbt, 60);
+  assert.equal(pending[0].insidePlates.length, 3);
+  assert.equal(pending[0].insidePlates.every((p) => p.isOutside), true);
+  assert.equal(pending[0].waitingPlates.length, 1);
+  assert.equal(pending[0].remainingBbt, 0);
+  const sheet = core.buildExcelBlockRows(pending[0]);
+  assert.equal(sheet.filter((r) => r.b === 'GELMEYEN ARAÇ').length, 1);
+  assert.equal(sheet.some((r) => r.a === '03VE530'), true);
+  assert.equal(sheet.some((r) => r.a === '43ACM276'), false);
+});
+
+test('satır notundaki DIŞARIDA çıkmış sayılır, listede yok', () => {
+  const header = 'YD20(M) / LOT NO 26 07 10 / HP 0,15-0,30 / 1100 BBT';
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'B20n',
+      headerText: header,
+      ydKey: 'YD20',
+      plaka: '43VE530',
+      bbt: '25',
+      gidenTonaj: '',
+      yuklemeNotu: 'DIŞARIDA',
+    },
+    {
+      blockKey: 'B20n',
+      headerText: header,
+      ydKey: 'YD20',
+      plaka: '03DH540',
+      bbt: '25',
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(pending[0].insidePlates.length, 1);
+  assert.equal(pending[0].insidePlates[0].isOutside, true);
+  assert.equal(pending[0].waitingPlates.length, 1);
+  assert.equal(pending[0].departedBbt, 25);
+  const sheet = core.buildExcelBlockRows(pending[0]);
+  assert.equal(sheet.some((r) => r.a === '43VE530'), false);
+  assert.equal(sheet.some((r) => r.a === '03DH540' && r.b === 'GELMEYEN ARAÇ'), true);
+});
+
 test('YD20 — bir araç içeride olsa da diğer gelmeyenler yazılır, kalan 600 BBT durur', () => {
   const header = 'YD20(M) / LOT NO 26 07 10 / HP 0,15-0,30 / 1100 BBT';
   const rows = [];
@@ -3451,6 +3558,65 @@ test('Excel grid haritası — kayıtlı satırda tasiyici yoksa AKYÜZ / 680 BB
   assert.equal(nak.tasiyici, 'AKYÜZ');
   assert.equal(nak.siteCarrierLabel, 'AVDAN / AKYÜZ · 680 BBT');
   assert.equal(gpm.siteCarrierLabel, 'AVDAN / GPM · 120 BBT');
+});
+
+test('A sütunu AKYÜZ iken şoför adı ORTALA başlığa yazılmaz', () => {
+  const header = new Array(16).fill('');
+  header[0] = 'AKYÜZ';
+  header[1] = 'YD367(M) / LOT NO 26 08 33 / 20 BBT / SAFİPORT';
+  const plate = new Array(16).fill('');
+  plate[0] = 'AKYÜZ';
+  plate[2] = '03ACB648';
+  plate[3] = 20;
+  plate[8] = 'ORTALA';
+  plate[12] = 'ORTALA';
+  plate[14] = '1.OSB';
+  const map = core.buildTasiyiciMapFromGrid([header, plate]);
+  assert.equal(map.defaultNakliyeci, 'AKYÜZ');
+  assert.equal(map.byPlate[core.plateKey('03ACB648')], 'AKYÜZ');
+  assert.equal(map.byYd.YD367, 'AKYÜZ');
+
+  const raw = [
+    {
+      blockKey: 'BLK_367',
+      blockHeaderRow: 28,
+      headerText: 'YD367(M) / LOT NO 26 08 33 / 20 BBT / SAFİPORT',
+      ydKey: 'YD367',
+      yuklemeYeri: '1.OSB',
+      plaka: '03ACB648',
+      bbt: '20',
+      tasiyici: 'ORTALA',
+      blockMeta: { tasiyici: 'ORTALA', tasiyiciNames: ['ORTALA', 'AKYÜZ'] },
+      gidenTonaj: '',
+    },
+  ];
+  assert.equal(core.rowsNeedTasiyiciRepair(raw), true);
+  const rows = core.applyTasiyiciMapToRows(raw, map);
+  assert.equal(rows[0].tasiyici, 'AKYÜZ');
+  const pending = core.analyzeNakliyePending(rows);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].tasiyici, 'AKYÜZ');
+  assert.equal(pending[0].siteCarrierLabel, '1.OSB / AKYÜZ · 20 BBT');
+  assert.equal(pending[0].waitingPlates[0].tasiyici, 'AKYÜZ');
+});
+
+test('analyzeNakliyePending — ORTALA ile AKYÜZ karışınca başlık AKYÜZ kalır', () => {
+  const pending = core.analyzeNakliyePending([
+    {
+      blockKey: 'BLK_367',
+      blockHeaderRow: 28,
+      headerText: 'YD367(M) / 20 BBT / SAFİPORT',
+      yuklemeYeri: '1.OSB',
+      plaka: '03ACB648',
+      bbt: '20',
+      tasiyici: 'ORTALA',
+      blockMeta: { tasiyici: 'AKYÜZ', tasiyiciNames: ['ORTALA', 'AKYÜZ'] },
+      gidenTonaj: '',
+    },
+  ]);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].tasiyici, 'AKYÜZ');
+  assert.equal(pending[0].siteCarrierLabel, '1.OSB / AKYÜZ · 20 BBT');
 });
 
 

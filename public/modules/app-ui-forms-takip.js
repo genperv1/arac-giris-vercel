@@ -398,6 +398,12 @@ function showTakipFormu(vehicle) {
                                 <div id="piyasaPastSuggestBar" class="piyasa-past-suggest" hidden></div>
                             </td>
                         </tr>
+                        <tr id="hp13MultiRow" hidden>
+                            <td class="takip-form__table-label">Çoklu seçim</td>
+                            <td class="takip-form__table-cell">
+                                <div id="hp13MultiPanel" class="hp13-multi"></div>
+                            </td>
+                        </tr>
                         <tr>
                             <td class="takip-form__table-label">Malzeme</td>
                             <td class="takip-form__table-cell">
@@ -429,6 +435,7 @@ function showTakipFormu(vehicle) {
                         <tr>
                             <td class="takip-form__table-label">Yükleme notu</td>
                             <td class="takip-form__table-cell">
+                                <div id="hp13MalzemeSquares" class="hp13-squares" hidden></div>
                                 <textarea class="form-input" id="yuklemeNotu" placeholder="Yükleme notu giriniz" rows="2"></textarea>
                             </td>
                         </tr>
@@ -1080,9 +1087,234 @@ const buildFullMalzemeOptionsHTML = () => {
 };
 
 let currentFirmaMatches = [];
+let hp13MultiItems = [];
+
+function hp13Api() {
+  return (window.piyasa && typeof window.piyasa.composeHp13Malzeme === 'function')
+    ? window.piyasa
+    : null;
+}
+
+function applyHp13ItemsToForm(items) {
+  window.__hp13MultiItems = items || [];
+  const api = hp13Api();
+  const composed = api ? api.composeHp13Malzeme(items) : (items || []).map((it) => {
+    const name = [it.kod, it.malzeme].filter(Boolean).join(' ');
+    const n = parseFloat(String(it.bbt || '').replace(',', '.').replace(/[^\d.-]/g, ''));
+    const qty = Number.isFinite(n) && n > 0 ? (String(n).replace(/\.0+$/, '') + ' BBT') : '';
+    if (qty && name) return qty + ' ' + name;
+    return name || qty;
+  }).filter(Boolean).join(' / ');
+  const note = api && typeof api.composeHp13Note === 'function'
+    ? api.composeHp13Note(items)
+    : composed.replace(/\s\/\s/g, '\n');
+  const total = api ? api.sumHp13Bbt(items) : (items || []).reduce((acc, it) => {
+    const n = parseFloat(String(it.bbt || '').replace(',', '.'));
+    return acc + (Number.isFinite(n) ? n : 0);
+  }, 0);
+  const malzemeEl = document.getElementById('malzeme');
+  const bbtEl = document.getElementById('bbt');
+  const noteEl = document.getElementById('yuklemeNotu');
+  if (malzemeEl) {
+    malzemeEl.value = composed;
+    try { malzemeEl.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+  }
+  if (bbtEl) bbtEl.value = total > 0 ? String(total) : '';
+  if (noteEl) {
+    const prev = String(noteEl.getAttribute('data-hp13-note') || '');
+    const cur = String(noteEl.value || '');
+    if (!cur.trim() || cur.trim() === prev.trim()) {
+      noteEl.value = note;
+    } else if (prev && cur.indexOf(prev) !== -1) {
+      noteEl.value = cur.replace(prev, note);
+    } else {
+      noteEl.value = note;
+    }
+    noteEl.setAttribute('data-hp13-note', note);
+  }
+  renderHp13MalzemeSquares();
+  renderHp13WrapTicks();
+}
+
+function hp13CatalogList() {
+  const seen = new Set();
+  const out = [];
+  const add = (s) => {
+    const v = String(s || '').trim();
+    if (!v) return;
+    const k = v.toUpperCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(v);
+  };
+  (malzemeListesi || []).forEach(add);
+  (hp13MultiItems || []).forEach((it) => add(it.malzeme));
+  return out;
+}
+
+function renderHp13MalzemeSquares() {
+  const box = document.getElementById('hp13MalzemeSquares');
+  const noteEl = document.getElementById('yuklemeNotu');
+  if (!box) return;
+  const on = takipIsHp13Firma(getTakipFirmaKoduRaw());
+  const api = hp13Api();
+  const parts = api && typeof api.hp13GridParts === 'function'
+    ? api.hp13GridParts(hp13MultiItems)
+    : [];
+  if (!on || !parts.length) {
+    box.hidden = true;
+    box.innerHTML = '';
+    if (noteEl) noteEl.classList.remove('hp13-hide-plain');
+    return;
+  }
+  // Kareler yükleme notu / açıklama alanında — Sarılan satırı yok
+  if (noteEl) noteEl.classList.add('hp13-hide-plain');
+  box.hidden = false;
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : ((s) => String(s || ''));
+  box.innerHTML = parts.map((p) =>
+    '<div class="hp13-square">'
+    + '<div class="hp13-square__tick" aria-hidden="true"></div>'
+    + '<div class="hp13-square__qty">' + esc(p.qty || '—') + '</div>'
+    + '<div class="hp13-square__name">' + esc(p.desc || '') + '</div>'
+    + '</div>'
+  ).join('');
+}
+
+function renderHp13WrapTicks() {
+  // Sarılan ayrı satır kaldırıldı — kareler yükleme notunda
+  const row = document.getElementById('hp13WrapRow');
+  if (row) row.hidden = true;
+}
+
+function renderHp13MultiPanel() {
+  const panel = document.getElementById('hp13MultiPanel');
+  if (!panel) return;
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : ((s) => String(s || ''));
+  const cats = hp13CatalogList().map((m) =>
+    '<button type="button" class="hp13-cat" data-hp13-cat="' + esc(m).replace(/"/g, '&quot;') + '">' + esc(m) + '</button>'
+  ).join('');
+  const rows = hp13MultiItems.map((it, i) => {
+    const api = hp13Api();
+    const line = api && typeof api.formatHp13MultiLine === 'function'
+      ? api.formatHp13MultiLine(it)
+      : [it.bbt ? (it.bbt + ' BBT') : '', it.kod, it.malzeme].filter(Boolean).join(' ');
+    return '<div class="hp13-multi__item">'
+      + '<span>' + esc(line) + '</span>'
+      + '<button type="button" class="hp13-multi__del" data-hp13-del="' + i + '">Sil</button>'
+      + '</div>';
+  }).join('');
+  panel.innerHTML =
+    '<div class="hp13-multi__title">Çoklu seçim</div>'
+    + '<div class="hp13-multi__sub">Malzemeye tıkla, kaç BBT yaz (sadece sayı, örn. 10), Ekle. Kod isteğe bağlı. Sevk yeri Excel şehrinden gelir.</div>'
+    + '<div class="hp13-multi__cats">' + (cats || '') + '</div>'
+    + '<div class="hp13-multi__editor">'
+    + '<input type="text" id="hp13MalzemeInp" class="form-input" placeholder="Malzeme" list="hp13MalzemeList" autocomplete="off">'
+    + '<datalist id="hp13MalzemeList">' + hp13CatalogList().map((m) => '<option value="' + esc(m).replace(/"/g, '&quot;') + '">') .join('') + '</datalist>'
+    + '<input type="text" id="hp13KodInp" class="form-input" placeholder="Kod" autocomplete="off">'
+    + '<input type="text" id="hp13BbtInp" class="form-input hp13-multi__bbt" placeholder="10" inputmode="numeric" autocomplete="off">'
+    + '<button type="button" id="hp13AddBtn" class="hp13-multi__add">Ekle</button>'
+    + '</div>'
+    + '<div id="hp13MultiList" class="hp13-multi__list">' + (rows || '<div class="hp13-multi__empty">Henüz satır yok — yukarıdan malzeme seç</div>') + '</div>'
+    + '<p id="hp13MultiHint" class="hp13-multi__hint"></p>';
+
+  const addItem = () => {
+    const malzeme = String(document.getElementById('hp13MalzemeInp')?.value || '').trim();
+    const kod = String(document.getElementById('hp13KodInp')?.value || '').trim();
+    const bbt = String(document.getElementById('hp13BbtInp')?.value || '').trim();
+    const item = { malzeme, kod, bbt, wrapped: false };
+    const ok = hp13Api() && typeof hp13Api().canAddHp13MultiItem === 'function'
+      ? hp13Api().canAddHp13MultiItem(item)
+      : !!(malzeme || kod);
+    const hint = document.getElementById('hp13MultiHint');
+    if (!ok) {
+      if (hint) hint.textContent = 'Malzeme seçin veya yazın, BBT’ye sadece sayı yazın (10).';
+      document.getElementById('hp13MalzemeInp')?.focus();
+      return;
+    }
+    hp13MultiItems.push(item);
+    applyHp13ItemsToForm(hp13MultiItems);
+    renderHp13MultiPanel();
+  };
+
+  panel.querySelector('#hp13AddBtn')?.addEventListener('click', addItem);
+  panel.querySelectorAll('[data-hp13-cat]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const malEl = document.getElementById('hp13MalzemeInp');
+      if (malEl) malEl.value = btn.getAttribute('data-hp13-cat') || '';
+      const bbtEl = document.getElementById('hp13BbtInp');
+      if (bbtEl && String(bbtEl.value || '').trim()) addItem();
+      else {
+        try { bbtEl?.focus(); } catch (e) {}
+      }
+    });
+  });
+  ['hp13MalzemeInp', 'hp13KodInp', 'hp13BbtInp'].forEach((id) => {
+    const el = panel.querySelector('#' + id);
+    if (!el) return;
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (id === 'hp13MalzemeInp') document.getElementById('hp13KodInp')?.focus();
+        else if (id === 'hp13KodInp') document.getElementById('hp13BbtInp')?.focus();
+        else addItem();
+      }
+    });
+  });
+  panel.querySelectorAll('[data-hp13-del]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.getAttribute('data-hp13-del'), 10);
+      if (!Number.isFinite(idx)) return;
+      hp13MultiItems.splice(idx, 1);
+      applyHp13ItemsToForm(hp13MultiItems);
+      renderHp13MultiPanel();
+    });
+  });
+}
+
+function syncHp13MultiPanel(firma, opts) {
+  const on = takipIsHp13Firma(firma);
+  const row = document.getElementById('hp13MultiRow');
+  const wasOn = !!(row && !row.hidden);
+  if (!on) {
+    if (row) row.hidden = true;
+    return;
+  }
+  const keep = opts && Object.prototype.hasOwnProperty.call(opts, 'keepItems')
+    ? !!opts.keepItems
+    : wasOn;
+  if (wasOn && keep) return;
+  if (!keep) hp13MultiItems = [];
+  if (row) row.hidden = false;
+  renderHp13MultiPanel();
+  if (!keep) applyHp13ItemsToForm(hp13MultiItems);
+  setTimeout(() => {
+    try { document.getElementById('hp13MalzemeInp')?.focus(); } catch (e) {}
+  }, 0);
+}
+
+function resetHp13MultiPanel() {
+  hp13MultiItems = [];
+  window.__hp13MultiItems = [];
+  const row = document.getElementById('hp13MultiRow');
+  if (row) row.hidden = true;
+  const panel = document.getElementById('hp13MultiPanel');
+  if (panel) panel.innerHTML = '';
+  const noteEl = document.getElementById('yuklemeNotu');
+  if (noteEl) noteEl.removeAttribute('data-hp13-note');
+  renderHp13MalzemeSquares();
+  renderHp13WrapTicks();
+}
+
+window.__syncHp13MultiPanel = syncHp13MultiPanel;
+window.__resetHp13MultiPanel = resetHp13MultiPanel;
+window.__flushHp13MultiItems = function flushHp13MultiItems() {
+  window.__hp13MultiItems = Array.isArray(hp13MultiItems) ? hp13MultiItems.slice() : [];
+  return window.__hp13MultiItems;
+};
 
 const applyMatch = (es) => {
   if (!es) return;
+  if (takipIsHp13Firma(getTakipFirmaKoduRaw())) return;
   if (malzemeInput2)  malzemeInput2.value = es.malzeme || '';
   if (malzemeSelect2) malzemeSelect2.value = es.malzeme || '';
   if (ambalajInput)   ambalajInput.value = es.ambalajBilgisi || '';
@@ -1099,6 +1331,11 @@ const resetMatchFields = () => {
 
 // Firmaya göre eşleşme uygula (PROMPT YOK)
 const handleFirma = (firma) => {
+  try {
+    if (typeof window.__syncHp13MultiPanel === 'function') {
+      window.__syncHp13MultiPanel(firma, window.__piyasaApplyingOrder ? { keepItems: true } : undefined);
+    }
+  } catch (e) {}
   if (window.__piyasaApplyingOrder) return;
   try {
     if (window.piyasa && typeof window.piyasa.isOrderLockedForFirma === 'function'
@@ -1107,6 +1344,10 @@ const handleFirma = (firma) => {
     }
   } catch (_) {}
   const f = (firma || '').trim();
+  if (takipIsHp13Firma(f)) {
+    if (malzemeSelect2) malzemeSelect2.innerHTML = buildFullMalzemeOptionsHTML();
+    return;
+  }
   currentFirmaMatches = (f && eslestirmeStorage.getByFirma) ? (eslestirmeStorage.getByFirma(f) || []) : [];
 
   if (!malzemeSelect2) return;
@@ -1367,6 +1608,20 @@ try {
         // =========================
         // ✅ Takip Formu: zorunlu alan kontrolü + yazdırınca otomatik temizleme
         // =========================
+        /** Modül seviyesinde olmalı — refreshFirmaFieldHint / validateTakipForm buradan çağırır */
+        function takipIsHp13Firma(firma) {
+          try {
+            if (window.piyasa && typeof window.piyasa.isHp13Firma === 'function') {
+              return window.piyasa.isHp13Firma(firma);
+            }
+          } catch (e) {}
+          let s = String(firma || '').trim();
+          if (!s) return false;
+          const head = (typeof getFirmaKodOnly === 'function' ? getFirmaKodOnly(s) : s.split('/')[0].trim()) || s;
+          const key = String(head).toUpperCase().replace(/\u0130/g, 'I').replace(/İ/g, 'I').replace(/\s+/g, '');
+          return key === 'HP13';
+        }
+
         function _clearTakipFormErrors(){
             try {
                 document.querySelectorAll('#takipFormuModal .input-error').forEach(el => el.classList.remove('input-error'));
@@ -1399,6 +1654,21 @@ try {
             return !!ihracatFirmaTokenFromRaw(raw);
         }
 
+        function _firmaKodNormKey(s) {
+            return String(s || '').trim().toUpperCase()
+                .replace(/\u0130/g, 'I').replace(/İ/g, 'I');
+        }
+
+        /** Müşteri kodu yazılan kodla aynı veya sadece harf eki (MD1→MD1S). HP13≠HP1. */
+        function _customerKodMatchesTyped(typed, custKod) {
+            const a = _firmaKodNormKey(typed);
+            const b = _firmaKodNormKey(custKod);
+            if (!a || !b) return false;
+            if (a === b) return true;
+            if (!b.startsWith(a)) return false;
+            return /^[A-Z]+$/.test(b.slice(a.length));
+        }
+
         function normalizeFirmaKoduForReport(kod) {
             const raw = String(kod || '').trim();
             const ihrToken = ihracatFirmaTokenFromRaw(raw);
@@ -1406,11 +1676,18 @@ try {
             const k = getFirmaKodOnly(raw);
             if (!k) return '';
             try {
-                const lookup = window.piyasa && (
-                    window.piyasa.getCustomerByKod || window.piyasa.resolveCustomerByKod
-                );
-                const cust = typeof lookup === 'function' ? lookup(k) : null;
-                if (cust && cust.kod) return String(cust.kod).trim();
+                const exact = window.piyasa && typeof window.piyasa.getCustomerByKod === 'function'
+                    ? window.piyasa.getCustomerByKod(k)
+                    : null;
+                if (exact && exact.kod && _customerKodMatchesTyped(k, exact.kod)) {
+                    return String(exact.kod).trim();
+                }
+                const cust = window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function'
+                    ? window.piyasa.resolveCustomerByKod(k)
+                    : null;
+                if (cust && cust.kod && _customerKodMatchesTyped(k, cust.kod)) {
+                    return String(cust.kod).trim();
+                }
             } catch (e) { /* ignore */ }
             const list = (typeof firmaListesi !== 'undefined' ? firmaListesi : window.firmaListesi) || [];
             for (const f of list) {
@@ -1545,10 +1822,80 @@ try {
                 _clearPiyasaPastSuggestBar();
                 return;
             }
+
+            // HP13: sadece tam kod müşteri adı (HP1 / Saint Gobain asla)
+            if (takipIsHp13Firma(raw)) {
+                let foundHp13 = { currentWeek: null, currentCount: 0, past: [] };
+                try {
+                    if (window.piyasa && typeof window.piyasa.findPastSuggestions === 'function') {
+                        foundHp13 = window.piyasa.findPastSuggestions(raw) || foundHp13;
+                    }
+                } catch (e) {}
+                let pickedHp13 = false;
+                try {
+                    pickedHp13 = !!(window.piyasa && typeof window.piyasa.isOrderLockedForFirma === 'function'
+                        && window.piyasa.isOrderLockedForFirma(raw));
+                } catch (e) { pickedHp13 = false; }
+                let hp13CustAd = '';
+                try {
+                    const kodOnly = (typeof getFirmaKodOnly === 'function' ? getFirmaKodOnly(raw) : raw) || 'HP13';
+                    const c = window.piyasa && typeof window.piyasa.getCustomerByKod === 'function'
+                        ? window.piyasa.getCustomerByKod(kodOnly)
+                        : null;
+                    if (c && _customerKodMatchesTyped(kodOnly, c.kod) && c.ad) hp13CustAd = String(c.ad).trim();
+                } catch (e) { hp13CustAd = ''; }
+                const who = hp13CustAd
+                    ? ('<strong>HP13</strong> / ' + escapeHtml(hp13CustAd))
+                    : '<strong>HP13</strong>';
+                hint.classList.add('is-ok');
+                if (pickedHp13) {
+                    hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> ' + who
+                        + ' seçildi. Malzeme / BBT’yi aşağıdan ekleyin.';
+                } else if (Number(foundHp13.currentCount || 0) > 0) {
+                    hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> ' + who
+                        + ' — Excel’de <strong>' + Number(foundHp13.currentCount) + '</strong> satır var. '
+                        + '<strong>Piyasa</strong> ile seçin veya malzemeleri aşağıdan ekleyin.';
+                } else {
+                    hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> ' + who
+                        + ' — malzemeleri aşağıdan ekleyin. Malzeme / sevk yeri boş kalabilir.';
+                }
+                try {
+                    if (typeof window.__syncHp13MultiPanel === 'function') {
+                        window.__syncHp13MultiPanel(raw, { keepItems: true });
+                    }
+                } catch (e) {}
+                _clearPiyasaPastSuggestBar();
+                return;
+            }
+
             let customer = null;
             try {
-                if (window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function') {
-                    customer = window.piyasa.resolveCustomerByKod(raw);
+                const kodOnly = (typeof getFirmaKodOnly === 'function' ? getFirmaKodOnly(raw) : raw) || raw;
+                // Sadece tam kod (getCustomerByKod). resolve yakın eşleşme HP1 hatasına yol açabiliyor.
+                if (window.piyasa && typeof window.piyasa.getCustomerByKod === 'function') {
+                    customer = window.piyasa.getCustomerByKod(kodOnly);
+                }
+                if (!customer && window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function') {
+                    customer = window.piyasa.resolveCustomerByKod(kodOnly);
+                }
+                if (customer && !_customerKodMatchesTyped(kodOnly, customer.kod)) {
+                    customer = null;
+                }
+                // Ek güvenlik: yazılan kod rakamla bitiyorsa müşteri kodu birebir aynı olmalı
+                // (HP13 yazılmışken HP1 asla)
+                if (customer) {
+                    const typed = _firmaKodNormKey(kodOnly);
+                    const got = _firmaKodNormKey(customer.kod);
+                    if (/[0-9]$/.test(typed) && got !== typed && !_customerKodMatchesTyped(typed, got)) {
+                        customer = null;
+                    }
+                    if (/[0-9]$/.test(typed) && got !== typed && !/^[A-Z]+$/.test(String(got).slice(typed.length))) {
+                        customer = null;
+                    }
+                    // Kısa kod uzun kodun öneki olamaz: HP1 ⊄ HP13
+                    if (got && typed && typed.length > got.length && typed.startsWith(got) && /^\d/.test(typed.slice(got.length))) {
+                        customer = null;
+                    }
                 }
             } catch (e) { customer = null; }
             let found = { currentWeek: null, currentCount: 0, past: [] };
@@ -1575,6 +1922,12 @@ try {
                 if (customer.il) custBits.push(escapeHtml(customer.il));
             }
             if (picked && pickInfo) {
+                if (takipIsHp13Firma(raw)) {
+                    hint.classList.add('is-ok');
+                    hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> <strong>HP13</strong> seçildi. Malzeme, kod ve BBT’yi aşağıdan ekleyin. Malzeme / sevk yeri boş kalabilir.';
+                    _clearPiyasaPastSuggestBar();
+                    return;
+                }
                 const sel = [
                     pickInfo.firma,
                     pickInfo.sehir,
@@ -1588,6 +1941,11 @@ try {
             }
             if (orderCount > 0) {
                 _clearPiyasaPastSuggestBar();
+                if (takipIsHp13Firma(raw)) {
+                    hint.classList.add('is-ok');
+                    hint.innerHTML = '<i class="fas fa-check-circle" aria-hidden="true"></i> <strong>HP13</strong> — malzemeleri aşağıdan ekleyin. Excel satırı seçmeden yazdırabilirsiniz.';
+                    return;
+                }
                 hint.classList.add('takip-form__field-hint--warn');
                 const who = customer
                     ? ('<strong>' + custBits.join(' / ') + '</strong> — ')
@@ -1617,8 +1975,27 @@ try {
             hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Müşteri listesinde bulunamadı — Piyasa olarak basılır, çıkanlar listesine yazılır.';
         }
 
+        function isTakipFormCargoBlank() {
+            const firmaInp = String(document.getElementById('firmaKodu')?.value || '').trim();
+            const firmaSel = String(document.getElementById('firmaSelect')?.value || '').trim();
+            const malzeme = String(document.getElementById('malzeme')?.value || '').trim();
+            const sevk = String(document.getElementById('sevkYeri')?.value || '').trim();
+            const bbt = String(
+                document.getElementById('bbt')?.value
+                || document.getElementById('ihrPickBbtInput')?.value
+                || ''
+            ).trim();
+            return !firmaInp && !firmaSel && !malzeme && !sevk && !bbt;
+        }
+
         function validateTakipForm(opts = {}){
             _clearTakipFormErrors();
+
+            // Boş takip formu: firma/malzeme/sevk yoksa şoför bilgisiyle basılabilir
+            if (opts.allowBlank !== false && isTakipFormCargoBlank()) {
+                refreshFirmaFieldHint();
+                return true;
+            }
 
             const issues = [];
             let firstEl = null;
@@ -1631,7 +2008,7 @@ try {
                     if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
                 } else {
                     applyCanonicalFirmaKodu(firmaRaw);
-                    if (!isIhracatFirmaValue(firmaRaw)) {
+                    if (!isIhracatFirmaValue(firmaRaw) && !takipIsHp13Firma(firmaRaw)) {
                         let needPick = false;
                         try {
                             needPick = !!(window.piyasa
@@ -1661,10 +2038,11 @@ try {
                 }
             }
 
-            const required = [
-                { id:'malzeme',   label:'Malzeme' },
-                { id:'sevkYeri',  label:'Sevk Yeri' }
-            ];
+            const required = [];
+            if (!takipIsHp13Firma(getTakipFirmaKoduRaw())) {
+                required.push({ id:'malzeme',   label:'Malzeme' });
+                required.push({ id:'sevkYeri',  label:'Sevk Yeri' });
+            }
             try {
               const ihrPicked = !window.__skipIhracatExcelPick
                 && (window.__ihracatActivePrintShipment || window.__activeExcelShipment);
@@ -1789,6 +2167,10 @@ try {
             // dropdown'ları da sıfırla
             try { const fs = document.getElementById('firmaSelect'); if (fs) fs.value = ''; } catch(e){}
             try { const ms = document.getElementById('malzemeSelect'); if (ms) ms.value = ''; } catch(e){}
+            try {
+              if (typeof resetHp13MultiPanel === 'function') resetHp13MultiPanel();
+              else if (typeof window.__resetHp13MultiPanel === 'function') window.__resetHp13MultiPanel();
+            } catch(e){}
         }
 
         // ✅ Make validateTakipForm available to global button handlers
@@ -2617,9 +2999,9 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                     <div class="app-sticky-top">
                     <header class="app-header mb-3" role="banner">
   <div class="app-header-toolbar">
-    <div class="app-header-brand">
+    <button type="button" class="app-header-brand" id="appHeaderRefreshBtn" title="Listeyi yenile (sunucusuz)" aria-label="Listeyi yenile">
       <img class="app-header-logo" src="/logo.png" alt="Logo" />
-    </div>
+    </button>
     <div class="app-header-menus">
       <nav class="app-nav" aria-label="Ana menü">
         <button id="toggleFormButton" class="app-nav-btn app-nav-btn--primary app-nav-btn--always">
@@ -2690,8 +3072,8 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             </div>
             <div class="my-1 border-t"></div>
             <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
-            <button type="button" id="excelListCopyMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm elc-menu-btn" title="F358 listesini çöz ve seçerek kopyala">
-              <span class="elc-bolt-icon" aria-hidden="true"><i class="fas fa-bolt"></i></span>
+            <button type="button" id="excelListCopyMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm elc-menu-btn" title="Liste kopyala HTML’ini masaüstüne indir">
+              <span class="elc-dl-icon" aria-hidden="true"><i class="fas fa-download"></i></span>
               Liste kopyala
             </button>
             <div class="my-1 border-t"></div>

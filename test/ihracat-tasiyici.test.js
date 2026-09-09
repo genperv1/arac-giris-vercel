@@ -11,12 +11,14 @@ const code = fs.readFileSync(
 );
 const start = code.indexOf('function _normalizeYuklemeYeri');
 const end = code.indexOf('function _formatYuklemeYeriLabel');
-const wrapped = `(function(){\n${code.slice(start, end)}\nreturn { _normalizeTasiyiciDisplay, _isOzmalTasiyici, detectTasiyiciColumnIndex, _looksLikeTasiyiciHeader };})()`;
+const wrapped = `(function(){\n${code.slice(start, end)}\nreturn { _normalizeTasiyiciDisplay, _isOzmalTasiyici, _isKnownNakliyeci, detectTasiyiciColumnIndex, _looksLikeTasiyiciHeader, readRowTasiyici };})()`;
 const {
   _normalizeTasiyiciDisplay,
   _isOzmalTasiyici,
+  _isKnownNakliyeci,
   detectTasiyiciColumnIndex,
   _looksLikeTasiyiciHeader,
+  readRowTasiyici,
 } = eval(wrapped);
 
 test('tasiyici display — GPM özmal, AKYÜZ nakliyeci', () => {
@@ -84,4 +86,31 @@ test('detectTasiyiciColumnIndex — M sütunu başlığı HP malzeme olsa da AKY
   gpm[14] = 'AVDAN';
   const grid = [header, akyuz, gpm, Object.assign(new Array(16).fill(''), { 12: 'GPM', 14: 'AVDAN' })];
   assert.equal(detectTasiyiciColumnIndex(grid, 0, [2, 3, 11, 14], 14), 12);
+});
+
+test('readRowTasiyici — A sütunu AKYÜZ, şoför adı ORTALA ezilmez', () => {
+  assert.equal(_isKnownNakliyeci('AKYÜZ'), true);
+  assert.equal(_isKnownNakliyeci('ORTALA'), false);
+  const row = new Array(16).fill('');
+  row[0] = 'AKYÜZ';
+  row[2] = '03ACB648';
+  row[3] = '20';
+  row[8] = 'ORTALA';
+  row[12] = 'ORTALA';
+  assert.equal(readRowTasiyici(row, 12, 14), 'AKYÜZ');
+});
+
+test('readRowTasiyici — A sütunu AKYÜZ olsa da satırdaki GPM özmal kalır', () => {
+  const row = new Array(16).fill('');
+  row[0] = 'AKYÜZ';
+  row[12] = 'GPM';
+  row[14] = 'AVDAN';
+  assert.equal(readRowTasiyici(row, 12, 14), 'GPM');
+});
+
+test('readRowTasiyici — yalnız şoför adı taşıyıcı sayılmaz', () => {
+  const row = new Array(16).fill('');
+  row[8] = 'ORTALA';
+  row[12] = 'ORTALA';
+  assert.equal(readRowTasiyici(row, 12, 14), '');
 });

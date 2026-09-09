@@ -668,10 +668,20 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
       printEv.firma || f,
       o.firmaAdi || o._hSutunValue || printEv.firmaAdi
     );
-    if (m) printEv.malzeme = m;
+    // Formda elle yazılan malzeme Excel satırını ezmesin — kağıtta ne varsa o kalır
+    if (m && !String(printEv.malzeme || '').trim()) printEv.malzeme = m;
+    if (sehir) {
+      printEv.il = String(o.il || sehir).trim();
+      printEv.sehir = printEv.il;
+      if (pending.snapshot && typeof pending.snapshot === 'object') {
+        pending.snapshot.il = printEv.il;
+        pending.snapshot.sehir = printEv.sehir;
+      }
+    }
     const userSevk = String(printEv.sevkYeri || '').trim();
     if (sehir && !userSevk) printEv.sevkYeri = sehir;
-    if (yuk) {
+    const printedYuk = String(printEv.yuklemeTuru || printEv.ambalajBilgisi || '').trim();
+    if (yuk && !printedYuk) {
       printEv.yuklemeTuru = yuk;
       if (!String(printEv.ambalajBilgisi || '').trim()) printEv.ambalajBilgisi = yuk;
     }
@@ -696,6 +706,8 @@ function buildPrintHistoryPostBody(printEv, pending, commitTs) {
     soforAdi: printEv.soforAdi || '',
     soforSoyadi: printEv.soforSoyadi || '',
     sevkYeri: String(printEv.sevkYeri || '').trim(),
+    il: String(printEv.il || printEv.sehir || '').trim(),
+    sehir: String(printEv.sehir || printEv.il || '').trim(),
     ambalajBilgisi: String(printEv.ambalajBilgisi || yuk || '').trim(),
     yuklemeTuru: yuk,
     yuklemeNotu: String(printEv.yuklemeNotu || '').trim(),
@@ -799,7 +811,16 @@ function shouldWritePiyasaCikanlar(pending, printEv) {
   const firma = (printEv && (printEv.firma || printEv.firmaKodu))
     || (pending.snapshot && (pending.snapshot.firmaKodu || pending.snapshot.firmaSelect))
     || '';
+  if (!String(firma || '').trim()) return false;
   return !_isYdFirmaValue(firma);
+}
+
+function _cikanlarFirstText() {
+  for (let i = 0; i < arguments.length; i++) {
+    const s = String(arguments[i] == null ? '' : arguments[i]).trim();
+    if (s) return s;
+  }
+  return '';
 }
 
 function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId) {
@@ -811,10 +832,31 @@ function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId)
       order = window.piyasa.getOrderByIdx(pending.piyasaOrderIdx);
     }
   } catch (e) { order = null; }
-  const firma = String(
-    (order && order.firma) || (printEv && (printEv.firma || printEv.firmaKodu)) || snap.firmaKodu || snap.firmaSelect || ''
-  ).trim();
-  const sehir = String((order && (order.il || order.sevkYeri)) || '').trim();
+  const firma = _cikanlarFirstText(
+    printEv && (printEv.firma || printEv.firmaKodu),
+    snap.firmaKodu,
+    snap.firmaSelect,
+    order && order.firma
+  );
+  const sehir = _cikanlarFirstText(
+    order && (order.il || order.sehir),
+    printEv && (printEv.sehir || printEv.il),
+    snap.sehir,
+    snap.il
+  );
+  const malzeme = _cikanlarFirstText(
+    printEv && printEv.malzeme,
+    pp.malzeme,
+    snap.malzeme,
+    snap.malzemeSelect,
+    order && order.malzeme
+  );
+  const yuklemeTuru = _cikanlarFirstText(
+    printEv && (printEv.yuklemeTuru || printEv.ambalajBilgisi),
+    pp.ambalajBilgisi,
+    snap.ambalajBilgisi,
+    order && order.yuklemeTuru
+  );
   return {
     print_history_id: printHistoryId || '',
     tarih: commitTs || Date.now(),
@@ -824,8 +866,8 @@ function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId)
     firma,
     firma_adi: String((order && (order.firmaAdi || order._hSutunValue)) || (printEv && printEv.firmaAdi) || '').trim(),
     sip_no: String((order && order.sipNo) || '').trim(),
-    malzeme: String((order && order.malzeme) || (printEv && printEv.malzeme) || snap.malzeme || '').trim(),
-    yukleme_turu: String((order && order.yuklemeTuru) || (printEv && (printEv.yuklemeTuru || printEv.ambalajBilgisi)) || snap.ambalajBilgisi || '').trim(),
+    malzeme,
+    yukleme_turu: yuklemeTuru,
     sehir,
     sevk_yeri: String((printEv && printEv.sevkYeri) || snap.sevkYeri || sehir || '').trim(),
     miktar: order && order.miktar != null ? String(order.miktar) : '',
@@ -923,6 +965,8 @@ function refreshPendingPrintSnapshotFromForm(pending) {
     malzeme: get('malzeme') || prev.malzeme,
     malzemeSelect: get('malzemeSelect') || prev.malzemeSelect,
     sevkYeri: get('sevkYeri') || prev.sevkYeri,
+    il: prev.il || prev.sehir || '',
+    sehir: prev.sehir || prev.il || '',
     ambalajBilgisi: get('ambalajBilgisi') || prev.ambalajBilgisi,
     tonaj: get('tonaj') || prev.tonaj,
     yuklemeNotu: get('yuklemeNotu') || prev.yuklemeNotu,
@@ -1658,6 +1702,88 @@ function repairIhracatRowFileNames(rows, meta) {
   }
 
   return { rows: fixedRows, meta: fixedMeta, changed: rowsChanged || metaChanged };
+}
+
+function _ihracatIncomingFileName(file, meta) {
+  return String((file && file.name) || (meta && meta.fileName) || '').trim();
+}
+
+function _tagUntaggedIhracatRows(rows, meta) {
+  const fallbacks = normalizeIhracatMetaFiles(meta);
+  const fallback = fallbacks.length === 1 ? fallbacks[0] : '';
+  if (!fallback) return Array.isArray(rows) ? rows : [];
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    if (!r || typeof r !== 'object') return r;
+    if (String(r.fileName || '').trim()) return r;
+    return { ...r, fileName: fallback };
+  });
+}
+
+function _tagIncomingIhracatRows(rows, fileName) {
+  const incomingName = String(fileName || '').trim();
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    if (!r || typeof r !== 'object') return r;
+    const parts = splitIhracatFileNames(r.fileName);
+    if (parts.length === 1 && (!incomingName || parts[0] === incomingName)) return r;
+    return { ...r, fileName: incomingName || parts[0] || '' };
+  });
+}
+
+function _ihracatRowIsSameSource(row, sourceName) {
+  const target = String(sourceName || '').trim();
+  if (!target) return false;
+  const parts = splitIhracatFileNames(row?.fileName);
+  if (parts.length === 1) return parts[0] === target;
+  return false;
+}
+
+/** Yeni Excel: diğer dosyaların satırlarını koru; aynı ada yeniden yüklemede yalnız o dosyayı değiştir. */
+function mergeIhracatImportState(existingRows, existingMeta, incomingRows, incomingMeta, file) {
+  const incomingName = _ihracatIncomingFileName(file, incomingMeta);
+  const prevMeta = existingMeta && typeof existingMeta === 'object' ? existingMeta : {};
+  const taggedExisting = _tagUntaggedIhracatRows(existingRows, prevMeta);
+  const incoming = _tagIncomingIhracatRows(incomingRows, incomingName);
+  const keepOtherFiles = taggedExisting.filter((r) => !_ihracatRowIsSameSource(r, incomingName));
+  let rowsToSave = keepOtherFiles.concat(incoming);
+  if (typeof _ihracatDedupeShipmentRows === 'function') {
+    rowsToSave = _ihracatDedupeShipmentRows(rowsToSave);
+  }
+
+  const files = [];
+  const seen = new Set();
+  const addName = (raw) => {
+    splitIhracatFileNames(raw).forEach((n) => {
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      files.push(n);
+    });
+  };
+  keepOtherFiles.forEach((r) => addName(r.fileName));
+  addName(incomingName);
+  incoming.forEach((r) => addName(r.fileName));
+
+  const nextMeta = Object.assign({}, prevMeta, incomingMeta || {}, {
+    files: files.length ? files : undefined,
+    fileName: files.join(' + '),
+    count: rowsToSave.length,
+    replacedAt: new Date().toISOString(),
+  });
+  if (!nextMeta.fileName && incomingName) nextMeta.fileName = incomingName;
+
+  const repaired = repairIhracatRowFileNames(rowsToSave, nextMeta);
+  const metaFiles = (repaired.meta && repaired.meta.files && repaired.meta.files.length)
+    ? repaired.meta.files
+    : files;
+  return {
+    rows: repaired.rows,
+    meta: Object.assign({}, nextMeta, repaired.meta, {
+      files: metaFiles.length ? metaFiles : undefined,
+      fileName: (repaired.meta && repaired.meta.fileName) || metaFiles.join(' + '),
+      count: repaired.rows.length,
+    }),
+    incomingCount: incoming.length,
+    fileCount: metaFiles.length,
+  };
 }
 
 /** Yüklü İHRACAT Excel dosya adları (meta + satır fileName) */
@@ -2599,6 +2725,12 @@ function _isOzmalTasiyici(raw) {
   return k === 'GPM' || k === 'OZMAL';
 }
 
+/** Excel A sütunu etiketleri: AKYÜZ / MEDLOG. Şoför adı (ORTALA vb.) değil. */
+function _isKnownNakliyeci(raw) {
+  const k = _normTasiyiciToken(raw);
+  return k === 'AKYUZ' || k === 'MEDLOG';
+}
+
 /** Liman / Excel etiketleri taşıyıcı sanılmasın (SAFİPORT, LİMAN, BOOKING…) */
 function _isJunkTasiyiciToken(raw) {
   const k = _normTasiyiciToken(raw);
@@ -2641,24 +2773,31 @@ function _normalizeTasiyiciDisplay(raw) {
 function _pickTasiyiciFromRow(row) {
   const names = [];
   const seen = new Set();
-  (row || []).forEach((v) => {
+  function add(v, requireKnown) {
     const n = _normalizeTasiyiciDisplay(v);
     if (!n) return;
+    if (requireKnown && !_isOzmalTasiyici(n) && !_isKnownNakliyeci(n)) return;
     const k = _normTasiyiciToken(n);
     if (!k || seen.has(k)) return;
     seen.add(k);
     names.push(n);
+  }
+  add(row && row[0], false);
+  (row || []).forEach((v, idx) => {
+    if (idx === 0) return;
+    add(v, true);
   });
   return names;
 }
 
 function readRowTasiyici(d, tasiyiciCol, yuklemeCol) {
   const idxs = [];
+  idxs.push(0);
   if (tasiyiciCol !== undefined && tasiyiciCol !== null) idxs.push(tasiyiciCol);
   if (yuklemeCol != null) {
     idxs.push(yuklemeCol - 2, yuklemeCol - 1);
   }
-  idxs.push(12, 13, 0);
+  idxs.push(12, 13);
   const found = [];
   const seen = new Set();
   idxs.forEach((c) => {
@@ -2672,7 +2811,11 @@ function readRowTasiyici(d, tasiyiciCol, yuklemeCol) {
   });
   const gpm = found.find((n) => _isOzmalTasiyici(n));
   if (gpm) return 'GPM';
-  return found[0] || '';
+  const known = found.find((n) => _isKnownNakliyeci(n));
+  if (known) return known;
+  const colA = _normalizeTasiyiciDisplay(d && d[0]);
+  if (colA && !_isOzmalTasiyici(colA)) return colA;
+  return '';
 }
 
 function detectTasiyiciColumnIndex(grid, headerRowIdx, skipCols, yuklemeCol) {
@@ -2708,6 +2851,7 @@ function detectTasiyiciColumnIndex(grid, headerRowIdx, skipCols, yuklemeCol) {
   let bestScore = 0;
   scores.forEach((sc, c) => {
     let adj = sc;
+    if (c === 0) adj += 8;
     if (c === 12 || c === 13) adj += 2;
     if (gpmHits.get(c)) adj += 6;
     if (adj > bestScore) {
@@ -2869,22 +3013,27 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
 
   const tasiyiciNames = [];
   const seenT = new Set();
-  above.forEach((item) => {
-    _pickTasiyiciFromRow(item.row).forEach((n) => {
+  let colAPreferred = '';
+  for (let i = scanRows.length - 1; i >= 0; i--) {
+    const row = scanRows[i] || [];
+    const colA = _normalizeTasiyiciDisplay(row[0]);
+    if (colA && !_isOzmalTasiyici(colA) && !colAPreferred) colAPreferred = colA;
+    _pickTasiyiciFromRow(row).forEach((n) => {
       const k = _normTasiyiciToken(n);
       if (!k || seenT.has(k)) return;
       seenT.add(k);
       tasiyiciNames.push(n);
     });
-  });
+  }
   out.tasiyiciNames = tasiyiciNames;
   const nonGpm = tasiyiciNames.filter((n) => !_isOzmalTasiyici(n));
-  out.tasiyici = nonGpm[0] || tasiyiciNames[0] || '';
+  const known = nonGpm.find((n) => _isKnownNakliyeci(n));
+  out.tasiyici = colAPreferred || known || nonGpm[0] || tasiyiciNames[0] || '';
 
   return out;
 }
 
-function _isExcelInsideNoteText(raw) {
+function _excelNoteWords(raw) {
   const norm = String(raw || '')
     .toUpperCase()
     .replace(/İ/g, 'I')
@@ -2896,16 +3045,40 @@ function _isExcelInsideNoteText(raw) {
     .replace(/[^A-Z0-9\s]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!norm) return false;
-  return norm.split(' ').some((w) => /^ICE(R(DE|IDE|I)?(KI)?)?$/.test(w));
+  if (!norm) return [];
+  return norm.split(' ');
+}
+
+function _isExcelInsideNoteText(raw) {
+  return _excelNoteWords(raw).some((w) => /^ICE(R(DE|IDE|I)?(KI)?)?$/.test(w));
+}
+
+function _isExcelOutsideNoteText(raw) {
+  return _excelNoteWords(raw).some((w) => /^DISA(R(DA|IDA|I)?(KI)?)?$/.test(w));
+}
+
+function _isExcelAllocatedNoteText(raw) {
+  return _isExcelInsideNoteText(raw) || _isExcelOutsideNoteText(raw);
+}
+
+function _rowHasNoteByPred(row, colIdxs, pred) {
+  if (!row) return false;
+  if (!Array.isArray(row)) return pred(row);
+  const idxs = Array.isArray(colIdxs) ? colIdxs.filter((i) => i !== undefined && i !== null && i >= 0) : [];
+  if (idxs.length) return idxs.some((i) => pred(row[i]));
+  return row.some((v) => pred(v));
 }
 
 function _rowHasInsideNote(row, colIdxs) {
-  if (!row) return false;
-  if (!Array.isArray(row)) return _isExcelInsideNoteText(row);
-  const idxs = Array.isArray(colIdxs) ? colIdxs.filter((i) => i !== undefined && i !== null && i >= 0) : [];
-  if (idxs.length) return idxs.some((i) => _isExcelInsideNoteText(row[i]));
-  return row.some((v) => _isExcelInsideNoteText(v));
+  return _rowHasNoteByPred(row, colIdxs, _isExcelInsideNoteText);
+}
+
+function _rowHasOutsideNote(row, colIdxs) {
+  return _rowHasNoteByPred(row, colIdxs, _isExcelOutsideNoteText);
+}
+
+function _rowHasAllocatedNote(row, colIdxs) {
+  return _rowHasNoteByPred(row, colIdxs, _isExcelAllocatedNoteText);
 }
 
 function parseIhracatBlockToplamRow(row, blockCols) {
@@ -3272,11 +3445,12 @@ firma: (firma || '').slice(0, 40),
   bosCuval: blockCols.bosCuval !== undefined ? _nz(d[blockCols.bosCuval]) : '',
   gidenTonaj: blockCols.gidenTonaj !== undefined ? _nz(d[blockCols.gidenTonaj]) : '',
   iceride: _rowHasInsideNote(d, insideColIdxs) || _rowHasInsideNote(d),
+  disarida: _rowHasOutsideNote(d, insideColIdxs) || _rowHasOutsideNote(d),
 
   yuklemeNotu: (function () {
     const ownNote = String(d[noteColumnIndex] || '').trim();
     if (ownNote) return ownNote;
-    if (blockYuklemeNotu && !_isExcelInsideNoteText(blockYuklemeNotu)) return blockYuklemeNotu;
+    if (blockYuklemeNotu && !_isExcelAllocatedNoteText(blockYuklemeNotu)) return blockYuklemeNotu;
     return '';
   })(),
 
@@ -3307,7 +3481,14 @@ firma: (firma || '').slice(0, 40),
     (blockMeta && blockMeta.tasiyiciNames ? blockMeta.tasiyiciNames : []).forEach(addTasiyiciName);
     if (blockMeta && blockMeta.tasiyici) addTasiyiciName(blockMeta.tasiyici);
     const nonGpmNames = tasiyiciNames.filter((n) => !_isOzmalTasiyici(n));
-    const defaultNakliyeci = nonGpmNames[0] || '';
+    const knownNakliyeci = nonGpmNames.find((n) => _isKnownNakliyeci(n));
+    const colATasiyici = _normalizeTasiyiciDisplay(
+      (grid[r] && grid[r][0]) || (blockMeta && blockMeta.tasiyici) || ''
+    );
+    const defaultNakliyeci = (colATasiyici && !_isOzmalTasiyici(colATasiyici) ? colATasiyici : '')
+      || knownNakliyeci
+      || nonGpmNames[0]
+      || '';
     const singleTasiyici = tasiyiciNames.length === 1 ? tasiyiciNames[0] : '';
     if (blockMeta && typeof blockMeta === 'object') blockMeta.tasiyiciNames = tasiyiciNames.slice();
 
@@ -3408,22 +3589,22 @@ firma: (firma || '').slice(0, 40),
 }
 
 async function commitIhracatImport(uniq2, meta, file, opts) {
-  let rowsToSave = typeof _ihracatDedupeShipmentRows === 'function'
-    ? _ihracatDedupeShipmentRows(uniq2)
-    : uniq2;
-  let metaToSave = Object.assign({}, meta || {}, {
-    files: [String((file && file.name) || (meta && meta.fileName) || '').trim()].filter(Boolean),
-    fileName: String((file && file.name) || (meta && meta.fileName) || '').trim(),
-    count: Array.isArray(rowsToSave) ? rowsToSave.length : 0,
-    replacedAt: new Date().toISOString(),
-  });
-  if (!metaToSave.fileName && meta && meta.fileName) metaToSave.fileName = meta.fileName;
-
   try {
     if (window.DailyStore && typeof DailyStore.ensureReady === 'function') {
       await DailyStore.ensureReady();
     }
   } catch (e) { /* ignore */ }
+
+  let existingRows = [];
+  let existingMeta = {};
+  try {
+    existingRows = (typeof loadDailyShipments === 'function') ? (loadDailyShipments() || []) : [];
+    existingMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
+  } catch (e) { /* ignore */ }
+
+  const merged = mergeIhracatImportState(existingRows, existingMeta, uniq2, meta, file, opts);
+  const rowsToSave = merged.rows;
+  const metaToSave = merged.meta;
 
   const ok = await saveDailyShipments(rowsToSave, metaToSave);
   if (!ok) {
@@ -3441,15 +3622,21 @@ async function commitIhracatImport(uniq2, meta, file, opts) {
   try {
     if (window.IhracatExcelSource && typeof window.IhracatExcelSource.rememberAfterImport === 'function') {
       const srcPath = file && typeof file.path === 'string' ? file.path : '';
+      const oneName = _ihracatIncomingFileName(file, meta) || String(metaToSave.fileName || '').trim();
       window.IhracatExcelSource.rememberAfterImport({
-        fileName: String((file && file.name) || metaToSave.fileName || '').trim(),
+        fileName: oneName,
         sheetName: metaToSave.sheetName || '',
         filePath: srcPath,
       }).catch(function () {});
     }
   } catch (e) {}
 
-  return { ok: true, msg: `✅ Excel yüklendi: ${uniq2.length} satır`, meta: metaToSave };
+  const fileCount = Number(merged.fileCount) || 0;
+  const incomingCount = Array.isArray(uniq2) ? uniq2.length : 0;
+  const msg = fileCount > 1
+    ? `✅ Excel eklendi: ${incomingCount} satır. Toplam ${fileCount} dosya, ${rowsToSave.length} satır.`
+    : `✅ Excel yüklendi: ${incomingCount} satır`;
+  return { ok: true, msg, meta: metaToSave };
 }
 
 function hasIhracatExcelPlan() {
@@ -3876,6 +4063,7 @@ function ensureIhracatExcelPickBeforePrint() {
       return true;
     }
     const firma = String(document.getElementById('firmaKodu')?.value || '').trim();
+    if (!firma) return true;
     if (_firmaLooksPiyasaNotYd(firma)) return true;
     if (window.__takipJobKind !== 'ihracat' && !/\bYD\d{1,4}/i.test(firma)) return true;
 
@@ -3954,6 +4142,7 @@ window.normalizeIhracatMetaFiles = normalizeIhracatMetaFiles;
 window.listIhracatExcelSources = listIhracatExcelSources;
 window.resolveIhracatRowFileLabel = resolveIhracatRowFileLabel;
 window.repairIhracatRowFileNames = repairIhracatRowFileNames;
+window.mergeIhracatImportState = mergeIhracatImportState;
 window.resolveTakipVehicleIdForPrint = resolveTakipVehicleIdForPrint;
 
 // Excel okuma (XLSX) - Dinamik header arama ile

@@ -255,10 +255,26 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
                 }
-                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
-                    window.SessionManager.openAppPage('liste-kopyala.html');
-                } else {
-                    location.href = 'liste-kopyala.html';
+                try {
+                    const res = await fetch('liste-kopyala-desktop.html', { cache: 'no-store' });
+                    if (!res.ok) throw new Error('HTML alınamadı');
+                    const blob = await res.blob();
+                    const stamp = new Date().toISOString().slice(0, 10);
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `liste-kopyala_${stamp}.html`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 1500);
+                    if (typeof showToast === 'function') {
+                        showToast('✅ Liste kopyala HTML indirildi — masaüstünden açıp kullanabilirsiniz.');
+                    }
+                } catch (err) {
+                    if (typeof showToast === 'function') {
+                        showToast('Liste kopyala HTML indirilemedi.', 'error');
+                    }
                 }
             });
 
@@ -332,45 +348,52 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
 
 
             // 📄 İhracat Excel — dosya yalnızca burada seçilir; Güncelle aynı dosyayı yeniden okur
-            document.getElementById('excelBlockSelectButtonTop')?.addEventListener('click', async function(){
-                closeAppToolsMenu();
-                const src = window.IhracatExcelSource;
-                if (src && typeof src.pickFileWithHandle === 'function' && typeof window.showOpenFilePicker === 'function') {
-                    try {
-                        const picked = await src.pickFileWithHandle();
-                        if (picked && picked.file) {
-                            const res = await importExcelHeadersOnly_ShowSelection(picked.file);
-                            if (!res || !res.ok) showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.'));
-                        }
-                    } catch (e) {
-                        if (e && e.name === 'AbortError') return;
-                        showToast('❌ Excel dosyası seçilemedi.');
-                    }
-                    return;
-                }
-                let inp = document.getElementById('excelBlockFileInput');
-                if (!inp) {
-                    inp = document.createElement('input');
-                    inp.type = 'file';
-                    inp.id = 'excelBlockFileInput';
-                    inp.accept = '.xlsx,.xls,.xlsm,.xlsb';
-                    inp.style.display = 'none';
-                    document.body.appendChild(inp);
-                    inp.addEventListener('change', async function(ev){
-                        const f = ev.target.files && ev.target.files[0];
-                        if (!f) return;
+            if (!window.__ihracatExcelUploadBound) {
+                window.__ihracatExcelUploadBound = true;
+                document.addEventListener('click', async function (e) {
+                    const btn = e.target && e.target.closest && e.target.closest('#excelBlockSelectButtonTop');
+                    if (!btn) return;
+                    e.preventDefault();
+                    closeAppToolsMenu();
+                    const src = window.IhracatExcelSource;
+                    const canPick = src && typeof src.pickFileWithHandle === 'function' && typeof window.showOpenFilePicker === 'function';
+                    if (canPick) {
                         try {
-                            if (window.IhracatExcelSource && typeof window.IhracatExcelSource.rememberSelectedFile === 'function') {
-                                await window.IhracatExcelSource.rememberSelectedFile(f);
+                            const picked = await src.pickFileWithHandle();
+                            if (picked && picked.cancelled) return;
+                            if (picked && picked.file) {
+                                const res = await importExcelHeadersOnly_ShowSelection(picked.file);
+                                if (!res || !res.ok) showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.'));
+                                return;
                             }
-                        } catch (err) {}
-                        const res = await importExcelHeadersOnly_ShowSelection(f);
-                        if (!res || !res.ok) showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.'));
-                    });
-                }
-                inp.value = '';
-                inp.click();
-            });
+                        } catch (err) {
+                            if (err && err.name === 'AbortError') return;
+                        }
+                    }
+                    let inp = document.getElementById('excelBlockFileInput');
+                    if (!inp) {
+                        inp = document.createElement('input');
+                        inp.type = 'file';
+                        inp.id = 'excelBlockFileInput';
+                        inp.accept = '.xlsx,.xls,.xlsm,.xlsb';
+                        inp.style.display = 'none';
+                        document.body.appendChild(inp);
+                        inp.addEventListener('change', async function (ev) {
+                            const f = ev.target.files && ev.target.files[0];
+                            if (!f) return;
+                            try {
+                                if (window.IhracatExcelSource && typeof window.IhracatExcelSource.rememberSelectedFile === 'function') {
+                                    await window.IhracatExcelSource.rememberSelectedFile(f);
+                                }
+                            } catch (err) {}
+                            const res = await importExcelHeadersOnly_ShowSelection(f);
+                            if (!res || !res.ok) showToast('❌ ' + ((res && res.msg) || 'Excel okunamadı.'));
+                        });
+                    }
+                    inp.value = '';
+                    inp.click();
+                });
+            }
 
             // Güncelle tıklaması ihracat-excel-source.js içinde (delegation) bağlanır.
             try {
@@ -453,6 +476,22 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                         if (typeof ui.alert === 'function') await ui.alert('Geri alma başarısız.', 'danger');
                     }
                 }
+            });
+
+            addOnce(document.getElementById('appHeaderRefreshBtn'), 'click', function () {
+                // Yerel yenile — /api/vehicles veya oturum kontrolü yok (rate limit)
+                try {
+                    state.searchTerm = '';
+                    state.showAll = false;
+                    if (window.storage && typeof window.storage.loadAll === 'function') {
+                        state.vehicles = window.storage.loadAll() || [];
+                    }
+                    const searchInput = document.getElementById('searchInput');
+                    if (searchInput) searchInput.value = '';
+                    if (typeof refreshAppPartial === 'function') refreshAppPartial();
+                    else if (typeof updateVehicleList === 'function') updateVehicleList();
+                    else if (typeof render === 'function') render();
+                } catch (e) {}
             });
 
             document.getElementById('toggleFormButton')?.addEventListener('click', async function(e) {

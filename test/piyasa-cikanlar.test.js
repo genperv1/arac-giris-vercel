@@ -123,6 +123,67 @@ test('normalizeCikanlarInsert keeps piyasa fields', () => {
   assert.ok(row.id);
 });
 
+test('normalizeCikanlarInsert maps il alias to sehir', () => {
+  const row = normalizeCikanlarInsert({
+    plaka: '43 ABC 123',
+    firma: 'HP7',
+    il: 'KONYA/SELÇUKLU',
+  }, (s, n) => String(s).slice(0, n));
+  assert.equal(row.sehir, 'KONYA/SELÇUKLU');
+});
+
+test('foldTrIl treats SİVAS / Sivas / sivas as the same', () => {
+  const { foldTrIl, rowMatchesIl } = require('../lib/piyasa-cikanlar');
+  assert.equal(foldTrIl('SİVAS'), 'SIVAS');
+  assert.equal(foldTrIl('Sivas'), 'SIVAS');
+  assert.equal(foldTrIl('sivas'), 'SIVAS');
+  assert.equal(rowMatchesIl({ sehir: 'SİVAS' }, 'sivas'), true);
+  assert.equal(rowMatchesIl({ sehir: 'Sivas' }, 'SİVAS'), true);
+  assert.equal(rowMatchesIl({ sevk_yeri: 'SİVAS/MERKEZ' }, 'sivas'), true);
+  assert.equal(rowMatchesIl({ sehir: 'İNÖNÜ/ESKİŞEHİR' }, 'SİVAS'), false);
+  assert.equal(rowMatchesIl({ sehir: 'İSTANBUL' }, 'SİVAS'), false);
+});
+
+test('displaySehir prefers Excel il like printed picker', () => {
+  const { displaySehir, sehirSearchHay } = require('../lib/piyasa-cikanlar');
+  assert.equal(displaySehir({ sehir: 'ANKARA/BALA', sevk_yeri: 'Depo-3' }), 'ANKARA/BALA');
+  assert.equal(displaySehir({ il: 'İZMİR', sevk_yeri: 'ALSANCAK' }), 'İZMİR');
+  assert.equal(displaySehir({ sevk_yeri: 'BURSA' }), 'BURSA');
+  assert.equal(displaySehir({}), '');
+  const hay = sehirSearchHay({ sehir: 'ANKARA/BALA', sevk_yeri: 'Depo-3' });
+  assert.ok(hay.includes('ANKARA/BALA'));
+  assert.ok(hay.includes('DEPO-3'));
+});
+
+test('pickCikanlarFormFields keeps typed print malzeme over Excel order', () => {
+  const { pickCikanlarFormFields } = require('../lib/piyasa-cikanlar');
+  const picked = pickCikanlarFormFields(
+    { firma: 'HP13', malzeme: 'Elle yazılan expanded perlite\n2. satır' },
+    { malzeme: 'Excel eski' },
+    { malzeme: 'Elle yazılan expanded perlite\n2. satır' },
+    { firma: 'HP13', malzeme: 'HAM PERLİT EXCEL SATIRI' }
+  );
+  assert.equal(picked.firma, 'HP13');
+  assert.equal(picked.malzeme, 'Elle yazılan expanded perlite\n2. satır');
+});
+
+test('pickCikanlarFormFields uses Excel malzeme only if form empty', () => {
+  const { pickCikanlarFormFields } = require('../lib/piyasa-cikanlar');
+  const picked = pickCikanlarFormFields({}, {}, {}, { malzeme: 'HAM PERLİT' });
+  assert.equal(picked.malzeme, 'HAM PERLİT');
+});
+
+test('normalizeCikanlarInsert keeps long printed malzeme', () => {
+  const printed = 'HP13 ELLE ' + 'PERLIT '.repeat(30);
+  const row = normalizeCikanlarInsert({
+    plaka: '43 ABC 123',
+    firma: 'HP13',
+    malzeme: printed,
+  }, (s, n) => String(s).slice(0, n));
+  assert.equal(row.malzeme, printed);
+  assert.ok(row.malzeme.length > 120);
+});
+
 test('normalizeCikanlarInsert stores print-date week not Excel week', () => {
   const row = normalizeCikanlarInsert({
     plaka: '06 FAY 148',

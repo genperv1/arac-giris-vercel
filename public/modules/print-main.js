@@ -248,7 +248,7 @@
       bar.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:12px 16px;background:#0f172a;z-index:2;pointer-events:auto;';
       const hint = document.createElement('div');
       hint.style.cssText = 'margin-right:auto;color:#e2e8f0;font:600 14px/1.3 Arial,sans-serif;';
-      hint.textContent = 'Yazıcı penceresi açılmazsa sağdaki büyük düğmeye basın.';
+      hint.textContent = 'Önizleme — yazdırmak için Yazıcıya gönder, vazgeçmek için Kapat.';
       const printBtn = document.createElement('button');
       printBtn.type = 'button';
       printBtn.setAttribute('data-takip-print-send', '1');
@@ -1939,20 +1939,174 @@ function estimateMalzemeFontPt(textOrLines, wMm = MALZEME_PRINT_BOX.wMm) {
   return MALZEME_PRINT_BOX.minPt;
 }
 
+function isHp13PrintFirma(firma) {
+  const f = String(firma || '').trim();
+  if (!f) return false;
+  if (window.piyasa && typeof window.piyasa.isHp13Firma === 'function') {
+    return window.piyasa.isHp13Firma(f);
+  }
+  const head = f.split('/')[0].trim();
+  return /^HP13(?:\b|[^\d]|$)/i.test(head);
+}
+
+function parseHp13PartsFromTextLocal(raw) {
+  if (window.piyasa && typeof window.piyasa.parseHp13PartsFromText === 'function') {
+    return window.piyasa.parseHp13PartsFromText(raw) || [];
+  }
+  const t = String(raw || '').trim();
+  if (!t) return [];
+  return t.split(/\s*\/\s*|\r?\n+/).map((s) => s.trim()).filter(Boolean).map((chunk) => {
+    const m = chunk.match(/^(\d+(?:[.,]\d+)?)\s*BBT\s+(.+)$/i);
+    if (m) return { qty: String(m[1]).replace(',', '.') + ' BBT', desc: m[2].trim(), wrapped: false };
+    return { qty: '', desc: chunk, wrapped: false };
+  });
+}
+
+function getHp13PartsFromDom() {
+  const out = [];
+  try {
+    document.querySelectorAll('#hp13MalzemeSquares .hp13-square').forEach((sq) => {
+      const qty = String(sq.querySelector('.hp13-square__qty')?.textContent || '').trim();
+      const desc = String(sq.querySelector('.hp13-square__name')?.textContent || '').trim();
+      if (qty || desc) out.push({ qty: qty === '—' ? '' : qty, desc, wrapped: false });
+    });
+  } catch (e) {}
+  return out;
+}
+
+function mergeHp13WrapFromDom(parts) {
+  return Array.isArray(parts) ? parts.slice() : [];
+}
+
+function getHp13PrintParts() {
+  try {
+    const firma = String(document.getElementById('firmaKodu')?.value || '').trim();
+    const malzeme = String(document.getElementById('malzeme')?.value || '').trim();
+    const note = String(document.getElementById('yuklemeNotu')?.value || '').trim();
+    const items = window.__hp13MultiItems;
+    const hasDom = !!document.querySelector('#hp13MalzemeSquares .hp13-square');
+    const hasItems = Array.isArray(items) && items.length > 0;
+
+    let parts = [];
+    if (window.piyasa && typeof window.piyasa.hp13GridParts === 'function' && hasItems) {
+      parts = window.piyasa.hp13GridParts(items) || [];
+    }
+    if (!parts.length) parts = getHp13PartsFromDom();
+    if (!parts.length) {
+      parts = parseHp13PartsFromTextLocal(malzeme);
+      if (!parts.length) parts = parseHp13PartsFromTextLocal(note);
+    }
+    parts = mergeHp13WrapFromDom(parts);
+
+    const allow = isHp13PrintFirma(firma)
+      || hasItems
+      || hasDom
+      || (parts.length > 0 && /HP\s*13\b/i.test(firma));
+    if (!allow || !parts.length) return [];
+
+    if (!hasItems) {
+      window.__hp13MultiItems = parts.map((p) => {
+        const qtyNum = String(p.qty || '').replace(/[^\d.,]/g, '').replace(',', '.');
+        return { malzeme: p.desc || '', kod: '', bbt: qtyNum, wrapped: false };
+      });
+    }
+    return parts;
+  } catch (e) {}
+  return [];
+}
+
+function buildHp13MalzemeGridHtml(parts, escapeHtml) {
+  const list = Array.isArray(parts) ? parts.filter((p) => p && (p.qty || p.desc)) : [];
+  if (!list.length) return '';
+  const esc = escapeHtml || ((s) => String(s ?? ''));
+  const n = list.length;
+  const cols = n <= 1 ? 1 : (n === 2 ? 2 : (n <= 4 ? n : 4));
+  const cells = list.map((p) =>
+    `<div class="malz-item">`
+    + `<div class="malz-qty">${esc(p.qty || '')}</div>`
+    + `<div class="malz-desc">${esc(p.desc || '')}</div>`
+    + `</div>`
+  ).join('');
+  return `<div class="malz-grid cols-${cols}">${cells}</div>`;
+}
+
+function syncHp13YuklemeNotuFromSarilan() {
+  try {
+    try {
+      if (typeof window.__flushHp13MultiItems === 'function') window.__flushHp13MultiItems();
+    } catch (e0) {}
+    const parts = getHp13PrintParts();
+    if (!parts.length) return '';
+    const lines = parts
+      .map((p) => [p.qty, p.desc].filter(Boolean).join(' '))
+      .filter(Boolean)
+      .join('\n');
+    const noteEl = document.getElementById('yuklemeNotu');
+    if (noteEl) {
+      noteEl.value = lines;
+      noteEl.setAttribute('data-hp13-note', lines);
+      try { noteEl.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+    }
+    return lines;
+  } catch (e) {
+    return '';
+  }
+}
+
+/** HP13 kareleri + küçük tik — YÜKLEME NOTU'na basılır (HP yazısı büyük) */
+function buildHp13NoteSquaresPrintHtml(parts, escapeHtml) {
+  const list = Array.isArray(parts) ? parts.filter((p) => p && (p.qty || p.desc)) : [];
+  if (!list.length) return '';
+  const esc = escapeHtml || ((s) => String(s ?? ''));
+  return `<div class="hp13-note-squares" style="display:flex;flex-wrap:wrap;gap:1.2mm;width:100%;align-content:flex-start;box-sizing:border-box;">`
+    + list.map((p) =>
+      `<div class="hp13-note-square" style="flex:1 1 26mm;min-width:22mm;max-width:40mm;border:0.35mm solid #000;padding:0.7mm 0.9mm 0.85mm;text-align:center;box-sizing:border-box;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.35mm;">`
+      + `<div class="hp13-note-tick" style="width:3.2mm;height:3.2mm;border:0.35mm solid #000;margin:0;box-sizing:border-box;background:#fff;flex:0 0 auto;"></div>`
+      + `<div style="font-weight:900;font-size:9.5pt;line-height:1.02;margin:0;">${esc(p.qty || '')}</div>`
+      + `<div style="font-weight:900;font-size:9pt;line-height:1.08;word-break:break-word;margin:0;">${esc(p.desc || '')}</div>`
+      + `</div>`
+    ).join('')
+    + `</div>`;
+}
+
 function buildMalzemePrintHtml(raw, escapeHtml, boxWMm = MALZEME_PRINT_BOX.wMm) {
+  // HP13: kareler malzeme satırında değil, yükleme notunda basılır — metni küçültüp sığdır
   const items = splitMalzemeItems(raw);
   if (!items.length) return '';
 
   const { lines, twoLine } = layoutMalzemeLines(items);
-  const pt = estimateMalzemeFontPt(twoLine ? lines : lines[0], boxWMm);
+  let pt = estimateMalzemeFontPt(twoLine ? lines : lines[0], boxWMm);
+  const joined = twoLine ? lines.join(' ') : String(lines[0] || '');
+  if (joined.length > 55) pt = Math.min(pt, 7.2);
+  if (joined.length > 75) pt = Math.min(pt, 6.4);
+  if (joined.length > 95) pt = Math.min(pt, 5.6);
+  if (joined.length > 115) pt = Math.min(pt, 5.0);
+  pt = Math.max(MALZEME_PRINT_BOX.minPt, pt);
   const esc = escapeHtml || ((s) => String(s ?? ''));
 
   if (!twoLine) {
-    return `<div class="malz-inline" style="font-size:${pt}pt">${esc(lines[0])}</div>`;
+    return `<div class="malz-inline" style="font-size:${pt}pt;font-weight:800;line-height:1.05;width:100%;overflow:hidden;">${esc(lines[0])}</div>`;
   }
 
   const rows = lines.map((ln) => `<div class="malz-row">${esc(ln)}</div>`).join('');
-  return `<div class="malz-inline malz-inline--2" style="font-size:${pt}pt">${rows}</div>`;
+  return `<div class="malz-inline malz-inline--2" style="font-size:${pt}pt;font-weight:800;line-height:1.02;width:100%;overflow:hidden;">${rows}</div>`;
+}
+
+/** Strict layout baskı için HP13 malzeme satırı (küçük punto, alana sığar) */
+function buildHp13MalzemeCompactHtml(raw, escapeHtml) {
+  const t = String(raw || '').trim().replace(/\s+/g, ' ');
+  if (!t) return '';
+  const esc = escapeHtml || ((s) => String(s ?? ''));
+  const n = t.length;
+  let pt = 8.5;
+  if (n > 45) pt = 7.4;
+  if (n > 60) pt = 6.6;
+  if (n > 75) pt = 5.9;
+  if (n > 95) pt = 5.3;
+  if (n > 115) pt = 4.8;
+  return `<div style="width:100%;height:100%;box-sizing:border-box;overflow:hidden;display:flex;align-items:center;padding:0.2mm 0.3mm;">`
+    + `<div style="font-size:${pt}pt;font-weight:800;line-height:1.05;width:100%;overflow:hidden;word-break:break-word;">${esc(t)}</div>`
+    + `</div>`;
 }
 
 function fitMalzemeInlineEl(el, w) {
@@ -1986,6 +2140,7 @@ function fitMalzemeInlineEl(el, w) {
 function fitMalzemeInput(el) {
   try {
     if (!el) return;
+    if (Array.isArray(window.__hp13MultiItems) && window.__hp13MultiItems.length) return;
     const formatted = formatMalzemeForPrint(el.value);
     if (formatted) el.value = formatted;
     const lines = String(formatted || el.value || '').split(/\r?\n/);
@@ -2098,7 +2253,11 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     }
 
     const yuklemeSirasi = String(yuklemeSirasiNum);
-const yuklemeNotu = resolveYuklemeNotuForPrint(readFormValue('yuklemeNotu'));
+    // HP13: eklenen malzemeler yükleme notuna (kare olarak) basılır
+    const hp13SarilanNote = !isDemo ? syncHp13YuklemeNotuFromSarilan() : '';
+    const yuklemeNotu = resolveYuklemeNotuForPrint(
+      hp13SarilanNote || readFormValue('yuklemeNotu')
+    );
 
     // ✅ Print güvenliği: HTML escape + satır normalize
     const escapeHtml = (s) => String(s ?? '')
@@ -2246,9 +2405,20 @@ const yuklemeNotu = resolveYuklemeNotuForPrint(readFormValue('yuklemeNotu'));
       return esc(raw).replace(/\r?\n/g, '<br>');
     };
 
+    const hp13PrintParts = getHp13PrintParts();
     const malzemeLayout = layoutMalzemeLines(splitMalzemeItems(malzeme));
     const malzemeGridHtml = buildMalzemePrintHtml(malzeme, escapeHtml, MALZEME_PRINT_BOX.wMm);
-    const yuklemeNotuPrint = buildYuklemeNotuPrintHtml(yuklemeNotu, notKind);
+    // HP13: kareler YÜKLEME NOTU (açıklama) alanına basılır — ayrı Sarılan yok
+    const yuklemeNotuPrint = hp13PrintParts.length
+      ? buildHp13NoteSquaresPrintHtml(hp13PrintParts, escapeHtml)
+      : buildYuklemeNotuPrintHtml(yuklemeNotu, notKind);
+    const malzemeExtraHMm = malzemeLayout.twoLine ? 4 : 3;
+    const noteExtraStyle = hp13PrintParts.length
+      ? 'overflow:visible;align-items:flex-start;'
+      : '';
+    const noteExtraHMm = hp13PrintParts.length
+      ? Math.max(0, Math.ceil(hp13PrintParts.length / 3) * 2.2)
+      : 0;
 
     function readFieldText(id) {
       if (demoData && Object.prototype.hasOwnProperty.call(demoData, id)) {
@@ -2448,12 +2618,19 @@ const bosBbtText = amb.bosBbt;
 
     let printHTML;
     if (strictPrintLayout && typeof window.PrintLayoutSettings?.buildLayoutPrintDocument === 'function') {
+      const fieldHtml = {};
+      if (hp13PrintParts.length) {
+        fieldHtml.not = yuklemeNotuPrint;
+        fieldHtml.malzeme = buildHp13MalzemeCompactHtml(malzeme, escapeHtml);
+      }
       printHTML = window.PrintLayoutSettings.buildLayoutPrintDocument({
         bgUrl,
         pageSize,
         values: layoutFieldValues,
         signatures: layoutSignatures,
-        noteLines: noteLinesForLayout,
+        noteLines: hp13PrintParts.length ? null : noteLinesForLayout,
+        noteHtml: fieldHtml.not || '',
+        fieldHtml,
       });
     } else {
     printHTML = `
@@ -2842,6 +3019,7 @@ ${strictPrintLayout ? '' : `
   column-gap: 0mm;
   row-gap: 0mm;
 }
+.malz-grid.cols-1{ grid-template-columns: 1fr; }
 .malz-grid.cols-2{ grid-template-columns: 1fr 1fr; }
 .malz-grid.cols-3{ grid-template-columns: 1fr 1fr 1fr; }
 .malz-grid.cols-4{ grid-template-columns: 1fr 1fr 1fr 1fr; }
@@ -2887,6 +3065,50 @@ ${strictPrintLayout ? '' : `
 .malz-grid.cols-5 .malz-desc { font-size: 7pt; }
 .malz-grid.cols-6 .malz-qty { font-size: 7.5pt; }
 .malz-grid.cols-6 .malz-desc { font-size: 6.5pt; }
+
+.hp13-print-ticks{
+  display:flex;
+  flex-wrap:wrap;
+  gap: 1.6mm;
+  margin-top: 0;
+  width: 100%;
+  align-content: flex-start;
+}
+.hp13-print-tick{
+  flex: 1 1 28mm;
+  min-width: 24mm;
+  max-width: 42mm;
+  border: 0.35mm solid #000;
+  padding: 1mm 1.2mm 1.4mm;
+  text-align: center;
+  box-sizing: border-box;
+}
+.hp13-print-tick__box{
+  width: 5.2mm;
+  height: 5.2mm;
+  border: 0.45mm solid #000;
+  margin: 0 auto 0.8mm;
+  background: #fff;
+  font-size: 8pt;
+  font-weight: 900;
+  line-height: 5.2mm;
+  text-align: center;
+}
+.hp13-print-tick.is-on .hp13-print-tick__box{
+  background: #111;
+  color: #fff;
+}
+.hp13-print-tick__qty{
+  font-weight: 800;
+  font-size: 8pt;
+  line-height: 1.05;
+}
+.hp13-print-tick__name{
+  font-weight: 800;
+  font-size: 7pt;
+  line-height: 1.1;
+  margin-top: 0.3mm;
+}
 
 ${strictPrintLayout ? '' : `
 /* ✅ SEVK YERİ: değer hücresinde ortalı, bir tık büyük punto */
@@ -3003,7 +3225,7 @@ ${layoutPrintCss}
         ${firmaKodu}
     </div>
 
-    <div id="printMalzeme" class="${malzemeBoxClass} pf-field pf-malzeme" style="left:${P.malzeme.left}mm;top:${malzemeTopMm}mm;width:${P.malzeme.w}mm;height:${P.malzeme.h + (malzemeLayout.twoLine ? 4 : 3)}mm;">
+    <div id="printMalzeme" class="${malzemeBoxClass} pf-field pf-malzeme" style="left:${P.malzeme.left}mm;top:${malzemeTopMm}mm;width:${P.malzeme.w}mm;height:${P.malzeme.h + malzemeExtraHMm}mm;">
         ${malzemeGridHtml}
     </div>
 
@@ -3051,7 +3273,7 @@ ${layoutPrintCss}
     </div>
 
     <!-- Yükleme Notu -->
-    <div id="printNot" class="note note--${notKind} pf-field pf-not" data-not-kind="${notKind}" style="${pfPos('not')}">
+    <div id="printNot" class="note note--${notKind} pf-field pf-not" data-not-kind="${notKind}" style="${pfPos('not')}${noteExtraStyle}${noteExtraHMm ? `height:${(P.not && P.not.h != null ? P.not.h : 12) + noteExtraHMm}mm;` : ''}">
         <div class="note-body">${yuklemeNotuPrint}</div>
     </div>
 

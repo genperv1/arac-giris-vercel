@@ -559,6 +559,22 @@
     if (!o || !isHpStyleFirma(o.firma)) return true;
     const yuk = String(o.yuklemeTuru || '').trim();
     const sehir = orderSehirKey(o);
+    const ui = window.rpUi || {};
+    if (isHp13Firma(o.firma)) {
+      const lines = [
+        `Firma: ${String(o.firma || '').trim()}`,
+        yuk ? `Yükleme türü: ${yuk}` : '',
+        sehir ? `Şehir / sevk yeri: ${sehir}` : '',
+        'Malzeme Excel’den yazılmayacak — formu kendiniz dolduracaksınız.',
+        'Sevk yeri Excel şehrinden gelecek.',
+        'Sonraki adım: kaç malzeme, kod / nerede ve kaç BBT gireceksiniz.',
+      ].filter(Boolean);
+      const msg = `HP13 seçildi. Formu sorularla dolduracaksınız:\n\n${lines.join('\n')}\n\nDevam edilsin mi?`;
+      if (typeof ui.confirm === 'function') {
+        return ui.confirm(msg, { okLabel: 'Evet, seç' });
+      }
+      return confirm(msg);
+    }
     if (!isDuplicate && yuk && sehir) return true;
     const lines = [
       `Firma: ${String(o.firma || '').trim()}`,
@@ -567,7 +583,6 @@
       sehir ? `Şehir: ${sehir}` : '',
       o.miktar != null && o.miktar !== '' ? `Miktar: ${o.miktar}` : '',
     ].filter(Boolean);
-    const ui = window.rpUi || {};
     const msg = `Listede seçtiğiniz sipariş forma yazılacak:\n\n${lines.join('\n')}\n\nOnaylıyor musunuz?`;
     if (typeof ui.confirm === 'function') {
       return ui.confirm(msg, { okLabel: 'Evet, seç' });
@@ -630,7 +645,7 @@
         _pickKey: null,
         _frozenFromPicker: true,
       };
-      applyOrderToForm(fake, { forceReuse: true });
+      applyOrderToForm(fake, { forceReuse: true, fillHp13Malzeme: true });
       _fillTakipPackagingFromSnap(snap);
       try { clearLockedPiyasaPick(); } catch (e) {}
       return true;
@@ -707,26 +722,31 @@
     const sevk = document.getElementById('sevkYeri');
     const tonaj = document.getElementById('tonaj');
     const seperator = document.getElementById('seperatorBilgisi');
+    const hp13 = isHp13Firma(snapshot.firma);
+    const fillHp13Ms = !hp13 || !!(opts && opts.fillHp13Malzeme);
 
     const writeOrderValues = () => {
       if (firmaKodu) firmaKodu.value = firmaVal;
-      if (malzeme) {
-        const rawMal = snapshot.malzeme || '';
-        malzeme.value = typeof window.formatMalzemeForPrint === 'function'
-          ? window.formatMalzemeForPrint(rawMal) || rawMal
-          : rawMal;
-        if (typeof window.fitMalzemeInput === 'function') {
-          try { window.fitMalzemeInput(malzeme); } catch (e) {}
+      if (fillHp13Ms) {
+        if (malzeme) {
+          const rawMal = snapshot.malzeme || '';
+          malzeme.value = typeof window.formatMalzemeForPrint === 'function'
+            ? window.formatMalzemeForPrint(rawMal) || rawMal
+            : rawMal;
+          if (typeof window.fitMalzemeInput === 'function') {
+            try { window.fitMalzemeInput(malzeme); } catch (e) {}
+          }
+        }
+        if (malzemeSelect) {
+          const target = (snapshot.malzeme || '').trim();
+          const opt = Array.from(malzemeSelect.options || []).find(x => (x.value||'').trim() === target);
+          malzemeSelect.value = opt ? opt.value : '';
         }
       }
-      if (malzemeSelect) {
-        const target = (snapshot.malzeme || '').trim();
-        const opt = Array.from(malzemeSelect.options || []).find(x => (x.value||'').trim() === target);
-        malzemeSelect.value = opt ? opt.value : '';
-      }
+      // HP13: malzeme elle/çoklu; sevk yeri Excel şehrinden gelsin (ör. İSTANBUL)
+      if (sevk) sevk.value = snapshot.sevkYeri || snapshot.il || '';
       if (ambalaj) ambalaj.value = snapshot.yuklemeTuru || '';
       if (notu) notu.value = snapshot.aciklama || '';
-      if (sevk) sevk.value = snapshot.sevkYeri || snapshot.il || '';
       if (tonaj) tonaj.value = snapshot.miktar != null && snapshot.miktar !== '' ? String(snapshot.miktar) : '';
     };
 
@@ -742,6 +762,11 @@
         firmaSelect.value = opt.value;
         firmaOptMatched = true;
       }
+    }
+    if (hp13 && !fillHp13Ms) {
+      if (malzeme) malzeme.value = '';
+      if (malzemeSelect) malzemeSelect.value = '';
+      // sevk yeri yazılacak — temizleme
     }
     writeOrderValues();
     
@@ -769,7 +794,9 @@
     }
 
     // Listener'ları tetikle
-    const els = [firmaKodu, malzeme, malzemeSelect, ambalaj, notu, sevk, tonaj, seperator];
+    const els = hp13 && !fillHp13Ms
+      ? [firmaKodu, ambalaj, notu, sevk, tonaj, seperator]
+      : [firmaKodu, malzeme, malzemeSelect, ambalaj, notu, sevk, tonaj, seperator];
     if (firmaOptMatched) els.unshift(firmaSelect);
     els.forEach(el=>{
       if (!el) return;
@@ -821,6 +848,15 @@
     setTimeout(settleOrderOnForm, 0);
     setTimeout(settleOrderOnForm, 40);
     setTimeout(settleOrderOnForm, 120);
-    setTimeout(() => { window.__piyasaApplyingOrder = false; }, 200);
+    setTimeout(() => {
+      window.__piyasaApplyingOrder = false;
+      if (hp13) {
+        try {
+          if (typeof window.__syncHp13MultiPanel === 'function') {
+            window.__syncHp13MultiPanel(firmaVal, { keepItems: true });
+          }
+        } catch (e) {}
+      }
+    }, 200);
   }
 

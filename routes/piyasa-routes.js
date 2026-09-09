@@ -14,6 +14,8 @@ function registerPiyasaRoutes(api, ctx) {
     haftaLabel,
     isoWeekInfoFromMs,
     groupCikanlarByHafta,
+    displaySehir,
+    foldTrIl,
   } = require('../lib/piyasa-cikanlar');
 // Piyasa state
 api.get("/piyasa", async (req, res) => {
@@ -159,9 +161,9 @@ api.get('/piyasa/cikanlar', async (req, res) => {
           COALESCE(ph.firma, ''),
           COALESCE(s.snap->>'firmaAdi', ''),
           COALESCE(s.snap->>'sipNo', ''),
-          COALESCE(ph.malzeme, ''),
+          COALESCE(NULLIF(s.snap->>'malzeme', ''), ph.malzeme, ''),
           COALESCE(ph.yukleme_turu, ''),
-          COALESCE(s.snap->>'sehir', ''),
+          COALESCE(NULLIF(s.snap->>'sehir', ''), NULLIF(s.snap->>'il', ''), ''),
           COALESCE(ph.sevk_yeri, ''),
           '',
           COALESCE(ph.tonaj, ''),
@@ -203,6 +205,21 @@ api.get('/piyasa/cikanlar', async (req, res) => {
           AND (c.kantarci IS NULL OR btrim(c.kantarci) = '')
           AND COALESCE(NULLIF(s.snap->>'kantar', ''), NULLIF(s.snap->>'imzaKantarAd', ''), '') <> ''
       `);
+      await q(`
+        UPDATE piyasa_cikanlar c
+        SET sehir = COALESCE(NULLIF(s.snap->>'sehir', ''), NULLIF(s.snap->>'il', ''), c.sehir)
+        FROM print_history ph
+        CROSS JOIN LATERAL (
+          SELECT CASE
+            WHEN ph.snapshot IS NULL OR btrim(ph.snapshot) = '' OR left(btrim(ph.snapshot), 1) <> '{'
+              THEN '{}'::jsonb
+            ELSE ph.snapshot::jsonb
+          END AS snap
+        ) s
+        WHERE c.print_history_id = ph.id
+          AND (c.sehir IS NULL OR btrim(c.sehir) = '')
+          AND COALESCE(NULLIF(s.snap->>'sehir', ''), NULLIF(s.snap->>'il', '')) <> ''
+      `);
       }
     } catch (bfErr) {
       console.warn('piyasa_cikanlar backfill skipped:', bfErr.message || bfErr);
@@ -210,6 +227,7 @@ api.get('/piyasa/cikanlar', async (req, res) => {
     const { limit, offset } = parsePagination(req, { defaultLimit: 500, maxLimit: 5000 });
     const firma = sanitizeString(req.query.firma || '', 100).trim();
     const plaka = sanitizeString(req.query.plaka || '', 50).trim();
+    const il = sanitizeString(req.query.il || req.query.sehir || '', 80).trim();
     const fromMs = istanbulDayStartMs(req.query.from);
     const toEnd = istanbulDayEndMs(req.query.to) || istanbulDayEndMs(req.query.from);
     const params = [];
@@ -229,6 +247,13 @@ api.get('/piyasa/cikanlar', async (req, res) => {
     if (plaka) {
       params.push('%' + plaka.toUpperCase() + '%');
       where.push(`UPPER(plaka) LIKE $${params.length}`);
+    }
+    if (il) {
+      params.push('%' + foldTrIl(il) + '%');
+      where.push(
+        `(replace(replace(upper(COALESCE(sehir, '')), 'İ', 'I'), 'ı', 'I') LIKE $${params.length}`
+        + ` OR replace(replace(upper(COALESCE(sevk_yeri, '')), 'İ', 'I'), 'ı', 'I') LIKE $${params.length})`
+      );
     }
     const whereSql = where.length ? (' WHERE ' + where.join(' AND ')) : '';
     const countR = await q(`SELECT COUNT(*)::int AS c FROM piyasa_cikanlar${whereSql}`, params);
@@ -256,6 +281,7 @@ api.get('/piyasa/cikanlar', async (req, res) => {
       return Object.assign({}, row, {
         tarihLabel: inst.tarih || '',
         saatLabel: inst.saat || '',
+        sehirLabel: displaySehir(row),
         hafta: week != null ? String(week) : (row.hafta || ''),
         haftaLabel: haftaLabel(week),
         haftaYear: info ? info.year : null,
@@ -295,6 +321,9 @@ api.post('/piyasa/cikanlar', auth.verifyToken, async (req, res) => {
          firma_adi = EXCLUDED.firma_adi,
          sip_no = EXCLUDED.sip_no,
          malzeme = EXCLUDED.malzeme,
+         yukleme_turu = COALESCE(NULLIF(EXCLUDED.yukleme_turu, ''), piyasa_cikanlar.yukleme_turu),
+         sehir = COALESCE(NULLIF(EXCLUDED.sehir, ''), piyasa_cikanlar.sehir),
+         sevk_yeri = COALESCE(NULLIF(EXCLUDED.sevk_yeri, ''), piyasa_cikanlar.sevk_yeri),
          tarih = EXCLUDED.tarih,
          kantarci = COALESCE(NULLIF(EXCLUDED.kantarci, ''), piyasa_cikanlar.kantarci),
          basim_yeri = COALESCE(NULLIF(EXCLUDED.basim_yeri, ''), piyasa_cikanlar.basim_yeri)`,

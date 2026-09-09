@@ -703,6 +703,118 @@ function piyasaOverlayStyle(zIndex) {
     return /^HP\d/i.test(normFirmaKey(firma));
   }
 
+  // --- HP13 çoklu malzeme ---
+  function isHp13Firma(firma) {
+    let s = String(firma || '').trim();
+    if (!s) return false;
+    const head = s.split('/')[0].trim() || s;
+    const key = head.toUpperCase().replace(/İ/g, 'I').replace(/\s+/g, '');
+    return key === 'HP13';
+  }
+
+  function normalizeHp13MultiItem(item) {
+    const src = item || {};
+    const bbtRaw = String(src.bbt == null ? '' : src.bbt).trim();
+    const bbtNum = parseFloat(bbtRaw.replace(',', '.').replace(/[^\d.-]/g, ''));
+    return {
+      malzeme: String(src.malzeme || '').trim(),
+      kod: String(src.kod || '').trim(),
+      bbt: bbtRaw,
+      bbtNum: Number.isFinite(bbtNum) ? bbtNum : 0,
+    };
+  }
+
+  function canAddHp13MultiItem(item) {
+    const n = normalizeHp13MultiItem(item);
+    return !!(n.malzeme || n.kod);
+  }
+
+  function hp13ItemName(item) {
+    const n = normalizeHp13MultiItem(item);
+    return [n.kod, n.malzeme].filter(Boolean).join(' ');
+  }
+
+  function formatHp13QtyLabel(item) {
+    const n = normalizeHp13MultiItem(item);
+    if (!(n.bbtNum > 0)) return '';
+    const qtyNice = String(n.bbtNum).replace(/\.0+$/, '');
+    return qtyNice + ' BBT';
+  }
+
+  function formatHp13MultiLine(item) {
+    const name = hp13ItemName(item);
+    const qty = formatHp13QtyLabel(item);
+    if (qty && name) return qty + ' ' + name;
+    if (qty) return qty;
+    return name;
+  }
+
+  function composeHp13Malzeme(items) {
+    return (Array.isArray(items) ? items : [])
+      .map(formatHp13MultiLine)
+      .filter(Boolean)
+      .join(' / ');
+  }
+
+  function composeHp13Note(items) {
+    // Yükleme notu satırları — kâğıtta kare olarak basılır
+    return (Array.isArray(items) ? items : [])
+      .map(formatHp13MultiLine)
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  function hp13GridParts(items) {
+    return (Array.isArray(items) ? items : []).map((it) => {
+      const qty = formatHp13QtyLabel(it);
+      const desc = hp13ItemName(it);
+      if (!qty && !desc) return null;
+      return { qty, desc, wrapped: !!it.wrapped };
+    }).filter(Boolean);
+  }
+
+  /** "10 BBT HP 0.15-0.60 / 20 BBT …" veya satır satır → kare/tik parçaları */
+  function parseHp13PartsFromText(raw) {
+    const t = String(raw || '').trim();
+    if (!t) return [];
+    // Aynı satırda "20 BBT … 30 BBT …" gibi bitişik parçaları da ayır
+    const normalized = t
+      .replace(/''\s*/g, '\n')
+      .replace(/(\d+(?:[.,]\d+)?\s*BBT\s+)/gi, '\n$1')
+      .replace(/^\n+/, '');
+    const chunks = normalized
+      .split(/\s*\/\s*|\r?\n+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const out = [];
+    for (const chunk of chunks) {
+      const m = chunk.match(/^(\d+(?:[.,]\d+)?)\s*BBT\s+(.+)$/i);
+      if (m) {
+        const num = String(m[1]).replace(',', '.').replace(/\.0+$/, '');
+        out.push({ qty: num + ' BBT', desc: String(m[2]).trim(), wrapped: false });
+        continue;
+      }
+      const m2 = chunk.match(/^(.+?)\s*→\s*(\d+(?:[.,]\d+)?)\s*BBT\s*$/i);
+      if (m2) {
+        const num = String(m2[2]).replace(',', '.').replace(/\.0+$/, '');
+        out.push({ qty: num + ' BBT', desc: String(m2[1]).trim(), wrapped: false });
+        continue;
+      }
+      if (/\d/.test(chunk) || /HP|BBT/i.test(chunk)) {
+        out.push({ qty: '', desc: chunk, wrapped: false });
+      }
+    }
+    return out;
+  }
+
+  function sumHp13Bbt(items) {
+    const total = (Array.isArray(items) ? items : [])
+      .reduce((acc, it) => acc + normalizeHp13MultiItem(it).bbtNum, 0);
+    if (!total) return 0;
+    return Math.round(total * 1000) / 1000;
+  }
+  // --- /HP13 çoklu malzeme ---
+
   function normYuklemeTuruKey(s) {
     return String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
   }

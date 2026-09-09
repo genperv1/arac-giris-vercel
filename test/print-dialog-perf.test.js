@@ -41,8 +41,36 @@ test('Yazdır tablo görseli yüklenmeden print açmaz', () => {
   assert.match(printMain, /waitForPrintDocumentImages\(w\.document, doPrint/);
   assert.doesNotMatch(printMain, /window\.open\('', 'takipPrint'\)/);
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
-  assert.doesNotMatch(giris, /id="onizlemeButton"/);
+  assert.match(giris, /id="onizlemeButton"/);
   assert.doesNotMatch(giris, /direkt-yazdir\.js/);
+});
+
+test('Boş takip formu zorunlu kargo alanı istemez', () => {
+  const takip = fs.readFileSync(
+    path.join(__dirname, '../public/modules/app-ui-forms-takip.js'),
+    'utf8'
+  );
+  assert.match(takip, /function isTakipFormCargoBlank/);
+  assert.match(takip, /opts\.allowBlank !== false && isTakipFormCargoBlank\(\)/);
+  const start = excelIhr.indexOf('function ensureIhracatExcelPickBeforePrint');
+  const end = excelIhr.indexOf('async function maybeOfferIhracatExcelPickOnOpen');
+  assert.ok(start >= 0 && end > start);
+  const fn = excelIhr.slice(start, end);
+  assert.match(fn, /if \(!firma\) return true;/);
+});
+
+test('Önizleme butonu takip formunda duruyor', () => {
+  assert.match(vehiclesJs, /onizlemeBtn\.hidden = false/);
+  assert.doesNotMatch(vehiclesJs, /onizlemeBtn\.hidden = true/);
+  assert.match(printMain, /Önizleme — yazdırmak için Yazıcıya gönder/);
+});
+
+test('Boş firma Piyasa Çıkanlar’a yazılmaz', () => {
+  const start = excelIhr.indexOf('function shouldWritePiyasaCikanlar');
+  const end = excelIhr.indexOf('function _cikanlarFirstText');
+  assert.ok(start >= 0 && end > start);
+  const fn = excelIhr.slice(start, end);
+  assert.match(fn, /if \(!String\(firma \|\| ''\)\.trim\(\)\) return false;/);
 });
 
 test('Yazdır çerçeve görseli HTTP URL kullanır (blob Chrome yazdırmada düşer)', () => {

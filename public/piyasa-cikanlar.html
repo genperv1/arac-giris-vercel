@@ -74,6 +74,8 @@
     }
     .pc-table tbody tr:nth-child(even) { background: #f8fafc; }
     .pc-table tbody tr:hover { background: #eef2ff; }
+    .pc-table td.pc-sehir { white-space: normal; line-height: 1.3; }
+    .pc-table td.pc-malzeme { white-space: pre-line; line-height: 1.3; max-width: 280px; }
     .pc-empty { padding: 28px 16px; text-align: center; color: #64748b; font-size: 0.875rem; }
     .pc-count { font-size: 0.75rem; color: #64748b; margin-top: 8px; }
     .pc-mono { font-variant-numeric: tabular-nums; }
@@ -136,10 +138,13 @@
 
   <main class="max-w-7xl mx-auto p-3 sm:p-4">
     <div class="pc-card">
-      <p class="pc-hint">Kayıtlar silinmez; bu hafta açık durur, eski haftalar “Geçmiş kayıtlar” içinde durur. Haftaya basınca o haftanın çıkanları açılır.</p>
+      <p class="pc-hint">Kayıtlar silinmez; bu hafta açık durur, eski haftalar “Geçmiş kayıtlar” içinde durur. İl yazınca liste hemen süzülür (SİVAS / Sivas aynı).</p>
       <div class="flex flex-wrap gap-2 items-end">
         <label class="text-xs font-semibold text-slate-600">Firma<br>
           <input type="search" id="pcFirma" class="pc-input" style="width:120px;" placeholder="HP7" autocomplete="off">
+        </label>
+        <label class="text-xs font-semibold text-slate-600">İl / Şehir<br>
+          <input type="search" id="pcIl" class="pc-input" style="width:150px;" placeholder="Ankara" autocomplete="off">
         </label>
         <label class="text-xs font-semibold text-slate-600">Plaka<br>
           <input type="search" id="pcPlaka" class="pc-input" style="width:130px;" placeholder="Plaka" autocomplete="off">
@@ -155,6 +160,6 @@
     </div>
   </main>
 
-  <script src="piyasa-cikanlar.js?v=20260824-printweek"></script>
+  <script src="piyasa-cikanlar.js?v=20260909-ilfilter"></script>
 </body>
 </html>

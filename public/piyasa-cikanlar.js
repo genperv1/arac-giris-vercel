@@ -41,8 +41,10 @@
     const p = new URLSearchParams();
     const firma = (document.getElementById('pcFirma')?.value || '').trim();
     const plaka = (document.getElementById('pcPlaka')?.value || '').trim();
+    const il = (document.getElementById('pcIl')?.value || '').trim();
     if (firma) p.set('firma', firma);
     if (plaka) p.set('plaka', plaka);
+    if (il) p.set('il', il);
     p.set('limit', '2000');
     return p;
   }
@@ -111,7 +113,74 @@
     return groups;
   }
 
+  function foldTrIl(s) {
+    return String(s || '')
+      .replace(/İ/g, 'I')
+      .replace(/ı/g, 'i')
+      .toUpperCase()
+      .replace(/İ/g, 'I');
+  }
+
+  function firmaKod(s) {
+    return foldTrIl(String(s || '').split('/')[0] || '');
+  }
+
+  function rowSehir(r) {
+    return String(r.sehirLabel || r.sehir || r.il || r.sevk_yeri || '').trim();
+  }
+
+  function rowMatchesFilters(r) {
+    const firmaQ = firmaKod(document.getElementById('pcFirma')?.value || '');
+    const plakaQ = foldTrIl(document.getElementById('pcPlaka')?.value || '');
+    const ilQ = foldTrIl(document.getElementById('pcIl')?.value || '');
+    if (firmaQ && firmaKod(r.firma) !== firmaQ) return false;
+    if (plakaQ && !foldTrIl(r.plaka || '').includes(plakaQ) && !foldTrIl(r.dorse_plaka || '').includes(plakaQ)) return false;
+    if (ilQ) {
+      const hay = foldTrIl([rowSehir(r), r.sehir, r.il, r.sevk_yeri].filter(Boolean).join(' '));
+      if (!hay.includes(ilQ)) return false;
+    }
+    return true;
+  }
+
+  function filteredRows(rows) {
+    const src = Array.isArray(rows) ? rows : [];
+    const firmaQ = (document.getElementById('pcFirma')?.value || '').trim();
+    const plakaQ = (document.getElementById('pcPlaka')?.value || '').trim();
+    const ilQ = (document.getElementById('pcIl')?.value || '').trim();
+    if (!firmaQ && !plakaQ && !ilQ) return src;
+    return src.filter(rowMatchesFilters);
+  }
+
+  function filterWeeks(weeks) {
+    const src = Array.isArray(weeks) ? weeks : [];
+    const firmaQ = (document.getElementById('pcFirma')?.value || '').trim();
+    const plakaQ = (document.getElementById('pcPlaka')?.value || '').trim();
+    const ilQ = (document.getElementById('pcIl')?.value || '').trim();
+    if (!firmaQ && !plakaQ && !ilQ) return src;
+    return src
+      .map((w) => {
+        const rows = filteredRows(w.rows);
+        return Object.assign({}, w, { rows: rows, count: rows.length });
+      })
+      .filter((w) => w.isCurrent || w.count > 0);
+  }
+
+  function formatSehirHtml(text) {
+    const s = String(text || '').trim();
+    if (!s) return '';
+    const parts = s.split(/\s*\/\s*/).filter(Boolean);
+    if (parts.length <= 1) return esc(s);
+    return parts
+      .map((p, i) => esc(p) + (i < parts.length - 1 ? '/<br>' : ''))
+      .join('');
+  }
+
   function rowHtml(r) {
+    const sehir = rowSehir(r);
+    const sevk = String(r.sevk_yeri || '').trim();
+    const sevkExtra = sevk && sevk.toUpperCase() !== sehir.toUpperCase()
+      ? '<div class="text-slate-400">' + esc(sevk) + '</div>'
+      : '';
     return (
       '<tr>' +
         '<td class="pc-mono">' + esc(r.tarihLabel) +
@@ -124,9 +193,9 @@
         '<td>' + esc(r.firma) + '</td>' +
         '<td>' + esc(r.firma_adi) + '</td>' +
         '<td class="pc-mono">' + esc(r.sip_no) + '</td>' +
-        '<td>' + esc(r.malzeme) + '</td>' +
+        '<td class="pc-malzeme">' + esc(r.malzeme) + '</td>' +
         '<td>' + esc(r.yukleme_turu) + '</td>' +
-        '<td>' + esc(r.sevk_yeri) + '</td>' +
+        '<td class="pc-sehir">' + formatSehirHtml(sehir) + sevkExtra + '</td>' +
         '<td class="pc-mono">' + esc(r.tonaj || r.miktar) + '</td>' +
         '<td>' + esc(r.sofor) + '</td>' +
         '<td>' + esc(r.basim_yeri) + '</td>' +
@@ -143,7 +212,7 @@
         '<table class="pc-table">' +
           '<thead><tr>' +
             '<th>Tarih</th><th>Saat</th><th>Plaka</th><th>Firma</th><th>Firma adı</th><th>Sip no</th>' +
-            '<th>Malzeme</th><th>Yükleme türü</th><th>Sevk yeri</th><th>Tonaj</th><th>Şoför</th><th>Basım</th>' +
+            '<th>Malzeme</th><th>Yükleme türü</th><th>Şehir</th><th>Tonaj</th><th>Şoför</th><th>Basım</th>' +
           '</tr></thead>' +
           '<tbody>' + rows.map(rowHtml).join('') + '</tbody>' +
         '</table>' +
@@ -173,10 +242,11 @@
     );
   }
 
-  async function loadRows() {
+  async function loadRows(opts) {
+    const silent = !!(opts && opts.silent);
     const host = document.getElementById('pcWeeks');
     const countEl = document.getElementById('pcCount');
-    if (host) host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Yükleniyor…</div>';
+    if (!silent && host) host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Yükleniyor…</div>';
     try {
       const res = await fetch('/api/piyasa/cikanlar?' + queryParams().toString() + '&_=' + Date.now(), {
         credentials: 'include',
@@ -193,8 +263,6 @@
       _weeks = Array.isArray(data.weeks) && data.weeks.length
         ? data.weeks
         : groupRowsLocally(_rows);
-      const total = Number(data.total || _rows.length);
-      if (countEl) countEl.textContent = total ? (total + ' kayıt — haftaya tıklayınca açılır') : 'Kayıt yok';
       renderWeeks();
     } catch (e) {
       console.warn('Piyasa çıkanlar yüklenemedi:', e);
@@ -207,12 +275,17 @@
 
   function renderWeeks() {
     const host = document.getElementById('pcWeeks');
+    const countEl = document.getElementById('pcCount');
     if (!host) return;
-    const current = _weeks.find((w) => w.isCurrent) || _weeks[0] || null;
-    const past = _weeks.filter((w) => current && w.key !== current.key);
+    const weeks = filterWeeks(_weeks);
+    const rows = filteredRows(_rows);
+    const total = rows.length;
+    if (countEl) countEl.textContent = total ? (total + ' kayıt — haftaya tıklayınca açılır') : 'Bu filtrede kayıt yok';
+    const current = weeks.find((w) => w.isCurrent) || weeks[0] || null;
+    const past = weeks.filter((w) => current && w.key !== current.key);
     if (!current) {
-      if (_rows.length) {
-        host.innerHTML = tableHtml(_rows);
+      if (rows.length) {
+        host.innerHTML = tableHtml(rows);
         return;
       }
       host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Bu filtrede çıkan piyasa yok.</div>';
@@ -234,19 +307,20 @@
   }
 
   function exportExcel() {
-    if (!_rows.length) {
+    const rows = filteredRows(_rows);
+    if (!rows.length) {
       alert('Aktarılacak kayıt yok.');
       return;
     }
     const headers = [
       'Tarih', 'Hafta', 'Saat', 'Plaka', 'Dorse', 'Firma', 'Firma adı', 'Sip no',
-      'Malzeme', 'Yükleme türü', 'Sevk yeri', 'Miktar', 'Tonaj', 'Şoför', 'Basım yeri',
+      'Malzeme', 'Yükleme türü', 'Şehir', 'Sevk yeri', 'Miktar', 'Tonaj', 'Şoför', 'Basım yeri',
     ];
     const lines = [headers.map(csvCell).join(';')];
-    for (const r of _rows) {
+    for (const r of rows) {
       lines.push([
         r.tarihLabel, r.haftaLabel || r.hafta, r.saatLabel, r.plaka, r.dorse_plaka, r.firma, r.firma_adi, r.sip_no,
-        r.malzeme, r.yukleme_turu, r.sevk_yeri, r.miktar, r.tonaj, r.sofor, r.basim_yeri,
+        r.malzeme, r.yukleme_turu, rowSehir(r), r.sevk_yeri, r.miktar, r.tonaj, r.sofor, r.basim_yeri,
       ].map(csvCell).join(';'));
     }
     const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -262,13 +336,23 @@
   }
 
   function bind() {
+    let filterTimer = null;
     document.getElementById('pcRefreshBtn')?.addEventListener('click', () => loadRows());
     document.getElementById('pcExportBtn')?.addEventListener('click', () => exportExcel());
-    ['pcFirma', 'pcPlaka'].forEach((id) => {
+    ['pcFirma', 'pcPlaka', 'pcIl'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
+      el.addEventListener('input', () => {
+        renderWeeks();
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(() => loadRows({ silent: true }), 250);
+      });
       el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); loadRows(); }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          clearTimeout(filterTimer);
+          loadRows();
+        }
       });
     });
     loadRows();

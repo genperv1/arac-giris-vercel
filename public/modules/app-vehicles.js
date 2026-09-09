@@ -657,9 +657,8 @@ function setupTakipFormButtons() {
         });
     }
 
-    // Önizleme kaldırıldı; Yazdır doğrudan yazıcı penceresini açar.
     const onizlemeBtn = document.getElementById('onizlemeButton');
-    if (onizlemeBtn) onizlemeBtn.hidden = true;
+    if (onizlemeBtn) onizlemeBtn.hidden = false;
     if (onizlemeBtn && !onizlemeBtn.__previewHandlerBound) {
         onizlemeBtn.__previewHandlerBound = true;
         onizlemeBtn.addEventListener('click', async function(e) {
@@ -671,10 +670,7 @@ function setupTakipFormButtons() {
                 }
             } catch (contactErr) { /* ignore */ }
 
-            try {
-                const validateFunc = window.__takipFormValidate;
-                if (typeof validateFunc === 'function') validateFunc();
-            } catch(e) {}
+            // Önizleme: mevcut formu olduğu gibi gösterir (boş kargo dahil, zorunlu alan kesmez)
 
             // ✅ Önizleme de: KANTAR otomatik gelsin
             try {

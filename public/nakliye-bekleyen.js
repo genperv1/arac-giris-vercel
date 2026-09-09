@@ -98,7 +98,10 @@
     const sheetName = (src.getCachedSheetName && src.getCachedSheetName()) || (wb.SheetNames && wb.SheetNames[0]);
     const ws = wb.Sheets[sheetName] || wb.Sheets[wb.SheetNames[0]];
     if (!ws) return null;
-    const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+    let grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+    if (core && typeof core.expandMergedCellsInGrid === 'function') {
+      grid = core.expandMergedCellsInGrid(grid, ws);
+    }
     return core.buildTasiyiciMapFromGrid(grid);
   }
 
@@ -409,12 +412,15 @@
       [
         core.WAITING_VEHICLE_LABEL,
         core.INSIDE_VEHICLE_LABEL,
+        core.OUTSIDE_VEHICLE_LABEL,
         core.CIFT_KANTAR_LABEL,
         'GELMEYEN ARAÇ',
         'İÇERDE',
+        'DIŞARDA',
         'ÇİFT KANTAR',
         'GELMEYEN ARAÇ + ÇİFT KANTAR',
         'İÇERDE + ÇİFT KANTAR',
+        'DIŞARDA + ÇİFT KANTAR',
       ].filter(Boolean)
     );
     if (statusCell) {

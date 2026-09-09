@@ -81,6 +81,14 @@ test('screen dates stay short, copy dates use long Turkish weekday', () => {
   assert.equal(api.formatDateCopyTr('03.08.2026'), '3 Ağustos 2026 Pazartesi');
 });
 
+test('Excel serial and SheetJS timezone dates keep the calendar day Excel shows', () => {
+  assert.equal(api.formatDateTr(46238), '04.08.2026');
+  assert.equal(api.formatDateTr(46239), '05.08.2026');
+  assert.equal(api.formatHafta(46238), '32.hafta');
+  assert.equal(api.formatDateTr(new Date('2026-08-03T20:59:04.000Z')), '04.08.2026');
+  assert.equal(api.formatDateTr('9 Eylül 2026 Çarşamba'), '09.09.2026');
+});
+
 test('formatHafta uses the exit date', () => {
   assert.equal(api.formatHafta(new Date(Date.UTC(2026, 8, 7))), '37.hafta');
   assert.equal(api.formatHafta(new Date(Date.UTC(2026, 8, 5))), '36.hafta');
@@ -102,6 +110,12 @@ test('formatUrun and lot / liman / etiket helpers', () => {
   assert.equal(api.shortenLiman('Dp World Yarımca Liman İşletmeleri A.ş.-USD'), 'DP WORLD');
   assert.equal(
     api.cleanNote('OZEL ETIKET: OZEL ETIKET: PERLITE ORE 0,074-0.30MM'),
+    'PERLITE ORE 0,074-0.30MM'
+  );
+  assert.equal(api.cleanAciklama('OZEL ETIKET: OZEL ETIKET: MEDLOG DEPO'), '');
+  assert.equal(api.cleanAciklama('MEDLOG DEPO'), '');
+  assert.equal(
+    api.cleanAciklama('OZEL ETIKET: PERLITE ORE 0,074-0.30MM MEDLOG DEPO'),
     'PERLITE ORE 0,074-0.30MM'
   );
 });
@@ -134,6 +148,8 @@ test('solveGrid keeps TESLIM_YIL / HAFTA groups and maps a 3-row week', () => {
   assert.equal(maden.hafta, '37.hafta');
   assert.equal(maden.cikisTarih, '07.09.2026');
   assert.equal(api.rowToCells(maden)[5], '7 Eylül 2026 Pazartesi');
+  assert.equal(api.rowToCells(maden)[21], '08.09.2026');
+  assert.equal(api.rowToCells(maden)[22], '10.08.2026');
   assert.equal(maden.mt, '1000');
   assert.equal(maden.bigbagCuval, '800');
   assert.equal(maden.adet, '');
@@ -197,6 +213,9 @@ test('rowsToTsv writes 23 target columns for a 5-sevk batch', () => {
     assert.equal(cols[2], String(12 + idx));
     assert.equal(cols[4], '37.hafta');
     assert.equal(cols[15], 'YILPORT');
+    assert.equal(cols[5], '8 Eylül 2026 Salı');
+    assert.equal(cols[21], '09.09.2026');
+    assert.equal(cols[22], '01.09.2026');
     assert.ok(cols[3].startsWith('M202026'));
   });
   assert.equal(lines[0].split('\t')[0], 'AKYÜZ');
@@ -205,19 +224,50 @@ test('rowsToTsv writes 23 target columns for a 5-sevk batch', () => {
   assert.equal(lines[1].split('\t')[6], 'YD11(G)');
 });
 
+test('solveGrid maps Excel serial dates to the same day Excel shows', () => {
+  const grid = [
+    headerRow(),
+    ['TESLIM_YIL: 2026'],
+    ['', 'HAFTA: 32'],
+    [
+      '', '', 46238, 46239, '', '',
+      'Akyüz Uluslararası Nakliyat Tic.ve San.A.ş.',
+      'Safi Derince Uluslararası Liman İşletmeciliği A.Ş.',
+      'TEST GEMİ', 'B1',
+      'M1', 'MADEN', 'YD05', '26 08 04',
+      'HP007030-B16-01', 'HAM PERLIT 0.074-0.30MM(AVDAN)', '',
+      1000, 1000, '', 'TON', '', '',
+      'BİGBAG', '1 BB = 1250 KG', 1, 0, 'YOK', 0,
+      '', '', '', '', '', 46207,
+      '', '', '', '', '', '', ''
+    ]
+  ];
+  const solved = api.solveGrid(grid, 1);
+  assert.equal(solved.ok, true);
+  assert.equal(solved.rows[0].cikisTarih, '04.08.2026');
+  assert.equal(solved.rows[0].limanDolum, '05.08.2026');
+  assert.equal(solved.rows[0].sipTarih, '04.07.2026');
+  assert.equal(solved.rows[0].hafta, '32.hafta');
+  const copied = api.rowToCells(solved.rows[0]);
+  assert.equal(copied[5], '4 Ağustos 2026 Salı');
+  assert.equal(copied[21], '05.08.2026');
+  assert.equal(copied[22], '04.07.2026');
+});
+
 test('solveGrid reports a clear error when headers are missing', () => {
   const bad = api.solveGrid([['A', 'B'], ['1', '2']], 1);
   assert.equal(bad.ok, false);
   assert.match(bad.error, /başlığı/);
 });
 
-test('Araçlar menu places animated lightning under Ayarlar', () => {
+test('Araçlar menu downloads desktop HTML under Ayarlar', () => {
   const menu = fs.readFileSync(path.join(__dirname, '../public/modules/app-ui-forms-takip.js'), 'utf8');
   const ayarlarAt = menu.indexOf('id="ayarlarMenuButton"');
-  const boltAt = menu.indexOf('id="excelListCopyMenuButton"');
+  const dlAt = menu.indexOf('id="excelListCopyMenuButton"');
   assert.ok(ayarlarAt >= 0, 'Ayarlar button missing');
-  assert.ok(boltAt > ayarlarAt, 'Liste kopyala must sit under Ayarlar');
-  assert.match(menu, /elc-bolt-icon/);
+  assert.ok(dlAt > ayarlarAt, 'Liste kopyala must sit under Ayarlar');
+  assert.match(menu, /elc-dl-icon/);
+  assert.match(menu, /fa-download/);
   const page = fs.readFileSync(path.join(__dirname, '../public/liste-kopyala.html'), 'utf8');
   assert.match(page, /id="elcPage"/);
   assert.match(page, /id="elcSolveBtn"/);
@@ -226,8 +276,24 @@ test('Araçlar menu places animated lightning under Ayarlar', () => {
   assert.match(page, /PALET_URUN_SAYISI/);
   assert.doesNotMatch(page, />MT</);
   assert.match(page, /modules\/excel-list-copy\.js/);
+  const copyJs = fs.readFileSync(path.join(__dirname, '../public/modules/excel-list-copy.js'), 'utf8');
+  assert.match(copyJs, /elc-cell--var/);
+  assert.doesNotMatch(copyJs, /downloadRowsXlsx/);
+  const styles = fs.readFileSync(path.join(__dirname, '../public/styles.css'), 'utf8');
+  assert.match(styles, /\.elc-cell--var/);
+  assert.match(styles, /\.elc-dl-icon/);
   const auth = fs.readFileSync(path.join(__dirname, '../public/modules/app-auth.js'), 'utf8');
-  assert.match(auth, /liste-kopyala\.html/);
+  assert.match(auth, /liste-kopyala-desktop\.html/);
+  assert.match(auth, /liste-kopyala_\$\{stamp\}\.html|liste-kopyala_\$\{stamp\}/);
+  assert.match(auth, /a\.download/);
+  const desktop = fs.readFileSync(path.join(__dirname, '../public/liste-kopyala-desktop.html'), 'utf8');
+  assert.match(desktop, /id="elcPage"/);
+  assert.match(desktop, /id="elcCopyBtn"/);
+  assert.match(desktop, /ExcelListCopy/);
+  assert.match(desktop, /cdn\.jsdelivr\.net\/npm\/xlsx/);
+  assert.match(desktop, /Masaüstü/);
+  assert.match(desktop, /NETSİS SİPARİŞ NO/);
+  assert.match(desktop, /function bindAppUi/);
   const session = fs.readFileSync(path.join(__dirname, '../public/session-manager.js'), 'utf8');
   assert.match(session, /liste-kopyala\.html/);
   assert.doesNotMatch(

@@ -4,11 +4,11 @@
  *
  * Kurallar:
  * - Giden kg dolu satır = çıkmış araç → listede gösterilmez
- * - Giden / satırda içerde / içeride / içe… = çıkmış sayılır → listede yok, BBT kalandan düşer
+ * - Giden / satırda içerde / içeride / içe… veya dışarda / dışarıda / dışa… = çıkmış sayılır → listede yok, BBT kalandan düşer
  * - Plaka var, giden tonaj boş = gelmeyen araç → plaka + BBT yan sütunda
  * - Yalnızca Excel: rapora bakılmaz; dosyada gideni boş plaka gelmeyen kalır
  * - 0PLAKA0 / EU gibi sahte plaka gelmeyene yazılmaz, BBT'si plaka verilecek kalır
- * - Kalan BBT = plan − çıkan BBT (kg + içeride) − atanmış gelmeyen / özmal BBT
+ * - Kalan BBT = plan − çıkan BBT (kg + içeride/dışarıda) − atanmış gelmeyen / özmal BBT
  * - Kalan BBT 0 ise turuncu PLAKA VERİLECEK satırı yazılmaz (gelmeyen plaka olsa da)
  * - TAMAMLANDI / gideni dolu sevkiyat bekleyen listede durmaz
  */
@@ -59,23 +59,40 @@
   }
 
   /**
-   * Giden sütunu: içerde / içeride / içe… ve varyasyonları.
-   * Kantar kg değil; araç tesiste, henüz çıkmamış.
+   * Giden / satır notu: içerde / içeride / içe… veya dışarda / dışarıda / dışa…
+   * Kantar kg değil; araç BBT kalandan düşer, listede gelmeyen yazılmaz.
    */
   function isInsideNoteWord(w) {
     // içe / içeri / içerde / içeride / … — "içerik" / "içecek" tutmasın
     return /^ICE(R(DE|IDE|I)?(KI)?)?$/.test(String(w || ''));
   }
 
-  function isGidenInsideNote(raw) {
-    const norm = normTr(raw).replace(/[^A-Z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!norm) return false;
-    return norm.split(' ').some(isInsideNoteWord);
+  function isOutsideNoteWord(w) {
+    // dışa / dışarı / dışarda / dışarıda / … — "dışarıdan" ayrı kelime; "disaster" tutmasın
+    return /^DISA(R(DA|IDA|I)?(KI)?)?$/.test(String(w || ''));
   }
 
-  function rowHasInsideText(row) {
-    if (!row) return false;
-    const fields = [
+  function noteWordsMatch(raw, pred) {
+    const norm = normTr(raw).replace(/[^A-Z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!norm) return false;
+    return norm.split(' ').some(pred);
+  }
+
+  function isGidenInsideNote(raw) {
+    return noteWordsMatch(raw, isInsideNoteWord);
+  }
+
+  function isGidenOutsideNote(raw) {
+    return noteWordsMatch(raw, isOutsideNoteWord);
+  }
+
+  function isGidenAllocatedNote(raw) {
+    return isGidenInsideNote(raw) || isGidenOutsideNote(raw);
+  }
+
+  function rowNoteFields(row) {
+    if (!row) return [];
+    return [
       row.gidenTonaj,
       row.aciklama,
       row.yuklemeNotu,
@@ -85,14 +102,25 @@
       row.ogrTonaj,
       row.tonajKg,
     ];
-    return fields.some((v) => isGidenInsideNote(v));
+  }
+
+  function rowHasInsideText(row) {
+    return rowNoteFields(row).some((v) => isGidenInsideNote(v));
+  }
+
+  function rowHasOutsideText(row) {
+    return rowNoteFields(row).some((v) => isGidenOutsideNote(v));
+  }
+
+  function rowHasAllocatedText(row) {
+    return rowHasInsideText(row) || rowHasOutsideText(row);
   }
 
   function rowIsInside(row) {
     if (!row) return false;
     if (row._nbInside) return true;
-    if (rowHasInsideText(row)) return true;
-    if (row.iceride === true) return true;
+    if (rowHasAllocatedText(row)) return true;
+    if (row.iceride === true || row.disarida === true) return true;
     return false;
   }
 
@@ -141,7 +169,7 @@
    */
   function isRowDeparted(row) {
     if (!row) return false;
-    if (isGidenInsideNote(row.gidenTonaj) && !row._nbLiveDeparted) return false;
+    if (isGidenAllocatedNote(row.gidenTonaj) && !row._nbLiveDeparted) return false;
     if (row._nbLiveDeparted && parseKg(row.gidenTonaj) > 0) return true;
     const g = parseKg(row.gidenTonaj);
     if (g <= 0) return false;
@@ -1235,7 +1263,7 @@
         let removedWaitingBbt = 0;
         const kept = [];
         (it.waitingPlates || []).forEach((p) => {
-          if (p && (p.isInside || rowIsInside(p))) {
+          if (p && (p.isInside || p.isOutside || rowIsInside(p))) {
             it.insidePlates.push(p);
             return;
           }
@@ -1654,6 +1682,7 @@
 
   const WAITING_VEHICLE_LABEL = 'GELMEYEN ARAÇ';
   const INSIDE_VEHICLE_LABEL = 'İÇERDE';
+  const OUTSIDE_VEHICLE_LABEL = 'DIŞARDA';
   const CIFT_KANTAR_LABEL = 'ÇİFT KANTAR';
   const OZMAL_VEHICLE_LABEL = 'ÖZMAL';
 
@@ -1688,6 +1717,11 @@
   function isOzmalCarrierName(raw) {
     const k = carrierKey(raw);
     return k === 'GPM' || k === 'OZMAL';
+  }
+
+  function isKnownNakliyeci(raw) {
+    const k = carrierKey(raw);
+    return k === 'AKYUZ' || k === 'MEDLOG';
   }
 
   function isJunkCarrierToken(raw) {
@@ -1736,16 +1770,37 @@
       add(meta.tasiyici, false);
       if (Array.isArray(meta.tasiyiciNames)) meta.tasiyiciNames.forEach((n) => add(n, false));
     });
-    return names;
+    const preferred = names.filter((n) => isKnownNakliyeci(n) || isOzmalCarrierName(n));
+    return preferred.length ? preferred : names;
   }
 
   function rowsNeedTasiyiciRepair(rows) {
     return (rows || []).some((r) => {
       if (!r || r._ihracatEmptyBlock) return false;
-      if (displayTasiyici(r.tasiyici, false)) return false;
       if (isOzmalPlate(r.plaka)) return false;
-      return isValidPlateCell(String(r.plaka || '').trim());
+      if (!isValidPlateCell(String(r.plaka || '').trim())) return false;
+      const existing = displayTasiyici(r.tasiyici, false);
+      if (!existing) return true;
+      return !isKnownNakliyeci(existing) && !isOzmalCarrierName(existing);
     });
+  }
+
+  function expandMergedCellsInGrid(grid, ws) {
+    const merges = ws && ws['!merges'];
+    if (!Array.isArray(merges) || !merges.length) return grid || [];
+    for (const m of merges) {
+      if (!m || !m.s) continue;
+      const src = grid[m.s.r] && grid[m.s.r][m.s.c];
+      if (src == null || !String(src).trim()) continue;
+      for (let rr = m.s.r; rr <= m.e.r; rr++) {
+        if (!grid[rr]) grid[rr] = [];
+        for (let cc = m.s.c; cc <= m.e.c; cc++) {
+          const cur = grid[rr][cc];
+          if (cur == null || !String(cur).trim()) grid[rr][cc] = src;
+        }
+      }
+    }
+    return grid;
   }
 
   function buildTasiyiciMapFromGrid(grid) {
@@ -1763,19 +1818,26 @@
       if (!row || !row.length) return;
       const plates = [];
       const names = [];
-      row.forEach((cell) => {
+      const colA = displayTasiyici(row[0]);
+      row.forEach((cell, idx) => {
         const s = String(cell ?? '').trim();
         if (!s) return;
         if (isValidPlateCell(s)) plates.push(s);
         const n = displayTasiyici(s);
-        if (n && isRealCarrierName(n)) names.push(n);
+        if (!n || !isRealCarrierName(n)) return;
+        if (idx > 0 && !isOzmalCarrierName(n) && !isKnownNakliyeci(n)) return;
+        names.push(n);
       });
-      const colHit = [12, 13, 0, 17]
+      const gpmHit = [12, 13, 0, 17]
         .map((i) => displayTasiyici(row[i]))
-        .find((n) => n && isRealCarrierName(n));
-      const rowCarrier = colHit
-        || names.find((n) => !isOzmalCarrierName(n))
-        || names[0]
+        .find((n) => n && isOzmalCarrierName(n));
+      const knownHit = [0, 12, 13, 17]
+        .map((i) => displayTasiyici(row[i]))
+        .find((n) => n && isKnownNakliyeci(n));
+      const rowCarrier = gpmHit
+        || knownHit
+        || (colA && isRealCarrierName(colA) ? colA : '')
+        || names.find((n) => isKnownNakliyeci(n))
         || '';
       plates.forEach((plaka) => {
         const n = displayTasiyici(rowCarrier);
@@ -1785,7 +1847,9 @@
         rememberDefault(n);
       });
       if (!plates.length) {
-        const headerCarrier = names.find((n) => !isOzmalCarrierName(n));
+        const headerCarrier = (colA && !isOzmalCarrierName(colA) && isRealCarrierName(colA) && colA)
+          || names.find((n) => isKnownNakliyeci(n))
+          || names.find((n) => !isOzmalCarrierName(n));
         if (headerCarrier) {
           rememberDefault(headerCarrier);
           const text = row.map((c) => String(c ?? '')).join(' ');
@@ -1803,7 +1867,6 @@
     const out = rows.map((r) => {
       if (!r) return r;
       const existing = displayTasiyici(r.tasiyici, false);
-      if (existing) return r;
       const pk = plateKey(r.plaka);
       const yd = normalizeYdKey(r.ydKey || r.headerText || '');
       let name = '';
@@ -1813,6 +1876,10 @@
       else name = map.defaultNakliyeci || '';
       const resolved = displayTasiyici(name, isOzmalPlate(r.plaka));
       if (!resolved) return r;
+      const keepKnown = existing && isKnownNakliyeci(existing) && !isOzmalPlate(r.plaka);
+      const keepOzmal = existing && isOzmalCarrierName(existing) && isOzmalCarrierName(resolved);
+      if (keepKnown || keepOzmal) return r;
+      if (existing && carrierKey(existing) === carrierKey(resolved)) return r;
       changed = true;
       const blockMeta = r.blockMeta && typeof r.blockMeta === 'object'
         ? Object.assign({}, r.blockMeta)
@@ -1987,8 +2054,11 @@
     const override = String(entry && entry.statusOverride || '').trim();
     if (override) return override;
     if (entry && entry.isOzmal) return ozmalRowStatusLabel(entry.plaka);
-    if (entry && entry.ciftKantar && !entry.isInside) {
+    if (entry && entry.ciftKantar && !entry.isInside && !entry.isOutside) {
       return WAITING_VEHICLE_LABEL + ' + ' + CIFT_KANTAR_LABEL;
+    }
+    if (entry && entry.isOutside) {
+      return entry.ciftKantar ? OUTSIDE_VEHICLE_LABEL + ' + ' + CIFT_KANTAR_LABEL : OUTSIDE_VEHICLE_LABEL;
     }
     if (entry && entry.isInside) {
       return entry.ciftKantar ? INSIDE_VEHICLE_LABEL + ' + ' + CIFT_KANTAR_LABEL : INSIDE_VEHICLE_LABEL;
@@ -2063,7 +2133,8 @@
   function buildPlateRowFromEntry(entry, blockItem) {
     const ozmal = !!entry?.isOzmal;
     const bassofor = false;
-    const inside = !ozmal && !!entry?.isInside;
+    const outside = !ozmal && !!entry?.isOutside;
+    const inside = !ozmal && !outside && !!entry?.isInside;
     const ciftKantar = !ozmal && !!entry?.ciftKantar;
     const no = parseSiraNo(entry?.sira);
     const status = plateStatusLabel(entry);
@@ -2073,6 +2144,7 @@
       ozmal,
       bassofor,
       inside,
+      outside,
       ciftKantar,
       a: compactPlate(entry.plaka),
       b: status,
@@ -2426,12 +2498,21 @@
       if (!isValidPlateCell(String(r.plaka || '').trim())) return false;
       return !isRowDeparted(r);
     });
-    const textInsideCount = openPlateRows.filter((r) => rowHasInsideText(r)).length;
-    const flaggedCount = openPlateRows.filter((r) => r.iceride === true || r._nbInside).length;
+    const textAllocatedCount = openPlateRows.filter((r) => rowHasAllocatedText(r)).length;
+    const flaggedCount = openPlateRows.filter(
+      (r) => r.iceride === true || r.disarida === true || r._nbInside
+    ).length;
     const staleBlockInside =
       openPlateRows.length > 1 &&
       flaggedCount === openPlateRows.length &&
-      textInsideCount < openPlateRows.length;
+      textAllocatedCount < openPlateRows.length;
+
+    function rowCountsAsOutside(r) {
+      if (!r) return false;
+      if (rowHasOutsideText(r)) return true;
+      if (staleBlockInside) return false;
+      return r.disarida === true;
+    }
 
     function rowCountsAsInside(r) {
       if (!r) return false;
@@ -2462,7 +2543,9 @@
       }
 
       const bk = blockGroupKey(r);
-      const inside = rowCountsAsInside(r);
+      const outside = rowCountsAsOutside(r);
+      const inside = !outside && rowCountsAsInside(r);
+      const allocated = outside || inside;
       const ozmal = rowIsOzmal(r);
       const tasiyici = displayTasiyici(r.tasiyici, ozmal);
       const entry = {
@@ -2470,6 +2553,7 @@
         bbt: rowBbt > 0 ? rowBbt : null,
         isOzmal: ozmal,
         isInside: inside,
+        isOutside: outside,
         tasiyici,
         sira: String(r.sira || '').trim(),
         id: String(r.id || '').trim(),
@@ -2481,7 +2565,7 @@
       if (entry.isOzmal) {
         ozmalPlates.push(entry);
         if (rowBbt > 0) assignedWaitingBbt += rowBbt;
-      } else if (inside) {
+      } else if (allocated) {
         insidePlates.push(entry);
         if (rowBbt > 0) departedBbt += rowBbt;
       } else {
@@ -2667,13 +2751,17 @@
 
     waiting.forEach((p) => {
       if (!p || p.isOzmal || isOzmalCarrierName(p.tasiyici)) return;
-      const name = displayTasiyici(p.tasiyici);
+      let name = displayTasiyici(p.tasiyici);
+      if (name && !isKnownNakliyeci(name) && !isOzmalCarrierName(name)) {
+        const known = names.map(displayTasiyici).find((n) => n && isKnownNakliyeci(n));
+        if (known) name = known;
+      }
       if (!name || !isRealCarrierName(name)) {
         unlabeled.push(p);
         return;
       }
       const g = ensureGroup(name);
-      if (g) g.plates.push(p);
+      if (g) g.plates.push(Object.assign({}, p, { tasiyici: name }));
     });
     names.forEach((n) => {
       ensureGroup(n);
@@ -3281,7 +3369,11 @@
     normalizeNbSourceMode,
     analyzeNakliyePendingFromSource,
     isGidenInsideNote,
+    isGidenOutsideNote,
+    isGidenAllocatedNote,
     rowHasInsideText,
+    rowHasOutsideText,
+    rowHasAllocatedText,
     rowIsInside,
     isPlaceholderPlate,
     parseKg,
@@ -3303,11 +3395,13 @@
     DEFAULT_AVG_BBT,
     isOzmalPlate,
     isOzmalCarrierName,
+    isKnownNakliyeci,
     displayTasiyici,
     formatSiteCarrierLabel,
     rowsNeedTasiyiciRepair,
     buildTasiyiciMapFromGrid,
     applyTasiyiciMapToRows,
+    expandMergedCellsInGrid,
     splitPendingItemsByCarrier,
     isOzmalCarrierItem,
     isRealCarrierName,
@@ -3317,6 +3411,7 @@
     DEFAULT_OZMAL_PLATES,
     WAITING_VEHICLE_LABEL,
     INSIDE_VEHICLE_LABEL,
+    OUTSIDE_VEHICLE_LABEL,
     CIFT_KANTAR_LABEL,
     OZMAL_VEHICLE_LABEL,
     collectCiftKantarPlateKeys,

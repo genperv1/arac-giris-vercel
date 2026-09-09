@@ -350,6 +350,7 @@ async function prepareSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_firma_tarih ON piyasa_cikanlar(firma, tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_plaka_tarih ON piyasa_cikanlar(plaka, tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_order_key ON piyasa_cikanlar(order_key);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_sehir ON piyasa_cikanlar(sehir);`);
   await pool.query(`ALTER TABLE piyasa_cikanlar ADD COLUMN IF NOT EXISTS kantarci TEXT;`);
 
   await pool.query(`
@@ -1838,7 +1839,7 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
     // Sanitize inputs
     const plaka = sanitizeString(body.plaka || "", 50);
     const firma = sanitizeString(body.firma || "", 100);
-    const malzeme = sanitizeString(body.malzeme || "", 100);
+    const malzeme = sanitizeString(body.malzeme || "", 400);
     const tonaj = sanitizeString(body.tonaj || "", 50);
     const basim_yeri = sanitizeString(body.basim_yeri || body.basimYeri || "", 20).toUpperCase();
     const sevkiyat_id = sanitizeString(body.sevkiyat_id || "", 100);

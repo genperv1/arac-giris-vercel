@@ -37,7 +37,7 @@
         <link rel="manifest" href="manifest.webmanifest">
         <title>Araç Plaka Takip Sistemi</title>
         <link rel="stylesheet" href="tailwind-built.css">
-        <link rel="stylesheet" href="styles.css?v=1.0.14-20260909-akyuz">
+        <link rel="stylesheet" href="styles.css?v=1.0.19-20260910-hp13fit">
         <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
     </head>
     <body class="min-h-screen text-gray-700">
@@ -135,6 +135,9 @@
                         <button type="button" id="yazdirButton" class="takip-modal__btn takip-modal__btn--primary">
                             <i class="fas fa-print" aria-hidden="true"></i> Yazdır
                         </button>
+                        <button type="button" id="onizlemeButton" class="takip-modal__btn takip-modal__btn--secondary">
+                            <i class="fas fa-eye" aria-hidden="true"></i> Önizleme
+                        </button>
                         <div class="takip-modal__page-size" aria-label="Kağıt boyutu">
                             <button type="button" id="btnPageSizeA5" class="takip-modal__btn takip-modal__btn--size" title="A5 boyut">A5</button>
                             <button type="button" id="btnPageSizeA4" class="takip-modal__btn takip-modal__btn--size" title="A4 boyut">A4</button>
@@ -184,7 +187,7 @@
 
         <script defer src="core-dom.js?v=1.0.1-20260718"></script>
         <script defer src="asset-version.js?v=1.0.2-20260902-directprint"></script>
-        <script defer src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
+        <script defer src="asset-loader.js?v=1.0.20-20260910-malzfit"></script>
         <script defer src="print-form-bg-upload.js?v=1.0.2-20260827-printfast"></script>
         <script defer src="print-form-bg-bootstrap.js?v=1.0.3-20260909-formjpg"></script>
         <script defer src="idb.js?v=1.0.1-20260718"></script>
@@ -203,27 +206,27 @@
         <script defer src="excel-utils.js?v=1.0.2-20260819-miktar"></script>
         <!-- Piyasa (globals önce — chip/menü tıklamaları için) -->
         <script defer src="modules/piyasa-globals.js?v=1.0.2-20260819-custpwd"></script>
-        <script defer src="modules/piyasa-core.js?v=1.0.4-20260824-pastsug"></script>
+        <script defer src="modules/piyasa-core.js?v=1.0.8-20260909-hp13parse"></script>
         <script defer src="modules/piyasa-orders.js?v=1.0.5-20260824-pastsug"></script>
-        <script defer src="modules/piyasa-excel.js?v=1.0.3-20260824-pastsug"></script>
-        <script defer src="modules/piyasa-customers.js?v=1.0.4-20260904-md1"></script>
+        <script defer src="modules/piyasa-excel.js?v=1.0.5-20260910-hp13sevk"></script>
+        <script defer src="modules/piyasa-customers.js?v=1.0.6-20260909-hp13exact"></script>
         <script defer src="modules/piyasa-ui.js?v=1.0.3-20260819-aciklama"></script>
-        <script defer src="modules/piyasa-api.js?v=1.0.4-20260824-pastsug"></script>
+        <script defer src="modules/piyasa-api.js?v=1.0.7-20260909-hp13parse"></script>
         <script defer src="modules/app-modals.js?v=1.0.1-20260718"></script>
         <script defer src="modules/app-sofor-history.js?v=1.0.1-20260718"></script>
         <!-- app.js modülleri (sıra önemli — paylaşılan global kapsam) -->
         <script defer src="modules/app-core.js?v=1.0.1-20260718"></script>
         <script defer src="modules/app-ui-utils.js?v=1.0.3-20260909-excel-entry"></script>
-        <script defer src="nakliye-bekleyen-core.js?v=1.0.13-20260902-ton-giden"></script>
+        <script defer src="nakliye-bekleyen-core.js?v=1.0.14-20260909-akyuz-colA"></script>
         <script defer src="modules/ihracat-excel-source.js?v=1.0.12-20260908-ayni-klasor"></script>
-        <script defer src="modules/app-excel-ihracat.js?v=1.0.27-20260908-sil-unbind"></script>
+        <script defer src="modules/app-excel-ihracat.js?v=1.0.30-20260909-blankprint"></script>
         <script defer src="modules/app-shipment-ui.js?v=1.0.3-20260827-printfast2"></script>
         <script defer src="modules/app-signatures-prefs.js?v=1.0.1-20260718"></script>
         <script defer src="modules/app-ui-forms-pick.js?v=1.0.1-20260718"></script>
-        <script defer src="modules/app-ui-forms-takip.js?v=1.0.28-20260909-elc-bolt"></script>
+        <script defer src="modules/app-ui-forms-takip.js?v=1.0.39-20260910-hp13sevk"></script>
         <script defer src="modules/app-auth.js?v=1.0.12-20260909-elc-page"></script>
         <script defer src="modules/app-issues-core.js?v=1.0.3-20260908-excel-copy"></script>
-        <script defer src="modules/app-vehicles.js?v=1.0.12-20260908-excel-copy"></script>
+        <script defer src="modules/app-vehicles.js?v=1.0.13-20260909-preview"></script>
         <script defer src="modules/app-excel-review.js?v=1.0.1-20260718"></script>
         <script defer src="modules/app-ihracat-modal.js?v=1.0.4-20260907-excelreplace"></script>
         <script defer src="modules/app-ihracat-print.js?v=1.0.6-20260907-excelreplace"></script>

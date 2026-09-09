@@ -404,9 +404,14 @@
       });
       var handle = handles && handles[0];
       if (!handle) return { cancelled: true };
-      await persistHandle(handle);
-      var file = await handle.getFile();
-      await rememberSelectedFile(file);
+      var file = null;
+      try { await persistHandle(handle); } catch (err) {}
+      try {
+        file = await handle.getFile();
+      } catch (err) {
+        return { unsupported: true };
+      }
+      try { await rememberSelectedFile(file); } catch (err) {}
       return { file: file };
     } catch (e) {
       if (e && e.name === 'AbortError') return { cancelled: true };

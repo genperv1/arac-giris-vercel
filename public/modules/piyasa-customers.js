@@ -368,35 +368,47 @@
       .replace(/İ/g, 'I');
   }
 
+  /** MD1→MD1S gibi sadece harf eki; HP13→HP1 asla (daha kısa sayısal kod). */
+  function isLetterSuffixKodExtension(typedKey, storeKey) {
+    const a = normFirmaKodKey(typedKey);
+    const b = normFirmaKodKey(storeKey);
+    if (!a || !b || a === b) return false;
+    if (!b.startsWith(a)) return false;
+    const rest = b.slice(a.length);
+    return /^[A-Z]+$/.test(rest);
+  }
+
   function findClosestPiyasaCustomerByKod(kod) {
     const key = normFirmaKodKey(kod);
     if (!key || !_customerStore.customers.length) return null;
 
+    // 1) Tam eşleşme
     const exact = _customerStore.byKod.get(key);
     if (exact) return exact;
 
+    // 2) Yazılan kod harfle bitiyorsa (MD1S) → çekirdek (MD1) dene
     const stripped = key.match(/^(.+[0-9])[A-Z]+$/);
     if (stripped) {
       const hit = _customerStore.byKod.get(stripped[1]);
       if (hit) return hit;
     }
 
-    if (/[0-9]$/.test(key)) {
-      const prefixHits = [];
-      for (const c of _customerStore.customers) {
-        const ck = normFirmaKodKey(c.kod);
-        if (!ck || ck === key || !ck.startsWith(key)) continue;
-        const rest = ck.slice(key.length);
-        if (!/^[A-Z]+$/.test(rest)) continue;
-        prefixHits.push(c);
-      }
-      if (prefixHits.length === 1) return prefixHits[0];
-      if (prefixHits.length > 1) {
-        const names = new Set(prefixHits.map((c) => String(c.ad || '').trim().toUpperCase()).filter(Boolean));
-        if (names.size === 1) return prefixHits[0];
-      }
-    }
+    // 3) Yazılan kod rakamla bitiyorsa (HP13, MD1): yalnızca harf ekli uzantı (HP13A, MD1S).
+    // ASLA key.startsWith(ck) / daha kısa kod (HP13→HP1) kullanılmaz.
+    if (!/[0-9]$/.test(key)) return null;
 
+    const prefixHits = [];
+    for (const c of _customerStore.customers) {
+      const ck = normFirmaKodKey(c.kod);
+      if (!ck || ck === key) continue;
+      if (!isLetterSuffixKodExtension(key, ck)) continue;
+      prefixHits.push(c);
+    }
+    if (prefixHits.length === 1) return prefixHits[0];
+    if (prefixHits.length > 1) {
+      const names = new Set(prefixHits.map((c) => String(c.ad || '').trim().toUpperCase()).filter(Boolean));
+      if (names.size === 1) return prefixHits[0];
+    }
     return null;
   }
 
@@ -406,8 +418,18 @@
     return _customerStore.byKod.get(key) || null;
   }
 
+  /** Form / ipucu: önce tam kod. Yakın eşleşme sadece harf eki (MD1→MD1S). */
   function resolvePiyasaCustomerByKod(kod) {
-    return findClosestPiyasaCustomerByKod(kod) || getPiyasaCustomerByKod(kod);
+    const key = normFirmaKodKey(kod);
+    if (!key) return null;
+    const exact = getPiyasaCustomerByKod(key);
+    if (exact) return exact;
+    const closest = findClosestPiyasaCustomerByKod(key);
+    if (!closest) return null;
+    // Güvenlik: dönen kod yazılanın kendisi veya harf uzantısı olmalı (HP13 ≠ HP1)
+    if (normFirmaKodKey(closest.kod) === key) return closest;
+    if (isLetterSuffixKodExtension(key, closest.kod)) return closest;
+    return null;
   }
 
   /** Müşteri listesi urunTipi → Excel SEVKİYAT TİPİ (Yİ-GP / Yİ-HP). */
@@ -700,10 +722,17 @@
     try{
       const k = String(code||'').trim();
       if (!k) return '';
-      const cust = resolvePiyasaCustomerByKod(k);
+      const kn = normFirmaKodKey(k);
+      // Önce tam kod — HP13 için HP1 adı dönmesin
+      let cust = getPiyasaCustomerByKod(kn);
+      if (!cust) {
+        cust = resolvePiyasaCustomerByKod(kn);
+        if (cust && normFirmaKodKey(cust.kod) !== kn && !isLetterSuffixKodExtension(kn, cust.kod)) {
+          cust = null;
+        }
+      }
       if (cust && cust.ad) return cust.ad;
       const list = (window.firmaListesi && Array.isArray(window.firmaListesi)) ? window.firmaListesi : (typeof firmaListesi !== 'undefined' && Array.isArray(firmaListesi) ? firmaListesi : []);
-      const kc = normFirmaKodKey(k);
       for (const entry of list){
         if (!entry) continue;
         const e = String(entry||'').trim();
@@ -711,7 +740,7 @@
         const parts = e.split('/').map(x=>x.trim()).filter(Boolean);
         const left = parts[0] || e;
         const right = parts.length > 1 ? parts.slice(1).join(' / ').trim() : '';
-        if (normFirmaKodKey(left) === kc) return right || e;
+        if (normFirmaKodKey(left) === kn) return right || e;
       }
     }catch(e){}
     return '';

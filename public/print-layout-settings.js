@@ -773,6 +773,8 @@
     const values = (opts && opts.values) || {};
     const signatures = (opts && opts.signatures) || {};
     const noteLines = opts && opts.noteLines;
+    const noteHtml = opts && opts.noteHtml ? String(opts.noteHtml) : '';
+    const fieldHtml = (opts && opts.fieldHtml && typeof opts.fieldHtml === 'object') ? opts.fieldHtml : {};
     const pageParams = pageSize === 'A4'
       ? { size: 'A4', width: '210mm', height: '297mm' }
       : { size: 'A5 landscape', width: '210mm', height: '148mm' };
@@ -783,12 +785,20 @@
       if (!rect) return;
       const pos = pctStyle(rect);
       let inner = '';
-      if (def.kind === 'note') {
-        inner = buildNoteInnerHtml(
-          values.not != null ? values.not : '',
-          getFieldStyle('not'),
-          noteLines ? { lines: noteLines } : null
-        );
+      const htmlOverride = fieldHtml[def.key] != null ? String(fieldHtml[def.key]) : '';
+      if (htmlOverride) {
+        const allowOverflow = def.kind === 'note' || def.key === 'malzeme';
+        inner = `<div class="plf-body plf-body--html" style="width:100%;height:100%;box-sizing:border-box;overflow:${allowOverflow && def.kind === 'note' ? 'visible' : 'hidden'};display:flex;align-items:flex-start;padding:0.35mm 0.3mm;">${htmlOverride}</div>`;
+      } else if (def.kind === 'note') {
+        if (noteHtml) {
+          inner = `<div class="plf-body plf-body--notehtml" style="width:100%;height:100%;box-sizing:border-box;overflow:visible;display:flex;align-items:flex-start;padding:0.6mm 0.4mm;">${noteHtml}</div>`;
+        } else {
+          inner = buildNoteInnerHtml(
+            values.not != null ? values.not : '',
+            getFieldStyle('not'),
+            noteLines ? { lines: noteLines } : null
+          );
+        }
       } else if (def.kind === 'sig') {
         const sig = signatures[def.key] || {};
         inner = buildSigInnerHtml(sig.name || values[def.key] || '', sig.src || '', getFieldStyle(def.key));
@@ -796,7 +806,7 @@
         const val = values[def.key] != null ? values[def.key] : '';
         inner = buildTextInnerHtml(val, getFieldStyle(def.key));
       }
-      fieldsHtml += `<div class="plf-field" data-key="${def.key}" style="${pos}">${inner}</div>`;
+      fieldsHtml += `<div class="plf-field" data-key="${def.key}" style="${pos}${def.kind === 'note' && (htmlOverride || noteHtml) ? 'overflow:visible;' : ''}">${inner}</div>`;
     });
 
     return `<!DOCTYPE html>

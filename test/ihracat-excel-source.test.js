@@ -290,6 +290,7 @@ test('reread reuses parser and replaces data without file picker', () => {
   assert.match(excelIhr, /async function applyIhracatExcelReread/);
   assert.match(excelIhr, /replaceAll: true/);
   assert.match(excelIhr, /function commitIhracatImport\(uniq2, meta, file, opts\)/);
+  assert.match(excelIhr, /function mergeIhracatImportState/);
   assert.match(excelIhr, /replacedAt/);
   assert.doesNotMatch(excelIhr, /Yeni dosya EKLENSİN/);
   assert.doesNotMatch(

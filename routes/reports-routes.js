@@ -207,7 +207,7 @@ api.post("/reports", requireValidSession, async (req, res) => {
     // Sanitize string fields in dataObj
     if (dataObj.plaka) dataObj.plaka = sanitizeString(dataObj.plaka, 50);
     if (dataObj.firma) dataObj.firma = sanitizeString(dataObj.firma, 150);
-    if (dataObj.malzeme) dataObj.malzeme = sanitizeString(dataObj.malzeme, 100);
+    if (dataObj.malzeme) dataObj.malzeme = sanitizeString(dataObj.malzeme, 400);
     if (dataObj.sofor) dataObj.sofor = sanitizeString(dataObj.sofor, 200);
     
     // safe stringify: try JSON.stringify, fallback to string conversion

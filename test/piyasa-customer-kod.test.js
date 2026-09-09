@@ -50,3 +50,23 @@ test('short prefix does not match a longer different code', () => {
   assert.equal(api.resolvePiyasaCustomerByKod('T8'), null);
   assert.equal(api.resolvePiyasaCustomerByKod('MD1'), null);
 });
+
+test('HP13 does not resolve to HP1', () => {
+  const api = loadApi([
+    { kod: 'HP1', ad: 'Saint Gobain Rigips' },
+    { kod: 'HP2', ad: 'Başka' },
+    { kod: 'HP11', ad: 'Ankara' },
+  ]);
+  assert.equal(api.resolvePiyasaCustomerByKod('HP13'), null);
+  assert.equal(api.resolvePiyasaCustomerByKod('HP1')?.ad, 'Saint Gobain Rigips');
+  assert.equal(api.resolvePiyasaCustomerByKod('HP11')?.ad, 'Ankara');
+});
+
+test('HP13 exact still wins when both HP1 and HP13 exist', () => {
+  const api = loadApi([
+    { kod: 'HP1', ad: 'Saint Gobain Rigips' },
+    { kod: 'HP13', ad: 'Genper Genleştirilmiş' },
+  ]);
+  assert.equal(api.resolvePiyasaCustomerByKod('HP13')?.ad, 'Genper Genleştirilmiş');
+  assert.equal(api.resolvePiyasaCustomerByKod('HP1')?.ad, 'Saint Gobain Rigips');
+});

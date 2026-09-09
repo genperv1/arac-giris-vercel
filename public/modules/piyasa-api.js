@@ -13,6 +13,17 @@
   window.piyasa.applyOrderFromPicker = applyOrderFromPicker;
   window.piyasa.maybePromptAracBosuBeforePrint = maybePromptAracBosuBeforePrint;
   window.piyasa.isHpFirma = isHpFirma;
+  window.piyasa.isHp13Firma = isHp13Firma;
+  window.piyasa.normalizeHp13MultiItem = normalizeHp13MultiItem;
+  window.piyasa.canAddHp13MultiItem = canAddHp13MultiItem;
+  window.piyasa.formatHp13MultiLine = formatHp13MultiLine;
+  window.piyasa.formatHp13QtyLabel = formatHp13QtyLabel;
+  window.piyasa.hp13ItemName = hp13ItemName;
+  window.piyasa.composeHp13Malzeme = composeHp13Malzeme;
+  window.piyasa.composeHp13Note = composeHp13Note;
+  window.piyasa.hp13GridParts = hp13GridParts;
+  window.piyasa.parseHp13PartsFromText = parseHp13PartsFromText;
+  window.piyasa.sumHp13Bbt = sumHp13Bbt;
   window.piyasa.promptAracBosuTonaj = promptAracBosuTonaj;
   window.piyasa.applyAracBosuToForm = applyAracBosuToForm;
   window.piyasa._state = state;

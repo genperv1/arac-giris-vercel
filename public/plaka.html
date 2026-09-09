@@ -69,7 +69,7 @@
     .pl-home:hover { color: var(--ink); }
 
     .pl-wrap {
-      width: min(1180px, calc(100% - 40px));
+      width: min(1360px, calc(100% - 40px));
       margin: 0 auto;
       padding: 36px 0 64px;
     }
@@ -140,7 +140,7 @@
 
     .pl-grid {
       display: grid;
-      grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+      grid-template-columns: minmax(260px, 0.7fr) minmax(520px, 1.3fr);
       gap: 22px;
     }
 
@@ -230,22 +230,22 @@
 
     .pl-copy {
       display: flex;
-      gap: 14px;
-      margin-bottom: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
     }
 
-    .pl-copy button {
-      appearance: none;
-      border: 0;
-      background: none;
-      padding: 0;
-      font: inherit;
-      font-size: 12px;
+    .pl-copy .pl-btn {
+      padding: 8px 14px;
+      font-size: 13px;
+    }
+
+    .pl-copy-hint {
+      margin: 0 0 10px;
       color: var(--muted);
-      cursor: pointer;
+      font-size: 12px;
     }
-
-    .pl-copy button:hover { color: var(--ink); }
 
     .pl-table-wrap {
       flex: 1;
@@ -275,12 +275,12 @@
     .pl-table td:last-child { text-align: right; }
 
     .pl-table td {
-      padding: 11px 6px;
+      padding: 14px 8px;
       border-bottom: 1px solid #efeae2;
       font-family: var(--mono);
       font-size: 14px;
       color: var(--ink);
-      vertical-align: top;
+      vertical-align: middle;
     }
 
     .pl-table tbody tr {
@@ -309,22 +309,42 @@
     }
 
     .td-plate {
-      font-weight: 650;
-      letter-spacing: 0.02em;
+      font-weight: 750;
+      font-size: 28px;
+      letter-spacing: 0.04em;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+
+    .td-driver {
+      font-family: var(--sans);
+      font-weight: 750;
+      font-size: 24px;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      text-transform: uppercase;
+    }
+
+    .td-phone {
+      font-weight: 750;
+      font-size: 24px;
+      letter-spacing: 0.04em;
+      line-height: 1.15;
+      white-space: nowrap;
+    }
+
+    .td-empty {
+      font-family: var(--sans);
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0;
+      text-transform: none;
     }
 
     .td-bbt {
       font-weight: 600;
-    }
-
-    .pl-driver {
-      display: block;
-      margin-top: 3px;
-      font-family: var(--sans);
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--muted);
-      letter-spacing: 0;
+      font-size: 18px;
     }
 
     mark {
@@ -379,6 +399,9 @@
 
       .pl-note ul { columns: 1; }
 
+      .td-plate { font-size: 22px; }
+      .td-driver, .td-phone { font-size: 18px; }
+
       #input,
       #search { font-size: 16px; }
     }
@@ -413,7 +436,7 @@
           <button type="button" class="pl-btn pl-btn-ghost" onclick="clearAll()">Temizle</button>
         </div>
       </div>
-      <textarea id="input" placeholder="Plakaları buraya yapıştır...
+      <textarea id="input" placeholder="Plakaları veya Excel satırını buraya yapıştırın...
 Örnek:
 43RV120	28  ORHANİZE
 03EN380	25
@@ -424,16 +447,19 @@
     <section class="pl-card">
       <input type="search" id="search" placeholder="Plaka ara" autocomplete="off">
       <div class="pl-copy">
-        <button type="button" onclick="copyCol(0)">Sıra</button>
-        <button type="button" onclick="copyCol(1)">Plaka</button>
-        <button type="button" onclick="copyCol(2)">BBT</button>
+        <button type="button" class="pl-btn" onclick="copyCol('plate')">Plakalar</button>
+        <button type="button" class="pl-btn" onclick="copyCol('bbt')">BBT sayıları</button>
+        <button type="button" class="pl-btn" onclick="copyCol('driver')">Şoför bilgileri</button>
       </div>
+      <p class="pl-copy-hint">Her düğme ayrı kopyalar. <strong>Plakalar</strong> → PLAKA sütunu · <strong>BBT</strong> → BBT sütunu · <strong>Şoför bilgileri</strong> → ŞOFÖR ADI SOYADI hücresi (telefon yanına oturur).</p>
       <div class="pl-table-wrap">
         <table class="pl-table">
           <thead>
             <tr>
               <th>#</th>
               <th>Plaka</th>
+              <th>Şoför</th>
+              <th>Telefon</th>
               <th>BBT</th>
             </tr>
           </thead>
@@ -447,6 +473,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+<script src="modules/plaka-ayir.js?v=20260909-copy-cols"></script>
 <script>
 let rows = [], fuse = null, currentTotal = 0, displayedList = [], selectedIndex = -1;
 let duplicatePlates = new Set();
@@ -454,44 +481,41 @@ let toastTimer = null;
 let lookupDone = false;
 const LOOKUP_BATCH = 80;
 
-const PLATE_RE = /(\d{2})\s*([A-ZÇĞİÖŞÜ]{1,3})\s*(\d{2,5})/i;
-
-function normalizePlate(s) {
-  const m = String(s || '').toUpperCase().match(PLATE_RE);
-  return m ? (m[1] + m[2] + m[3]).replace(/\s+/g, '') : null;
-}
-
 /** Sunucu /api/vehicles/lookup-batch ile aynı plaka anahtarı */
 function normPlateKey(s) {
   return String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9ığüşöç]/gi, '');
 }
 
-function turkishNormalize(str) {
-  return String(str || '').toLowerCase()
-    .replace(/ç/g,'c').replace(/ğ/g,'g').replace(/ı/g,'i')
-    .replace(/ö/g,'o').replace(/ş/g,'s').replace(/ü/g,'u')
-    .replace(/[^a-z0-9]/g,'');
+function copyText(value, html) {
+  const text = String(value == null ? '' : value);
+  if (html && navigator.clipboard && window.ClipboardItem) {
+    const item = new ClipboardItem({
+      'text/plain': new Blob([text], { type: 'text/plain' }),
+      'text/html': new Blob([html], { type: 'text/html' })
+    });
+    return navigator.clipboard.write([item]).catch(() => copyTextFallback(text));
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => copyTextFallback(text));
+  }
+  return copyTextFallback(text);
 }
 
-function extractBBT(line) {
-  if (/iptal/i.test(line)) return null;
-  const bbtMatch = line.match(/(\d+)\s*BBT/i);
-  if (bbtMatch) return parseInt(bbtMatch[1], 10);
-  const plateMatch = String(line || '').match(PLATE_RE);
-  if (!plateMatch) return null;
-  const afterPlate = line.slice(plateMatch.index + plateMatch[0].length);
-  const numMatch = afterPlate.match(/(\d+)/);
-  if (!numMatch) return null;
-  const val = parseInt(numMatch[1], 10);
-  return val > 0 && val <= 9999 ? val : null;
-}
-
-function vehicleDriverLabel(v) {
-  if (!v) return '';
-  const ad = [v.soforAdi, v.soforSoyadi].filter(Boolean).join(' ').trim();
-  if (ad) return ad;
-  const ad2 = [v.sofor2Adi, v.sofor2Soyadi].filter(Boolean).join(' ').trim();
-  return ad2 || '';
+function copyTextFallback(text) {
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', 'readonly');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    if (ok) resolve(true);
+    else reject(new Error('copy failed'));
+  });
 }
 
 function setParseBusy(busy) {
@@ -547,7 +571,10 @@ function applyRegistrationToRows(lookupMap) {
     const vehicle = lookupMap[key] || null;
     r.registered = !!vehicle;
     r.vehicle = vehicle;
-    r.driver = vehicleDriverLabel(vehicle);
+    const lookupDriver = vehicleDriverLabel(vehicle);
+    const lookupPhone = vehiclePhone(vehicle);
+    if (!r.driver && lookupDriver) r.driver = lookupDriver;
+    if (!r.phone && lookupPhone) r.phone = lookupPhone;
   });
 }
 
@@ -561,8 +588,12 @@ function countRegistrationStats() {
 }
 
 function buildFuse() {
-  const opts = { includeScore: true, includeMatches: true, threshold: 0.3, keys: ['plate'] };
-  fuse = new Fuse(rows.map(r => ({ ...r, plateNorm: turkishNormalize(r.plate) })), opts);
+  const opts = { includeScore: true, includeMatches: true, threshold: 0.3, keys: ['plate', 'driver', 'phone', 'plateNorm', 'driverNorm'] };
+  fuse = new Fuse(rows.map(r => ({
+    ...r,
+    plateNorm: turkishNormalize(r.plate),
+    driverNorm: turkishNormalize(r.driver || '')
+  })), opts);
 }
 
 function findDuplicatePlates(list) {
@@ -596,15 +627,10 @@ async function parse() {
   rows = [];
   let total = 0;
   lines.forEach(l => {
-    if (!l.trim()) return;
-    if (/iptal/i.test(l)) return;
-    const plate = normalizePlate(l);
-    if (!plate) return;
-    const bbt = extractBBT(l);
-    if (plate && bbt != null) {
-      rows.push({ plate, bbt, registered: null, vehicle: null, driver: '' });
-      total += bbt;
-    }
+    const parsed = parsePastedLine(l);
+    if (!parsed) return;
+    rows.push(parsed);
+    total += parsed.bbt;
   });
 
   currentTotal = total;
@@ -663,7 +689,7 @@ function renderRows(list) {
   tb.innerHTML = '';
   displayedList = list || [];
   if (!displayedList.length) {
-    tb.innerHTML = `<tr class="empty-row"><td colspan="3">${rows.length ? 'Sonuç bulunamadı' : 'Liste bekleniyor'}</td></tr>`;
+    tb.innerHTML = `<tr class="empty-row"><td colspan="5">${rows.length ? 'Sonuç bulunamadı' : 'Liste bekleniyor'}</td></tr>`;
   } else {
     displayedList.forEach((r, i) => {
       const isSel = i === selectedIndex ? 'selected' : '';
@@ -672,14 +698,19 @@ function renderRows(list) {
       else if (lookupDone && r.registered === false) rowCls = 'unreg-row';
 
       const ph = r._plateHtml || escapeHtml(r.plate);
-      const driverHint = (lookupDone && r.registered && r.driver)
-        ? `<span class="pl-driver">${escapeHtml(r.driver)}</span>`
-        : '';
+      const driverHtml = r.driver
+        ? escapeHtml(r.driver)
+        : '<span class="td-empty">—</span>';
+      const phoneHtml = r.phone
+        ? escapeHtml(formatPhoneDisplay(r.phone))
+        : '<span class="td-empty">—</span>';
 
       tb.insertAdjacentHTML('beforeend',
         `<tr data-idx="${i}" class="${isSel} ${rowCls}">
           <td class="td-sira">${i + 1}</td>
-          <td class="td-plate">${ph}${driverHint}</td>
+          <td class="td-plate">${ph}</td>
+          <td class="td-driver">${driverHtml}</td>
+          <td class="td-phone">${phoneHtml}</td>
           <td class="td-bbt">${r.bbt || ''}</td>
         </tr>`);
     });
@@ -687,7 +718,6 @@ function renderRows(list) {
       tr.addEventListener('click', () => {
         selectedIndex = Number(tr.dataset.idx);
         updateSelection();
-        copySelectedPlate();
       });
     });
   }
@@ -701,10 +731,27 @@ function updateSelection() {
   });
 }
 
+function copyCol(kind) {
+  if (!rows.length) {
+    toast('Önce listeyi ayırın', true);
+    return;
+  }
+  const text = buildColumnCopyText(rows, kind);
+  const hints = {
+    plate: 'Plakalar kopyalandı — Excel’de PLAKA sütununa yapıştırın',
+    bbt: 'BBT sayıları kopyalandı — Excel’de BBT sütununa yapıştırın',
+    driver: 'Şoför bilgileri kopyalandı — Excel’de ŞOFÖR ADI SOYADI hücresine yapıştırın'
+  };
+  copyText(text)
+    .then(() => toast(hints[kind] || 'Kopyalandı'))
+    .catch(() => toast('Kopyalanamadı', true));
+}
+
 function copySelectedPlate() {
   if (selectedIndex < 0 || selectedIndex >= displayedList.length) return;
   const p = displayedList[selectedIndex].plate || '';
-  navigator.clipboard.writeText(p).then(() => toast('Plaka kopyalandı: ' + p)).catch(() => {});
+  if (!p) return;
+  copyText(p).then(() => toast('Plaka kopyalandı — PLAKA sütununa yapıştırın: ' + p)).catch(() => toast('Kopyalanamadı', true));
 }
 
 function clearAll() {
@@ -717,15 +764,6 @@ function clearAll() {
   duplicatePlates = new Set();
   lookupDone = false;
   updateDuplicateWarning([]);
-}
-
-function copyCol(idx) {
-  const source = rows;
-  let txt = '';
-  if (idx === 0) txt = source.map((_, i) => String(i + 1)).join('\r\n');
-  if (idx === 1) txt = source.map(r => r.plate).join('\r\n');
-  if (idx === 2) txt = source.map(r => r.bbt).join('\r\n');
-  navigator.clipboard.writeText(txt).then(() => toast('Kopyalandı')).catch(() => {});
 }
 
 function toast(msg, isWarn, duration) {
@@ -757,6 +795,8 @@ const onSearch = debounce(() => {
       registered: item.registered,
       vehicle: item.vehicle,
       driver: item.driver,
+      phone: item.phone,
+      excelFromPlaka: item.excelFromPlaka,
       _plateHtml: highlightPlate(item.plate, match ? match.indices : [])
     };
   });
