@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="styles.css?v=1.0.16-20260910-desk">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260909-elc-page"></script>
+  <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.1-20260912-pwd"></script>
 </head>
 <body class="elc-page">
   <header class="elc-top">
@@ -91,6 +93,7 @@
   <script src="modules/excel-list-copy.js?v=1.0.12-20260911-paste"></script>
   <script>
     (function () {
+      try { document.documentElement.style.visibility = 'hidden'; } catch (e) { /* ignore */ }
       function toast(msg, isErr) {
         var el = document.getElementById('elcToast');
         if (!el) return;
@@ -99,13 +102,19 @@
         clearTimeout(el._t);
         el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
       }
-
-      document.getElementById('elcHomeBtn')?.addEventListener('click', function () {
-        if (window.SessionManager && window.SessionManager.navigateToHome) {
+      function showPage() {
+        try { document.documentElement.style.visibility = ''; } catch (e) { /* ignore */ }
+      }
+      function goHome() {
+        if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') {
           window.SessionManager.navigateToHome();
         } else {
           location.href = 'GIRIS.html';
         }
+      }
+
+      document.getElementById('elcHomeBtn')?.addEventListener('click', function () {
+        goHome();
       });
 
       async function boot() {
@@ -113,6 +122,16 @@
           var ok = await window.SessionManager.requireValidSession();
           if (!ok) return;
         }
+        if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
+          var allowed = await window.AraclarGate.ensureAccess({
+            message: 'Liste kopyala şifresini girin:'
+          });
+          if (!allowed) {
+            goHome();
+            return;
+          }
+        }
+        showPage();
         if (window.ExcelListCopy && typeof window.ExcelListCopy.bindAppUi === 'function') {
           window.ExcelListCopy.bindAppUi({ toast: toast });
         }

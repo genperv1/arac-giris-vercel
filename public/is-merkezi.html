@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="styles.css?v=1.0.22-20260912-nak-sade">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260911-ismerkezi"></script>
+  <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.1-20260912-pwd"></script>
 </head>
 <body class="im-page">
   <header class="im-top">
@@ -102,9 +104,10 @@
 
   <div class="toast" id="imToast"></div>
 
-  <script src="modules/is-merkezi.js?v=1.0.11-20260912-nak-sade"></script>
+  <script src="modules/is-merkezi.js?v=1.0.12-20260912-araclar-pwd"></script>
   <script>
     (function () {
+      try { document.documentElement.style.visibility = 'hidden'; } catch (e) { /* ignore */ }
       function toast(msg, isErr) {
         var el = document.getElementById('imToast');
         if (!el) return;
@@ -113,14 +116,35 @@
         clearTimeout(el._t);
         el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
       }
-      if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
-        window.SessionManager.requireValidSession().then(function (ok) {
-          if (!ok) return;
-          if (window.IsMerkezi) window.IsMerkezi.bindAppUi({ toast: toast });
-        });
-      } else if (window.IsMerkezi) {
-        window.IsMerkezi.bindAppUi({ toast: toast });
+      function showPage() {
+        try { document.documentElement.style.visibility = ''; } catch (e) { /* ignore */ }
       }
+      function goHome() {
+        if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') {
+          window.SessionManager.navigateToHome();
+        } else {
+          location.href = 'GIRIS.html';
+        }
+      }
+      async function boot() {
+        if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+          var ok = await window.SessionManager.requireValidSession();
+          if (!ok) return;
+        }
+        if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
+          var allowed = await window.AraclarGate.ensureAccess({
+            message: 'İş Merkezi şifresini girin:'
+          });
+          if (!allowed) {
+            goHome();
+            return;
+          }
+        }
+        showPage();
+        if (window.IsMerkezi) window.IsMerkezi.bindAppUi({ toast: toast });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
     })();
   </script>
 </body>

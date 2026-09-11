@@ -1102,6 +1102,35 @@ body.elc-page .toast.warn{background:#7f1d1d}
   </script>
   <script>
   (function () {
+    var GATE_KEY = 'gpm_araclar_gate_v1';
+    var GATE_PWD = '543723';
+    var GATE_TTL = 30 * 60 * 1000;
+
+    function gateUnlocked() {
+      try {
+        var raw = sessionStorage.getItem(GATE_KEY);
+        if (!raw) return false;
+        var ts = parseInt(raw, 10);
+        return Number.isFinite(ts) && (Date.now() - ts < GATE_TTL);
+      } catch (e) {
+        return false;
+      }
+    }
+    function gateUnlock() {
+      try { sessionStorage.setItem(GATE_KEY, String(Date.now())); } catch (e) { /* ignore */ }
+    }
+    function ensureGate() {
+      if (gateUnlocked()) return true;
+      var pw = window.prompt('Liste kopyala şifresini girin:');
+      if (pw == null || pw === '') return false;
+      if (String(pw).trim() !== GATE_PWD) {
+        window.alert('Hatalı şifre.');
+        return false;
+      }
+      gateUnlock();
+      return true;
+    }
+
     function toast(msg, isErr) {
       var el = document.getElementById('elcToast');
       if (!el) return;
@@ -1111,6 +1140,10 @@ body.elc-page .toast.warn{background:#7f1d1d}
       el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
     }
     function boot() {
+      if (!ensureGate()) {
+        document.body.innerHTML = '<p style="padding:2rem;font-family:Segoe UI,sans-serif">Şifre gerekli. Dosyayı yeniden açın.</p>';
+        return;
+      }
       if (window.ExcelListCopy && typeof window.ExcelListCopy.bindAppUi === 'function') {
         window.ExcelListCopy.bindAppUi({ toast: toast });
       }

@@ -254,6 +254,12 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
                 }
+                if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
+                    const allowed = await window.AraclarGate.ensureAccess({
+                        message: 'İş Merkezi şifresini girin:'
+                    });
+                    if (!allowed) return;
+                }
                 if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
                     window.SessionManager.openAppPage('is-merkezi.html');
                 } else {
@@ -267,6 +273,12 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
+                }
+                if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
+                    const allowed = await window.AraclarGate.ensureAccess({
+                        message: 'Liste kopyala şifresini girin:'
+                    });
+                    if (!allowed) return;
                 }
                 try {
                     const res = await fetch('liste-kopyala-desktop.html', { cache: 'no-store' });
