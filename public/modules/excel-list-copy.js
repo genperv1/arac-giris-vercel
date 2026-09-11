@@ -344,7 +344,7 @@
   }
 
   function rowBannerText(row) {
-    return (row || []).slice(0, 6).map(trimStr).filter(Boolean).join(' ');
+    return (row || []).slice(0, 12).map(trimStr).filter(Boolean).join(' ');
   }
 
   function parseGroupBanner(row) {
@@ -353,6 +353,15 @@
     if (year) return { type: 'year', year: year[1] };
     var week = text.match(/HAFTA\s*:?\s*(\d{1,2})/i);
     if (week) return { type: 'week', week: String(Number(week[1])) };
+    var cells = row || [];
+    for (var i = 0; i < Math.min(cells.length, 20); i++) {
+      var cell = trimStr(cells[i]);
+      if (!cell) continue;
+      year = cell.match(/^TESLIM[_\s]*YIL\s*:?\s*(\d{4})\s*$/i);
+      if (year) return { type: 'year', year: year[1] };
+      week = cell.match(/^HAFTA\s*:?\s*(\d{1,2})\s*$/i);
+      if (week) return { type: 'week', week: String(Number(week[1])) };
+    }
     return null;
   }
 
@@ -403,6 +412,8 @@
         if (cellLooksLikeDate(row[i])) { cikis = row[i]; break; }
       }
     }
+    // Banner satırı veya boş özet satırı: sipariş/stok yoksa alma
+    if (!sipNo && !trimStr(get('STOK_KODU')) && !cellLooksLikeDate(cikis)) return null;
 
     return {
       tedarikciRaw: get('ICNAKLIYE_CARI_ISIM_TR'),
@@ -531,6 +542,10 @@
     };
   }
 
+  function sanitizeCell(value) {
+    return String(value == null ? '' : value).replace(/\t/g, ' ').replace(/\r?\n/g, ' ').trim();
+  }
+
   function rowToCells(row) {
     return [
       row.tedarikci,
@@ -556,9 +571,7 @@
       row.gemi,
       formatDateTr(row.limanDolum),
       formatDateTr(row.sipTarih)
-    ].map(function (cell) {
-      return String(cell == null ? '' : cell).replace(/\t/g, ' ').replace(/\r?\n/g, ' ').trim();
-    });
+    ].map(sanitizeCell);
   }
 
   function rowsToTsv(rows, includeHeader) {
@@ -567,14 +580,31 @@
     (rows || []).forEach(function (row) {
       lines.push(rowToCells(row).join('\t'));
     });
-    return lines.join('\r\n');
+    return lines.join('\r\n') + (lines.length ? '\r\n' : '');
+  }
+
+  function rowsToHtmlTable(rows) {
+    var body = (rows || []).map(function (row) {
+      return '<tr>' + rowToCells(row).map(function (cell) {
+        return '<td>' + escapeHtml(cell) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    return '<table><tbody>' + body + '</tbody></table>';
+  }
+
+  function pickReportSheet(wb) {
+    if (!wb || !wb.SheetNames || !wb.SheetNames.length) return null;
+    var names = wb.SheetNames;
+    for (var i = 0; i < names.length; i++) {
+      if (foldTr(names[i]) === 'rapor') return wb.Sheets[names[i]];
+    }
+    return wb.Sheets[names[0]];
   }
 
   function workbookToGrid(wb) {
-    if (!wb || !wb.SheetNames || !wb.SheetNames.length) return [];
     var XLSX = (typeof window !== 'undefined' && window.XLSX) || (typeof root !== 'undefined' && root.XLSX);
     if (!XLSX || !XLSX.utils) return [];
-    var ws = wb.Sheets[wb.SheetNames[0]];
+    var ws = pickReportSheet(wb);
     if (!ws) return [];
     return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: true });
   }
@@ -599,6 +629,44 @@
     ta.remove();
     if (!ok) throw new Error('Panoya kopyalanamadı.');
     return true;
+  }
+
+  async function copyRowsToClipboard(rows) {
+    if (!rows || !rows.length) throw new Error('Kopyalanacak satır yok.');
+    var tsv = rowsToTsv(rows, false);
+    var html = rowsToHtmlTable(rows);
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob([tsv], { type: 'text/plain' }),
+            'text/html': new Blob([html], { type: 'text/html' })
+          })
+        ]);
+        return true;
+      } catch (err) {
+        /* fall through to plain text */
+      }
+    }
+    if (typeof document !== 'undefined') {
+      var div = document.createElement('div');
+      div.setAttribute('contenteditable', 'true');
+      div.style.position = 'fixed';
+      div.style.left = '-9999px';
+      div.innerHTML = html;
+      document.body.appendChild(div);
+      var range = document.createRange();
+      range.selectNodeContents(div);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      sel.removeAllRanges();
+      div.remove();
+      if (ok) return true;
+    }
+    return copyText(tsv);
   }
 
   function escapeHtml(value) {
@@ -788,9 +856,14 @@
         return;
       }
       try {
-        await copyText(rowsToTsv(rows, false));
-        setStatus(rows.length + ' satır panoya kopyalandı. Güncel listede boş satıra yapıştırın (Ctrl+V).');
-        toast('✅ ' + rows.length + ' satır kopyalandı — Excel’e yapıştırın.');
+        await copyRowsToClipboard(rows);
+        var sipPreview = rows.slice(0, 3).map(function (r) { return r.sipNo || r.musteri; }).filter(Boolean).join(', ');
+        if (rows.length > 3) sipPreview += '…';
+        setStatus(
+          rows.length + ' satır panoya kopyalandı (' + sipPreview + '). ' +
+          'Güncel listede filtreyi kapatın (Data → Filter), tek boş A hücresine tıklayıp Ctrl+V yapın.'
+        );
+        toast('✅ ' + rows.length + ' satır kopyalandı. Yapıştırmadan önce Excel filtresini kapatın.');
       } catch (err) {
         var msg = err && err.message ? err.message : 'Kopyalanamadı.';
         setStatus(msg, true);
@@ -913,8 +986,10 @@
     groupTree: groupTree,
     rowToCells: rowToCells,
     rowsToTsv: rowsToTsv,
+    rowsToHtmlTable: rowsToHtmlTable,
     workbookToGrid: workbookToGrid,
     copyText: copyText,
+    copyRowsToClipboard: copyRowsToClipboard,
     bindAyarlarUi: bindAyarlarUi,
     bindAppUi: bindAppUi
   };

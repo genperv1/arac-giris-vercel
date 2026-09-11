@@ -209,6 +209,26 @@
     };
   }
 
+  function listLoadedSourceNames() {
+    var names = [];
+    try {
+      if (typeof window.listIhracatExcelSources === 'function') {
+        names = window.listIhracatExcelSources() || [];
+      }
+    } catch (e) {
+      names = [];
+    }
+    if (Array.isArray(names) && names.length) {
+      return names.map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+    }
+    var info = loadedExcelMeta();
+    return info.fileName ? [info.fileName] : [];
+  }
+
+  function sameExcelName(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  }
+
   function hasLoadedExcel() {
     return loadedExcelMeta().loaded;
   }
@@ -441,11 +461,12 @@
     return readFileFromHandle(handle);
   }
 
-  async function fileFromBackendReread() {
+  async function fileFromBackendReread(fileNameHint) {
     var info = loadedExcelMeta();
     var local = readLocalMeta();
+    var wanted = String(fileNameHint || '').trim();
     var payload = {
-      fileName: (info && info.fileName) || local.fileName || '',
+      fileName: wanted || (info && info.fileName) || local.fileName || '',
       sheetName: (info && info.sheetName) || local.sheetName || '',
     };
     var res;
@@ -475,6 +496,10 @@
     }
     if (!name) {
       name = payload.fileName || local.fileName || 'ihracat.xlsx';
+    }
+    // İstenen ada uymayan cevap (eski sunucu / klasör fallback) — bu kaynak için yok say.
+    if (wanted && !sameExcelName(name, wanted)) {
+      return { __missing: true, __wrongName: name };
     }
     var last = res.headers.get('X-Ihracat-Excel-Last-Updated') || '';
     if (last) {
@@ -514,11 +539,12 @@
     return fileFromBackendReread();
   }
 
-  async function applyPickedExcelFile(file) {
+  async function applyPickedExcelFile(file, opts) {
     if (!file || file.__missing || file.__notSelected || file.__cancelled) return file;
     if (typeof window.applyIhracatExcelReread !== 'function') {
       return { ok: false, msg: MSG_NOT_FOUND };
     }
+    var silent = !!(opts && opts.silentToast);
     var result = await window.applyIhracatExcelReread(file);
     if (result && result.ok) {
       await rememberAfterImport({
@@ -526,11 +552,28 @@
         filePath: extractFilePath(file),
         sheetName: result.meta && result.meta.sheetName,
       });
-      if (typeof window.showToast === 'function') {
+      if (!silent && typeof window.showToast === 'function') {
         window.showToast(result.msg || 'Excel güncellendi.', 'success');
       }
     }
     return result;
+  }
+
+  async function resolveFileForSource(sourceName, handleFile) {
+    var wanted = String(sourceName || '').trim();
+    if (!wanted) return { __missing: true };
+
+    var handleOk = handleFile && !handleFile.__missing && !handleFile.__cancelled
+      && sameExcelName(handleFile.name, wanted);
+    var fromBackend = null;
+    try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
+    var backendOk = fromBackend && !fromBackend.__missing && !fromBackend.__notSelected
+      && sameExcelName(fromBackend.name, wanted);
+
+    if (backendOk && handleOk) return pickNewerExcelFile(handleFile, fromBackend);
+    if (backendOk) return fromBackend;
+    if (handleOk) return handleFile;
+    return { __missing: true };
   }
 
   async function refreshFromStored(permPromise) {
@@ -543,41 +586,74 @@
         return { ok: false, code: 'EXCEL_CLEARED', msg: MSG_CLEARED };
       }
 
-      // Güncelle dosya seçici açmaz. Kayıtlı Excel'i diskten okur.
+      var sources = listLoadedSourceNames();
+      if (!sources.length) {
+        await warn(MSG_CLEARED);
+        return { ok: false, code: 'EXCEL_CLEARED', msg: MSG_CLEARED };
+      }
+
+      // Güncelle dosya seçici açmaz. Yüklü her Excel'i diskten yeniden okur.
       var handle = _liveHandle || window.__ihracatExcelLiveHandle;
-      var file = null;
+      var handleFile = null;
       try {
         if (permPromise && typeof permPromise.then === 'function' && handle && typeof handle.getFile === 'function') {
           var perm = await permPromise;
-          if (perm === 'granted') file = await handle.getFile();
+          if (perm === 'granted') handleFile = await handle.getFile();
         } else if (handle && typeof handle.getFile === 'function') {
-          file = await readFileFromHandle(handle);
+          handleFile = await readFileFromHandle(handle);
         }
       } catch (e) {
-        file = null;
+        handleFile = null;
       }
 
-      var fromBackend = null;
-      try { fromBackend = await fileFromBackendReread(); } catch (e) { fromBackend = null; }
-      var backendOk = fromBackend && !fromBackend.__missing && !fromBackend.__notSelected;
-      var handleOk = file && !file.__missing && !file.__cancelled;
-      if (backendOk && handleOk && fromBackend.name && file.name && fromBackend.name !== file.name) {
-        file = fromBackend;
-      } else {
-        file = pickNewerExcelFile(file, fromBackend);
+      var multi = sources.length > 1;
+      var okNames = [];
+      var failNames = [];
+      var lastOk = null;
+
+      for (var i = 0; i < sources.length; i++) {
+        var sourceName = sources[i];
+        var file = await resolveFileForSource(sourceName, handleFile);
+        if (!file || file.__missing || file.__notSelected) {
+          failNames.push(sourceName);
+          continue;
+        }
+        var result = await applyPickedExcelFile(file, { silentToast: multi });
+        if (result && result.ok) {
+          okNames.push(sourceName);
+          lastOk = result;
+        } else {
+          failNames.push(sourceName);
+        }
       }
-      if (!file || file.__missing || file.__notSelected) {
+
+      if (!okNames.length) {
         await warn(MSG_NOT_FOUND);
-        return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: MSG_NOT_FOUND };
+        return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: MSG_NOT_FOUND, failNames: failNames };
       }
 
-      var result = await applyPickedExcelFile(file);
-      if (!result || !result.ok) {
-        var msg = (result && result.msg) || MSG_NOT_FOUND;
-        await warn(msg);
-        return result || { ok: false, msg: msg };
+      var summary;
+      if (multi) {
+        if (!failNames.length) {
+          summary = okNames.length + ' Excel güncellendi.';
+        } else {
+          summary = okNames.length + '/' + sources.length + ' Excel güncellendi. Bulunamayan: '
+            + failNames.join(', ');
+        }
+        if (typeof window.showToast === 'function') {
+          window.showToast(summary, failNames.length ? 'warn' : 'success');
+        } else if (failNames.length) {
+          await warn(summary);
+        }
       }
-      return result;
+
+      return Object.assign({}, lastOk || {}, {
+        ok: true,
+        msg: summary || (lastOk && lastOk.msg) || 'Excel güncellendi.',
+        okNames: okNames,
+        failNames: failNames,
+        fileCount: sources.length,
+      });
     } catch (e) {
       await warn(MSG_NOT_FOUND);
       return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: MSG_NOT_FOUND };
@@ -624,6 +700,7 @@
     clearStoredBinding: clearStoredBinding,
     adoptLoadedExcelAsSource: adoptLoadedExcelAsSource,
     hasLoadedExcel: hasLoadedExcel,
+    listLoadedSourceNames: listLoadedSourceNames,
     getCachedSheetName: getCachedSheetName,
     hydrateFromBackend: hydrateFromBackend,
     syncLastUpdateUiFromLocal: syncLastUpdateUiFromLocal,

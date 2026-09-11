@@ -97,7 +97,7 @@ test('mergeSource drops stale path when fileName changes', () => {
   assert.equal(merged.filePath, '');
 });
 
-test('same folder different names — Güncelle reads newest excel', async () => {
+test('same folder different names — keeps requested fileName (multi-excel safe)', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ihracat-siblings-'));
   const oldPath = path.join(dir, '05.09.2026.xlsx');
   const newPath = path.join(dir, '08.09.2026.xlsx');
@@ -110,15 +110,41 @@ test('same folder different names — Güncelle reads newest excel', async () =>
   try {
     const newest = await src.findNewestExcelInDir(dir);
     assert.equal(newest, newPath);
-    const read = await src.readExcelFromStoredPath(
+    const readOld = await src.readExcelFromStoredPath(
       { fileName: '05.09.2026.xlsx', filePath: oldPath },
+      { searchDirs: [dir], depth: 0 }
+    );
+    assert.equal(readOld.fileName, '05.09.2026.xlsx');
+    assert.equal(readOld.filePath, oldPath);
+    assert.equal(Buffer.compare(readOld.buf, Buffer.from('old-28-plates')), 0);
+    const readNew = await src.readExcelFromStoredPath(
+      { fileName: '08.09.2026.xlsx', filePath: newPath },
+      { searchDirs: [dir], depth: 0 }
+    );
+    assert.equal(readNew.fileName, '08.09.2026.xlsx');
+    assert.equal(Buffer.compare(readNew.buf, Buffer.from('new-18-plates')), 0);
+  } finally {
+    fs.unlinkSync(oldPath);
+    fs.unlinkSync(newPath);
+    fs.rmdirSync(dir);
+  }
+});
+
+test('missing named file — falls back to newest excel in same folder', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ihracat-fallback-'));
+  const goneHint = path.join(dir, '05.09.2026.xlsx');
+  const newPath = path.join(dir, '08.09.2026.xlsx');
+  fs.writeFileSync(newPath, Buffer.from('new-18-plates'));
+  const newAt = new Date('2026-09-08T00:21:00.000Z');
+  fs.utimesSync(newPath, newAt, newAt);
+  try {
+    const read = await src.readExcelFromStoredPath(
+      { fileName: '05.09.2026.xlsx', filePath: goneHint },
       { searchDirs: [dir], depth: 0 }
     );
     assert.equal(read.fileName, '08.09.2026.xlsx');
     assert.equal(read.filePath, newPath);
-    assert.equal(Buffer.compare(read.buf, Buffer.from('new-18-plates')), 0);
   } finally {
-    fs.unlinkSync(oldPath);
     fs.unlinkSync(newPath);
     fs.rmdirSync(dir);
   }
@@ -240,9 +266,11 @@ test('client refresh is manual only — no timer / watch', () => {
   );
   assert.doesNotMatch(refreshFn, /showOpenFilePicker/);
   assert.doesNotMatch(refreshFn, /excelBlockFileInput/);
-  assert.match(refreshFn, /fileFromBackendReread/);
+  assert.match(refreshFn, /resolveFileForSource/);
+  assert.match(refreshFn, /listLoadedSourceNames/);
+  assert.match(clientCode, /fileFromBackendReread/);
   assert.match(clientCode, /pickNewerExcelFile/);
-  assert.match(clientCode, /fromBackend\.name !== file\.name/);
+  assert.match(clientCode, /sameExcelName/);
   assert.match(clientCode, /clearPath/);
   const busyPos = refreshFn.indexOf('setRefreshBusy(true)');
   const awaitPos = refreshFn.indexOf('await');
@@ -297,4 +325,16 @@ test('reread reuses parser and replaces data without file picker', () => {
     excelIhr.slice(excelIhr.indexOf('async function applyIhracatExcelReread')),
     /showOpenFilePicker|excelBlockFileInput|inp\.click\(\)/
   );
+});
+
+test('Güncelle refreshes every loaded Excel source by name', () => {
+  assert.match(clientCode, /function listLoadedSourceNames/);
+  assert.match(clientCode, /listIhracatExcelSources/);
+  assert.match(clientCode, /resolveFileForSource/);
+  assert.match(clientCode, /for \(var i = 0; i < sources\.length; i\+\+\)/);
+  assert.match(clientCode, /silentToast:\s*multi/);
+  assert.match(clientCode, /Excel güncellendi/);
+  assert.match(clientCode, /Bulunamayan:/);
+  assert.match(clientCode, /__wrongName/);
+  assert.match(clientCode, /sameExcelName\(name, wanted\)/);
 });

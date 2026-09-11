@@ -248,6 +248,19 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 }
             });
 
+            document.getElementById('isMerkeziMenuButton')?.addEventListener('click', async () => {
+                closeAppToolsMenu();
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('is-merkezi.html');
+                } else {
+                    location.href = 'is-merkezi.html';
+                }
+            });
+
             document.getElementById('excelListCopyMenuButton')?.addEventListener('click', async (ev) => {
                 ev.preventDefault();
                 closeAppToolsMenu();

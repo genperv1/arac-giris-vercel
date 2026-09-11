@@ -222,6 +222,10 @@ test('rowsToTsv writes 23 target columns for a 5-sevk batch', () => {
   assert.equal(lines[1].split('\t')[0], 'AKYÜZ');
   assert.equal(lines[0].split('\t')[6], 'YD10(M)');
   assert.equal(lines[1].split('\t')[6], 'YD11(G)');
+  const html = api.rowsToHtmlTable(numbered);
+  assert.match(html, /<table>/);
+  assert.equal((html.match(/<tr>/g) || []).length, 5);
+  assert.match(html, /YD10\(M\)/);
 });
 
 test('solveGrid maps Excel serial dates to the same day Excel shows', () => {

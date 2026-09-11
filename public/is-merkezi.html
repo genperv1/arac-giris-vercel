@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>İş Merkezi — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=1.0.22-20260912-nak-sade">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260911-ismerkezi"></script>
+</head>
+<body class="im-page">
+  <header class="im-top">
+    <div class="im-top__inner">
+      <div class="im-brand">
+        <span class="im-brand__icon" aria-hidden="true"><i class="fas fa-clipboard-check"></i></span>
+        <div>
+          <h1>İş Merkezi</h1>
+          <p>Sabah · Haftalık · Sevkiyat sonrası</p>
+        </div>
+      </div>
+      <div class="im-top__actions">
+        <button type="button" id="imOpenListeBtn" class="im-chip-btn">Liste kopyala</button>
+        <button type="button" id="imOpenNakliyeBtn" class="im-chip-btn">Nakliye bekleyen</button>
+        <button type="button" id="imHomeBtn" class="im-home">Ana Sayfa</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="imPage" class="im-main">
+    <div class="im-toolbar">
+      <div id="imTabs" class="im-tabs" role="tablist"></div>
+      <div class="im-toolbar__meta">
+        <span id="imProgress" class="im-progress">—</span>
+        <button type="button" id="imResetBtn" class="im-mini-btn">Bugünü sıfırla</button>
+      </div>
+    </div>
+
+    <div class="im-layout">
+      <div class="im-col im-col--list">
+        <div id="imBody" class="im-body"></div>
+      </div>
+
+      <aside class="im-col im-col--rules" aria-label="Hesap ve kurallar">
+        <section class="im-card">
+          <h2>Kritik kurallar</h2>
+          <ul class="im-rules">
+            <li><strong>Hesap:</strong> Nakliyeci kalan = sipariş toplam BBT − sarı GPM (bizim) BBT.</li>
+            <li><strong>Kırmızı:</strong> kalan 1–19 BBT (Akyüz’e az) veya bizim toplamı aşıyor.</li>
+            <li><strong>Bizim tipik:</strong> 1350→19 · 1250→20 · 1300→20 · 1150→22 BBT/araç (~25–27 ton).</li>
+            <li><strong>Akyüz:</strong> kalanı kendi araçlarına böler (20–32 BBT olabilir); 38 gibi tek yük küsüratını 2 arabaya ayır.</li>
+            <li><strong>Gemlik:</strong> ton ÷ 21 · <strong>Körfez:</strong> ton ÷ 24.</li>
+          </ul>
+        </section>
+
+        <section class="im-card">
+          <h2>Ton ÷ 27 (satır)</h2>
+          <label class="im-field">Ton
+            <input id="imTonInput" type="text" inputmode="decimal" placeholder="ör. 54">
+          </label>
+          <p id="imTonOut" class="im-calc-out">Ton girin</p>
+        </section>
+
+        <section class="im-card">
+          <h2>BBT × birim = tonaj</h2>
+          <label class="im-field">Ambalaj BBT sayısı
+            <input id="imBbtCountInput" type="text" inputmode="decimal" placeholder="ör. 40">
+          </label>
+          <label class="im-field">Birim ağırlık (kg)
+            <input id="imUnitKgInput" type="text" inputmode="decimal" placeholder="ör. 1250">
+          </label>
+          <p id="imTonajOut" class="im-calc-out">BBT ve birim kg girin</p>
+        </section>
+
+        <section class="im-card">
+          <h2>Nakliyeciye kalan</h2>
+          <p class="im-hint im-nak-lead">Excel’de <strong>sarı GPM</strong> satırlarının BBT’sini topla. Formül: <strong>toplam − bizim = nakliyeci</strong>.</p>
+          <label class="im-field">1) Sipariş toplam BBT
+            <input id="imNakTotalBbt" type="text" inputmode="decimal" placeholder="ör. 200">
+          </label>
+          <label class="im-field">2) Birim kg (ipucu için)
+            <input id="imNakUnitKg" type="text" inputmode="decimal" placeholder="ör. 1350">
+          </label>
+          <p id="imNakCapHint" class="im-hint im-nak-tip"></p>
+          <label class="im-field">3) Bizim kaç araç (isteğe bağlı — BBT’yi doldurur)
+            <input id="imNakArac" type="text" inputmode="numeric" placeholder="ör. 6">
+          </label>
+          <label class="im-field">4) Bizim toplam BBT (sarı GPM)
+            <input id="imNakBizimBbt" type="text" inputmode="decimal" placeholder="ör. 114">
+          </label>
+          <p id="imNakSteps" class="im-nak-steps" hidden></p>
+          <p id="imNakOut" class="im-calc-out">Toplam ve bizim BBT girin</p>
+        </section>
+
+        <p class="im-footnote">İlerleme bugüne özel saklanır (bu tarayıcı). Not endeksi: docs/is-merkezi-notlar.md</p>
+      </aside>
+    </div>
+  </main>
+
+  <div class="toast" id="imToast"></div>
+
+  <script src="modules/is-merkezi.js?v=1.0.11-20260912-nak-sade"></script>
+  <script>
+    (function () {
+      function toast(msg, isErr) {
+        var el = document.getElementById('imToast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'toast show' + (isErr ? ' warn' : '');
+        clearTimeout(el._t);
+        el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
+      }
+      if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+        window.SessionManager.requireValidSession().then(function (ok) {
+          if (!ok) return;
+          if (window.IsMerkezi) window.IsMerkezi.bindAppUi({ toast: toast });
+        });
+      } else if (window.IsMerkezi) {
+        window.IsMerkezi.bindAppUi({ toast: toast });
+      }
+    })();
+  </script>
+</body>
+</html>
