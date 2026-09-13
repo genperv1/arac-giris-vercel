@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>İhracat Takip — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=1.0.28-20260913-iht3">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260913-iht"></script>
+  <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
+</head>
+<body class="iht-page">
+  <header class="iht-top">
+    <div class="iht-top__inner">
+      <div class="iht-brand">
+        <span class="iht-radar iht-radar--lg" aria-hidden="true">
+          <span class="iht-radar__sweep"></span>
+          <span class="iht-radar__ring"></span>
+          <span class="iht-radar__ring iht-radar__ring--2"></span>
+          <span class="iht-radar__ring iht-radar__ring--3"></span>
+          <span class="iht-radar__core"><i class="fas fa-ship"></i></span>
+        </span>
+        <div>
+          <h1>İhracat Takip</h1>
+          <p>Liste · Plan · Sayı · İş listesi — tek kapı</p>
+        </div>
+      </div>
+      <button type="button" id="ihtHomeBtn" class="iht-home">Ana Sayfa</button>
+    </div>
+  </header>
+
+  <section id="ihtGate" class="iht-gate" aria-label="Şifre girişi">
+    <div class="iht-gate__card">
+      <span class="iht-radar iht-radar--lg" aria-hidden="true">
+        <span class="iht-radar__sweep"></span>
+        <span class="iht-radar__ring"></span>
+        <span class="iht-radar__ring iht-radar__ring--2"></span>
+        <span class="iht-radar__core"><i class="fas fa-ship"></i></span>
+      </span>
+      <h2>İhracat Takip</h2>
+      <p>Devam etmek için şifreyi girin.</p>
+      <form id="ihtGateForm" class="iht-gate__form" autocomplete="off">
+        <label for="ihtGatePwd">Şifre</label>
+        <input id="ihtGatePwd" type="password" inputmode="numeric" autocomplete="off" data-lpignore="true" autofocus />
+        <button type="submit" class="iht-gate__btn">Giriş</button>
+      </form>
+      <p id="ihtGateErr" class="iht-gate__err" hidden>Hatalı şifre.</p>
+    </div>
+  </section>
+
+  <main id="ihtPage" class="iht-main" hidden>
+    <p class="iht-lead">Hangisini açacağını seç. Şifre yalnızca burada sorulur.</p>
+    <div class="iht-grid">
+      <button type="button" class="iht-card" data-iht-open="liste-kopyala.html">
+        <span class="iht-card__icon iht-card__icon--liste"><i class="fas fa-bolt"></i></span>
+        <strong>Liste kopyala</strong>
+        <span>F358 → güncel ihracat listesine yapıştır</span>
+      </button>
+      <button type="button" class="iht-card" data-iht-open="plan-v4.html">
+        <span class="iht-card__icon iht-card__icon--plan"><i class="fas fa-route"></i></span>
+        <strong>Plan v4</strong>
+        <span>BBT / paketleme · özmal · Akyüz kalan</span>
+      </button>
+      <button type="button" class="iht-card" data-iht-open="sayi-kontrol.html">
+        <span class="iht-card__icon iht-card__icon--sayi"><i class="fas fa-balance-scale"></i></span>
+        <strong>Sayı kontrol</strong>
+        <span>Rapor / Güncel ↔ sevkiyat — tutuyor mu?</span>
+      </button>
+      <button type="button" class="iht-card" data-iht-open="is-merkezi.html">
+        <span class="iht-card__icon iht-card__icon--im"><i class="fas fa-clipboard-check"></i></span>
+        <strong>İş Merkezi</strong>
+        <span>Sabah · haftalık · sevkiyat sonrası checklist</span>
+      </button>
+    </div>
+  </main>
+
+  <div class="toast" id="ihtToast"></div>
+
+  <script>
+    (function () {
+      function goHome() {
+        if (window.SessionManager && window.SessionManager.navigateToHome) window.SessionManager.navigateToHome();
+        else location.href = 'GIRIS.html';
+      }
+      function openPage(path) {
+        if (window.SessionManager && window.SessionManager.openAppPage) window.SessionManager.openAppPage(path);
+        else location.href = path;
+      }
+      function showTools() {
+        var gate = document.getElementById('ihtGate');
+        var page = document.getElementById('ihtPage');
+        if (gate) gate.hidden = true;
+        if (page) page.hidden = false;
+      }
+      function showGate() {
+        var gate = document.getElementById('ihtGate');
+        var page = document.getElementById('ihtPage');
+        if (gate) gate.hidden = false;
+        if (page) page.hidden = true;
+        var inp = document.getElementById('ihtGatePwd');
+        if (inp) {
+          inp.value = '';
+          setTimeout(function () { try { inp.focus(); } catch (e) {} }, 50);
+        }
+      }
+      function unlockOk(password) {
+        if (!window.AraclarGate || !window.AraclarGate.checkPassword(password)) return false;
+        if (typeof window.AraclarGate.markUnlocked === 'function') window.AraclarGate.markUnlocked();
+        return true;
+      }
+      async function boot() {
+        document.getElementById('ihtHomeBtn')?.addEventListener('click', goHome);
+        document.getElementById('ihtPage')?.addEventListener('click', function (e) {
+          var btn = e.target.closest('[data-iht-open]');
+          if (!btn) return;
+          openPage(btn.getAttribute('data-iht-open'));
+        });
+        document.getElementById('ihtGateForm')?.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var err = document.getElementById('ihtGateErr');
+          var inp = document.getElementById('ihtGatePwd');
+          var pw = inp ? inp.value : '';
+          if (!unlockOk(pw)) {
+            if (err) err.hidden = false;
+            if (inp) { inp.value = ''; inp.focus(); }
+            return;
+          }
+          if (err) err.hidden = true;
+          showTools();
+        });
+
+        if (window.SessionManager && window.SessionManager.requireValidSession) {
+          var ok = await window.SessionManager.requireValidSession();
+          if (!ok) { goHome(); return; }
+        }
+        // Her girişte şifre kapısı (görünür form — gizli sayfa + görünmez dialog yok)
+        showGate();
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+</body>
+</html>

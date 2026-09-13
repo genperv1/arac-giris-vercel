@@ -172,26 +172,33 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             // document.getElementById('eslestirmeButton')?.addEventListener('click', showEslestirmeModal); // kaldırıldı
 // Raporlar button handler
 (() => {
-  const btn = document.getElementById('raporlarLinkGunluk');
-  if (!btn) return;
-
-  btn.addEventListener('click', async (ev) => {
-    ev.preventDefault();
-    
-    // ✅ Oturum kontrolü
+  async function openGunlukRaporlar(ev) {
+    if (ev) ev.preventDefault();
+    const split = document.querySelector('.app-split-nav__details');
+    if (split) split.open = false;
     if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
       const isValidSession = await window.SessionManager.requireValidSession();
-      if (!isValidSession) {
-        return; // Oturum geçersizse işlemi durdur
-      }
+      if (!isValidSession) return;
     }
-    
     if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
       window.SessionManager.openAppPage('rapor.html');
     } else {
       location.href = 'rapor.html';
     }
-  });
+  }
+
+  document.getElementById('raporlarLinkGunluk')?.addEventListener('click', openGunlukRaporlar);
+  document.getElementById('raporlarLinkGunlukSub')?.addEventListener('click', openGunlukRaporlar);
+
+  const splitDetails = document.querySelector('.app-split-nav__details');
+  if (splitDetails) {
+    splitDetails.addEventListener('toggle', () => {
+      if (!splitDetails.open) return;
+      document.querySelectorAll('details.app-tools-menu--nested').forEach((el) => {
+        if (el !== splitDetails) el.open = false;
+      });
+    });
+  }
 })();
 
 
@@ -223,6 +230,9 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             });
 
             document.getElementById('piyasaCikanlarButton')?.addEventListener('click', async () => {
+                const split = document.querySelector('.app-split-nav__details');
+                if (split) split.open = false;
+                if (typeof closeAppToolsMenu === 'function') closeAppToolsMenu();
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
@@ -248,58 +258,17 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 }
             });
 
-            document.getElementById('isMerkeziMenuButton')?.addEventListener('click', async () => {
+            document.getElementById('ihracatTakipMenuButton')?.addEventListener('click', async () => {
                 closeAppToolsMenu();
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
                 }
-                if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
-                    const allowed = await window.AraclarGate.ensureAccess({
-                        message: 'İş Merkezi şifresini girin:'
-                    });
-                    if (!allowed) return;
-                }
+                // Şifre yalnızca hub sayfasında (force) sorulur — burada tekrar sorma
                 if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
-                    window.SessionManager.openAppPage('is-merkezi.html');
+                    window.SessionManager.openAppPage('ihracat-takip.html');
                 } else {
-                    location.href = 'is-merkezi.html';
-                }
-            });
-
-            document.getElementById('excelListCopyMenuButton')?.addEventListener('click', async (ev) => {
-                ev.preventDefault();
-                closeAppToolsMenu();
-                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
-                    const isValidSession = await window.SessionManager.requireValidSession();
-                    if (!isValidSession) return;
-                }
-                if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
-                    const allowed = await window.AraclarGate.ensureAccess({
-                        message: 'Liste kopyala şifresini girin:'
-                    });
-                    if (!allowed) return;
-                }
-                try {
-                    const res = await fetch('liste-kopyala-desktop.html', { cache: 'no-store' });
-                    if (!res.ok) throw new Error('HTML alınamadı');
-                    const blob = await res.blob();
-                    const stamp = new Date().toISOString().slice(0, 10);
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `liste-kopyala_${stamp}.html`;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    setTimeout(() => URL.revokeObjectURL(url), 1500);
-                    if (typeof showToast === 'function') {
-                        showToast('✅ Liste kopyala HTML indirildi — masaüstünden açıp kullanabilirsiniz.');
-                    }
-                } catch (err) {
-                    if (typeof showToast === 'function') {
-                        showToast('Liste kopyala HTML indirilemedi.', 'error');
-                    }
+                    location.href = 'ihracat-takip.html';
                 }
             });
 

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>Plan v4 — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=1.0.29-20260913-palet">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260913-planv4"></script>
+  <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
+  <script src="ozmal-plates.js?v=20260913-planv4"></script>
+</head>
+<body class="pv4-page im-page">
+  <header class="im-top">
+    <div class="im-top__inner">
+      <div class="im-brand">
+        <span class="im-brand__icon" aria-hidden="true"><i class="fas fa-route"></i></span>
+        <div>
+          <h1>Plan v4</h1>
+          <p>Güncel liste → BBT / paketleme → özmal → Akyüz kalan</p>
+        </div>
+      </div>
+      <div class="im-top__actions">
+        <button type="button" id="pv4OpenImBtn" class="im-chip-btn">İş Merkezi</button>
+        <button type="button" id="pv4HomeBtn" class="im-home">Ana Sayfa</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="pv4Page" class="im-main pv4-main">
+    <section class="pv4-steps-bar" aria-label="Adımlar">
+      <span><b>1</b> Güncel Excel yükle</span>
+      <span><b>2</b> Satır seç (BBT / PAKET ayrı)</span>
+      <span><b>3</b> Özmal araç yaz</span>
+      <span><b>4</b> Yeşilse Akyüz’e ver</span>
+    </section>
+
+    <div class="pv4-layout">
+      <div class="pv4-col pv4-col--list">
+        <div id="pv4Drop" class="pv4-drop" role="button" tabindex="0">
+          <strong>Güncel İhracat Listesi.xlsx</strong>
+          <span>Liste kopyala’dan yaptığın güncel Excel’i bırak veya seç. F358 değil — güncel liste.</span>
+          <div class="pv4-drop__file">
+            <label class="elc-file-btn" for="pv4File">Dosya seç</label>
+            <input id="pv4File" type="file" accept=".xlsx,.xls,.xlsm,.xlsb" hidden>
+            <span id="pv4FileName">Dosya seçilmedi</span>
+          </div>
+        </div>
+        <p id="pv4Status" class="pv4-status"></p>
+        <div id="pv4Ozmal" class="pv4-ozmal"></div>
+        <div id="pv4List" class="pv4-list"></div>
+      </div>
+
+      <aside class="pv4-col pv4-col--detail" aria-label="Özmal planı">
+        <section class="im-card pv4-detail-card">
+          <div id="pv4Detail"></div>
+        </section>
+        <section class="im-card">
+          <h2>Kısa kural</h2>
+          <ul class="im-rules">
+            <li><strong>BBT</strong> = düz bigbag · tonaj = BBT × ambalaj NET ÷ 1000.</li>
+            <li><strong>PAKET</strong> = çuval→bigbag · Akyüz’e <strong>1375 kg</strong> ile bildir / hesapla (NET 1350 değil).</li>
+            <li><strong>Kalan</strong> = toplam BBT − özmal BBT.</li>
+            <li><strong>Kırmızı</strong> 1–19 → dur. <strong>Yeşil</strong> ≥20 veya 0 → devam.</li>
+            <li>Özmal tipik: 1350→19 · 1250→20 · 1150→22 · paketleme 1375→~20.</li>
+          </ul>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <div class="toast" id="pv4Toast"></div>
+
+  <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
+  <script src="modules/is-merkezi.js?v=1.0.12-20260912-araclar-pwd"></script>
+  <script src="modules/plan-v4.js?v=1.0.5-20260913-palet"></script>
+  <script>
+    (function () {
+      try { document.documentElement.style.visibility = 'hidden'; } catch (e) { /* ignore */ }
+      function toast(msg, isErr) {
+        var el = document.getElementById('pv4Toast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'toast show' + (isErr ? ' warn' : '');
+        clearTimeout(el._t);
+        el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
+      }
+      function showPage() {
+        try { document.documentElement.style.visibility = ''; } catch (e) { /* ignore */ }
+      }
+      function goHome() {
+        if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') {
+          window.SessionManager.navigateToHome();
+        } else {
+          location.href = 'GIRIS.html';
+        }
+      }
+      function openPage(path) {
+        if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+          window.SessionManager.openAppPage(path);
+        } else {
+          location.href = path;
+        }
+      }
+      async function boot() {
+        if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+          var ok = await window.SessionManager.requireValidSession();
+          if (!ok) return;
+        }
+        if (!window.AraclarGate || typeof window.AraclarGate.isUnlocked !== 'function' || !window.AraclarGate.isUnlocked()) {
+          openPage('ihracat-takip.html');
+          return;
+        }
+        showPage();
+        if (window.OzmalPlates && typeof window.OzmalPlates.ensureSynced === 'function') {
+          try { await window.OzmalPlates.ensureSynced(); } catch (e) { /* ignore */ }
+        } else if (window.OzmalPlates && typeof window.OzmalPlates.syncFromServer === 'function') {
+          try { await window.OzmalPlates.syncFromServer(); } catch (e) { /* ignore */ }
+        }
+        if (window.PlanV4) window.PlanV4.bindAppUi({ toast: toast });
+        var imBtn = document.getElementById('pv4OpenImBtn');
+        if (imBtn) imBtn.addEventListener('click', function () { openPage('is-merkezi.html'); });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+</body>
+</html>

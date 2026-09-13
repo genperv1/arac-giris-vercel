@@ -1,10 +1,10 @@
-// araclar-gate.js — İş Merkezi + Liste kopyala giriş şifresi (543723)
+// araclar-gate.js — İhracat Takip giriş şifresi (543723)
 (function (root) {
   'use strict';
 
   var PASSWORD = '543723';
   var STORAGE_KEY = 'gpm_araclar_gate_v1';
-  var TTL_MS = 30 * 60 * 1000; // aynı sekmede 30 dk
+  var TTL_MS = 30 * 60 * 1000; // aynı sekmede 30 dk (alt sayfalar için)
 
   function storage() {
     try {
@@ -49,7 +49,7 @@
         doc.activeElement.blur();
       }
     } catch (e) { /* ignore */ }
-    var msg = message || 'İş Merkezi / Liste kopyala şifresini girin:';
+    var msg = message || 'İhracat Takip şifresini girin:';
     if (root.rpUi && typeof root.rpUi.password === 'function') {
       return root.rpUi.password(msg);
     }

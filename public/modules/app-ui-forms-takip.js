@@ -3007,7 +3007,18 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <button id="toggleFormButton" class="app-nav-btn app-nav-btn--primary app-nav-btn--always">
           ${state.showForm ? 'İptal' : 'Yeni Kayıt'}
         </button>
-        <button id="raporlarLinkGunluk" class="app-nav-btn" title="Günlük Raporlar">Günlük Raporlar</button>
+        <div class="app-split-nav" title="Günlük Raporlar">
+          <button type="button" id="raporlarLinkGunluk" class="app-nav-btn app-split-nav__main" title="Günlük Raporlar">Günlük Raporlar</button>
+          <details class="app-tools-menu app-split-nav__details app-tools-menu--nested">
+            <summary class="app-nav-btn app-split-nav__arrow list-none select-none" title="Alt menü" aria-label="Günlük Raporlar alt menü">
+              <span class="app-nav-chevron" aria-hidden="true">▾</span>
+            </summary>
+            <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
+              <button type="button" id="raporlarLinkGunlukSub" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük yazdırma raporları">📄 Günlük Raporlar</button>
+              <button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>
+            </div>
+          </details>
+        </div>
         <button id="nakliyeBekleyenButton" class="app-nav-btn app-nav-btn--warn" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
         <a href="plaka.html" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
         <details class="app-tools-menu app-tools-menu--nested relative">
@@ -3071,17 +3082,19 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
               </section>
             </div>
             <div class="my-1 border-t"></div>
-            <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm">⚙️ Ayarlar</button>
-            <button type="button" id="isMerkeziMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Sabah / haftalık / sevkiyat sonrası iş listesi">
-              <i class="fas fa-clipboard-check" aria-hidden="true"></i>
-              İş Merkezi
+            <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm ayarlar-menu-btn" title="Ayarlar">
+              <span class="ayarlar-gear" aria-hidden="true"><i class="fas fa-cog"></i></span>
+              Ayarlar
             </button>
-            <button type="button" id="excelListCopyMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm elc-menu-btn" title="Liste kopyala HTML’ini masaüstüne indir">
-              <span class="elc-dl-icon" aria-hidden="true"><i class="fas fa-download"></i></span>
-              Liste kopyala
+            <button type="button" id="ihracatTakipMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm iht-menu-btn" title="Liste · Plan · Sayı · İş Merkezi">
+              <span class="iht-radar iht-radar--menu" aria-hidden="true">
+                <span class="iht-radar__sweep"></span>
+                <span class="iht-radar__ring"></span>
+                <span class="iht-radar__ring iht-radar__ring--2"></span>
+                <span class="iht-radar__core"><i class="fas fa-ship"></i></span>
+              </span>
+              İhracat Takip
             </button>
-            <div class="my-1 border-t"></div>
-            <button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>
           </div>
         </details>
         <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>

@@ -39,7 +39,10 @@ Modül: [`public/modules/is-merkezi.js`](../public/modules/is-merkezi.js)
 
 | Not | Araç |
 |-----|------|
+| **İhracat Takip** | `ihracat-takip.html` — tek menü; Liste / Plan v4 / Sayı kontrol / İş Merkezi |
 | Liste kopyala | `liste-kopyala.html` / masaüstü HTML |
+| **Plan v4** | `plan-v4.html` — Güncel Excel → BBT/paketleme → özmal / Akyüz kalan |
+| **Sayı kontrol** | `sayi-kontrol.html` — Rapor↔Sevkiyat ve Güncel↔Sevkiyat (BBT/ton tutuyor mu) |
 | BBT / nakliye | `nakliye-bekleyen.html` |
 | İhracat Excel | ana sayfa İHRACAT chip |
 

@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260911-ismerkezi"></script>
   <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
-  <script src="araclar-gate.js?v=1.0.1-20260912-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
 </head>
 <body class="im-page">
   <header class="im-top">
@@ -26,6 +26,8 @@
       </div>
       <div class="im-top__actions">
         <button type="button" id="imOpenListeBtn" class="im-chip-btn">Liste kopyala</button>
+        <button type="button" id="imOpenPlanV4Btn" class="im-chip-btn">Plan v4</button>
+        <button type="button" id="imOpenSayiBtn" class="im-chip-btn">Sayı kontrol</button>
         <button type="button" id="imOpenNakliyeBtn" class="im-chip-btn">Nakliye bekleyen</button>
         <button type="button" id="imHomeBtn" class="im-home">Ana Sayfa</button>
       </div>
@@ -126,19 +128,21 @@
           location.href = 'GIRIS.html';
         }
       }
+      function openPage(path) {
+        if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+          window.SessionManager.openAppPage(path);
+        } else {
+          location.href = path;
+        }
+      }
       async function boot() {
         if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
           var ok = await window.SessionManager.requireValidSession();
           if (!ok) return;
         }
-        if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
-          var allowed = await window.AraclarGate.ensureAccess({
-            message: 'İş Merkezi şifresini girin:'
-          });
-          if (!allowed) {
-            goHome();
-            return;
-          }
+        if (!window.AraclarGate || typeof window.AraclarGate.isUnlocked !== 'function' || !window.AraclarGate.isUnlocked()) {
+          openPage('ihracat-takip.html');
+          return;
         }
         showPage();
         if (window.IsMerkezi) window.IsMerkezi.bindAppUi({ toast: toast });

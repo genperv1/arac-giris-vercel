@@ -8,11 +8,11 @@
   <title>Liste kopyala — Araç Takip</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
-  <link rel="stylesheet" href="styles.css?v=1.0.16-20260910-desk">
+  <link rel="stylesheet" href="styles.css?v=1.0.24-20260913-elc-dl">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260909-elc-page"></script>
   <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
-  <script src="araclar-gate.js?v=1.0.1-20260912-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
 </head>
 <body class="elc-page">
   <header class="elc-top">
@@ -24,7 +24,12 @@
           <p>F358 kaynağını gör, hafta veya satır seç, güncel listeye yapıştır</p>
         </div>
       </div>
-      <button type="button" id="elcHomeBtn" class="elc-home">Ana Sayfa</button>
+      <div class="elc-top__actions">
+        <button type="button" id="elcDownloadBtn" class="elc-home elc-download-btn" title="Masaüstü HTML indir">
+          <i class="fas fa-download" aria-hidden="true"></i> İndir
+        </button>
+        <button type="button" id="elcHomeBtn" class="elc-home">Ana Sayfa</button>
+      </div>
     </div>
   </header>
 
@@ -90,7 +95,7 @@
   <div class="toast" id="elcToast"></div>
 
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
-  <script src="modules/excel-list-copy.js?v=1.0.12-20260911-paste"></script>
+  <script src="modules/excel-list-copy.js?v=1.0.13-20260913-font11"></script>
   <script>
     (function () {
       try { document.documentElement.style.visibility = 'hidden'; } catch (e) { /* ignore */ }
@@ -112,9 +117,36 @@
           location.href = 'GIRIS.html';
         }
       }
+      function openPage(path) {
+        if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+          window.SessionManager.openAppPage(path);
+        } else {
+          location.href = path;
+        }
+      }
 
       document.getElementById('elcHomeBtn')?.addEventListener('click', function () {
         goHome();
+      });
+
+      document.getElementById('elcDownloadBtn')?.addEventListener('click', async function () {
+        try {
+          var res = await fetch('liste-kopyala-desktop.html', { cache: 'no-store' });
+          if (!res.ok) throw new Error('HTML alınamadı');
+          var blob = await res.blob();
+          var stamp = new Date().toISOString().slice(0, 10);
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'liste-kopyala_' + stamp + '.html';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+          toast('Masaüstü HTML indirildi.');
+        } catch (err) {
+          toast('İndirme başarısız.', true);
+        }
       });
 
       async function boot() {
@@ -122,14 +154,9 @@
           var ok = await window.SessionManager.requireValidSession();
           if (!ok) return;
         }
-        if (window.AraclarGate && typeof window.AraclarGate.ensureAccess === 'function') {
-          var allowed = await window.AraclarGate.ensureAccess({
-            message: 'Liste kopyala şifresini girin:'
-          });
-          if (!allowed) {
-            goHome();
-            return;
-          }
+        if (!window.AraclarGate || typeof window.AraclarGate.isUnlocked !== 'function' || !window.AraclarGate.isUnlocked()) {
+          openPage('ihracat-takip.html');
+          return;
         }
         showPage();
         if (window.ExcelListCopy && typeof window.ExcelListCopy.bindAppUi === 'function') {

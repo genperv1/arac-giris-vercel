@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>Sayı kontrol — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=1.0.25-20260913-sayi">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260913-sayi"></script>
+  <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
+</head>
+<body class="sk-page im-page">
+  <header class="im-top">
+    <div class="im-top__inner">
+      <div class="im-brand">
+        <span class="im-brand__icon" aria-hidden="true"><i class="fas fa-balance-scale"></i></span>
+        <div>
+          <h1>Sayı kontrol</h1>
+          <p>Rapor / Güncel ↔ Sevkiyat Excel — BBT ve ton tutuyor mu?</p>
+        </div>
+      </div>
+      <div class="im-top__actions">
+        <button type="button" id="skOpenPlanBtn" class="im-chip-btn">Plan v4</button>
+        <button type="button" id="skHomeBtn" class="im-home">Ana Sayfa</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="im-main sk-main">
+    <div id="skTabs" class="sk-tabs" role="tablist">
+      <button type="button" class="sk-tab is-active" data-sk-mode="rapor">1) Rapor ↔ Sevkiyat</button>
+      <button type="button" class="sk-tab" data-sk-mode="guncel">2) Güncel ↔ Sevkiyat</button>
+    </div>
+
+    <p class="sk-lead">
+      İki Excel yükle → <strong>Kontrol et</strong>. Yeşil = tutuyor, kırmızı = fark var.
+      Eşleme: YD + booking / LOT / sipariş no.
+    </p>
+
+    <div class="sk-upload">
+      <label class="sk-file">
+        <span id="skLeftLabel">1) Netsis raporu.xlsx (veya F358 / Güncel)</span>
+        <input id="skLeftFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb">
+        <em id="skLeftName">Dosya seçilmedi</em>
+      </label>
+      <label class="sk-file">
+        <span id="skRightLabel">2) Sevkiyat Excel’in.xlsx (YD blokları)</span>
+        <input id="skRightFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb">
+        <em id="skRightName">Dosya seçilmedi</em>
+      </label>
+      <button type="button" id="skRunBtn" class="sk-run">Kontrol et</button>
+    </div>
+
+    <p id="skStatus" class="sk-status"></p>
+    <div id="skSummary" class="sk-summary"></div>
+    <div id="skTable" class="sk-results"></div>
+  </main>
+
+  <div class="toast" id="skToast"></div>
+
+  <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
+  <script src="modules/excel-list-copy.js?v=1.0.13-20260913-font11"></script>
+  <script src="modules/is-merkezi.js?v=1.0.12-20260912-araclar-pwd"></script>
+  <script src="modules/plan-v4.js?v=1.0.4-20260913-bignum"></script>
+  <script src="modules/sayi-kontrol.js?v=1.0.1-20260913"></script>
+  <script>
+    (function () {
+      try { document.documentElement.style.visibility = 'hidden'; } catch (e) {}
+      function toast(msg, isErr) {
+        var el = document.getElementById('skToast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'toast show' + (isErr ? ' warn' : '');
+        clearTimeout(el._t);
+        el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
+      }
+      function showPage() {
+        try { document.documentElement.style.visibility = ''; } catch (e) {}
+      }
+      function goHome() {
+        if (window.SessionManager && window.SessionManager.navigateToHome) window.SessionManager.navigateToHome();
+        else location.href = 'GIRIS.html';
+      }
+      function openPage(path) {
+        if (window.SessionManager && window.SessionManager.openAppPage) window.SessionManager.openAppPage(path);
+        else location.href = path;
+      }
+      async function boot() {
+        if (window.SessionManager && window.SessionManager.requireValidSession) {
+          var ok = await window.SessionManager.requireValidSession();
+          if (!ok) return;
+        }
+        if (!window.AraclarGate || !window.AraclarGate.isUnlocked || !window.AraclarGate.isUnlocked()) {
+          openPage('ihracat-takip.html');
+          return;
+        }
+        showPage();
+        if (window.SayiKontrol) window.SayiKontrol.bindAppUi({ toast: toast });
+        var planBtn = document.getElementById('skOpenPlanBtn');
+        if (planBtn) planBtn.addEventListener('click', function () { openPage('plan-v4.html'); });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+</body>
+</html>

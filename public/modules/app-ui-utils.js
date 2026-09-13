@@ -7,7 +7,7 @@
 /** Araçlar ▾ menüsünü kapat (details açık kalmasın) */
 function closeAppToolsMenu() {
   try {
-    document.querySelectorAll('details.app-tools-menu').forEach(function (el) {
+    document.querySelectorAll('details.app-tools-menu, details.app-split-nav__details').forEach(function (el) {
       el.open = false;
       el.removeAttribute('open');
     });

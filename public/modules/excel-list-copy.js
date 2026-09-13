@@ -584,12 +584,15 @@
   }
 
   function rowsToHtmlTable(rows) {
+    // Excel HTML yapıştırınca stilsiz <td> yazıyı küçültür; Calibri 11pt = tipik güncel liste.
+    var cellStyle = "font-family:Calibri,Arial,sans-serif;font-size:11pt;mso-number-format:'\\@';";
+    var tableStyle = 'border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;';
     var body = (rows || []).map(function (row) {
       return '<tr>' + rowToCells(row).map(function (cell) {
-        return '<td>' + escapeHtml(cell) + '</td>';
+        return '<td style="' + cellStyle + '">' + escapeHtml(cell) + '</td>';
       }).join('') + '</tr>';
     }).join('');
-    return '<table><tbody>' + body + '</tbody></table>';
+    return '<table style="' + tableStyle + '"><tbody>' + body + '</tbody></table>';
   }
 
   function pickReportSheet(wb) {

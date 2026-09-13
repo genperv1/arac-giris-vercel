@@ -236,6 +236,9 @@
         'ayarlar.html': 'gpm_page_ayarlar',
         'liste-kopyala.html': 'gpm_page_liste_kopyala',
         'is-merkezi.html': 'gpm_page_is_merkezi',
+        'plan-v4.html': 'gpm_page_plan_v4',
+        'sayi-kontrol.html': 'gpm_page_sayi_kontrol',
+        'ihracat-takip.html': 'gpm_page_ihracat_takip',
         'plaka.html': 'gpm_page_plaka',
         'gunlukraporlar.html': 'gpm_page_gunluk',
         'advanced_reports.html': 'gpm_page_advanced'

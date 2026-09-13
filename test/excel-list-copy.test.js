@@ -223,7 +223,9 @@ test('rowsToTsv writes 23 target columns for a 5-sevk batch', () => {
   assert.equal(lines[0].split('\t')[6], 'YD10(M)');
   assert.equal(lines[1].split('\t')[6], 'YD11(G)');
   const html = api.rowsToHtmlTable(numbered);
-  assert.match(html, /<table>/);
+  assert.match(html, /<table/);
+  assert.match(html, /font-size:11pt/);
+  assert.match(html, /Calibri/);
   assert.equal((html.match(/<tr>/g) || []).length, 5);
   assert.match(html, /YD10\(M\)/);
 });
@@ -264,18 +266,26 @@ test('solveGrid reports a clear error when headers are missing', () => {
   assert.match(bad.error, /başlığı/);
 });
 
-test('Araçlar menu downloads desktop HTML under Ayarlar', () => {
+test('Araçlar menu opens İhracat Takip hub; Liste kopyala lives on hub', () => {
   const menu = fs.readFileSync(path.join(__dirname, '../public/modules/app-ui-forms-takip.js'), 'utf8');
   const ayarlarAt = menu.indexOf('id="ayarlarMenuButton"');
-  const dlAt = menu.indexOf('id="excelListCopyMenuButton"');
+  const hubAt = menu.indexOf('id="ihracatTakipMenuButton"');
   assert.ok(ayarlarAt >= 0, 'Ayarlar button missing');
-  assert.ok(dlAt > ayarlarAt, 'Liste kopyala must sit under Ayarlar');
-  assert.match(menu, /elc-dl-icon/);
-  assert.match(menu, /fa-download/);
+  assert.ok(hubAt > ayarlarAt, 'İhracat Takip must sit under Ayarlar');
+  assert.match(menu, /iht-radar/);
+  assert.match(menu, /İhracat Takip/);
+  assert.doesNotMatch(menu, /excelListCopyMenuButton/);
+  const hub = fs.readFileSync(path.join(__dirname, '../public/ihracat-takip.html'), 'utf8');
+  assert.match(hub, /liste-kopyala\.html/);
+  assert.match(hub, /plan-v4\.html/);
+  assert.match(hub, /sayi-kontrol\.html/);
+  assert.match(hub, /is-merkezi\.html/);
   const page = fs.readFileSync(path.join(__dirname, '../public/liste-kopyala.html'), 'utf8');
   assert.match(page, /id="elcPage"/);
   assert.match(page, /id="elcSolveBtn"/);
   assert.match(page, /id="elcCopyBtn"/);
+  assert.match(page, /id="elcDownloadBtn"/);
+  assert.match(page, /liste-kopyala-desktop\.html/);
   assert.match(page, /SEVKPLANMIK/);
   assert.match(page, /PALET_URUN_SAYISI/);
   assert.doesNotMatch(page, />MT</);
@@ -285,11 +295,10 @@ test('Araçlar menu downloads desktop HTML under Ayarlar', () => {
   assert.doesNotMatch(copyJs, /downloadRowsXlsx/);
   const styles = fs.readFileSync(path.join(__dirname, '../public/styles.css'), 'utf8');
   assert.match(styles, /\.elc-cell--var/);
-  assert.match(styles, /\.elc-dl-icon/);
+  assert.match(styles, /\.iht-radar/);
   const auth = fs.readFileSync(path.join(__dirname, '../public/modules/app-auth.js'), 'utf8');
-  assert.match(auth, /liste-kopyala-desktop\.html/);
-  assert.match(auth, /liste-kopyala_\$\{stamp\}\.html|liste-kopyala_\$\{stamp\}/);
-  assert.match(auth, /a\.download/);
+  assert.match(auth, /openAppPage\('ihracat-takip\.html'\)/);
+  assert.doesNotMatch(auth, /excelListCopyMenuButton/);
   const desktop = fs.readFileSync(path.join(__dirname, '../public/liste-kopyala-desktop.html'), 'utf8');
   assert.match(desktop, /id="elcPage"/);
   assert.match(desktop, /id="elcCopyBtn"/);
@@ -300,6 +309,7 @@ test('Araçlar menu downloads desktop HTML under Ayarlar', () => {
   assert.match(desktop, /function bindAppUi/);
   const session = fs.readFileSync(path.join(__dirname, '../public/session-manager.js'), 'utf8');
   assert.match(session, /liste-kopyala\.html/);
+  assert.match(session, /ihracat-takip\.html/);
   assert.doesNotMatch(
     fs.readFileSync(path.join(__dirname, '../public/ayarlar.html'), 'utf8'),
     /id="section-excel"/

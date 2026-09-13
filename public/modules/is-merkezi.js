@@ -432,6 +432,8 @@
     var resetBtn = document.getElementById('imResetBtn');
     var homeBtn = document.getElementById('imHomeBtn');
     var openListeBtn = document.getElementById('imOpenListeBtn');
+    var openPlanV4Btn = document.getElementById('imOpenPlanV4Btn');
+    var openSayiBtn = document.getElementById('imOpenSayiBtn');
     var openNakliyeBtn = document.getElementById('imOpenNakliyeBtn');
 
     function openPage(path) {
@@ -606,6 +608,18 @@
     if (openListeBtn) {
       openListeBtn.addEventListener('click', function () {
         openPage('liste-kopyala.html');
+      });
+    }
+
+    if (openPlanV4Btn) {
+      openPlanV4Btn.addEventListener('click', function () {
+        openPage('plan-v4.html');
+      });
+    }
+
+    if (openSayiBtn) {
+      openSayiBtn.addEventListener('click', function () {
+        openPage('sayi-kontrol.html');
       });
     }
 
