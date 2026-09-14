@@ -30,18 +30,22 @@
 
   var HEADER_ALIASES = {
     KUTAHYA_CIKIS_TARIH: 'cikisTarih',
+    GENPER_CIKIS_TARIH: 'cikisTarih',
     LIMAN_DOL_TARIH: 'limanDolum',
     ICNAKLIYE_CARI_ISIM_TR: 'tedarikciRaw',
+    ICNAK1_CARI_ISIM_TR: 'tedarikciRaw',
     TERMINAL_CARI_ISIM_TR: 'limanRaw',
     GEMI_ADI: 'gemi',
     BOOKINGNO: 'bookingNo',
     SIPNO: 'sipNo',
     AKTARIM: 'aktarim',
+    URETICI: 'uretici',
     MUSTERI: 'musteriRaw',
     LOTNO: 'lotNo',
     STOK_KODU: 'stokKodu',
     STOK_ADI: 'stokAdi',
     SEVKPLANMIK: 'sevkPlanMik',
+    MIKTAR: 'sevkPlanMik',
     SIP_TOPLAM_MIKTAR: 'sipToplam',
     OLCU_BR1: 'olcuBr',
     AMBALAJ_ADI_TR: 'ambalajAdi',
@@ -202,11 +206,31 @@
     var code = trimStr(musteri).replace(/\s+/g, '');
     if (!code) return '';
     if (/\([MG]\)$/i.test(code)) return code.toUpperCase().replace(/\(m\)$/i, '(M)').replace(/\(g\)$/i, '(G)');
-    var kind = foldTr(aktarim);
-    var tag = '';
-    if (kind === 'maden' || kind.indexOf('madencilik') >= 0) tag = '(M)';
-    else if (kind === 'genper') tag = '(G)';
+    var tag = aktarimTag(aktarim);
     return code.toUpperCase() + tag;
+  }
+
+  /** AKTARIM (MADEN/GENPER) veya ÜRETİCİ (Madencilik / Genleştirilmiş) → (M)/(G) */
+  function aktarimTag(aktarim) {
+    var kind = foldTr(aktarim);
+    if (!kind) return '';
+    if (
+      kind === 'maden' ||
+      kind.indexOf('madencilik') >= 0 ||
+      kind.indexOf('yaz maden') >= 0 ||
+      /\bmaden\b/.test(kind)
+    ) {
+      return '(M)';
+    }
+    if (
+      kind === 'genper' ||
+      kind.indexOf('genles') >= 0 ||
+      kind.indexOf('genlestir') >= 0 ||
+      kind.indexOf('genper') >= 0
+    ) {
+      return '(G)';
+    }
+    return '';
   }
 
   function formatLotNo(raw) {
@@ -343,6 +367,15 @@
     return '';
   }
 
+  function readFirst(row, colMap, keys, extraLookahead) {
+    var list = Array.isArray(keys) ? keys : [keys];
+    for (var i = 0; i < list.length; i++) {
+      var val = readMapped(row, colMap, list[i], extraLookahead);
+      if (trimStr(val) !== '') return val;
+    }
+    return '';
+  }
+
   function rowBannerText(row) {
     return (row || []).slice(0, 6).map(trimStr).filter(Boolean).join(' ');
   }
@@ -397,25 +430,32 @@
     if (!sipNo && !musteri) return null;
     if (isGroupHeaderRow(row)) return null;
 
-    var cikis = get('KUTAHYA_CIKIS_TARIH', 3);
+    var cikis = readFirst(row, colMap, ['KUTAHYA_CIKIS_TARIH', 'GENPER_CIKIS_TARIH'], 3);
     if (!cellLooksLikeDate(cikis)) {
       for (var i = 0; i < Math.min(row.length, 4); i++) {
         if (cellLooksLikeDate(row[i])) { cikis = row[i]; break; }
       }
     }
 
+    var aktarim = trimStr(get('AKTARIM'));
+    if (!aktarim) aktarim = trimStr(get('URETICI'));
+
     return {
-      tedarikciRaw: get('ICNAKLIYE_CARI_ISIM_TR'),
+      tedarikciRaw: readFirst(row, colMap, [
+        'ICNAKLIYE_CARI_ISIM_TR',
+        'ICNAK1_CARI_ISIM_TR',
+        'ICNAK_CARI_ISIM_TR'
+      ]),
       limanRaw: get('TERMINAL_CARI_ISIM_TR'),
       gemi: trimStr(get('GEMI_ADI')),
       bookingNo: trimStr(get('BOOKINGNO')),
       sipNo: sipNo,
-      aktarim: trimStr(get('AKTARIM')),
+      aktarim: aktarim,
       musteriRaw: musteri,
       lotNo: get('LOTNO'),
       stokKodu: trimStr(get('STOK_KODU')),
       stokAdi: get('STOK_ADI'),
-      sevkPlanMik: get('SEVKPLANMIK'),
+      sevkPlanMik: readFirst(row, colMap, ['SEVKPLANMIK', 'MIKTAR']),
       sipToplam: get('SIP_TOPLAM_MIKTAR'),
       olcuBr: get('OLCU_BR1'),
       ambalajAdi: get('AMBALAJ_ADI_TR'),
@@ -491,6 +531,7 @@
     var rows = [];
     var currentYear = '';
     var currentWeek = '';
+    var lastTedarikci = '';
     for (var r = headerIdx + 1; r < grid.length; r++) {
       var raw = grid[r] || [];
       var banner = parseGroupBanner(raw);
@@ -504,6 +545,11 @@
       }
       var extracted = extractSourceRow(raw, colMap);
       if (!extracted) continue;
+      if (trimStr(extracted.tedarikciRaw)) {
+        lastTedarikci = extracted.tedarikciRaw;
+      } else if (lastTedarikci) {
+        extracted.tedarikciRaw = lastTedarikci;
+      }
       extracted.groupYear = currentYear;
       extracted.groupWeek = currentWeek || weekFromSource(extracted);
       rows.push(extracted);
@@ -902,6 +948,7 @@
     formatMt: formatMt,
     shortenTedarikci: shortenTedarikci,
     formatMusteri: formatMusteri,
+    aktarimTag: aktarimTag,
     formatLotNo: formatLotNo,
     formatUrun: formatUrun,
     formatAmbalaj: formatAmbalaj,

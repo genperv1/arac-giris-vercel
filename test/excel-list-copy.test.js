@@ -75,6 +75,34 @@ test('formatMusteri adds (M) or (G) from AKTARIM', () => {
   assert.equal(api.formatMusteri('YD15(M)', 'MADEN'), 'YD15(M)');
 });
 
+test('formatMusteri uses ÜRETİCİ when AKTARIM empty (Madencilik / Genleştirilmiş)', () => {
+  assert.equal(api.formatMusteri('YD25', 'Genper Madencilik San.ve Tic.Ltd.Şti.'), 'YD25(M)');
+  assert.equal(api.formatMusteri('YD359', 'Genper Genleştirilmiş Perlit San.Tic.A.Ş.'), 'YD359(G)');
+  assert.equal(api.aktarimTag('YAZ MADENCİLİK'), '(M)');
+  assert.equal(api.aktarimTag('GENLEŞME'), '(G)');
+});
+
+test('F357 ICNAK1 + URETICI maps AKYÜZ and (G)/(M)', () => {
+  const sample = 'C:/Users/Engoo/Downloads/F357.A01-20260913-173014.xlsx';
+  if (!fs.existsSync(sample)) {
+    assert.ok(true, 'sample missing — skip');
+    return;
+  }
+  const XLSX = require('xlsx');
+  const wb = XLSX.readFile(sample, { cellDates: false });
+  const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+    header: 1, defval: '', blankrows: false
+  });
+  const solved = api.solveGrid(grid, 1);
+  assert.equal(solved.ok, true);
+  assert.ok(solved.rows.length >= 5);
+  assert.ok(solved.rows.every((r) => r.tedarikci === 'AKYÜZ'));
+  const g = solved.rows.find((r) => r.musteri === 'YD359(G)');
+  const m = solved.rows.find((r) => r.musteri === 'YD25(M)' || r.musteri === 'GYD28(M)');
+  assert.ok(g, 'YD359(G) expected from Genleştirilmiş');
+  assert.ok(m, 'Madencilik row should get (M)');
+});
+
 test('screen dates stay short, copy dates use long Turkish weekday', () => {
   assert.equal(api.formatDateTr(new Date(Date.UTC(2026, 8, 5))), '05.09.2026');
   assert.equal(api.formatDateCopyTr(new Date(Date.UTC(2026, 8, 5))), '5 Eylül 2026 Cumartesi');
