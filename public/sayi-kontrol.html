@@ -8,7 +8,7 @@
   <title>Sayı kontrol — Araç Takip</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
-  <link rel="stylesheet" href="styles.css?v=1.0.25-20260913-sayi">
+  <link rel="stylesheet" href="styles.css?v=1.0.33-20260914-fix">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260913-sayi"></script>
   <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
@@ -21,7 +21,7 @@
         <span class="im-brand__icon" aria-hidden="true"><i class="fas fa-balance-scale"></i></span>
         <div>
           <h1>Sayı kontrol</h1>
-          <p>Rapor / Güncel ↔ Sevkiyat Excel — BBT ve ton tutuyor mu?</p>
+          <p>Netsis raporu ↔ Güncel Excel — SIPNO ile blok karşılaştırma</p>
         </div>
       </div>
       <div class="im-top__actions">
@@ -33,23 +33,24 @@
 
   <main class="im-main sk-main">
     <div id="skTabs" class="sk-tabs" role="tablist">
-      <button type="button" class="sk-tab is-active" data-sk-mode="rapor">1) Rapor ↔ Sevkiyat</button>
-      <button type="button" class="sk-tab" data-sk-mode="guncel">2) Güncel ↔ Sevkiyat</button>
+      <button type="button" class="sk-tab is-active" data-sk-mode="rapor">1) Netsis ↔ Güncel Excel</button>
+      <button type="button" class="sk-tab" data-sk-mode="guncel">2) Güncel ↔ Sevkiyat (sayı)</button>
     </div>
 
     <p class="sk-lead">
-      İki Excel yükle → <strong>Kontrol et</strong>. Yeşil = tutuyor, kırmızı = fark var.
-      Eşleme: YD + booking / LOT / sipariş no.
+      Netsis + güncel Excel → <strong>Kontrol et</strong>.
+      Satır eşlemesi <strong>irsaliye no</strong> ile (plaka ile karıştırılmaz).
+      Sadece Excel’deki siparişler gösterilir; tüm Netsis yılı dökülmez.
     </p>
 
     <div class="sk-upload">
       <label class="sk-file">
-        <span id="skLeftLabel">1) Netsis raporu.xlsx (veya F358 / Güncel)</span>
+        <span id="skLeftLabel">1) Netsis raporu (RR.xls / .xlsx)</span>
         <input id="skLeftFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb">
         <em id="skLeftName">Dosya seçilmedi</em>
       </label>
       <label class="sk-file">
-        <span id="skRightLabel">2) Sevkiyat Excel’in.xlsx (YD blokları)</span>
+        <span id="skRightLabel">2) Güncel sevkiyat Excel (YD blokları)</span>
         <input id="skRightFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb">
         <em id="skRightName">Dosya seçilmedi</em>
       </label>
@@ -67,7 +68,7 @@
   <script src="modules/excel-list-copy.js?v=1.0.15-20260914-akyuz"></script>
   <script src="modules/is-merkezi.js?v=1.0.12-20260912-araclar-pwd"></script>
   <script src="modules/plan-v4.js?v=1.0.4-20260913-bignum"></script>
-  <script src="modules/sayi-kontrol.js?v=1.0.1-20260913"></script>
+  <script src="modules/sayi-kontrol.js?v=1.0.11-20260914-fix"></script>
   <script>
     (function () {
       try { document.documentElement.style.visibility = 'hidden'; } catch (e) {}
