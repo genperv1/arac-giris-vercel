@@ -28,11 +28,39 @@ test('normalizeSip irsaliye date tasiyici', () => {
   );
 });
 
-test('compareField bbt exact, ton tolerant', () => {
+test('compareField bbt exact, kg/ton/cuval tolerances', () => {
   assert.equal(api.compareField(200, 200, 'bbt').ok, true);
   assert.equal(api.compareField(200, 201, 'bbt').ok, false);
-  assert.equal(api.compareField(100, 100.02, 'ton').ok, true);
-  assert.equal(api.compareField(100, 101, 'ton').ok, false);
+  assert.equal(api.compareField(100, 100, 'ton').ok, true);
+  assert.equal(api.compareField(100, 100.02, 'ton').ok, false);
+  assert.equal(api.compareField(27200, 27200, 'kg').ok, true);
+  assert.equal(api.compareField(27200, 27205, 'kg').ok, false);
+  assert.equal(api.compareField(27200, 27232, 'kg').ok, false);
+  assert.equal(api.compareField(1080, 1081, 'cuval').ok, true);
+  assert.equal(api.compareField(1080, 1082, 'cuval').ok, false);
+});
+
+test('compareText sofor exact, gsm exact', () => {
+  assert.equal(api.compareText('YÜKSEL FERİZ', 'YÜKSEL FERİZ', 'sofor').ok, true);
+  assert.equal(api.compareText('YÜKSEL FERİZ', 'YÜKSEL FEİZ', 'sofor').ok, false);
+  assert.equal(api.compareText('5374031074', '5374031074', 'gsm').ok, true);
+  assert.equal(api.compareText('5374031074', '5374031075', 'gsm').ok, false);
+});
+
+test('kantar empty on one side is not a mismatch', () => {
+  const cmp = api.compareLinePair(
+    { irsaliye: 'R1', plaka: '43ADR754', tasiyici: 'AKYÜZ', teslimCari: 'YILPORT', ob1: 27000, kantar: 27540, sofor: 'ÖMER', gsm: '543', bbt: 20, cuval: 1080 },
+    { irsaliye: 'R1', plaka: '43ADR754', tasiyici: 'AKYÜZ', teslimCari: 'YILPORT', ob1: 27000, kantar: 0, sofor: '', gsm: '', bbt: 20, cuval: 1080 }
+  );
+  assert.equal(cmp.fields.kantar.ok, true);
+  assert.equal(cmp.fields.sofor.ok, true);
+  assert.equal(cmp.ok, true);
+  const both = api.compareLinePair(
+    { irsaliye: 'R1', plaka: '43A', tasiyici: 'A', teslimCari: 'Y', ob1: 27000, kantar: 27200, sofor: 'A', gsm: '1', bbt: 20, cuval: 1080 },
+    { irsaliye: 'R1', plaka: '43A', tasiyici: 'A', teslimCari: 'Y', ob1: 27000, kantar: 27232, sofor: 'A', gsm: '1', bbt: 20, cuval: 1080 }
+  );
+  assert.equal(both.fields.kantar.ok, false);
+  assert.equal(both.ok, false);
 });
 
 test('parseSevkiyatGrid reads TOPLAM BBT, SIPNO and lines', () => {
@@ -57,6 +85,19 @@ test('parseSevkiyatGrid reads TOPLAM BBT, SIPNO and lines', () => {
   assert.equal(parsed.items[0].lines[0].bbt, 22);
   assert.equal(parsed.items[0].lines[0].cuval, 0);
   assert.ok(Math.abs(parsed.items[0].ton - 230) < 0.01);
+});
+
+test('Excel BOŞ ÇUVAL maps to cuval (rapor ACIKLAMA6)', () => {
+  const grid = [
+    ['YD359 / 400 BBT / BOOKING NO : X1'],
+    ['NETSIS SİPARİŞ NO : M20202600000654'],
+    ['PLAKA', 'BBT', 'ÇUVAL', 'PALET', 'BOŞ BBT', 'BOŞ ÇUVAL', 'NET TONAJ', 'GİDEN TONAJ', 'FARK', 'HP'],
+    ['43ADS403', 19, '', '', 1, 1026, 25650, 26100, 300, 'GPM'],
+    ['TOPLAM', 19, 0, 0, 1, 1026, 25650, 26100, '', '']
+  ];
+  const parsed = api.parseSevkiyatGrid(grid, '14.09.2026');
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.items[0].lines[0].cuval, 1026);
 });
 
 test('parseNetsisGrid groups by TARIH+SIPNO', () => {
@@ -138,12 +179,56 @@ test('diffSipBlocks matches by irsaliye only and scopes to excel sips', () => {
   assert.equal(d.summary.lineOk, 1);
 });
 
-test('pairLines does not match by plaka alone', () => {
+test('Excel ŞOFÖR BİLGİLERİ fallback and GELMEDİ', () => {
+  const grid = [
+    ['YD1 / NETSIS SİPARİŞ NO : M20202600000654'],
+    ['PLAKA', 'BBT', 'NET TONAJ', 'GİDEN TONAJ', 'ŞOFÖR', 'ŞOFÖR BİLGİLERİ', 'TELEFON'],
+    ['43BH088', 20, 27000, 27000, '', 'GELMEDİ', ''],
+    ['43AAE599', 20, 27000, 27000, '', 'YÜKSEL FERİZ-5374031074', ''],
+    ['TOPLAM', 40, 54000, 54000, '', '', '']
+  ];
+  const parsed = api.parseSevkiyatGrid(grid, '14.09.2026');
+  assert.equal(parsed.items[0].lines[0].sofor, '');
+  assert.equal(parsed.items[0].lines[1].sofor, 'YÜKSEL FERİZ');
+  assert.equal(parsed.items[0].lines[1].gsm, '5374031074');
+});
+
+test('Netsis stub lines (1kg empty) are skipped', () => {
+  const grid = [
+    ['SIRKET', 'TARIH', 'SIPNO', 'IRSALIYE_NO', 'FIRMA_KODU', 'BOOKING', 'IRS_MIKTAR_OB1', 'KANTAR', 'ACIKLAMA1', 'ACIKLAMA2', 'ACIKLAMA5', 'ACIKLAMA6', 'PLAKA', 'TASIYICI_UNVAN', 'TASICIYI_AD_SOYAD', 'TASIYICI_GSM', 'FT_CARI_ISIM'],
+    ['MADEN26', '14.09.2026', 'M20202600000654', 'R11202600001358', 'YD', '1', 25650, 25650, 'BBT', 19, '', '', '43ADS403', 'GPM', 'MEHMET ALİ SARI', '5306109035', 'Dp'],
+    ['MADEN26', '14.09.2026', 'M20202600000654', 'R11202600001363', 'YD', '1', 1, 0, '', '', '', '', '', '', '', '', 'Dp'],
+    ['MADEN26', '14.09.2026', 'M20202600000654', 'R11202600001374', 'YD', '1', 27000, 27000, 'BBT', 20, '', '', '43AAE599', 'GPM', 'YÜKSEL FERİZ', '5374031074', 'Dp']
+  ];
+  const parsed = api.parseNetsisGrid(grid);
+  assert.equal(parsed.blocks[0].lines.length, 2);
+  assert.equal(parsed.blocks[0].lines[1].sofor, 'YÜKSEL FERİZ');
+});
+
+test('pairLines rematches by plaka when irsaliye conflicts', () => {
+  const pairs = api.pairLines(
+    [
+      { irsaliye: 'R11202600001374', plaka: '43AAE599', sofor: 'YUKSEL', bbt: 20 },
+      { irsaliye: 'R11202600001375', plaka: '43ACN771', sofor: 'GUNAY', bbt: 20 }
+    ],
+    [
+      { irsaliye: 'R11202600001373', plaka: '43AAE599', sofor: 'YUKSEL', bbt: 20 },
+      { irsaliye: 'R11202600001374', plaka: '43ACN771', sofor: 'GUNAY', bbt: 20 }
+    ]
+  );
+  const both = pairs.filter((p) => p.left && p.right);
+  assert.equal(both.length, 2);
+  both.forEach((p) => {
+    assert.equal(String(p.left.plaka), String(p.right.plaka));
+    assert.equal(p.left.sofor, p.right.sofor);
+  });
+});
+
+test('pairLines does not invent matches without shared irsaliye or plaka', () => {
   const pairs = api.pairLines(
     [{ irsaliye: 'R01202600001111', plaka: '43ADT553', bbt: 22 }],
-    [{ irsaliye: 'R01202600002222', plaka: '43ADT553', bbt: 22 }]
+    [{ irsaliye: 'R01202600002222', plaka: '99ZZZ99', bbt: 22 }]
   );
-  assert.equal(pairs.length, 2);
   assert.equal(pairs.filter((p) => p.left && p.right).length, 0);
 });
 

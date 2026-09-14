@@ -2,7 +2,8 @@
 (function (root) {
   'use strict';
 
-  var KG_TOLERANCE = 50; // kg — küçük yuvarlama farkı
+  var KG_TOLERANCE = 0; // kg/kantar/ton: tolerans yok
+  var CUVAL_TOLERANCE = 1; // sadece çuval ±1
 
   function trimStr(value) {
     return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -219,6 +220,7 @@
       else if (k.indexOf('bos_bbt') === 0 && map.bosBbt == null) map.bosBbt = i;
       else if (k.indexOf('bos_cuval') === 0 && map.bosCuval == null) map.bosCuval = i;
       else if (k.indexOf('irsaliye') >= 0 && map.irsaliye == null) map.irsaliye = i;
+      else if (k.indexOf('sofor') >= 0 && k.indexOf('bilgi') >= 0 && map.soforBilgi == null) map.soforBilgi = i;
       else if (k.indexOf('sofor') >= 0 && map.sofor == null) map.sofor = i;
       else if ((k === 'telefon' || k.indexOf('telefon') === 0 || k === 'gsm') && map.telefon == null) map.telefon = i;
       else if (k === 'fark') map.fark = i;
@@ -399,8 +401,21 @@
         }
         var sofor = trimStr(cell(row, cols.sofor));
         var telefon = normalizeGsm(cell(row, cols.telefon));
+        var soforBilgi = trimStr(cell(row, cols.soforBilgi));
+        if (!sofor && soforBilgi) {
+          if (foldTr(soforBilgi) === 'gelmedi') {
+            sofor = '';
+          } else {
+            var sp = soforBilgi.split(/[-–]/);
+            sofor = trimStr(sp[0] || soforBilgi);
+            if (!telefon && sp[1]) telefon = normalizeGsm(sp[1]);
+          }
+        }
         var bbt = Math.round(parseNum(cell(row, cols.bbt)) || 0);
         var cuval = Math.round(parseNum(cell(row, cols.cuval)) || 0);
+        var bosCuval = Math.round(parseNum(cell(row, cols.bosCuval)) || 0);
+        // Excel'de çuval sayısı BOŞ ÇUVAL kolonunda → raporda ACIKLAMA6
+        if (!cuval && bosCuval > 0) cuval = bosCuval;
 
         lines.push({
           irsaliye: irs,
@@ -409,7 +424,7 @@
           tasiyiciRaw: trimStr(tasiRaw) || blockTasiyici,
           sofor: sofor,
           gsm: telefon,
-          soforFull: sofor + (telefon ? ('-' + telefon) : ''),
+          soforFull: sofor + (telefon ? (' ' + telefon) : ''),
           teslimCari: liman,
           ob1: Number.isFinite(netKg) ? netKg : 0,
           kantar: Number.isFinite(gidenKg) ? gidenKg : 0,
@@ -492,6 +507,16 @@
     return hasSip && hasTarih;
   }
 
+  function isNetsisStubLine(ln) {
+    if (!ln) return true;
+    var ob1 = Number(ln.ob1) || 0;
+    var bbt = Number(ln.bbt) || 0;
+    var hasPlaka = looksLikePlaka(ln.plaka);
+    // Rapor: 1 kg / boş plaka / şoförsüz kayıtlar gerçek sevkiyat değil (eşlemeyi kaydırır)
+    if (ob1 > 0 && ob1 <= 1 && bbt <= 0 && !hasPlaka && !trimStr(ln.sofor)) return true;
+    return false;
+  }
+
   /**
    * Netsis RR.xls tarzı düz rapor → SIPNO+TARIH blokları.
    */
@@ -549,20 +574,22 @@
       var tasiRaw = cell(row, cols.tasiyici);
       var sofor = trimStr(cell(row, cols.sofor));
       var gsm = normalizeGsm(cell(row, cols.gsm));
-      blk.lines.push({
+      var lineObj = {
         irsaliye: displayIrsaliye(cell(row, cols.irsaliye)),
         plaka: normalizePlaka(cell(row, cols.plaka)),
         tasiyici: classifyTasiyici(tasiRaw),
         tasiyiciRaw: trimStr(tasiRaw),
         sofor: sofor,
         gsm: gsm,
-        soforFull: sofor + (gsm ? ('-' + gsm) : ''),
+        soforFull: sofor + (gsm ? (' ' + gsm) : ''),
         teslimCari: trimStr(cell(row, cols.cariIsim)) || blk.teslimCari,
         ob1: Number.isFinite(ob1) ? ob1 : 0,
         kantar: Number.isFinite(kantar) ? kantar : 0,
         bbt: bbt,
         cuval: cuval
-      });
+      };
+      if (isNetsisStubLine(lineObj)) continue;
+      blk.lines.push(lineObj);
       blk.bbt += bbt;
       if (Number.isFinite(ob1) && ob1 > 0) blk.kg += ob1;
     }
@@ -677,6 +704,14 @@
         ok: Math.round(left) === Math.round(right)
       };
     }
+    if (kind === 'cuval') {
+      return {
+        left: left,
+        right: right,
+        delta: delta,
+        ok: Math.abs(Math.round(left) - Math.round(right)) <= CUVAL_TOLERANCE
+      };
+    }
     var tol = kind === 'ton' ? KG_TOLERANCE / 1000 : KG_TOLERANCE;
     return {
       left: left,
@@ -714,21 +749,9 @@
         return { left: trimStr(a), right: trimStr(b), ok: true };
       }
     } else if (kind === 'sofor') {
+      // Tam isim (Türkçe katlama); 1 harf farkı artık hata (FERİZ ≠ FEİZ)
       L = foldTr(L).replace(/[^a-z\s]/g, '').replace(/\s+/g, '');
       R = foldTr(R).replace(/[^a-z\s]/g, '').replace(/\s+/g, '');
-      if (L && R && L !== R) {
-        // 1 harf farkı (Excel yazım hatası): HALİL vs HALİ
-        var longer = L.length >= R.length ? L : R;
-        var shorter = L.length >= R.length ? R : L;
-        if (longer.indexOf(shorter) >= 0) {
-          return { left: trimStr(a), right: trimStr(b), ok: true };
-        }
-        for (var i = 0; i < longer.length; i++) {
-          if ((longer.slice(0, i) + longer.slice(i + 1)) === shorter) {
-            return { left: trimStr(a), right: trimStr(b), ok: true };
-          }
-        }
-      }
     } else {
       L = foldTr(L);
       R = foldTr(R);
@@ -814,8 +837,62 @@
     return pairs;
   }
 
+  /** İrsaliye önce; plaka çakışırsa / artan satırlar plaka ile tamamlanır (stub kayması). */
+  function pairLinesByIrsaliyeThenPlaka(leftLines, rightLines) {
+    var initial = pairLinesByIrsaliye(leftLines, rightLines);
+    var solid = [];
+    var leftRem = [];
+    var rightRem = [];
+    initial.forEach(function (p) {
+      if (p.left && p.right) {
+        var lp = normalizePlaka(p.left.plaka);
+        var rp = normalizePlaka(p.right.plaka);
+        if ((lp || rp) && lp !== rp) {
+          leftRem.push(p.left);
+          rightRem.push(p.right);
+        } else {
+          solid.push(p);
+        }
+      } else if (p.left) {
+        leftRem.push(p.left);
+      } else if (p.right) {
+        rightRem.push(p.right);
+      }
+    });
+
+    var rByPlaka = Object.create(null);
+    rightRem.forEach(function (R, idx) {
+      var k = normalizePlaka(R && R.plaka);
+      if (!k) return;
+      if (!rByPlaka[k]) rByPlaka[k] = [];
+      rByPlaka[k].push({ R: R, idx: idx });
+    });
+    var used = {};
+    leftRem.forEach(function (L) {
+      var k = normalizePlaka(L && L.plaka);
+      var bucket = k ? (rByPlaka[k] || []) : [];
+      var hit = null;
+      for (var i = 0; i < bucket.length; i++) {
+        if (!used[bucket[i].idx]) {
+          hit = bucket[i];
+          break;
+        }
+      }
+      if (hit) {
+        used[hit.idx] = true;
+        solid.push({ left: L, right: hit.R, irsKey: irsaliyeKey(L) || irsaliyeKey(hit.R), matchBy: 'plaka' });
+      } else {
+        solid.push({ left: L, right: null, irsKey: irsaliyeKey(L) });
+      }
+    });
+    rightRem.forEach(function (R, idx) {
+      if (!used[idx]) solid.push({ left: null, right: R, irsKey: irsaliyeKey(R) });
+    });
+    return solid;
+  }
+
   function pairLines(leftLines, rightLines) {
-    return pairLinesByIrsaliye(leftLines, rightLines);
+    return pairLinesByIrsaliyeThenPlaka(leftLines, rightLines);
   }
 
   function compareLinePair(L, R) {
@@ -829,7 +906,7 @@
       gsm: compareText(L && L.gsm, R && R.gsm, 'gsm'),
       plaka: compareText(L && L.plaka, R && R.plaka, 'plaka'),
       bbt: compareField(L && L.bbt, R && R.bbt, 'bbt'),
-      cuval: compareField(L && L.cuval, R && R.cuval, 'bbt')
+      cuval: compareField(L && L.cuval, R && R.cuval, 'cuval')
     };
     var ok = true;
     Object.keys(fields).forEach(function (k) {
@@ -839,6 +916,20 @@
       }
       if (k === 'tasiyici' && (!trimStr(L && L.tasiyici) || !trimStr(R && R.tasiyici))) {
         fields.tasiyici.ok = true;
+      }
+      // Şoför / GSM tek tarafta boşsa kırmızıya çekme (Excel GELMEDİ → boş)
+      if (k === 'sofor' && (!trimStr(L && L.sofor) || !trimStr(R && R.sofor))) {
+        fields.sofor.ok = true;
+      }
+      if (k === 'gsm' && (!trimStr(L && L.gsm) || !trimStr(R && R.gsm))) {
+        fields.gsm.ok = true;
+      }
+      // Kantar / OB1 tek tarafta 0 veya boşsa fark sayma (Excel henüz çıkmamış)
+      if (k === 'kantar' && (isBlankKg(L && L.kantar) || isBlankKg(R && R.kantar))) {
+        fields.kantar.ok = true;
+      }
+      if (k === 'ob1' && (isBlankKg(L && L.ob1) || isBlankKg(R && R.ob1))) {
+        fields.ob1.ok = true;
       }
       if (!fields[k].ok) ok = false;
     });
@@ -870,9 +961,8 @@
   }
 
   /**
-   * Ana eşleme: İRSALİYE NO.
+   * Ana eşleme: İRSALİYE NO; plaka uyuşmazsa / kalanlar plaka ile.
    * Kapsam: sadece Excel’deki SIPNO’lar (tüm Netsis yılı dökülmez).
-   * Satır: plaka ile yan eşleme yok.
    */
   function diffSipBlocks(leftBlocks, rightBlocks) {
     var excelLines = flattenBlockLines(rightBlocks, 'excel');
@@ -941,12 +1031,8 @@
       hit = hitSip || hit;
       if (hit) {
         usedN[String(hit.idx)] = true;
-        var cmp = compareLinePair(hit.n.line, x.line);
-        var st = cmp.ok ? 'ok' : 'bad';
-        if (st === 'ok') matchedOkLines += 1;
-        else matchedBadLines += 1;
         lineResults.push({
-          status: st,
+          status: 'pending',
           irsKey: k,
           sip: x.sip || hit.n.sip,
           tarih: x.tarih || hit.n.tarih,
@@ -954,10 +1040,9 @@
           right: x.line,
           leftMeta: hit.n,
           rightMeta: x,
-          cmp: cmp
+          usedIdx: String(hit.idx)
         });
       } else {
-        onlyRightLines += 1;
         lineResults.push({
           status: 'only-right',
           irsKey: k,
@@ -967,17 +1052,14 @@
           right: x.line,
           leftMeta: null,
           rightMeta: x,
-          cmp: compareLinePair(null, x.line)
+          usedIdx: null
         });
       }
     });
 
-    // Excel kapsamındaki Netsis satırları — eşleşmeyen = sadece Netsis
     scopedNetsis.forEach(function (n, idx) {
       if (usedN[String(idx)]) return;
-      // irsaliyesiz satırları atla
       if (!n.irsKey) return;
-      onlyLeftLines += 1;
       lineResults.push({
         status: 'only-left',
         irsKey: n.irsKey,
@@ -987,8 +1069,121 @@
         right: null,
         leftMeta: n,
         rightMeta: null,
-        cmp: compareLinePair(n.line, null)
+        usedIdx: String(idx)
       });
+    });
+
+    // İrsaliye eşleşmesinde plaka çakışırsa / kalanlar → plaka ile yeniden eşle
+    var kept = [];
+    var leftRem = [];
+    var rightRem = [];
+    lineResults.forEach(function (lr) {
+      if (lr.left && lr.right) {
+        var lp = normalizePlaka(lr.left.plaka);
+        var rp = normalizePlaka(lr.right.plaka);
+        // Plaka yok / farklı → irsaliye kayması olabilir; plaka turuna bırak
+        if ((lp || rp) && lp !== rp) {
+          leftRem.push({ meta: lr.leftMeta, line: lr.left });
+          rightRem.push({ meta: lr.rightMeta, line: lr.right });
+          if (lr.usedIdx) delete usedN[lr.usedIdx];
+        } else {
+          kept.push(lr);
+        }
+      } else if (lr.left && lr.leftMeta) {
+        leftRem.push({ meta: lr.leftMeta, line: lr.left });
+        if (lr.usedIdx) delete usedN[lr.usedIdx];
+      } else if (lr.right && lr.rightMeta) {
+        rightRem.push({ meta: lr.rightMeta, line: lr.right });
+      }
+    });
+
+    var rByPlaka = Object.create(null);
+    rightRem.forEach(function (item, idx) {
+      var pk = normalizePlaka(item.line && item.line.plaka);
+      if (!pk) return;
+      if (!rByPlaka[pk]) rByPlaka[pk] = [];
+      rByPlaka[pk].push({ item: item, idx: idx });
+    });
+    var usedR = {};
+    leftRem.forEach(function (L) {
+      var pk = normalizePlaka(L.line && L.line.plaka);
+      var bucket = pk ? (rByPlaka[pk] || []) : [];
+      var hit = null;
+      for (var i = 0; i < bucket.length; i++) {
+        if (!usedR[bucket[i].idx]) {
+          hit = bucket[i];
+          break;
+        }
+      }
+      if (hit) {
+        usedR[hit.idx] = true;
+        kept.push({
+          status: 'pending',
+          irsKey: irsaliyeKey(L.line) || irsaliyeKey(hit.item.line),
+          sip: (L.meta && L.meta.sip) || (hit.item.meta && hit.item.meta.sip),
+          tarih: (L.meta && L.meta.tarih) || (hit.item.meta && hit.item.meta.tarih),
+          left: L.line,
+          right: hit.item.line,
+          leftMeta: L.meta,
+          rightMeta: hit.item.meta,
+          matchBy: 'plaka'
+        });
+      } else {
+        kept.push({
+          status: 'only-left',
+          irsKey: irsaliyeKey(L.line),
+          sip: L.meta && L.meta.sip,
+          tarih: L.meta && L.meta.tarih,
+          left: L.line,
+          right: null,
+          leftMeta: L.meta,
+          rightMeta: null
+        });
+      }
+    });
+    rightRem.forEach(function (R, idx) {
+      if (usedR[idx]) return;
+      kept.push({
+        status: 'only-right',
+        irsKey: irsaliyeKey(R.line),
+        sip: R.meta && R.meta.sip,
+        tarih: R.meta && R.meta.tarih,
+        left: null,
+        right: R.line,
+        leftMeta: null,
+        rightMeta: R.meta
+      });
+    });
+
+    matchedOkLines = 0;
+    matchedBadLines = 0;
+    onlyLeftLines = 0;
+    onlyRightLines = 0;
+    lineResults = kept.map(function (lr) {
+      if (lr.left && lr.right) {
+        var cmp = compareLinePair(lr.left, lr.right);
+        // Plaka ile toparlanan satırlarda irsaliye numarası kaymış olabilir — şoför/plaka asıl kontrol
+        if (lr.matchBy === 'plaka' && cmp.fields && cmp.fields.irsaliye) {
+          cmp.fields.irsaliye.ok = true;
+          cmp.ok = true;
+          Object.keys(cmp.fields).forEach(function (fk) {
+            if (!cmp.fields[fk].ok) cmp.ok = false;
+          });
+        }
+        lr.cmp = cmp;
+        lr.status = cmp.ok ? 'ok' : 'bad';
+        if (lr.status === 'ok') matchedOkLines += 1;
+        else matchedBadLines += 1;
+      } else if (lr.left) {
+        lr.cmp = compareLinePair(lr.left, null);
+        lr.status = 'only-left';
+        onlyLeftLines += 1;
+      } else {
+        lr.cmp = compareLinePair(null, lr.right);
+        lr.status = 'only-right';
+        onlyRightLines += 1;
+      }
+      return lr;
     });
 
     // SIPNO (+tarih) ile bloklara grupla — gösterim için
@@ -1181,21 +1376,49 @@
     return ok ? 'sk-cell--ok' : 'sk-cell--bad';
   }
 
+  function isBlankDisplay(v) {
+    if (v == null) return true;
+    if (typeof v === 'number') return !Number.isFinite(v) || v === 0;
+    var s = trimStr(v);
+    return !s || s === '—' || foldTr(s) === 'gelmedi';
+  }
+
+  function isBlankKg(v) {
+    var n = Number(v);
+    return !Number.isFinite(n) || n === 0;
+  }
+
   function formatCount(n) {
     if (!(Number.isFinite(n)) || n === 0) return '—';
     return String(Math.round(n));
   }
 
+  /** Sadece iki tarafta da değer varken ve farklıysa kırmızı. */
   function pairCell(leftVal, rightVal, ok, formatter) {
-    var fmt = formatter || function (v) { return escapeHtml(v == null || v === '' ? '—' : v); };
-    var L = fmt(leftVal);
-    var R = fmt(rightVal);
-    return '<td class="sk-pair ' + cellCls(ok) + '">' +
+    var leftBlank = isBlankDisplay(leftVal);
+    var rightBlank = isBlankDisplay(rightVal);
+    var fmt = formatter || function (v) { return escapeHtml(trimStr(v)); };
+    var L = leftBlank ? '—' : fmt(leftVal);
+    var R = rightBlank ? '—' : fmt(rightVal);
+    var both = !leftBlank && !rightBlank;
+    var cls = 'sk-cell--quiet';
+    if (both && !ok) cls = 'sk-cell--bad';
+    else if (both && ok) cls = 'sk-cell--ok';
+    return '<td class="sk-pair ' + cls + '">' +
       '<div class="sk-pair__inner">' +
       '<span class="sk-pair__n" title="Netsis">' + L + '</span>' +
       '<span class="sk-pair__e" title="Excel">' + R + '</span>' +
       '</div>' +
       '</td>';
+  }
+
+  function formatSofor(line) {
+    if (!line) return '';
+    var name = trimStr(line.sofor);
+    if (!name || foldTr(name) === 'gelmedi') name = '';
+    var gsm = trimStr(line.gsm);
+    if (!name && !gsm) return '';
+    return name + (gsm ? ((name ? ' ' : '') + gsm) : '');
   }
 
   function extractPoPfkLabel(text) {
@@ -1252,7 +1475,7 @@
       var totKantN = sumField(blk.lines, 'left', 'kantar');
       var totKantE = sumField(blk.lines, 'right', 'kantar');
       var bbtOk = Math.round(totBbtN) === Math.round(totBbtE);
-      var cuvalOk = Math.round(totCuvalN) === Math.round(totCuvalE);
+      var cuvalOk = Math.abs(Math.round(totCuvalN) - Math.round(totCuvalE)) <= CUVAL_TOLERANCE;
       var ob1Ok = Math.abs(totOb1N - totOb1E) <= KG_TOLERANCE;
       var kantOk = Math.abs(totKantN - totKantE) <= KG_TOLERANCE;
       var totalsBad = !(bbtOk && cuvalOk && ob1Ok && kantOk);
@@ -1292,8 +1515,8 @@
         var lst = ln.status === 'ok' ? 'ok' : (ln.status === 'bad' ? 'bad' : 'miss');
         var f = (ln.cmp && ln.cmp.fields) || {};
         var irsShow = (ln.right && ln.right.irsaliye) || (ln.left && ln.left.irsaliye) || '—';
-        var soforN = ln.left ? (ln.left.sofor + (ln.left.gsm ? (' ' + ln.left.gsm) : '')) : '—';
-        var soforE = ln.right ? (ln.right.sofor + (ln.right.gsm ? (' ' + ln.right.gsm) : '')) : '—';
+        var soforN = formatSofor(ln.left);
+        var soforE = formatSofor(ln.right);
 
         html += '<tr class="sk-row sk-row--' + lst + '">' +
           '<td><span class="sk-badge sk-badge--' + lst + '">' +
@@ -1415,7 +1638,7 @@
         '<span class="sk-pill">Sadece Netsis: ' + s.onlyLeft + '</span>' +
         '<span class="sk-pill">Sadece Excel: ' + s.onlyRight + '</span>' +
         (s.lineOk != null
-          ? ('<span class="sk-pill">İrsaliye OK: ' + s.lineOk + '</span>' +
+          ? ('<span class="sk-pill sk-pill--ok">İrsaliye OK: ' + s.lineOk + '</span>' +
             '<span class="sk-pill sk-pill--bad">İrsaliye fark: ' + (s.lineBad || 0) + '</span>')
           : '');
 
@@ -1580,6 +1803,7 @@
     itemsFromF358Rows: itemsFromF358Rows,
     compareField: compareField,
     compareText: compareText,
+    compareLinePair: compareLinePair,
     diffReports: diffReports,
     diffSipBlocks: diffSipBlocks,
     pairLines: pairLines,
