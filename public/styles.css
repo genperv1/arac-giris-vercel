@@ -5397,7 +5397,13 @@ body.im-page {
 }
 .pv4-tag--bbt { background: #ecfdf5; color: #047857; }
 .pv4-tag--paket { background: #eff6ff; color: #1d4ed8; }
+.pv4-tag--date { background: #fef3c7; color: #92400e; font-weight: 700; }
 .pv4-tag--warn { background: #fff7ed; color: #c2410c; }
+.pv4-date-line {
+  margin: 0.15rem 0 0.35rem;
+  font-size: 0.88rem;
+  color: #92400e;
+}
 .pv4-tag--danger {
   background: #991b1b;
   color: #fff;

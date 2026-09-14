@@ -15,6 +15,28 @@ test('tonajFromBbt = BBT × birim kg / 1000', () => {
   assert.equal(api.formatTon(27.5), '27,5');
 });
 
+test('formatDateTr reads Excel serial and TR text', () => {
+  // 11.09.2026 = Excel serial 46276 (1899-12-30 epoch)
+  assert.equal(api.formatDateTr(46276), '11.09.2026');
+  assert.equal(api.formatDateTr('07.09.2026'), '07.09.2026');
+  assert.equal(api.formatDateTr('7 Eylül 2026 Pazartesi'), '07.09.2026');
+  assert.equal(api.formatDateTr(''), '');
+});
+
+test('parseGuncelGrid exposes GENPER çıkış tarihi', () => {
+  const grid = [
+    ['TEDARİKÇİ', 'NETSİS SİPARİŞ NO', 'HAFTA', 'GENPER ÇIKIŞ TARİHİ', 'MÜŞTERİ', 'ÜRÜN', 'MT', 'AMBALAJ', 'Bigbag/Çuval', 'ADET', 'GİDECEĞİ LİMAN', 'LİMAN DOLUM TARİHİ'],
+    ['AKYÜZ', 'SIP-1', '37.hafta', 46276, 'YD05(M)', 'HP 0,074-0,30', 52, 'NET 1300 KG BİGBAG', 40, 20, 'SAFİPORT', '14.09.2026']
+  ];
+  const parsed = api.parseGuncelGrid(grid);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].cikisTarih, '11.09.2026');
+  assert.equal(parsed.items[0].limanDolum, '14.09.2026');
+  assert.equal(parsed.items[0].hafta, '37.hafta');
+  assert.deepEqual(parsed.summary.cikisDates, ['11.09.2026']);
+});
+
 test('paketleme uses 1375 kg for Akyüz tonaj', () => {
   assert.equal(api.calcKgForKind('paketleme', 1350), 1375);
   assert.equal(api.calcKgForKind('bbt', 1300), 1300);

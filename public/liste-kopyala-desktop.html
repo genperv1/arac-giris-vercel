@@ -697,12 +697,16 @@ body.elc-page .toast.warn{background:#7f1d1d}
   }
 
   function solveGrid(grid, startSira) {
+    var start = startSira;
+    if (startSira && typeof startSira === 'object') {
+      start = startSira.startSira != null ? startSira.startSira : 1;
+    }
     var parsed = parseSourceGrid(grid);
     if (!parsed.ok) return parsed;
     var mapped = parsed.rows.map(function (src) { return mapSourceRow(src); });
     return {
       ok: true,
-      rows: assignSira(mapped, startSira),
+      rows: assignSira(mapped, start),
       sourceCount: parsed.rows.length
     };
   }

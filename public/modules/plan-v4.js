@@ -70,6 +70,69 @@
     return fixed.replace('.', ',');
   }
 
+  var TR_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+  /** Excel serial / Date / gg.aa.yyyy / uzun TR metin → {y,m,d} */
+  function parseDateParts(value) {
+    if (value instanceof Date && !isNaN(value.getTime())) {
+      var y = value.getUTCFullYear();
+      var m = value.getUTCMonth();
+      var d = value.getUTCDate();
+      var h = value.getUTCHours();
+      var mi = value.getUTCMinutes();
+      var s = value.getUTCSeconds();
+      if (h === 0 && mi === 0 && s === 0) {
+        return { y: y, m: m + 1, d: d };
+      }
+      if (h >= 12) {
+        var next = new Date(Date.UTC(y, m, d + 1));
+        return { y: next.getUTCFullYear(), m: next.getUTCMonth() + 1, d: next.getUTCDate() };
+      }
+      return { y: y, m: m + 1, d: d };
+    }
+    if (typeof value === 'number' && Number.isFinite(value) && value > 20000 && value < 80000) {
+      var serial = Math.floor(value + 1e-8);
+      var utc = Date.UTC(1899, 11, 30) + serial * 86400000;
+      var dt = new Date(utc);
+      return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
+    }
+    var text = trimStr(value);
+    if (!text) return null;
+    var iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) return { y: Number(iso[1]), m: Number(iso[2]), d: Number(iso[3]) };
+    var tr = text.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+    if (tr) return { y: Number(tr[3]), m: Number(tr[2]), d: Number(tr[1]) };
+    var longTr = text.match(/^(\d{1,2})\s+([A-Za-zÇĞİÖŞÜçğıöşü]+)\s+(\d{4})/);
+    if (longTr) {
+      var monthIdx = TR_MONTHS.findIndex(function (name) {
+        return foldTr(name) === foldTr(longTr[2]);
+      });
+      if (monthIdx >= 0) return { y: Number(longTr[3]), m: monthIdx + 1, d: Number(longTr[1]) };
+    }
+    return null;
+  }
+
+  function formatDateTr(value) {
+    var p = parseDateParts(value);
+    if (!p) return '';
+    return String(p.d).padStart(2, '0') + '.' + String(p.m).padStart(2, '0') + '.' + p.y;
+  }
+
+  function formatHaftaLabel(value) {
+    var text = trimStr(value);
+    if (!text) return '';
+    var m = text.match(/(\d{1,2})\s*\.?\s*hafta/i) || text.match(/^(\d{1,2})$/);
+    if (m) return Number(m[1]) + '.hafta';
+    var p = parseDateParts(value);
+    if (!p) return text;
+    var date = new Date(Date.UTC(p.y, p.m - 1, p.d));
+    var dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    var yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    var week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    return week + '.hafta';
+  }
+
   function findHeaderRow(grid) {
     for (var r = 0; r < Math.min(grid.length, 15); r++) {
       var row = grid[r] || [];
@@ -100,9 +163,13 @@
       else if (k === 'palet' || k.indexOf('palet') === 0) map.palet = i;
       else if (k === 'strec' || k.indexOf('strec') === 0 || k === 'stretch') map.strec = i;
       else if (k === 'adet') map.adet = i;
+      else if (k === 'hafta' || k.indexOf('hafta') === 0) map.hafta = i;
+      else if (k.indexOf('cikis') >= 0 && k.indexOf('tarih') >= 0) map.cikis = i;
+      else if (k.indexOf('genper') >= 0 && k.indexOf('tarih') >= 0) map.cikis = i;
       else if (k.indexOf('liman') >= 0 && k.indexOf('dolum') < 0 && k.indexOf('gidecegi') >= 0) map.liman = i;
       else if (k.indexOf('gidecegi_liman') >= 0 || k === 'gidecegi_liman') map.liman = i;
-      else if (k.indexOf('liman_dolum') >= 0) map.dolum = i;
+      else if (k.indexOf('liman_dolum') >= 0 || (k.indexOf('dolum') >= 0 && k.indexOf('tarih') >= 0)) map.dolum = i;
+      else if (k.indexOf('siparis_tarih') >= 0 || (k.indexOf('siparis') >= 0 && k.indexOf('tarih') >= 0)) map.sipTarih = i;
       else if (k.indexOf('booking') >= 0) map.booking = i;
       else if (k.indexOf('gemi') >= 0) map.gemi = i;
       else if (k === 'aciklama' || k.indexOf('aciklama') === 0) map.aciklama = i;
@@ -344,6 +411,14 @@
       var paletColVal = trimStr(cell(row, col.palet));
       var strecColVal = trimStr(cell(row, col.strec));
       var aciklama = trimStr(cell(row, col.aciklama));
+      var cikisRaw = cell(row, col.cikis);
+      var dolumRaw = cell(row, col.dolum);
+      var sipTarihRaw = cell(row, col.sipTarih);
+      var haftaRaw = cell(row, col.hafta);
+      var cikisTarih = formatDateTr(cikisRaw);
+      var limanDolum = formatDateTr(dolumRaw);
+      var sipTarih = formatDateTr(sipTarihRaw);
+      var hafta = formatHaftaLabel(haftaRaw) || (cikisTarih ? formatHaftaLabel(cikisRaw) : '');
       var special = detectPaletStrec({
         paletCol: paletColVal,
         strecCol: strecColVal,
@@ -363,6 +438,10 @@
         mt: parseNum(cell(row, col.mt)),
         ambalaj: amb,
         aciklama: aciklama,
+        hafta: hafta,
+        cikisTarih: cikisTarih,
+        limanDolum: limanDolum,
+        sipTarih: sipTarih,
         liman: trimStr(cell(row, col.liman)),
         booking: trimStr(cell(row, col.booking)),
         gemi: trimStr(cell(row, col.gemi)),
@@ -397,12 +476,19 @@
     var bosItems = [];
     var ortak = 0;
     var specialCount = 0;
+    var dateSet = {};
+    var dates = [];
     items.forEach(function (it) {
       if (it.tedarikciKey === 'ortak') ortak += 1;
       if (it.special && it.special.alert) specialCount += 1;
       if (it.kind === 'paketleme') paketItems.push(it);
       else if (it.kind === 'bbt' && it.bbt > 0) bbtItems.push(it);
       else bosItems.push(it);
+      var d = trimStr(it.cikisTarih);
+      if (d && !dateSet[d]) {
+        dateSet[d] = true;
+        dates.push(d);
+      }
     });
     var totalBbt = bbtItems.reduce(function (s, it) { return s + (it.bbt || 0); }, 0);
     var totalPaketBbt = paketItems.reduce(function (s, it) { return s + (it.bbt || 0); }, 0);
@@ -416,6 +502,7 @@
       bosCount: bosItems.length,
       ortakCount: ortak,
       specialCount: specialCount,
+      cikisDates: dates,
       totalBbt: totalBbt,
       totalPaketBbt: totalPaketBbt,
       totalTon: totalTon,
@@ -500,7 +587,11 @@
         return;
       }
       var s = state.parsed.summary;
+      var dateLabel = (s.cikisDates && s.cikisDates.length)
+        ? s.cikisDates.join(' · ')
+        : 'tarih yok';
       var head = '<div class="pv4-summary">' +
+        '<span class="pv4-tag pv4-tag--date" title="GENPER çıkış tarihi">Çıkış: ' + escapeHtml(dateLabel) + '</span>' +
         '<span>' + s.count + ' satır</span>' +
         '<span class="pv4-tag pv4-tag--bbt">' + s.bbtCount + ' BBT malzeme (' + s.totalBbt + ' BBT · ' +
         formatTon(s.bbtTon) + ' ton)</span>' +
@@ -513,7 +604,7 @@
         '</div>';
 
       var html = head + '<div class="pv4-table-wrap"><table class="pv4-table"><thead><tr>' +
-        '<th>#</th><th>Tip</th><th>Uyarı</th><th>Tedarikçi</th><th>Müşteri / Sipariş</th><th>Hesap kg</th><th>BBT</th><th>Tonaj</th><th>Not</th>' +
+        '<th>#</th><th>Çıkış</th><th>Tip</th><th>Uyarı</th><th>Tedarikçi</th><th>Müşteri / Sipariş</th><th>Hesap kg</th><th>BBT</th><th>Tonaj</th><th>Not</th>' +
         '</tr></thead><tbody>';
 
       state.parsed.items.forEach(function (it, i) {
@@ -529,8 +620,13 @@
           ? ('<span class="pv4-alert-badge" title="' + escapeHtml(sp.detail || sp.banner || '') + '">' +
             escapeHtml(sp.badge || '!') + '</span>')
           : '—';
+        var dateCell = it.cikisTarih
+          ? ('<strong>' + escapeHtml(it.cikisTarih) + '</strong>' +
+            (it.hafta ? ('<br><small>' + escapeHtml(it.hafta) + '</small>') : ''))
+          : (it.hafta ? escapeHtml(it.hafta) : '—');
         html += '<tr class="pv4-row' + on + alertCls + '" data-pv4-i="' + i + '">' +
           '<td>' + (i + 1) + '</td>' +
+          '<td>' + dateCell + '</td>' +
           '<td><span class="pv4-kind pv4-kind--' + tipCls + '">' + tipLabel + '</span></td>' +
           '<td>' + warnCell + '</td>' +
           '<td>' + escapeHtml(it.tedarikci) + '</td>' +
@@ -570,6 +666,13 @@
       detailEl.innerHTML =
         '<div class="pv4-detail-head">' +
         '<h2>' + escapeHtml(it.musteri || 'Satır') + '</h2>' +
+        '<p class="pv4-date-line">' +
+        (it.cikisTarih
+          ? ('<strong>Çıkış:</strong> ' + escapeHtml(it.cikisTarih))
+          : '<strong>Çıkış:</strong> —') +
+        (it.hafta ? (' · ' + escapeHtml(it.hafta)) : '') +
+        (it.limanDolum ? (' · <strong>Liman dolum:</strong> ' + escapeHtml(it.limanDolum)) : '') +
+        '</p>' +
         '<p>' + escapeHtml(it.sipNo) + ' · ' + escapeHtml(it.liman || 'liman?') + '</p>' +
         '<p class="pv4-amb">' + escapeHtml(it.ambalaj) + '</p>' +
         (sp.alert
@@ -703,8 +806,10 @@
         state.selected = parsed.items.length ? 0 : -1;
         renderList();
         renderDetail();
-        setStatus(sheetName + ' · ' + parsed.items.length + ' satır hazır. Satır seç, özmal yaz.');
-        toast('Plan v4: ' + parsed.items.length + ' satır yüklendi.');
+        var dates = (parsed.summary && parsed.summary.cikisDates) || [];
+        var dateMsg = dates.length ? (' · çıkış ' + dates.join(', ')) : ' · çıkış tarihi okunamadı';
+        setStatus(sheetName + ' · ' + parsed.items.length + ' satır hazır' + dateMsg + '. Satır seç, özmal yaz.');
+        toast('Plan v4: ' + parsed.items.length + ' satır' + (dates.length ? (' · ' + dates[0]) : '') + '.');
       } catch (err) {
         setStatus('Dosya okunamadı: ' + (err && err.message ? err.message : 'hata'), true);
       }
@@ -765,6 +870,8 @@
     tonajFromBbt: tonajFromBbt,
     calcKgForKind: calcKgForKind,
     formatTon: formatTon,
+    formatDateTr: formatDateTr,
+    parseDateParts: parseDateParts,
     classifyPack: classifyPack,
     detectPaletStrec: detectPaletStrec,
     tedarikciFlag: tedarikciFlag,

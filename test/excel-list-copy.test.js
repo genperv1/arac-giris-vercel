@@ -222,12 +222,6 @@ test('rowsToTsv writes 23 target columns for a 5-sevk batch', () => {
   assert.equal(lines[1].split('\t')[0], 'AKYÜZ');
   assert.equal(lines[0].split('\t')[6], 'YD10(M)');
   assert.equal(lines[1].split('\t')[6], 'YD11(G)');
-  const html = api.rowsToHtmlTable(numbered);
-  assert.match(html, /<table/);
-  assert.match(html, /font-size:11pt/);
-  assert.match(html, /Calibri/);
-  assert.equal((html.match(/<tr>/g) || []).length, 5);
-  assert.match(html, /YD10\(M\)/);
 });
 
 test('solveGrid maps Excel serial dates to the same day Excel shows', () => {
@@ -290,9 +284,11 @@ test('Araçlar menu opens İhracat Takip hub; Liste kopyala lives on hub', () =>
   assert.match(page, /PALET_URUN_SAYISI/);
   assert.doesNotMatch(page, />MT</);
   assert.match(page, /modules\/excel-list-copy\.js/);
+  assert.match(page, /AraclarGate\.isUnlocked/);
   const copyJs = fs.readFileSync(path.join(__dirname, '../public/modules/excel-list-copy.js'), 'utf8');
   assert.match(copyJs, /elc-cell--var/);
   assert.doesNotMatch(copyJs, /downloadRowsXlsx/);
+  assert.doesNotMatch(copyJs, /rowsToHtmlTable/);
   const styles = fs.readFileSync(path.join(__dirname, '../public/styles.css'), 'utf8');
   assert.match(styles, /\.elc-cell--var/);
   assert.match(styles, /\.iht-radar/);
@@ -307,6 +303,8 @@ test('Araçlar menu opens İhracat Takip hub; Liste kopyala lives on hub', () =>
   assert.match(desktop, /Masaüstü/);
   assert.match(desktop, /NETSİS SİPARİŞ NO/);
   assert.match(desktop, /function bindAppUi/);
+  assert.match(desktop, /543723/);
+  assert.match(desktop, /Liste kopyala şifresini/);
   const session = fs.readFileSync(path.join(__dirname, '../public/session-manager.js'), 'utf8');
   assert.match(session, /liste-kopyala\.html/);
   assert.match(session, /ihracat-takip\.html/);

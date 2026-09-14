@@ -20,7 +20,7 @@ test('only İhracat Takip hub asks password; children check unlock', () => {
 
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
   assert.match(giris, /araclar-gate\.js/);
-  assert.match(giris, /styles\.css\?v=1\.0\.28/);
+  assert.match(giris, /styles\.css\?v=1\.0\.31/);
 
   const hub = fs.readFileSync(path.join(__dirname, '../public/ihracat-takip.html'), 'utf8');
   assert.match(hub, /ihtGateForm|ihtGatePwd/);
