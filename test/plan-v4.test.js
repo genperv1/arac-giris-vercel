@@ -170,18 +170,13 @@ test('parseGuncelGrid marks ÇİFT MÜHÜRLÜ rows as special alert', () => {
   assert.ok(specials.some((it) => /cift|muhur|PALET/i.test(it.paletCol + it.special.badge)));
 });
 
-test('Plan v4 page and menu wiring', () => {
-  const page = fs.readFileSync(path.join(__dirname, '../public/plan-v4.html'), 'utf8');
-  assert.match(page, /Plan v4/);
-  assert.match(page, /modules\/plan-v4\.js/);
-  assert.match(page, /AraclarGate/);
+test('Plan v4 page is gone; parser stays for sayı kontrol', () => {
+  assert.equal(fs.existsSync(path.join(__dirname, '../public/plan-v4.html')), false);
   const hub = fs.readFileSync(path.join(__dirname, '../public/ihracat-takip.html'), 'utf8');
-  assert.match(hub, /plan-v4\.html/);
-  const menu = fs.readFileSync(path.join(__dirname, '../public/modules/app-ui-forms-takip.js'), 'utf8');
-  assert.match(menu, /ihracatTakipMenuButton/);
-  assert.doesNotMatch(menu, /planV4MenuButton/);
-  const auth = fs.readFileSync(path.join(__dirname, '../public/modules/app-auth.js'), 'utf8');
-  assert.match(auth, /ihracat-takip\.html/);
+  assert.doesNotMatch(hub, /plan-v4\.html/);
+  const sayi = fs.readFileSync(path.join(__dirname, '../public/sayi-kontrol.html'), 'utf8');
+  assert.match(sayi, /modules\/plan-v4\.js/);
+  assert.doesNotMatch(sayi, /plan-v4\.html/);
   const session = fs.readFileSync(path.join(__dirname, '../public/session-manager.js'), 'utf8');
-  assert.match(session, /plan-v4\.html/);
+  assert.doesNotMatch(session, /plan-v4\.html/);
 });

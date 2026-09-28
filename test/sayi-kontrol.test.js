@@ -19,6 +19,8 @@ test('normalizeSip irsaliye date tasiyici', () => {
   assert.equal(api.normalizeIrsaliye('R01202603488'), 'R012026003488');
   assert.equal(api.normalizeIrsaliye('R01202600003488'), 'R012026003488');
   assert.equal(api.normalizeDate('10.09.2026'), '10.09.2026');
+  assert.equal(api.normalizeDate(46286), '21.09.2026');
+  assert.equal(api.normalizeDate(new Date(2026, 8, 20, 23, 59, 4)), '21.09.2026');
   assert.equal(api.classifyTasiyici('Akyüz Uluslararası Nakliyat'), 'AKYÜZ');
   assert.equal(api.classifyTasiyici('Genper Madencilik San Tic'), 'GPM');
   assert.equal(api.classifyTasiyici('GPM'), 'GPM');
@@ -179,6 +181,142 @@ test('diffSipBlocks matches by irsaliye only and scopes to excel sips', () => {
   assert.equal(d.summary.lineOk, 1);
 });
 
+test('same SIPNO does not pull other shipments that are not in the excel block', () => {
+  const sip = 'M20202600000690';
+  const left = [{
+    key: '19.09.2026|S:' + sip,
+    sip: sip,
+    tarih: '19.09.2026',
+    teslimCari: 'GEMPORT',
+    firma: 'YD196 GEMPORT',
+    lines: [
+      { irsaliye: 'R01202603651', plaka: '43AGL899', tasiyici: 'AKYÜZ', teslimCari: 'GEMPORT', ob1: 27000, kantar: 27500, bbt: 22, cuval: 0, sofor: 'A', gsm: '1' },
+      { irsaliye: 'R11202601423', plaka: '03RH940', tasiyici: 'AKYÜZ', teslimCari: 'YILPORT', ob1: 33750, kantar: 34340, bbt: 25, cuval: 1350, sofor: 'B', gsm: '2' }
+    ]
+  }];
+  const right = [{
+    key: '21.09.2026|S:' + sip,
+    sip: sip,
+    tarih: '21.09.2026',
+    teslimCari: 'YILPORT',
+    yd: 'YD196',
+    headerText: 'YD196 / LOT NO 26 08 24 / 135 TON',
+    sheetName: '21.09.2026',
+    lines: [
+      { irsaliye: 'R11 202601423', plaka: '03RH940', tasiyici: 'AKYÜZ', teslimCari: 'YILPORT', ob1: 33750, kantar: 34340, bbt: 25, cuval: 1350, sofor: 'B', gsm: '2' }
+    ]
+  }];
+  const d = api.diffSipBlocks(left, right);
+  assert.equal(d.blocks.length, 1);
+  assert.equal(d.blocks[0].lines.length, 1);
+  assert.equal(d.blocks[0].lines[0].right.plaka, '03RH940');
+  assert.equal(d.blocks[0].lines[0].status, 'ok');
+  assert.equal(d.blocks[0].tarih, '21.09.2026');
+  assert.equal(d.blocks[0].right.headerText.indexOf('135 TON') >= 0, true);
+  assert.equal(d.summary.lineOnlyLeft, 0);
+  assert.equal(d.summary.onlyLeft, 0);
+});
+
+test('two excel blocks with the same SIPNO stay separate shipments', () => {
+  const sip = 'M20202600000690';
+  const line = (irs, plaka, cari) => ({
+    irsaliye: irs, plaka: plaka, tasiyici: 'AKYÜZ', teslimCari: cari,
+    ob1: 27000, kantar: 27500, bbt: 22, cuval: 0, sofor: 'A', gsm: '1'
+  });
+  const left = [{
+    sip: sip,
+    tarih: '19.09.2026',
+    firma: 'YD196',
+    lines: [line('R01202603651', '43AGL899', 'GEMPORT'), line('R11202601423', '03RH940', 'YILPORT')]
+  }];
+  const right = [
+    {
+      sip: sip,
+      tarih: '19.09.2026',
+      yd: 'YD196',
+      headerText: 'YD196 GEMPORT',
+      teslimCari: 'GEMPORT',
+      sheetName: '19.09.2026',
+      lines: [line('R01202603651', '43AGL899', 'GEMPORT')]
+    },
+    {
+      sip: sip,
+      tarih: '21.09.2026',
+      yd: 'YD196',
+      headerText: 'YD196 YILPORT 135 TON',
+      teslimCari: 'YILPORT',
+      sheetName: '21.09.2026',
+      lines: [line('R11202601423', '03RH940', 'YILPORT')]
+    }
+  ];
+  const d = api.diffSipBlocks(left, right);
+  assert.equal(d.blocks.length, 2);
+  assert.equal(d.blocks[0].tarih, '19.09.2026');
+  assert.equal(d.blocks[0].lines.length, 1);
+  assert.equal(d.blocks[0].lines[0].right.plaka, '43AGL899');
+  assert.equal(d.blocks[1].tarih, '21.09.2026');
+  assert.equal(d.blocks[1].lines.length, 1);
+  assert.equal(d.blocks[1].lines[0].right.plaka, '03RH940');
+  assert.equal(d.summary.matchedOk, 2);
+});
+
+test('workbook date sheets keep their own day even if a cell says another date', () => {
+  const grid19 = [
+    ['YD100 / NETSIS SİPARİŞ NO : M20202600000690'],
+    ['SEVK TARİHİ', '21.09.2026'],
+    ['PLAKA', 'BBT', 'NET TONAJ', 'GİDEN TONAJ'],
+    ['43AGL899', 22, 27000, 27500],
+    ['TOPLAM', 22, 27000, 27500]
+  ];
+  const grid21 = [
+    ['YD196 / LOT NO 26 08 24 / 135 TON / NETSIS SİPARİŞ NO : M20202600000690'],
+    ['PLAKA', 'BBT', 'NET TONAJ', 'GİDEN TONAJ'],
+    ['03RH940', 25, 33750, 34340],
+    ['TOPLAM', 25, 33750, 34340]
+  ];
+  const parsed = api.parseSevkiyatWorkbookSheets([
+    { name: '19.09.2026', grid: grid19 },
+    { name: '21.09.2026', grid: grid21 }
+  ]);
+  assert.equal(parsed.blocks.length, 2);
+  assert.equal(parsed.blocks[0].tarih, '19.09.2026');
+  assert.equal(parsed.blocks[0].lines[0].plaka, '43AGL899');
+  assert.equal(parsed.blocks[1].tarih, '21.09.2026');
+  assert.equal(parsed.blocks[1].yd, 'YD196');
+  assert.equal(parsed.blocks[1].lines[0].plaka, '03RH940');
+});
+
+test('diffSipBlocks still repairs swapped irsaliye by plaka inside the excel block', () => {
+  const row = (irs, plaka, sofor, gsm) => ({
+    irsaliye: irs, plaka: plaka, sofor: sofor, gsm: gsm, tasiyici: 'GPM',
+    teslimCari: 'X', ob1: 27000, kantar: 27000, bbt: 20, cuval: 0
+  });
+  const left = [{
+    sip: 'M1',
+    tarih: '14.09.2026',
+    lines: [
+      row('R11202600001374', '43AAE599', 'YUKSEL', '1'),
+      row('R11202600001375', '43ACN771', 'GUNAY', '2')
+    ]
+  }];
+  const right = [{
+    sip: 'M1',
+    tarih: '14.09.2026',
+    lines: [
+      row('R11202600001373', '43AAE599', 'YUKSEL', '1'),
+      row('R11202600001374', '43ACN771', 'GUNAY', '2')
+    ]
+  }];
+  const d = api.diffSipBlocks(left, right);
+  assert.equal(d.blocks.length, 1);
+  assert.equal(d.blocks[0].lines.length, 2);
+  d.blocks[0].lines.forEach((ln) => {
+    assert.equal(ln.left.plaka, ln.right.plaka);
+    assert.equal(ln.status, 'ok');
+  });
+  assert.equal(d.summary.lineOnlyLeft, 0);
+});
+
 test('Excel ŞOFÖR BİLGİLERİ fallback and GELMEDİ', () => {
   const grid = [
     ['YD1 / NETSIS SİPARİŞ NO : M20202600000654'],
@@ -252,6 +390,12 @@ test('Sayı kontrol page and menu wiring', () => {
   const page = fs.readFileSync(path.join(__dirname, '../public/sayi-kontrol.html'), 'utf8');
   assert.match(page, /Sayı kontrol/);
   assert.match(page, /modules\/sayi-kontrol\.js/);
+  const js = fs.readFileSync(path.join(__dirname, '../public/modules/sayi-kontrol.js'), 'utf8');
+  assert.match(js, /sk-pair--clip/);
+  assert.match(js, /data-full/);
+  const css = fs.readFileSync(path.join(__dirname, '../public/styles.css'), 'utf8');
+  assert.match(css, /\.sk-pair--clip \.sk-clip/);
+  assert.match(css, /text-overflow:\s*ellipsis/);
   assert.match(page, /AraclarGate/);
   assert.match(page, /Netsis ↔ Güncel/);
   const hub = fs.readFileSync(path.join(__dirname, '../public/ihracat-takip.html'), 'utf8');

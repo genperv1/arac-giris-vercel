@@ -39,13 +39,15 @@ test('only İhracat Takip hub asks password; children check unlock', () => {
   assert.match(elc, /AraclarGate\.isUnlocked/);
   assert.doesNotMatch(elc, /ensureAccess/);
 
-  const plan = fs.readFileSync(path.join(__dirname, '../public/plan-v4.html'), 'utf8');
-  assert.match(plan, /AraclarGate\.isUnlocked/);
-  assert.doesNotMatch(plan, /ensureAccess/);
+  assert.equal(fs.existsSync(path.join(__dirname, '../public/plan-v4.html')), false);
 
   const sayi = fs.readFileSync(path.join(__dirname, '../public/sayi-kontrol.html'), 'utf8');
   assert.match(sayi, /AraclarGate\.isUnlocked/);
   assert.doesNotMatch(sayi, /ensureAccess/);
+
+  const amir = fs.readFileSync(path.join(__dirname, '../public/amir-kontrol.html'), 'utf8');
+  assert.match(amir, /AraclarGate\.isUnlocked/);
+  assert.doesNotMatch(amir, /ensureAccess/);
 
   const desk = fs.readFileSync(path.join(__dirname, '../public/liste-kopyala-desktop.html'), 'utf8');
   assert.match(desk, /543723/);

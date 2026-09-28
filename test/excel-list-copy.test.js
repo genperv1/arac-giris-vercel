@@ -299,8 +299,10 @@ test('Araçlar menu opens İhracat Takip hub; Liste kopyala lives on hub', () =>
   assert.doesNotMatch(menu, /excelListCopyMenuButton/);
   const hub = fs.readFileSync(path.join(__dirname, '../public/ihracat-takip.html'), 'utf8');
   assert.match(hub, /liste-kopyala\.html/);
-  assert.match(hub, /plan-v4\.html/);
+  assert.match(hub, /akyuz-liste\.html/);
+  assert.doesNotMatch(hub, /plan-v4\.html/);
   assert.match(hub, /sayi-kontrol\.html/);
+  assert.match(hub, /amir-kontrol\.html/);
   assert.match(hub, /is-merkezi\.html/);
   const page = fs.readFileSync(path.join(__dirname, '../public/liste-kopyala.html'), 'utf8');
   assert.match(page, /id="elcPage"/);

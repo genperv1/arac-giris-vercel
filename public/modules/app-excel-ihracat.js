@@ -2460,11 +2460,42 @@ function findSevkYeriNear(grid, headerRowIdx, headerText) {
   return '';
 }
 
+function _headerCellKey(cell) {
+  return String(cell ?? '')
+    .toUpperCase()
+    .replace(/İ/g, 'I')
+    .replace(/Ş/g, 'S')
+    .replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U')
+    .replace(/Ö/g, 'O')
+    .replace(/Ç/g, 'C')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** PLAKA + BBT + NET/GİDEN TONAJ. Sıra başlığı "SIRANO" yerine "100" olabilir. */
+function rowHasTonajColumnHeader(row) {
+  if (!Array.isArray(row)) return false;
+  let hasPlaka = false;
+  let hasBbt = false;
+  let hasTonaj = false;
+  for (const cell of row) {
+    const h = _headerCellKey(cell);
+    if (!h || h.length > 40) continue;
+    if (h === 'PLAKA') hasPlaka = true;
+    if (h === 'BBT' || h === 'BOS BBT') hasBbt = true;
+    if (h.includes('GIDEN') || (h.includes('NET') && h.includes('TONAJ'))) hasTonaj = true;
+  }
+  return hasPlaka && hasBbt && hasTonaj;
+}
+
 // ✅ Dinamik header satırını bul (hard-coded indeks yerine)
 function findHeaderRowIndex(grid) {
-  // SIRANO+PLAKA veya YDxxx + PLAKA + BBT (ihracat takip listesi) satırını bul
+  // SIRANO+PLAKA, YDxxx + PLAKA + BBT, veya PLAKA/BBT/GİDEN TONAJ satırı
   for (let r = 0; r < Math.min(grid.length, 80); r++) {
     const row = grid[r] || [];
+    if (rowHasTonajColumnHeader(row)) return r;
     const rowText = _rowToText(row).toUpperCase();
     if (rowText.includes('SIRANO') && rowText.includes('PLAKA')) return r;
     if (rowText.includes('PLAKA') && rowText.includes('BBT') && /\bYD\d{1,4}\b/.test(rowText)) return r;
@@ -2583,6 +2614,7 @@ function resolveIhracatBlockCols(headerRow) {
 }
 
 function isIhracatBlockHeaderRow(row) {
+  if (rowHasTonajColumnHeader(row)) return true;
   const rowText = _rowToText(row).toUpperCase();
   if (!rowText.includes('PLAKA')) return false;
   const c0 = String(row[0] || '').toUpperCase().trim();
@@ -3322,16 +3354,17 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
   // Excel'de B sütununda not varsa, header adının olmaması durumunda B'yi fallback olarak al
   if (cols.aciklama === undefined && headerRow.length > 1) {
     const secondHeader = String(headerRow[1] || '').trim().toUpperCase();
-    const isKnown = /SIRANO|PLAKA|FIRMA|MALZEME|TONAJ|BBT|ÇUVAL|CUVAL|PALET|KOLI|AÇIKLAMA|ACIKLAMA|NOT|YÜKLEME|YUKLEME|İRSALİYE|IRSALİYE/.test(secondHeader);
-    if (!isKnown) {
+    const isKnown = /SIRANO|SIRA|PLAKA|FIRMA|MALZEME|TONAJ|BBT|ÇUVAL|CUVAL|PALET|KOLI|AÇIKLAMA|ACIKLAMA|NOT|YÜKLEME|YUKLEME|İRSALİYE|IRSALİYE/.test(secondHeader);
+    if (!isKnown && !/^\d+$/.test(secondHeader)) {
       cols.aciklama = 1;
     }
   }
 
-  // Zorunlu kolonnaları kontrol et
-  if (cols.sirano === undefined || cols.plaka === undefined) {
-    return { ok: false, msg: 'Excel formatı tanınmadı (SIRANO veya PLAKA bulunamadı).', rows: [], meta: {}, stats: {} };
+  // Sıra başlığı "100" gibi rakamsa isimden bulunmaz; plakanın solu sıra sütunudur
+  if (cols.plaka === undefined) {
+    return { ok: false, msg: 'Excel formatı tanınmadı (PLAKA bulunamadı).', rows: [], meta: {}, stats: {} };
   }
+  if (cols.sirano === undefined && cols.plaka > 0) cols.sirano = cols.plaka - 1;
 
   // Başlıkta "İRSALİYE NO" yoksa A sütunu (R11…) otomatik tanı
   const irsaliyeCol = detectIrsaliyeColumnIndex(grid, headerRowIdx, cols);

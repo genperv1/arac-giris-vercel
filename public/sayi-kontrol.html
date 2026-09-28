@@ -8,7 +8,7 @@
   <title>Sayı kontrol — Araç Takip</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
-  <link rel="stylesheet" href="styles.css?v=1.0.40-20260914-strict">
+  <link rel="stylesheet" href="styles.css?v=1.0.41-20260928-clip">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260913-sayi"></script>
   <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
@@ -21,11 +21,10 @@
         <span class="im-brand__icon" aria-hidden="true"><i class="fas fa-balance-scale"></i></span>
         <div>
           <h1>Sayı kontrol</h1>
-          <p>Netsis raporu ↔ Güncel Excel — SIPNO ile blok karşılaştırma</p>
+          <p>Netsis raporu ↔ Excel — her sevkiyat bloğu kendi araçlarıyla</p>
         </div>
       </div>
       <div class="im-top__actions">
-        <button type="button" id="skOpenPlanBtn" class="im-chip-btn">Plan v4</button>
         <button type="button" id="skHomeBtn" class="im-home">Ana Sayfa</button>
       </div>
     </div>
@@ -39,6 +38,7 @@
 
     <p class="sk-lead">
       Netsis + güncel Excel → <strong>Kontrol et</strong>.
+      Karşılaştırma yalnızca Excel’de yüklü sevkiyat bloklarının araçlarıdır.
       Yeşil = tutuyor · Kırmızı hücre = iki tarafta da değer var ve farklı.
     </p>
 
@@ -65,9 +65,9 @@
 
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
   <script src="modules/excel-list-copy.js?v=1.0.15-20260914-akyuz"></script>
-  <script src="modules/is-merkezi.js?v=1.0.12-20260912-araclar-pwd"></script>
+  <script src="modules/is-merkezi.js?v=1.0.13-20260928-format"></script>
   <script src="modules/plan-v4.js?v=1.0.4-20260913-bignum"></script>
-  <script src="modules/sayi-kontrol.js?v=1.0.42-20260914-kantar0"></script>
+  <script src="modules/sayi-kontrol.js?v=1.0.45-20260928-tarih"></script>
   <script>
     (function () {
       try { document.documentElement.style.visibility = 'hidden'; } catch (e) {}
@@ -101,8 +101,6 @@
         }
         showPage();
         if (window.SayiKontrol) window.SayiKontrol.bindAppUi({ toast: toast });
-        var planBtn = document.getElementById('skOpenPlanBtn');
-        if (planBtn) planBtn.addEventListener('click', function () { openPage('plan-v4.html'); });
       }
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
       else boot();

@@ -110,9 +110,14 @@
   function normalizeDate(value) {
     if (value == null || value === '') return '';
     if (value instanceof Date && !isNaN(value.getTime())) {
-      var dd = String(value.getDate()).padStart(2, '0');
-      var mm = String(value.getMonth() + 1).padStart(2, '0');
-      var yy = value.getFullYear();
+      var d = value;
+      // SheetJS date-only hücreyi bir önceki gün 23:59 diye okur (ör. 21.09 → 20.09 23:59).
+      if (d.getHours() === 23 && d.getMinutes() >= 50) {
+        d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12, 0, 0, 0);
+      }
+      var dd = String(d.getDate()).padStart(2, '0');
+      var mm = String(d.getMonth() + 1).padStart(2, '0');
+      var yy = d.getFullYear();
       return dd + '.' + mm + '.' + yy;
     }
     if (typeof value === 'number' && Number.isFinite(value) && value > 20000 && value < 80000) {
@@ -184,6 +189,11 @@
     var d = normalizeDate(tarih) || '';
     if (!s) return '';
     return (d ? d + '|' : '') + 'S:' + s;
+  }
+
+  function dateSortKey(value) {
+    var m = String(value || '').match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    return m ? (m[3] + m[2] + m[1]) : String(value || '');
   }
 
   function rowText(row) {
@@ -468,6 +478,34 @@
     return { ok: blocks.length > 0, items: blocks, blocks: blocks, error: blocks.length ? '' : 'Sevkiyat bloğu bulunamadı (PLAKA / TOPLAM).' };
   }
 
+  /**
+   * Güncel Excel’in tarih sekmeleri. Sekme adı tarihse o gün zorlanır;
+   * aynı SIPNO’nun başka günü bu bloğa karışmaz.
+   */
+  function parseSevkiyatWorkbookSheets(sheets) {
+    var blocks = [];
+    (sheets || []).forEach(function (sh) {
+      var name = sh && sh.name ? String(sh.name) : '';
+      var fromName = extractDateFromName(name);
+      var parsed = parseSevkiyatGrid(sh && sh.grid, fromName);
+      (parsed.blocks || []).forEach(function (b) {
+        if (fromName) {
+          b.tarih = fromName;
+          b.key = blockKey(fromName, b.sip) || b.key;
+          b.label = (b.sip || b.yd || 'Blok') + ' · ' + fromName;
+        }
+        if (name) b.sheetName = name;
+        blocks.push(b);
+      });
+    });
+    return {
+      ok: blocks.length > 0,
+      blocks: blocks,
+      items: blocks,
+      error: blocks.length ? '' : 'Sevkiyat bloğu bulunamadı (PLAKA / TOPLAM).'
+    };
+  }
+
   function mapNetsisCols(headerRow) {
     var map = {};
     (headerRow || []).forEach(function (cell, i) {
@@ -586,7 +624,8 @@
         ob1: Number.isFinite(ob1) ? ob1 : 0,
         kantar: Number.isFinite(kantar) ? kantar : 0,
         bbt: bbt,
-        cuval: cuval
+        cuval: cuval,
+        firmaKodu: trimStr(cell(row, cols.firma))
       };
       if (isNetsisStubLine(lineObj)) continue;
       blk.lines.push(lineObj);
@@ -961,8 +1000,9 @@
   }
 
   /**
-   * Ana eşleme: İRSALİYE NO; plaka uyuşmazsa / kalanlar plaka ile.
-   * Kapsam: sadece Excel’deki SIPNO’lar (tüm Netsis yılı dökülmez).
+   * Ana eşleme: İRSALİYE NO; plaka yalnız Excel’de karşılığı kalan satırda.
+   * Kapsam: Excel’de yüklü sevkiyat bloklarının satırları.
+   * Aynı SIPNO’nun Excel’de olmayan diğer sevkiyatları eklenmez.
    */
   function diffSipBlocks(leftBlocks, rightBlocks) {
     var excelLines = flattenBlockLines(rightBlocks, 'excel');
@@ -1057,23 +1097,8 @@
       }
     });
 
-    scopedNetsis.forEach(function (n, idx) {
-      if (usedN[String(idx)]) return;
-      if (!n.irsKey) return;
-      lineResults.push({
-        status: 'only-left',
-        irsKey: n.irsKey,
-        sip: n.sip,
-        tarih: n.tarih,
-        left: n.line,
-        right: null,
-        leftMeta: n,
-        rightMeta: null,
-        usedIdx: String(idx)
-      });
-    });
-
-    // İrsaliye eşleşmesinde plaka çakışırsa / kalanlar → plaka ile yeniden eşle
+    // İrsaliye eşleşmesinde plaka çakışırsa / kalanlar → plaka ile yeniden eşle.
+    // Excel’de olmayan Netsis satırları (aynı SIPNO’nun başka sevkiyatı) listeye girmez.
     var kept = [];
     var leftRem = [];
     var rightRem = [];
@@ -1095,6 +1120,29 @@
       } else if (lr.right && lr.rightMeta) {
         rightRem.push({ meta: lr.rightMeta, line: lr.right });
       }
+    });
+
+    var remKeys = Object.create(null);
+    leftRem.forEach(function (L) {
+      var k = (L.meta && L.meta.blockIdx != null ? L.meta.blockIdx : '') + ':' +
+        (L.meta && L.meta.lineIdx != null ? L.meta.lineIdx : '') + ':' + irsaliyeKey(L.line);
+      remKeys[k] = true;
+    });
+    var remPlates = Object.create(null);
+    rightRem.forEach(function (item) {
+      var pk = normalizePlaka(item.line && item.line.plaka);
+      var sip = (item.meta && item.meta.sip) || '';
+      if (pk) remPlates[pk + '|' + sip] = true;
+    });
+    scopedNetsis.forEach(function (n, idx) {
+      if (usedN[String(idx)]) return;
+      var pk = normalizePlaka(n.line && n.line.plaka);
+      if (!pk) return;
+      var sip = n.sip || '';
+      if (!remPlates[pk + '|' + sip]) return;
+      var k = (n.blockIdx != null ? n.blockIdx : '') + ':' + (n.lineIdx != null ? n.lineIdx : '') + ':' + (n.irsKey || '');
+      if (remKeys[k]) return;
+      leftRem.push({ meta: n, line: n.line, candidateOnly: true });
     });
 
     var rByPlaka = Object.create(null);
@@ -1120,8 +1168,8 @@
         kept.push({
           status: 'pending',
           irsKey: irsaliyeKey(L.line) || irsaliyeKey(hit.item.line),
-          sip: (L.meta && L.meta.sip) || (hit.item.meta && hit.item.meta.sip),
-          tarih: (L.meta && L.meta.tarih) || (hit.item.meta && hit.item.meta.tarih),
+          sip: (hit.item.meta && hit.item.meta.sip) || (L.meta && L.meta.sip),
+          tarih: (hit.item.meta && hit.item.meta.tarih) || (L.meta && L.meta.tarih),
           left: L.line,
           right: hit.item.line,
           leftMeta: L.meta,
@@ -1129,6 +1177,7 @@
           matchBy: 'plaka'
         });
       } else {
+        if (L.candidateOnly) return;
         kept.push({
           status: 'only-left',
           irsKey: irsaliyeKey(L.line),
@@ -1186,28 +1235,38 @@
       return lr;
     });
 
-    // SIPNO (+tarih) ile bloklara grupla — gösterim için
+    // Her Excel sevkiyat bloğu ayrı kalır. Aynı SIPNO blokları birleştirilmez.
     var byBlock = Object.create(null);
     lineResults.forEach(function (lr) {
       var sip = lr.sip || '—';
       var tarih = lr.tarih || '';
-      var bk = (tarih ? tarih + '|' : '') + sip;
+      var excelBlock = lr.rightMeta && lr.rightMeta.block;
+      var bk = (lr.rightMeta && lr.rightMeta.blockIdx != null)
+        ? ('B:' + lr.rightMeta.blockIdx)
+        : ('N:' + (tarih ? tarih + '|' : '') + sip);
       if (!byBlock[bk]) {
+        var sipShow = (excelBlock && excelBlock.sip) || (sip === '—' ? '' : sip);
+        var tarihShow = (excelBlock && excelBlock.tarih) || tarih;
         byBlock[bk] = {
-          sip: sip === '—' ? '' : sip,
-          tarih: tarih,
-          label: (sip === '—' ? 'İrsaliye' : sip) + (tarih ? (' · ' + tarih) : ''),
+          sip: sipShow,
+          tarih: tarihShow,
+          label: (sipShow || 'İrsaliye') + (tarihShow ? (' · ' + tarihShow) : ''),
           lines: [],
           left: null,
-          right: null
+          right: excelBlock || null
         };
       }
       byBlock[bk].lines.push(lr);
-      if (lr.leftMeta && lr.leftMeta.block) byBlock[bk].left = lr.leftMeta.block;
-      if (lr.rightMeta && lr.rightMeta.block) byBlock[bk].right = lr.rightMeta.block;
+      if (lr.leftMeta && lr.leftMeta.block) {
+        var excelTarih = byBlock[bk].tarih || '';
+        if (!byBlock[bk].left || (excelTarih && lr.leftMeta.block.tarih === excelTarih)) {
+          byBlock[bk].left = lr.leftMeta.block;
+        }
+      }
+      if (excelBlock) byBlock[bk].right = excelBlock;
     });
 
-    var blockRows = Object.keys(byBlock).sort().map(function (bk) {
+    var blockRows = Object.keys(byBlock).map(function (bk) {
       var blk = byBlock[bk];
       blk.lines.sort(function (a, b) {
         return String(a.irsKey || '').localeCompare(String(b.irsKey || ''));
@@ -1219,6 +1278,19 @@
       var allOk = blk.lines.every(function (x) { return x.status === 'ok'; });
       blk.status = allOk ? 'ok' : (hasBad || hasMiss ? 'bad' : 'miss');
       return blk;
+    });
+
+    blockRows.sort(function (a, b) {
+      var da = dateSortKey(a.tarih);
+      var db = dateSortKey(b.tarih);
+      if (da !== db) return da < db ? -1 : 1;
+      var asheet = (a.right && a.right.sheetName) || '';
+      var bsheet = (b.right && b.right.sheetName) || '';
+      if (asheet !== bsheet) return asheet < bsheet ? -1 : 1;
+      var ar = (a.right && a.right.headerRow) || 0;
+      var br = (b.right && b.right.headerRow) || 0;
+      if (ar !== br) return ar - br;
+      return String(a.sip || '').localeCompare(String(b.sip || ''), 'tr');
     });
 
     var matchedOk = blockRows.filter(function (b) { return b.status === 'ok'; }).length;
@@ -1393,21 +1465,32 @@
     return String(Math.round(n));
   }
 
-  /** Sadece iki tarafta da değer varken ve farklıysa kırmızı. */
-  function pairCell(leftVal, rightVal, ok, formatter) {
+  function pairSide(cls, html, raw, clip) {
+    var full = raw && raw !== '—' ? trimStr(raw) : '';
+    var attr = full
+      ? (' title="' + escapeHtml(full) + '" data-full="' + escapeHtml(full) + '"')
+      : '';
+    if (!clip) return '<span class="' + cls + '"' + attr + '>' + html + '</span>';
+    return '<span class="' + cls + '"><span class="sk-clip"' + attr + '>' + html + '</span></span>';
+  }
+
+  /** Sadece iki tarafta da değer varken ve farklıysa kırmızı. clip: uzun ad kutuya sığar. */
+  function pairCell(leftVal, rightVal, ok, formatter, clip) {
     var leftBlank = isBlankDisplay(leftVal);
     var rightBlank = isBlankDisplay(rightVal);
     var fmt = formatter || function (v) { return escapeHtml(trimStr(v)); };
     var L = leftBlank ? '—' : fmt(leftVal);
     var R = rightBlank ? '—' : fmt(rightVal);
+    var rawL = leftBlank ? '' : trimStr(leftVal);
+    var rawR = rightBlank ? '' : trimStr(rightVal);
     var both = !leftBlank && !rightBlank;
     var cls = 'sk-cell--quiet';
     if (both && !ok) cls = 'sk-cell--bad';
     else if (both && ok) cls = 'sk-cell--ok';
-    return '<td class="sk-pair ' + cls + '">' +
+    return '<td class="sk-pair' + (clip ? ' sk-pair--clip' : '') + ' ' + cls + '">' +
       '<div class="sk-pair__inner">' +
-      '<span class="sk-pair__n" title="Netsis">' + L + '</span>' +
-      '<span class="sk-pair__e" title="Excel">' + R + '</span>' +
+      pairSide('sk-pair__n', L, rawL, clip) +
+      pairSide('sk-pair__e', R, rawR, clip) +
       '</div>' +
       '</td>';
   }
@@ -1485,7 +1568,7 @@
         '<span class="sk-badge sk-badge--' + st + '">' + stLabel + '</span>' +
         '<strong>' + escapeHtml(blk.sip || '—') + '</strong>' +
         (blk.tarih ? '<em>' + escapeHtml(blk.tarih) + '</em>' : '') +
-        (cari ? '<span class="sk-chip sk-chip--muted">' + escapeHtml(cari) + '</span>' : '') +
+        (cari ? '<span class="sk-chip sk-chip--muted sk-clip" title="' + escapeHtml(cari) + '" data-full="' + escapeHtml(cari) + '">' + escapeHtml(cari) + '</span>' : '') +
         '<span class="sk-block__meta">' + (blk.lines || []).length + ' irsaliye</span>' +
         '</header>';
 
@@ -1524,13 +1607,13 @@
           '</span></td>' +
           '<td class="sk-irs"><strong>' + escapeHtml(irsShow) + '</strong></td>' +
           pairCell(ln.left && ln.left.plaka, ln.right && ln.right.plaka, !f.plaka || f.plaka.ok) +
-          pairCell(ln.left && ln.left.teslimCari, ln.right && ln.right.teslimCari, !f.teslimCari || f.teslimCari.ok) +
-          pairCell(ln.left && ln.left.tasiyici, ln.right && ln.right.tasiyici, !f.tasiyici || f.tasiyici.ok) +
+          pairCell(ln.left && ln.left.teslimCari, ln.right && ln.right.teslimCari, !f.teslimCari || f.teslimCari.ok, null, true) +
+          pairCell(ln.left && ln.left.tasiyici, ln.right && ln.right.tasiyici, !f.tasiyici || f.tasiyici.ok, null, true) +
           pairCell(ln.left && ln.left.bbt, ln.right && ln.right.bbt, !f.bbt || f.bbt.ok, formatCount) +
           pairCell(ln.left && ln.left.cuval, ln.right && ln.right.cuval, !f.cuval || f.cuval.ok, formatCount) +
           pairCell(ln.left && ln.left.ob1, ln.right && ln.right.ob1, !f.ob1 || f.ob1.ok, formatKg) +
           pairCell(ln.left && ln.left.kantar, ln.right && ln.right.kantar, !f.kantar || f.kantar.ok, formatKg) +
-          pairCell(soforN, soforE, (!f.sofor || f.sofor.ok) && (!f.gsm || f.gsm.ok)) +
+          pairCell(soforN, soforE, (!f.sofor || f.sofor.ok) && (!f.gsm || f.gsm.ok), null, true) +
           '</tr>';
       });
 
@@ -1696,10 +1779,21 @@
       state.rightFileName = file.name || '';
       if (rightName) rightName.textContent = file.name;
       var wb = await workbookFromFile(file);
-      var sheet = firstSheetGrid(wb, ['sevkiyat', 'ihracat', 'takip']);
-      var hintDate = extractDateFromName(file.name) || extractDateFromName(sheet.name);
-      var parsed = parseSevkiyatGrid(sheet.grid, hintDate);
+      var allSheets = (wb.SheetNames || []).map(function (name) {
+        return {
+          name: name,
+          grid: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', blankrows: false })
+        };
+      });
+      var daySheets = allSheets.filter(function (sh) { return !!extractDateFromName(sh.name); });
+      var useSheets = daySheets.length ? daySheets : allSheets;
+      var parsed = parseSevkiyatWorkbookSheets(useSheets);
+      if (!parsed.ok && useSheets !== allSheets) {
+        parsed = parseSevkiyatWorkbookSheets(allSheets);
+        useSheets = allSheets;
+      }
       if (!parsed.ok) {
+        var sheet = useSheets[0] || allSheets[0] || { name: '', grid: [] };
         if (root.PlanV4) {
           var g = root.PlanV4.parseGuncelGrid(sheet.grid);
           if (g.ok && g.items.length) {
@@ -1709,9 +1803,9 @@
       }
       if (!parsed.ok) throw new Error(parsed.error || 'Sağ dosya okunamadı');
       state.right = parsed;
+      var blockCount = (parsed.blocks || parsed.items || []).length;
       setStatus((statusEl && statusEl.textContent ? statusEl.textContent + ' · ' : '') +
-        'Sağ: ' + sheet.name + ' · ' + (parsed.blocks || parsed.items).length + ' blok/kalem' +
-        (hintDate ? (' · tarih ' + hintDate) : ''));
+        'Sağ: ' + useSheets.length + ' sayfa · ' + blockCount + ' blok');
     }
 
     function runCompare() {
@@ -1779,6 +1873,44 @@
       });
     }
 
+    function bindClipTip(host) {
+      if (!host || host._skTipBound) return;
+      host._skTipBound = true;
+      var tip = document.createElement('div');
+      tip.className = 'sk-tip';
+      tip.hidden = true;
+      document.body.appendChild(tip);
+      function hide() { tip.hidden = true; tip.textContent = ''; }
+      function place(el) {
+        var full = el.getAttribute('data-full') || '';
+        if (!full || el.scrollWidth <= el.clientWidth + 2) { hide(); return; }
+        tip.textContent = full;
+        tip.hidden = false;
+        var r = el.getBoundingClientRect();
+        var left = r.left;
+        var top = r.bottom + 6;
+        if (left + tip.offsetWidth > window.innerWidth - 8) left = window.innerWidth - tip.offsetWidth - 8;
+        if (left < 8) left = 8;
+        if (top + tip.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - tip.offsetHeight - 6);
+        tip.style.left = left + 'px';
+        tip.style.top = top + 'px';
+      }
+      host.addEventListener('mouseover', function (e) {
+        var el = e.target.closest ? e.target.closest('[data-full]') : null;
+        if (!el || !host.contains(el)) { hide(); return; }
+        place(el);
+      });
+      host.addEventListener('mouseout', function (e) {
+        var el = e.target.closest ? e.target.closest('[data-full]') : null;
+        if (!el) return;
+        if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+        hide();
+      });
+      window.addEventListener('scroll', hide, true);
+    }
+
+    if (tableEl) bindClipTip(tableEl);
+
     updateModeLabels();
     renderDiff();
   }
@@ -1797,6 +1929,7 @@
     matchKey: matchKey,
     blockKey: blockKey,
     parseSevkiyatGrid: parseSevkiyatGrid,
+    parseSevkiyatWorkbookSheets: parseSevkiyatWorkbookSheets,
     parseNetsisGrid: parseNetsisGrid,
     parseRaporGrid: parseRaporGrid,
     itemsFromGuncel: itemsFromGuncel,

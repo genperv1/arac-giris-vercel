@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>Akyüz liste — Araç Takip</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=1.0.34-20260915-akyuz">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260915-akyuz"></script>
+  <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
+  <script>
+    window.ensureXlsxLoaded = function () {
+      if (window.XLSX && window.XLSX.read) return Promise.resolve(window.XLSX);
+      if (window.__elcXlsxPromise) return window.__elcXlsxPromise;
+      window.__elcXlsxPromise = new Promise(function (resolve, reject) {
+        function ok() {
+          if (window.XLSX && window.XLSX.read) resolve(window.XLSX);
+          else reject(new Error('Excel okuyucu yüklenemedi.'));
+        }
+        var s = document.createElement('script');
+        s.src = '/vendor/xlsx.full.min.js';
+        s.onload = ok;
+        s.onerror = function () {
+          var s2 = document.createElement('script');
+          s2.src = 'https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js';
+          s2.onload = ok;
+          s2.onerror = function () {
+            var s3 = document.createElement('script');
+            s3.src = 'https://unpkg.com/xlsx/dist/xlsx.full.min.js';
+            s3.onload = ok;
+            s3.onerror = function () { reject(new Error('Excel okuyucu yüklenemedi (internet gerekli).')); };
+            document.head.appendChild(s3);
+          };
+          document.head.appendChild(s2);
+        };
+        document.head.appendChild(s);
+      });
+      return window.__elcXlsxPromise;
+    };
+  </script>
+</head>
+<body class="elc-page ald-page">
+  <header class="elc-top">
+    <div class="elc-top__inner">
+      <div class="elc-brand">
+        <span class="elc-bolt-icon elc-bolt-icon--lg" aria-hidden="true"><i class="fas fa-file-excel"></i></span>
+        <div>
+          <h1>Akyüz liste</h1>
+          <p>Ham listeyi Akyüz sevk bildiri formuna işler</p>
+        </div>
+      </div>
+      <div class="elc-top__actions">
+        <button type="button" id="aldHomeBtn" class="elc-home">Ana Sayfa</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="aldPage" class="elc-main">
+    <section class="elc-panel">
+      <div id="aldDrop" class="elc-drop" role="button" tabindex="0">
+        <strong>Ham Excel’i bırakın veya seçin</strong>
+        <span>Güncel ihracat listesini bırakın. Düzenle, Akyüz satırlarını sevk bildiri formuna yazar. Excel indir aynı biçimli dosyayı geri verir.</span>
+        <div class="elc-drop__file">
+          <label class="elc-file-btn" for="aldFile">Dosya seç</label>
+          <input id="aldFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb" hidden>
+          <span id="aldFileName">Dosya seçilmedi</span>
+        </div>
+      </div>
+      <div class="elc-actions">
+        <button type="button" id="aldRunBtn" class="elc-bolt-btn elc-bolt-btn--solve">
+          <span class="elc-bolt-icon" aria-hidden="true"><i class="fas fa-magic"></i></span> Düzenle
+        </button>
+        <button type="button" id="aldDownloadBtn" class="elc-bolt-btn elc-bolt-btn--copy" disabled>
+          <span class="elc-bolt-icon" aria-hidden="true"><i class="fas fa-download"></i></span> Excel indir
+        </button>
+        <label class="elc-check-label">
+          <input id="aldKeepToday" type="checkbox" checked> Bugünkü sevkleri tut
+        </label>
+        <p id="aldStatus" class="elc-status">Dosyayı bırakınca liste hazır olur. Excel indir, Akyüz sevk bildiri formunu kaydeder.</p>
+      </div>
+    </section>
+
+    <section class="elc-sheet-wrap">
+      <div class="elc-toolbar">
+        <span>Önizleme</span>
+        <span id="aldCount">0 satır</span>
+      </div>
+      <div class="elc-sheet" id="aldSheet">
+        <div class="elc-sheet__cols">
+          <span>SIRA</span>
+          <span>TEDARİKÇİ</span>
+          <span>SEVK TARİHİ</span>
+          <span>FİRMA</span>
+          <span>LOT</span>
+          <span>TONAJ</span>
+          <span>KG</span>
+          <span>AMBALAJ</span>
+          <span>AMBALAJ TİPİ</span>
+          <span>PALET</span>
+          <span>LİMAN</span>
+          <span>YÜKLEME</span>
+          <span>BOOKING</span>
+          <span>GEMİ</span>
+        </div>
+        <div id="aldTree" class="elc-tree"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="aldToast"></div>
+
+  <script src="modules/akyuz-liste.js?v=1.0.3-20260928"></script>
+  <script>
+    (function () {
+      function toast(msg, isErr) {
+        var el = document.getElementById('aldToast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'toast show' + (isErr ? ' warn' : '');
+        clearTimeout(el._t);
+        el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
+      }
+      function goHome() {
+        if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') {
+          window.SessionManager.navigateToHome();
+        } else {
+          location.href = 'GIRIS.html';
+        }
+      }
+      function openPage(path) {
+        if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+          window.SessionManager.openAppPage(path);
+        } else {
+          location.href = path;
+        }
+      }
+      document.getElementById('aldHomeBtn')?.addEventListener('click', goHome);
+
+      async function boot() {
+        if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+          var ok = await window.SessionManager.requireValidSession();
+          if (!ok) return;
+        }
+        if (!window.AraclarGate || typeof window.AraclarGate.isUnlocked !== 'function' || !window.AraclarGate.isUnlocked()) {
+          openPage('ihracat-takip.html');
+          return;
+        }
+        if (window.AkyuzListe && typeof window.AkyuzListe.bindAppUi === 'function') {
+          window.AkyuzListe.bindAppUi({ toast: toast });
+        }
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+</body>
+</html>

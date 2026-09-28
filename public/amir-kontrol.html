@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <title>Bystoker</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="styles.css?v=1.0.51-20260928-orta">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20260928-amir"></script>
+  <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
+  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
+</head>
+<body class="am-page">
+  <header class="am-top">
+    <div>
+      <h1>Bystoker</h1>
+    </div>
+    <button type="button" id="amHomeBtn" class="am-home">Ana sayfa</button>
+  </header>
+
+  <main id="amPage" class="am-main">
+    <section class="am-stage" aria-label="Dosyalar">
+      <label class="am-drop">
+        <span>Netsis raporu</span>
+        <strong id="amLeftName">Dosya seç</strong>
+        <em>RR.xls / .xlsx</em>
+        <input id="amLeftFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb">
+      </label>
+
+      <div class="am-radar" aria-hidden="true">
+        <span class="am-radar__sweep"></span>
+        <span class="am-radar__ring"></span>
+        <span class="am-radar__ring am-radar__ring--2"></span>
+        <span class="am-radar__ring am-radar__ring--3"></span>
+        <span class="am-radar__core"><i class="fas fa-hard-hat"></i></span>
+      </div>
+
+      <label class="am-drop">
+        <span>İrsaliye Excel</span>
+        <strong id="amRightName">Dosya seç</strong>
+        <em>Sabit biçim · kendi raporun</em>
+        <input id="amRightFile" type="file" accept=".xlsx,.xls,.xlsm,.xlsb">
+      </label>
+    </section>
+
+    <section class="am-range" aria-label="Tarih aralığı">
+      <label>Başlangıç
+        <input id="amFrom" type="date">
+      </label>
+      <label>Bitiş
+        <input id="amTo" type="date">
+      </label>
+      <label>Sip. no
+        <input id="amSip" type="text" inputmode="text" placeholder="M2020…" autocomplete="off">
+      </label>
+      <div class="am-presets">
+        <button type="button" data-am-preset="today">Bugün</button>
+        <button type="button" data-am-preset="week">Bu hafta</button>
+        <button type="button" data-am-preset="month">Bu ay</button>
+      </div>
+      <label class="am-sevk">Sevk
+        <select id="amSevk"><option value="">Tümü</option></select>
+      </label>
+      <button type="button" id="amRun" class="am-run">Karşılaştır</button>
+    </section>
+
+    <p id="amStatus" class="am-status">Tarih aralığını seç, iki dosyayı yükle.</p>
+    <div class="am-tools">
+      <div id="amSummary"></div>
+      <span class="am-series">Yalnız R serisi</span>
+    </div>
+    <div id="amTable"></div>
+  </main>
+
+  <div class="am-toast" id="amToast"></div>
+
+  <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
+  <script src="modules/sayi-kontrol.js?v=1.0.47-20260928-firma"></script>
+  <script src="modules/amir-kontrol.js?v=1.0.9-20260928-hepsi"></script>
+  <script>
+    (function () {
+      try { document.documentElement.style.visibility = 'hidden'; } catch (e) {}
+      function toast(msg, isErr) {
+        var el = document.getElementById('amToast');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.className = 'am-toast show' + (isErr ? ' warn' : '');
+        clearTimeout(el._t);
+        el._t = setTimeout(function () { el.classList.remove('show'); }, 3200);
+      }
+      function showPage() {
+        try { document.documentElement.style.visibility = ''; } catch (e) {}
+      }
+      function openPage(path) {
+        if (window.SessionManager && window.SessionManager.openAppPage) window.SessionManager.openAppPage(path);
+        else location.href = path;
+      }
+      async function boot() {
+        if (window.SessionManager && window.SessionManager.requireValidSession) {
+          var ok = await window.SessionManager.requireValidSession();
+          if (!ok) return;
+        }
+        if (!window.AraclarGate || !window.AraclarGate.isUnlocked || !window.AraclarGate.isUnlocked()) {
+          openPage('ihracat-takip.html');
+          return;
+        }
+        showPage();
+        if (window.AmirKontrol) window.AmirKontrol.bindAppUi({ toast: toast });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+</body>
+</html>

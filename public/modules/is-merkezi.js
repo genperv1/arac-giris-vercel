@@ -69,7 +69,8 @@
             { id: 'h-4', text: 'Paketlemeleri 1375’ten hesapla.' },
             { id: 'h-5', text: 'Bizim arabaların sardığı yükü Akyüz’den düş — çok önemli.', critical: true },
             { id: 'h-6', text: 'Paletli/streçli ise sal dorse veya babaları çıkan araba iste.' },
-            { id: 'h-7', text: 'Bizim araçları Selahattin abiye; Akyüz listesini Akyüz’e mail at.' }
+            { id: 'h-7', text: 'Bizim araçları Selahattin abiye; Akyüz listesini Akyüz’e mail at.' },
+            { id: 'h-akyuz', text: 'Ham Akyüz listesini tek tıkla sevk formatına çevir, Excel’i mail at.', link: 'akyuz-liste' }
           ]
         }
       ]
@@ -194,7 +195,10 @@
     if (!Number.isFinite(n)) return '—';
     var d = digits == null ? 2 : digits;
     var fixed = n.toFixed(d);
-    return fixed.replace(/\.?0+$/, '').replace('.', ',');
+    if (fixed.indexOf('.') >= 0) {
+      fixed = fixed.replace(/0+$/, '').replace(/\.$/, '');
+    }
+    return fixed.replace('.', ',');
   }
 
   /** Ton ÷ 27 → satır sayısı */
@@ -432,7 +436,6 @@
     var resetBtn = document.getElementById('imResetBtn');
     var homeBtn = document.getElementById('imHomeBtn');
     var openListeBtn = document.getElementById('imOpenListeBtn');
-    var openPlanV4Btn = document.getElementById('imOpenPlanV4Btn');
     var openSayiBtn = document.getElementById('imOpenSayiBtn');
     var openNakliyeBtn = document.getElementById('imOpenNakliyeBtn');
 
@@ -479,6 +482,9 @@
             '</label>';
           if (item.link === 'liste-kopyala') {
             html += '<button type="button" class="im-inline-link" data-im-open="liste-kopyala.html">Liste kopyala</button>';
+          }
+          if (item.link === 'akyuz-liste') {
+            html += '<button type="button" class="im-inline-link" data-im-open="akyuz-liste.html">Akyüz liste</button>';
           }
           html += '</li>';
         });
@@ -608,12 +614,6 @@
     if (openListeBtn) {
       openListeBtn.addEventListener('click', function () {
         openPage('liste-kopyala.html');
-      });
-    }
-
-    if (openPlanV4Btn) {
-      openPlanV4Btn.addEventListener('click', function () {
-        openPage('plan-v4.html');
       });
     }
 
