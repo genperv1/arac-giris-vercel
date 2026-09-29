@@ -334,6 +334,11 @@
     }
   }
 
+  function compactShownPlate(raw) {
+    const compact = String(raw || '').replace(/İ/g, 'I').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return compact || String(raw || '');
+  }
+
   function attrEsc(s) {
     return String(s || '')
       .replace(/&/g, '&amp;')
@@ -384,7 +389,7 @@
         const firma = row.firma || '—';
         return `<tr data-plaka="${attrEsc(row.plaka)}" data-firma="${attrEsc(row.firma || '')}" data-malzeme="${attrEsc(row.malzeme || '')}" title="Detay için tıklayın">
           <td class="col-num">${rowNumStart + i}</td>
-          <td class="col-plate">${escapeHtml(row.plaka)}</td>
+          <td class="col-plate">${escapeHtml(compactShownPlate(row.plaka))}</td>
           <td>${escapeHtml(firma)}</td>
           <td><strong>${escapeHtml(product)}</strong></td>
           <td class="col-num">${row.printCount ?? 0}</td>
@@ -441,7 +446,7 @@
         const who = row.userId || '—';
         return `<tr data-edit-id="${attrEsc(row.id)}" data-plaka="${attrEsc(row.plaka)}" title="Detay için tıklayın">
           <td class="col-num">${rowNumStart + i}</td>
-          <td class="col-plate">${escapeHtml(row.plaka || '—')}</td>
+          <td class="col-plate">${escapeHtml(compactShownPlate(row.plaka) || '—')}</td>
           <td>${escapeHtml(summary)}</td>
           <td>${escapeHtml(who)}</td>
           <td>${fmtTs(row.editTs)}</td>
@@ -571,7 +576,7 @@
         return `<tr class="ay-row--inactive" data-pasif-id="${attrEsc(row.id)}">
           <td class="ay-check-col"><input type="checkbox" class="pasif-row-check" data-id="${attrEsc(row.id)}" ${checked ? 'checked' : ''} aria-label="Seç"></td>
           <td class="col-num">${rowNumStart + i}</td>
-          <td class="col-plate">${escapeHtml(row.plaka || '—')}</td>
+          <td class="col-plate">${escapeHtml(compactShownPlate(row.plaka) || '—')}</td>
           <td><strong>${escapeHtml(row.soforName || '—')}</strong></td>
           <td>${escapeHtml(phone)}</td>
           <td>${escapeHtml(kayit)}</td>
@@ -598,7 +603,7 @@
           const id = btn.getAttribute('data-id');
           if (!id) return;
           const row = pasifRowsCache.find((x) => String(x.id) === String(id));
-          const label = row ? (row.soforName + ' · ' + row.plaka) : id;
+          const label = row ? (row.soforName + ' · ' + compactShownPlate(row.plaka)) : id;
           if (!(await confirm(label + ' kaydı silinsin mi?'))) return;
           await deletePasifDrivers([id]);
         });
@@ -759,7 +764,7 @@
           : '<span class="ay-badge">Kayıtsız</span>';
         return `<tr data-plaka="${escapeHtml(row.plaka)}" title="Detay için tıklayın">
           <td class="col-num">${rowNumStart + i}</td>
-          <td class="col-plate">${escapeHtml(row.plaka)}</td>
+          <td class="col-plate">${escapeHtml(compactShownPlate(row.plaka))}</td>
           <td>${badge}</td>
           <td class="col-num">${row.printCount ?? 0}</td>
           <td>${fmtTs(row.lastPrintTs)}</td>
@@ -1885,6 +1890,22 @@
       if (!sessionOk && !emergency) {
         try { localStorage.setItem('redirectAfterLogin', '/ayarlar.html'); } catch (e) { /* ignore */ }
         location.href = 'GIRIS.html';
+        return;
+      }
+
+      var amirSession = false;
+      try {
+        var amirRole = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+        var amirId = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+        amirSession = amirRole === 'amir' || amirId === 'xxr';
+      } catch (e) { amirSession = false; }
+      if (sessionOk && !amirSession) {
+        try {
+          if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') window.SessionManager.navigateToHome();
+          else location.href = 'GIRIS.html';
+        } catch (e2) {
+          location.href = 'GIRIS.html';
+        }
         return;
       }
 

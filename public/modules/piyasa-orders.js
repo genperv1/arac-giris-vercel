@@ -98,6 +98,51 @@
     if (state._lastAppliedOrder) visit(state._lastAppliedOrder);
   }
 
+  /** Amir: sipariş no ve açıklamayı ortak listeye yazar. Seçince takip formuna bu değerler gider. */
+  function patchPiyasaOrderText(pickKey, fields) {
+    const key = String(pickKey || '').trim();
+    if (!key) return false;
+    const src = fields && typeof fields === 'object' ? fields : {};
+    const sipNo = String(src.sipNo || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const aciklama = String(src.aciklama || '').replace(/\r\n/g, '\n').trim().slice(0, 500);
+    const apply = (hit) => {
+      if (!hit) return;
+      hit.sipNo = sipNo;
+      hit.aciklama = aciklama;
+      if (!hit.__archiveKey) hit.__archiveKey = key;
+    };
+    let n = 0;
+    forEachMatchingOrder(key, (hit) => { apply(hit); n += 1; });
+    const parts = key.split(':');
+    if (parts.length >= 3) {
+      const weekPart = parts[0];
+      const idxPart = parts[parts.length - 1];
+      const sheetPart = parts.slice(1, -1).join(':');
+      const onCurrent = String(state.week ?? '') === weekPart && String(state.sheet || '') === sheetPart;
+      if (onCurrent) {
+        for (const o of state.orders || []) {
+          if (String(o.__idx) !== idxPart) continue;
+          apply(o);
+          n += 1;
+        }
+      }
+    }
+    if (!n) return false;
+    try { refreshArchiveForCurrentSheet(); } catch (e) {}
+    try { saveState(); } catch (e) {}
+    return true;
+  }
+
+  function piyasaNoteFromOrder(order) {
+    const acik = String(order && order.aciklama || '').trim();
+    const sip = String(order && order.sipNo || '').trim();
+    if (!sip) return acik;
+    const up = (s) => String(s || '').toLocaleUpperCase('tr-TR');
+    if (acik && up(acik).includes(up(sip))) return acik;
+    const line = 'SİPARİŞ NO: ' + sip;
+    return acik ? (line + '\n' + acik) : line;
+  }
+
   function mergeOrderPersistedFields(target, source) {
     if (!target || !source) return;
     if (source.usedAt) target.usedAt = source.usedAt;
@@ -276,16 +321,18 @@
       const firma = normFirmaKey(d.firma || d.firmaKodu || d.firmaSelect || ev.firma || '');
       const malzeme = String(d.malzeme || ev.malzeme || '').trim();
       if (!firma && !malzeme) continue;
-      const key = orderPrintStatsKeyFromEvent(d, ev);
+      const ts = Number(ev.ts || d.ts || 0);
+      if (!isDurumCountTs(ts)) continue;
+      const weekParts = _isoWeekPartsFromMs(ts);
+      if (!weekParts) continue;
+      const key = weekParts.year + ':' + weekParts.week + '\x1f' + orderPrintStatsKeyFromEvent(d, ev);
       let rec = statsByKey.get(key);
       if (!rec) {
         rec = { count: 0, plates: {}, lastTs: 0, lastPlate: '' };
         statsByKey.set(key, rec);
       }
-      const ts = Number(ev.ts || d.ts || 0);
-      if (!isDurumCountTs(ts)) continue;
       rec.count += 1;
-      const plate = String(d.plaka || d.plate || '').trim().toUpperCase();
+      const plate = String(d.plaka || d.plate || '').replace(/İ/g, 'I').toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (plate) rec.plates[plate] = (parseInt(rec.plates[plate], 10) || 0) + 1;
       if (ts >= rec.lastTs) {
         rec.lastTs = ts;
@@ -293,8 +340,12 @@
       }
     }
 
-    function applyStats(order) {
-      const rec = statsByKey.get(orderPrintStatsKeyFromOrder(order));
+    function applyStats(order, block) {
+      const weekKey = durumWeekKeyForContext(
+        (block && block.week != null) ? block.week : (order && order._sourceWeek != null ? order._sourceWeek : state.week),
+        (block && block.sheetDate) || state.sheetDate
+      );
+      const rec = weekKey ? statsByKey.get(weekKey + '\x1f' + orderPrintStatsKeyFromOrder(order)) : null;
       if (!rec || rec.count <= 0) {
         order.printCount = 0;
         order.lastPrintAt = null;
@@ -308,9 +359,9 @@
       order.printPlates = { ...(rec.plates || {}) };
     }
 
-    for (const order of state.orders || []) applyStats(order);
+    for (const order of state.orders || []) applyStats(order, { week: state.week, sheetDate: state.sheetDate });
     for (const block of state.weekArchive || []) {
-      for (const order of block.orders || []) applyStats(order);
+      for (const order of block.orders || []) applyStats(order, block);
     }
 
     if (state._lastAppliedOrder) {
@@ -477,7 +528,7 @@
     const ctxHint = historyFilterHint(o);
     const truckTitle = [
       truckCount > 0 ? `${truckCount} plaka kayıtlı` : '',
-      pc > 0 ? `bu sipariş: ${pc} kez yazdırıldı` : '',
+      pc > 0 ? `bu hafta: ${pc} kez yazdırıldı` : '',
       o.lastPrintPlate ? `son plaka: ${o.lastPrintPlate}` : '',
       when ? `son: ${when}` : '',
       formatPrintPlatesSummary(o.printPlates, 6) ? `plakalar: ${formatPrintPlatesSummary(o.printPlates, 6)}` : '',

@@ -242,6 +242,31 @@
     );
   }
 
+  function amirOnly() {
+    try {
+      return !!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser());
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function denyAmirPage() {
+    const host = document.getElementById('pcWeeks');
+    if (host) {
+      host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Bu sayfa yalnızca GENPER · AMİR oturumuna açıktır.</div>';
+    }
+    document.querySelectorAll('main .pc-card').forEach((el) => { el.hidden = true; });
+    setTimeout(() => {
+      try {
+        if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') {
+          window.SessionManager.navigateToHome();
+          return;
+        }
+      } catch (e) { /* ignore */ }
+      window.location.href = '/GIRIS.html';
+    }, 700);
+  }
+
   async function loadRows(opts) {
     const silent = !!(opts && opts.silent);
     const host = document.getElementById('pcWeeks');
@@ -253,8 +278,8 @@
         cache: 'no-store',
         headers: authHeaders(false),
       });
-      if (res.status === 401) {
-        if (host) host.innerHTML = '<div class="pc-empty" style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;">Oturum gerekli. Ana sayfadan giriş yapın.</div>';
+      if (res.status === 401 || res.status === 403) {
+        denyAmirPage();
         return;
       }
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -336,6 +361,10 @@
   }
 
   function bind() {
+    if (!amirOnly()) {
+      denyAmirPage();
+      return;
+    }
     let filterTimer = null;
     document.getElementById('pcRefreshBtn')?.addEventListener('click', () => loadRows());
     document.getElementById('pcExportBtn')?.addEventListener('click', () => exportExcel());

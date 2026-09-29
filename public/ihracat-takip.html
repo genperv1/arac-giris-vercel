@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260913-iht"></script>
   <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
-  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
+  <script src="araclar-gate.js?v=1.0.3-20260929-amir"></script>
 </head>
 <body class="iht-page">
   <header class="iht-top">
@@ -143,8 +143,12 @@
           var ok = await window.SessionManager.requireValidSession();
           if (!ok) { goHome(); return; }
         }
-        // Her girişte şifre kapısı (görünür form — gizli sayfa + görünmez dialog yok)
-        showGate();
+        if (!window.AraclarGate || typeof window.AraclarGate.isAmirUser !== 'function' || !window.AraclarGate.isAmirUser()) {
+          goHome();
+          return;
+        }
+        if (typeof window.AraclarGate.markUnlocked === 'function') window.AraclarGate.markUnlocked();
+        showTools();
       }
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
       else boot();

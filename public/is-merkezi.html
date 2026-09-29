@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="session-manager.js?v=20260911-ismerkezi"></script>
   <script src="rp-dialog.js?v=1.0.2-20260820-pwd"></script>
-  <script src="araclar-gate.js?v=1.0.2-20260913-iht2"></script>
+  <script src="araclar-gate.js?v=1.0.3-20260929-amir"></script>
 </head>
 <body class="im-page">
   <main id="imPage" class="im-main">
@@ -94,6 +94,12 @@
           var ok = await window.SessionManager.requireValidSession();
           if (!ok) return;
         }
+        if (!window.AraclarGate || typeof window.AraclarGate.isAmirUser !== 'function' || !window.AraclarGate.isAmirUser()) {
+          if (window.SessionManager && typeof window.SessionManager.navigateToHome === 'function') window.SessionManager.navigateToHome();
+          else location.href = 'GIRIS.html';
+          return;
+        }
+        if (typeof window.AraclarGate.markUnlocked === 'function') window.AraclarGate.markUnlocked();
         if (!window.AraclarGate || typeof window.AraclarGate.isUnlocked !== 'function' || !window.AraclarGate.isUnlocked()) {
           openPage('ihracat-takip.html');
           return;

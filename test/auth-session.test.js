@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const { createAuthSessionMiddleware } = require('../lib/auth-session');
 
 const SECRET = 'test-secret-key';
-const { requireValidSession, requireAdmin } = createAuthSessionMiddleware({
+const { requireValidSession, requireAdmin, requireAmir } = createAuthSessionMiddleware({
   jwtSecret: SECRET,
   authSessionHours: 6,
 });
@@ -51,4 +51,22 @@ test('requireAdmin rejects non-admin', () => {
   requireAdmin(req, res, () => { nextCalled = true; });
   assert.strictEqual(nextCalled, false);
   assert.strictEqual(res.statusCode, 403);
+});
+
+test('requireAmir accepts xxr and rejects GENPER admin', () => {
+  const amirToken = jwt.sign({ id: '3', username: 'xxr', role: 'amir' }, SECRET, { expiresIn: '1h' });
+  const amirReq = { headers: { authorization: `Bearer ${amirToken}` } };
+  const amirRes = mockRes();
+  let amirNext = false;
+  requireAmir(amirReq, amirRes, () => { amirNext = true; });
+  assert.strictEqual(amirNext, true);
+
+  const adminToken = jwt.sign({ id: '1', username: 'GENPER', role: 'admin' }, SECRET, { expiresIn: '1h' });
+  const adminReq = { headers: { authorization: `Bearer ${adminToken}` } };
+  const adminRes = mockRes();
+  let adminNext = false;
+  requireAmir(adminReq, adminRes, () => { adminNext = true; });
+  assert.strictEqual(adminNext, false);
+  assert.strictEqual(adminRes.statusCode, 403);
+  assert.strictEqual(adminRes.body.code, 'AMIR_REQUIRED');
 });

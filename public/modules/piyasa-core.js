@@ -416,7 +416,7 @@ function piyasaOverlayStyle(zIndex) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
     const out = {};
     for (const [k, v] of Object.entries(raw)) {
-      const plate = String(k || '').trim().toUpperCase();
+      const plate = String(k || '').replace(/İ/g, 'I').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const n = parseInt(v, 10) || 0;
       if (plate && n > 0) out[plate] = n;
     }
@@ -1026,7 +1026,7 @@ function piyasaOverlayStyle(zIndex) {
     }
   }
 
-  function _isoWeekFromMs(ms) {
+  function _isoWeekPartsFromMs(ms) {
     const n = Number(ms);
     if (!Number.isFinite(n) || n <= 0) return null;
     try {
@@ -1036,12 +1036,47 @@ function piyasaOverlayStyle(zIndex) {
       const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
       const dayNum = date.getUTCDay() || 7;
       date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const isoYear = date.getUTCFullYear();
+      const yearStart = new Date(Date.UTC(isoYear, 0, 1));
       const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
-      return Number.isFinite(week) && week > 0 ? week : null;
+      if (!Number.isFinite(week) || week <= 0) return null;
+      return { year: isoYear, week };
     } catch (e) {
       return null;
     }
+  }
+
+  function _isoWeekFromMs(ms) {
+    const parts = _isoWeekPartsFromMs(ms);
+    return parts ? parts.week : null;
+  }
+
+  /** DURUM rozeti: siparişin Excel haftası. Eski haftaların yazdırması bu sayıya girmez. */
+  function durumWeekKeyForContext(week, sheetDate) {
+    const w = typeof parsePiyasaWeekNum === 'function' ? parsePiyasaWeekNum(week) : parseInt(week, 10);
+    if (!w) return '';
+    let year = null;
+    if (sheetDate) {
+      const parts = _isoWeekPartsFromMs(new Date(sheetDate).getTime());
+      if (parts) year = parts.year;
+    }
+    if (!year) {
+      const now = _isoWeekPartsFromMs(Date.now());
+      year = now && now.year;
+    }
+    return year ? (year + ':' + w) : '';
+  }
+
+  function isOrderDurumWeekTs(ts, order) {
+    const n = Number(ts) || 0;
+    if (!n || (typeof isDurumCountTs === 'function' && !isDurumCountTs(n))) return false;
+    const parts = _isoWeekPartsFromMs(n);
+    if (!parts) return false;
+    const want = durumWeekKeyForContext(
+      order && order._sourceWeek != null ? order._sourceWeek : state.week,
+      state.sheetDate
+    );
+    return !!want && (parts.year + ':' + parts.week) === want;
   }
 
   function _printRowSnapshot(row) {
@@ -1213,9 +1248,7 @@ function piyasaOverlayStyle(zIndex) {
   function renderMalzemeHistoryRows(history, order) {
     if (!history.length) {
       const hint = historyFilterHint(order);
-      const msg = isHpStyleFirma(order && order.firma)
-        ? 'Bu yükleme türü / şehir için kayıtlı araç bulunamadı.'
-        : 'Bu malzeme için kayıtlı araç bulunamadı.';
+      const msg = 'Bu hafta bu sevkiyatı götüren araç yok.';
       return `<tr><td colspan="6" style="padding:20px;text-align:center;color:#64748b;">${escapeHtml(msg)}${hint ? `<div style="font-size:11px;margin-top:6px;">${escapeHtml(hint)}</div>` : ''}</td></tr>`;
     }
     return history.map((h) => `
@@ -1236,14 +1269,18 @@ function piyasaOverlayStyle(zIndex) {
     const target = normMalzemeKey(malzeme);
     if (!target && !hpStyle) return;
 
+    const seenTrip = new Set();
     function upsert(plate, info) {
       const pk = normPlateKey(plate);
       if (!pk) return;
       const rowTs = Number(info.ts) || 0;
-      if (rowTs && !isDurumCountTs(rowTs)) return;
+      if (!isOrderDurumWeekTs(rowTs, order)) return;
+      const tripKey = pk + '|' + rowTs;
+      if (seenTrip.has(tripKey)) return;
+      seenTrip.add(tripKey);
       if (!matchesFirmaForOrder(info.firma, opts)) return;
       if (!matchesOrderContextForHistory(info, opts)) return;
-      const displayPlate = String(plate || '').trim().toUpperCase();
+      const displayPlate = String(plate || '').replace(/İ/g, 'I').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const cur = map.get(pk) || {
         plate: displayPlate,
         count: 0,
@@ -1273,19 +1310,6 @@ function piyasaOverlayStyle(zIndex) {
         if (info.iletisim) cur.iletisim = info.iletisim;
       }
       map.set(pk, cur);
-    }
-
-    if (order && !isDurumFrozen()) {
-      Object.entries(_normalizePrintPlates(order.printPlates)).forEach(([plate, count]) => {
-        upsert(plate, {
-          count,
-          ts: order.lastPrintAt || 0,
-          firma: order.firma || '',
-          malzeme: order.malzeme || '',
-          yuklemeTuru: order.yuklemeTuru || '',
-          sevkYeri: order.il || order.sevkYeri || '',
-        });
-      });
     }
 
     (ingestOpts.printHistoryRows || []).forEach((row) => {
@@ -1359,14 +1383,14 @@ function piyasaOverlayStyle(zIndex) {
       <div style="background:#fff;border-radius:14px;max-width:min(96vw,760px);width:100%;max-height:80vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid #eee;">
           <div style="min-width:0;">
-            <div style="font-weight:900;font-size:15px;">Malzeme Araç Geçmişi</div>
+            <div style="font-weight:900;font-size:15px;">Bu hafta götüren araçlar</div>
             <div style="font-size:12px;color:#475569;margin-top:4px;line-height:1.4;">
               <b>${escapeHtml(malzeme || '—')}</b>${firmaAdi ? ` · ${escapeHtml(firmaAdi)}` : ''}
             </div>
             <div style="font-size:11px;color:#64748b;margin-top:2px;">${escapeHtml(
               isHpStyleFirma(firmaCode)
-                ? `Bu firma (${firmaCode}) — ${historyFilterHint(order) || 'yükleme türü / şehre göre'} yazdırılan araçlar`
-                : (firmaCode ? `Bu firma (${firmaCode}) ve malzeme için yazdırılan araçlar` : 'Daha önce bu malzemeyi saran / yazdırılan araçlar')
+                ? `Bu hafta · ${firmaCode} — ${historyFilterHint(order) || 'yükleme türü / şehir'}`
+                : (firmaCode ? `Bu hafta · ${firmaCode} / bu malzeme` : 'Bu hafta bu malzemeyi götüren araçlar')
             )}</div>
           </div>
           <button type="button" id="piyasaHistoryClose" style="border:0;background:#eee;border-radius:10px;padding:6px 12px;cursor:pointer;flex-shrink:0;">Kapat</button>

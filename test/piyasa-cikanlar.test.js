@@ -117,6 +117,7 @@ test('normalizeCikanlarInsert keeps piyasa fields', () => {
     tonaj: '25',
   }, (s, n) => String(s).slice(0, n));
   assert.equal(row.error, undefined);
+  assert.equal(row.plaka, '43ABC123');
   assert.equal(row.firma, 'HP7');
   assert.equal(row.sip_no, 'S-11');
   assert.equal(row.sehir, 'ANKARA');
@@ -208,4 +209,38 @@ test('normalizeCikanlarInsert keeps selected kantar signature name', () => {
     imzaKantarAd: 'Ergin Gördü',
   }, (s, n) => String(s).slice(0, n));
   assert.equal(row2.kantarci, 'Ergin Gördü');
+});
+
+test('deleteCikanlarForPrintHistory removes linked and backfill mirror rows', async () => {
+  const { deleteCikanlarForPrintHistory, cikanlarMirrorIds } = require('../lib/piyasa-cikanlar');
+  const calls = [];
+  const q = async (sql, params) => {
+    calls.push({ sql, params });
+    return { rowCount: 2 };
+  };
+  const n = await deleteCikanlarForPrintHistory(q, ['ph-1', ' ph-1 ', '', 'ph-2']);
+  assert.equal(n, 2);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /DELETE FROM piyasa_cikanlar/);
+  assert.deepEqual(calls[0].params[0], ['ph-1', 'ph-2']);
+  assert.deepEqual(calls[0].params[1], cikanlarMirrorIds(['ph-1', 'ph-2']));
+  assert.deepEqual(calls[0].params[1], ['ph_ph-1', 'ph_ph-2']);
+});
+
+test('deleteCikanlarForPrintHistory skips empty ids', async () => {
+  const { deleteCikanlarForPrintHistory } = require('../lib/piyasa-cikanlar');
+  let called = false;
+  const n = await deleteCikanlarForPrintHistory(async () => { called = true; return { rowCount: 1 }; }, ['', '  ']);
+  assert.equal(n, 0);
+  assert.equal(called, false);
+});
+
+test('orphan cikanlar delete keeps rows that never had a report', () => {
+  const { DELETE_ORPHAN_CIKANLAR_SQL, CIKANLAR_LINKED_REPORT_SQL, DELETE_BLANK_CIKANLAR_SQL } = require('../lib/piyasa-cikanlar');
+  assert.match(DELETE_ORPHAN_CIKANLAR_SQL, /btrim\(c\.print_history_id\)/);
+  assert.match(DELETE_ORPHAN_CIKANLAR_SQL, /NOT EXISTS/);
+  assert.match(CIKANLAR_LINKED_REPORT_SQL, /print_history ph/);
+  assert.match(DELETE_BLANK_CIKANLAR_SQL, /btrim\(firma\)/);
+  assert.match(DELETE_BLANK_CIKANLAR_SQL, /btrim\(malzeme\)/);
+  assert.match(DELETE_BLANK_CIKANLAR_SQL, /btrim\(tonaj\)/);
 });

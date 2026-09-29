@@ -30,6 +30,16 @@ test('validatePlateFormat rejects invalid', () => {
   assert.strictEqual(validatePlateFormat('!!!'), false);
 });
 
-test('formatForeignPlateDisplay normalizes safely', () => {
-  assert.strictEqual(formatForeignPlateDisplay('b 807 sel'), 'B 807 SEL');
+test('formatForeignPlateDisplay writes plates without spaces', () => {
+  assert.strictEqual(formatForeignPlateDisplay('b 807 sel'), 'B807SEL');
+});
+
+test('compactPlate strips spaces from Turkish plates', () => {
+  const { compactPlate, compactRecordPlates } = require('../lib/plate-format');
+  assert.strictEqual(compactPlate('34 ABC 1234'), '34ABC1234');
+  assert.strictEqual(compactPlate('06 FAY 148'), '06FAY148');
+  const row = compactRecordPlates({ plaka: '43 ADS 408', dorsePlaka: '16 AB 123', firma: 'HP7' });
+  assert.strictEqual(row.plaka, '43ADS408');
+  assert.strictEqual(row.dorsePlaka, '16AB123');
+  assert.strictEqual(row.firma, 'HP7');
 });

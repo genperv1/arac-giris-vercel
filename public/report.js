@@ -210,7 +210,8 @@
   // ===== NETSIS FONKSIYONLARI BITTI =====
 
   function buildWhatsAppCopyText(data) {
-    const plate = (data.cekiciPlaka || data.plaka || '').toString().trim() || '-';
+    const plateRaw = (data.cekiciPlaka || data.plaka || '').toString().trim();
+    const plate = normalizeNetsisPlate(plateRaw) || plateRaw || '-';
     const firma = (data.firma || data.firmaKodu || data.firmaSelect || '-').toString().trim();
     const girisYeri = (data.basimYeri || data.girisYeri || '-').toString().trim();
     const malzeme = (data.malzeme || '').toString().trim();
@@ -233,7 +234,8 @@
 
   function buildGirisBildirText(items) {
     const lines = (items || []).map((item) => {
-      const plate = String((item && (item.plate || item.plaka || item.cekiciPlaka)) || '').trim() || '-';
+      const plateRaw = String((item && (item.plate || item.plaka || item.cekiciPlaka)) || '').trim();
+      const plate = plateRaw.replace(/İ/g, 'I').toUpperCase().replace(/[^A-Z0-9]/g, '') || plateRaw || '-';
       const firma = String((item && (item.firma || item.firmaKodu || item.firmaSelect)) || '').trim();
       const basim = String((item && (item.basimYeri || item.girisYeri)) || '').trim();
       return [plate, firma, basim].filter(Boolean).join(' - ');
@@ -1761,7 +1763,8 @@
       const printed = pc > 0;
       const tr = document.createElement('tr');
 
-      const plate = (v.cekiciPlaka || '').toString();
+      const plateStored = (v.cekiciPlaka || '').toString();
+      const plate = normalizeNetsisPlate(plateStored) || plateStored;
 
       tr.setAttribute('data-print-event-id', String(v.id || '')); // report event id
       tr.setAttribute('data-vehicle-id', String(v.id || '')); // print_history id (reprint); NETSIS için data-actual-vehicle-id kullan

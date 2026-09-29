@@ -627,13 +627,15 @@ function captureTakipPrintPayloadForReport(get) {
     ambalajBilgisi: g('ambalajBilgisi'),
     yuklemeNotu: g('yuklemeNotu'),
     yuklemeSirasi: g('yuklemeSirasi'),
-    plaka: g('cekiciPlakaBilgi'),
+    plaka: (typeof formatPlakaForInput === 'function' ? formatPlakaForInput(g('cekiciPlakaBilgi')) : g('cekiciPlakaBilgi')),
     sofor: driver.sofor,
     soforAdi: driver.soforAdi,
     soforSoyadi: driver.soforSoyadi,
     tcKimlik: driver.tcKimlik,
     iletisim: driver.iletisim,
-    dorsePlaka: driver.dorsePlaka || g('dorsePlakaBilgi'),
+    dorsePlaka: (typeof formatPlakaForInput === 'function'
+      ? formatPlakaForInput(driver.dorsePlaka || g('dorsePlakaBilgi'))
+      : (driver.dorsePlaka || g('dorsePlakaBilgi'))),
     bbt: packaging.bbt,
     bosBbt: packaging.bosBbt,
     cuval: packaging.cuval,
@@ -860,8 +862,14 @@ function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId)
   return {
     print_history_id: printHistoryId || '',
     tarih: commitTs || Date.now(),
-    plaka: String((printEv && printEv.plaka) || pending.plaka || '').trim(),
-    dorse_plaka: String((printEv && printEv.dorsePlaka) || snap.dorsePlaka || pp.dorsePlaka || '').trim(),
+    plaka: (typeof formatPlakaForInput === 'function'
+      ? formatPlakaForInput(String((printEv && printEv.plaka) || pending.plaka || ''))
+      : String((printEv && printEv.plaka) || pending.plaka || '')
+    ).trim(),
+    dorse_plaka: (typeof formatPlakaForInput === 'function'
+      ? formatPlakaForInput(String((printEv && printEv.dorsePlaka) || snap.dorsePlaka || pp.dorsePlaka || ''))
+      : String((printEv && printEv.dorsePlaka) || snap.dorsePlaka || pp.dorsePlaka || '')
+    ).trim(),
     sofor: String((printEv && printEv.sofor) || snap.sofor || '').trim(),
     firma,
     firma_adi: String((order && (order.firmaAdi || order._hSutunValue)) || (printEv && printEv.firmaAdi) || '').trim(),
@@ -2065,35 +2073,205 @@ function _buildExcelDateWarnBannerHtml(title, label) {
   </div>`;
 }
 
-function _computeExcelDateWarnHtml() {
-  const todayKey = (typeof _todayKeyTR === 'function') ? _todayKeyTR() : '';
-  const parts = [];
+const HEADER_NOTE_LIMIT = 3;
+let _headerNotes = [];
+let _headerNoteDrafts = [];
+let _headerNoteFetchedAt = 0;
+let _headerNoteEditing = false;
+let _headerNoteError = '';
+let _headerNoteRev = 0;
 
+function _headerNoteIsAmir() {
   try {
-    const meta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
-    const ihrCnt = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
-    const ihrDateKey = _resolveIhracatDateKey(meta);
-    if (ihrCnt > 0 && ihrDateKey && todayKey && ihrDateKey !== todayKey) {
-      parts.push(_buildExcelDateWarnBannerHtml('ihracat güncel tarih değil', _buildIhracatWarnLabel(meta)));
+    if (window.SessionManager && typeof window.SessionManager.isAmirUser === 'function') {
+      return !!window.SessionManager.isAmirUser();
     }
-  } catch (e) {}
-
-  try {
-    const piy = _loadPiyasaState();
-    const piyCnt = Array.isArray(piy?.orders) ? piy.orders.length : 0;
-    const piyDateKey = piy?.loadedAt ? _dateKeyFromDate(new Date(piy.loadedAt)) : '';
-    if (piyCnt > 0 && piyDateKey && todayKey && piyDateKey !== todayKey) {
-      parts.push(_buildExcelDateWarnBannerHtml('piyasa güncel tarih değil', _buildPiyasaWarnLabel(piy)));
-    }
-  } catch (e) {}
-
-  return parts.join('');
+    const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+    const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+    return role === 'amir' || id === 'xxr';
+  } catch (e) {
+    return false;
+  }
 }
 
-function _refreshExcelDateWarnBanner() {
+function _escapeHeaderNote(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _headerNoteLines(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .slice(0, HEADER_NOTE_LIMIT);
+}
+
+function _headerNoteBanner(text) {
+  return `<div class="header-note" role="note"><span class="header-note__icon" aria-hidden="true"><i class="fas fa-exclamation"></i></span><span class="header-note__text">${_escapeHeaderNote(text)}</span></div>`;
+}
+
+function _headerNoteHtml() {
+  const saved = _headerNoteLines(_headerNotes);
+  const amir = _headerNoteIsAmir();
+  if (!amir) {
+    if (!saved.length) return '';
+    return `<div class="header-note-stack">${saved.map(_headerNoteBanner).join('')}</div>`;
+  }
+  if (_headerNoteEditing) {
+    const drafts = (_headerNoteDrafts.length ? _headerNoteDrafts : ['']).slice(0, HEADER_NOTE_LIMIT);
+    const fields = drafts.map((line, i) => `<div class="header-note header-note--edit"><span class="header-note__icon" aria-hidden="true"><i class="fas fa-exclamation"></i></span><input class="header-note__input" ${i === 0 ? 'id="headerNoteInput"' : ''} maxlength="240" placeholder="Not yaz" value="${_escapeHeaderNote(line)}" autocomplete="off"></div>`).join('');
+    const add = drafts.length < HEADER_NOTE_LIMIT
+      ? '<button type="button" id="headerNoteAddLine" class="header-note__add">Not ekle</button>'
+      : '';
+    const err = _headerNoteError
+      ? `<span class="header-note__error">${_escapeHeaderNote(_headerNoteError)}</span>`
+      : '';
+    return `<form id="headerNoteForm" class="header-note-stack">${fields}<div class="header-note-stack__actions">${add}<button type="submit" class="header-note__save">Kaydet</button><button type="button" id="headerNoteCancel" class="header-note__cancel">Vazgeç</button>${err}</div></form>`;
+  }
+  if (!saved.length) {
+    return '<button type="button" id="headerNoteAdd" class="header-note__add">Not yaz</button>';
+  }
+  const add = saved.length < HEADER_NOTE_LIMIT
+    ? '<button type="button" id="headerNoteAdd" class="header-note__add">Not ekle</button>'
+    : '';
+  return `<div class="header-note-stack">${saved.map(_headerNoteBanner).join('')}<div class="header-note-stack__actions">${add}<button type="button" id="headerNoteEdit" class="header-note__edit">Düzenle</button></div></div>`;
+}
+
+function _paintHeaderNote(force) {
   const container = document.getElementById('excelDateWarnContainer');
   if (!container) return;
-  container.innerHTML = _computeExcelDateWarnHtml();
+  if (!force && container.querySelector('.header-note__input')) return;
+  const html = _headerNoteHtml();
+  if (container.innerHTML !== html) container.innerHTML = html;
+}
+
+async function _loadHeaderNote(force) {
+  const now = Date.now();
+  if (!force && now - _headerNoteFetchedAt < 8000) return;
+  _headerNoteFetchedAt = now;
+  const rev = _headerNoteRev;
+  try {
+    const r = await fetch('/api/header-note', { cache: 'no-store', credentials: 'include' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (rev !== _headerNoteRev) return;
+    const notes = Array.isArray(j && j.notes) ? j.notes : (j && j.text ? [j.text] : []);
+    _headerNotes = _headerNoteLines(notes);
+  } catch (e) {}
+}
+
+function _readHeaderNoteDrafts() {
+  const inputs = document.querySelectorAll('#excelDateWarnContainer .header-note__input');
+  if (!inputs.length) return _headerNoteDrafts.slice();
+  return Array.from(inputs).map((el) => el.value).slice(0, HEADER_NOTE_LIMIT);
+}
+
+async function _saveHeaderNote(lines) {
+  _headerNoteError = '';
+  const notes = _headerNoteLines(lines);
+  _headerNoteDrafts = notes.length ? notes : [''];
+  try {
+    const r = await fetch('/api/header-note', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      _headerNoteError = 'Kaydedilemedi';
+      _paintHeaderNote(true);
+      return;
+    }
+    _headerNoteRev += 1;
+    _headerNotes = _headerNoteLines(Array.isArray(j.notes) ? j.notes : notes);
+    _headerNoteDrafts = _headerNotes.slice();
+    _headerNoteFetchedAt = Date.now();
+    _headerNoteEditing = false;
+    _headerNoteError = '';
+    _paintHeaderNote(true);
+  } catch (e) {
+    _headerNoteError = 'Kaydedilemedi';
+    _paintHeaderNote(true);
+  }
+}
+
+function _ensureHeaderNoteUi() {
+  if (window.__headerNoteUiBound) return;
+  window.__headerNoteUiBound = true;
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    if (t.closest('#headerNoteAddLine')) {
+      e.preventDefault();
+      const drafts = _readHeaderNoteDrafts();
+      if (drafts.length < HEADER_NOTE_LIMIT) drafts.push('');
+      _headerNoteDrafts = drafts;
+      _headerNoteEditing = true;
+      _paintHeaderNote(true);
+      const inputs = document.querySelectorAll('#excelDateWarnContainer .header-note__input');
+      const input = inputs[inputs.length - 1];
+      if (input) input.focus();
+      return;
+    }
+    if (t.closest('#headerNoteAdd') || t.closest('#headerNoteEdit')) {
+      e.preventDefault();
+      _headerNoteEditing = true;
+      _headerNoteError = '';
+      const saved = _headerNoteLines(_headerNotes);
+      _headerNoteDrafts = t.closest('#headerNoteAdd')
+        ? (saved.length ? saved.concat(['']) : ['']).slice(0, HEADER_NOTE_LIMIT)
+        : (saved.length ? saved : ['']);
+      _paintHeaderNote(true);
+      const inputs = document.querySelectorAll('#excelDateWarnContainer .header-note__input');
+      const input = t.closest('#headerNoteAdd') ? inputs[inputs.length - 1] : inputs[0];
+      if (input) {
+        input.focus();
+        const end = input.value.length;
+        try { input.setSelectionRange(end, end); } catch (err) {}
+      }
+    } else if (t.closest('#headerNoteCancel')) {
+      e.preventDefault();
+      _headerNoteEditing = false;
+      _headerNoteError = '';
+      _headerNoteDrafts = _headerNoteLines(_headerNotes);
+      _paintHeaderNote(true);
+    }
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains('header-note__input')) {
+      _headerNoteDrafts = _readHeaderNoteDrafts();
+    }
+  });
+  document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (!form || form.id !== 'headerNoteForm') return;
+    e.preventDefault();
+    _saveHeaderNote(_readHeaderNoteDrafts());
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _refreshExcelDateWarnBanner(true);
+  });
+  setInterval(() => {
+    if (document.hidden) return;
+    if (!document.getElementById('excelDateWarnContainer')) return;
+    _refreshExcelDateWarnBanner(false);
+  }, 12000);
+}
+
+function _computeExcelDateWarnHtml() {
+  _ensureHeaderNoteUi();
+  return _headerNoteHtml();
+}
+
+function _refreshExcelDateWarnBanner(force) {
+  _ensureHeaderNoteUi();
+  const container = document.getElementById('excelDateWarnContainer');
+  if (!container) return;
+  _loadHeaderNote(!!force).then(() => _paintHeaderNote(false));
 }
 
 // PİYASA modülü gibi dış modüller Excel yükleyince, header'daki yazıları anında güncellemek için
@@ -2110,7 +2288,9 @@ function refreshHeaderExcelInfo(){
     }
     if (chipIhrText) chipIhrText.textContent = _buildIhracatChipText(info);
     const refreshChip = document.getElementById('excelIhracatRefreshButtonChip');
-    if (refreshChip) refreshChip.classList.toggle('hidden', !(info.ihrCount > 0));
+    if (refreshChip) refreshChip.classList.toggle('hidden', _headerNoteIsAmir() || !(info.ihrCount > 0));
+    const piyasaRefreshChip = document.getElementById('excelPiyasaRefreshButtonChip');
+    if (piyasaRefreshChip) piyasaRefreshChip.classList.toggle('hidden', !_headerNoteIsAmir() || !(info.piyCount > 0));
 
     const chipPiy = document.getElementById('chipPiyasa');
     const chipPiyText = document.getElementById('chipPiyasaText');

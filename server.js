@@ -14,7 +14,7 @@ const helmet = require('helmet');
 const { Pool } = require("pg");
 const cron = require('node-cron');
 const crypto = require('crypto');
-const { validatePlateFormat } = require('./lib/plate-format');
+const { validatePlateFormat, compactPlate, compactRecordPlates } = require('./lib/plate-format');
 const { envNumber } = require('./lib/env');
 const { applySupabaseSecurity } = require('./lib/supabase-security');
 const { createAuthSessionMiddleware } = require('./lib/auth-session');
@@ -35,6 +35,7 @@ const {
   upsertVehicleRecord,
 } = require('./lib/vehicle-helpers');
 const { broadcastEvent, broadcastReportUpdate, registerSseRoutes } = require('./lib/sse');
+const { deleteCikanlarForPrintHistory } = require('./lib/piyasa-cikanlar');
 const { registerAuthRoutes } = require('./routes/auth-routes');
 const { registerOzmalRoutes, registerDriverAuthRoutes } = require('./routes/ozmal-routes');
 const { registerDriverTripRoutes } = require('./routes/driver-trip-routes');
@@ -350,6 +351,7 @@ async function prepareSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_firma_tarih ON piyasa_cikanlar(firma, tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_plaka_tarih ON piyasa_cikanlar(plaka, tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_order_key ON piyasa_cikanlar(order_key);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_print_history_id ON piyasa_cikanlar(print_history_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_sehir ON piyasa_cikanlar(sehir);`);
   await pool.query(`ALTER TABLE piyasa_cikanlar ADD COLUMN IF NOT EXISTS kantarci TEXT;`);
 
@@ -1126,6 +1128,7 @@ const AUTH_COOKIE_OPTIONS = {
 const {
   requireValidSession,
   requireAdmin,
+  requireAmir,
   requireMutatingSession,
 } = createAuthSessionMiddleware({
   jwtSecret: JWT_SECRET,
@@ -1148,6 +1151,7 @@ const routeCtx = {
   sendApiError,
   requireValidSession,
   requireAdmin,
+  requireAmir,
   VEH_LIST_KEYSET_BATCH,
   PG_STATEMENT_TIMEOUT,
   broadcastEvent,
@@ -1239,11 +1243,16 @@ api.post("/reports/bulk-delete", requireValidSession, async (req, res) => {
     const ids = Array.isArray(body.ids) ? body.ids.filter((x) => typeof x === "string" && x.trim() !== "") : [];
     if (!ids.length) return res.json({ ok: true, deleted: 0 });
 
-    // Delete from print_history table
+    // Delete from print_history table and the matching Piyasa çıkanlar rows.
     let deletedCount = 0;
     for (const id of ids) {
       const result = await q("DELETE FROM print_history WHERE id = $1", [id]);
       deletedCount += result.rowCount || 0;
+    }
+    try {
+      await deleteCikanlarForPrintHistory(q, ids);
+    } catch (cikanErr) {
+      console.warn('piyasa_cikanlar cascade delete skipped:', cikanErr.message || cikanErr);
     }
     
     // Broadcast real-time update to all connected clients
@@ -1305,7 +1314,7 @@ api.get("/export/db", requireValidSession, async (req, res) => {
 api.get("/kv/:key", async (req, res) => {
   try {
     const key = sanitizeString(req.params.key, 100);
-    if (isBlockedKvKey(key)) return res.json(null);
+    if (isBlockedKvKey(key) || key === 'piyasa_expected_v1') return res.json(null);
     const r = await q("SELECT value FROM kv_store WHERE key = $1", [key]);
     if (!r.rows[0]) return res.json(null);
     try { return res.json(JSON.parse(r.rows[0].value)); } catch { return res.json(r.rows[0].value); }
@@ -1314,9 +1323,79 @@ api.get("/kv/:key", async (req, res) => {
   }
 });
 
+const HEADER_NOTE_KEY = 'header_note_v1';
+const HEADER_NOTE_LINE_MAX = 240;
+const HEADER_NOTE_COUNT = 3;
+
+function normalizeHeaderNotes(list) {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach((item) => {
+    if (out.length >= HEADER_NOTE_COUNT) return;
+    const text = sanitizeString(item || '', HEADER_NOTE_LINE_MAX);
+    if (text) out.push(text);
+  });
+  return out;
+}
+
+function readHeaderNotes(raw) {
+  if (raw == null || raw === '') return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return normalizeHeaderNotes(parsed);
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.notes)) return normalizeHeaderNotes(parsed.notes);
+      return normalizeHeaderNotes(parsed.text ? [parsed.text] : []);
+    }
+    if (typeof parsed === 'string') return normalizeHeaderNotes([parsed]);
+  } catch (e) {}
+  const plain = sanitizeString(String(raw), HEADER_NOTE_LINE_MAX);
+  return plain ? [plain] : [];
+}
+
+api.get('/header-note', async (req, res) => {
+  try {
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [HEADER_NOTE_KEY]);
+    const notes = readHeaderNotes(r.rows[0] && r.rows[0].value);
+    res.json({ ok: true, notes, text: notes[0] || '' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+api.post('/header-note', requireAmir, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const notes = normalizeHeaderNotes(Array.isArray(body.notes) ? body.notes : [body.text]);
+    const payload = JSON.stringify({
+      notes,
+      text: notes[0] || '',
+      updatedAt: Date.now(),
+      updatedBy: String((req.user && req.user.username) || ''),
+    });
+    await q(
+      `
+      INSERT INTO kv_store(key, value)
+      VALUES($1,$2)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `,
+      [HEADER_NOTE_KEY, payload]
+    );
+    res.json({ ok: true, notes, text: notes[0] || '' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 api.post("/kv/:key", auth.verifyToken, async (req, res) => {
   try {
     const key = sanitizeString(req.params.key, 100);
+    if (key === HEADER_NOTE_KEY || key === 'piyasa_expected_v1') {
+      return res.status(403).json({
+        ok: false,
+        code: 'AMIR_REQUIRED',
+        error: 'Bu not yalnızca amir kaydeder',
+      });
+    }
     const v = req.body && req.body.value !== undefined ? req.body.value : req.body;
     // âœ… SECURITY: Sanitize KV store values
     let raw = '';
@@ -1744,12 +1823,18 @@ api.get('/search', async (req, res) => {
     // basic normalize: remove special chars, lower
     const qNorm = qRaw.replace(/[^A-Za-z0-9Ã‡ÄÄ°Ã–ÅÃœÃ§ÄŸÄ±Ã¶ÅŸÃ¼\s]/g, '').toLowerCase();
     const like = '%' + qNorm + '%';
+    const likeCompact = '%' + qNorm.replace(/\s+/g, '') + '%';
     const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 200);
 
-    // search plaka column or JSON payload (data) for the term
+    // search plaka column or JSON payload (data) for the term (boşluklu ve boşluksuz)
     const r = await q(
-      `SELECT id, plaka, data, created_at FROM daily_rows WHERE lower(plaka) LIKE $1 OR lower(data) LIKE $1 ORDER BY created_at DESC LIMIT $2`,
-      [like, limit]
+      `SELECT id, plaka, data, created_at FROM daily_rows
+       WHERE lower(plaka) LIKE $1
+          OR replace(lower(coalesce(plaka, '')), ' ', '') LIKE $2
+          OR lower(data) LIKE $1
+          OR replace(lower(coalesce(data, '')), ' ', '') LIKE $2
+       ORDER BY created_at DESC LIMIT $3`,
+      [like, likeCompact, limit]
     );
 
     const parsed = (r.rows || []).map(row => {
@@ -1780,8 +1865,8 @@ api.get("/print_history", async (req, res) => {
     let params = [];
     
     if (plaka) {
-      query += " WHERE plaka = $1";
-      params.push(plaka);
+      query += ` WHERE ${plateNormSql('plaka')} = $1`;
+      params.push(compactPlate(plaka).toLowerCase());
     }
     const firmaFilter = sanitizeString(req.query.firma || '', 100).trim();
     const malzemeFilter = sanitizeString(req.query.malzeme || '', 100).trim();
@@ -1837,7 +1922,7 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
     const id = String(body.id || (Date.now().toString() + Math.random().toString(16).slice(2)));
     
     // Sanitize inputs
-    const plaka = sanitizeString(body.plaka || "", 50);
+    const plaka = compactPlate(sanitizeString(body.plaka || "", 50));
     const firma = sanitizeString(body.firma || "", 100);
     const malzeme = sanitizeString(body.malzeme || "", 400);
     const tonaj = sanitizeString(body.tonaj || "", 50);
@@ -1848,7 +1933,7 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
     const yukleme_turu = sanitizeString(body.yukleme_turu || body.yuklemeTuru || body.ambalajBilgisi || "", 200);
     const iletisim = sanitizeString(body.iletisim || body.phone || "", 30);
     const tc_kimlik = sanitizeString(body.tc_kimlik || body.tcKimlik || body.tc || "", 11);
-    const dorse_plaka = sanitizeString(body.dorse_plaka || body.dorsePlaka || body.dorse || "", 50);
+    const dorse_plaka = compactPlate(sanitizeString(body.dorse_plaka || body.dorsePlaka || body.dorse || "", 50));
     const vehicle_id = sanitizeString(body.vehicle_id || body.vehicleId || "", 80);
     // Her zaman sunucu saati (NTP); istemci Windows tarihi ileri/geri olsa bile rapor doğru anı tutar
     const tarih = Date.now();
@@ -1859,7 +1944,7 @@ api.post("/print_history", auth.verifyToken, async (req, res) => {
         ? body.snapshot
         : (body.printSnapshot && typeof body.printSnapshot === 'object' ? body.printSnapshot : null);
       if (snapObj) {
-        const cleaned = Object.assign({}, snapObj);
+        const cleaned = compactRecordPlates(snapObj);
         // Güvenlik: çok büyük blob'ları kes
         const json = JSON.stringify(cleaned);
         snapshotRaw = json.length > 120000 ? json.slice(0, 120000) : json;
@@ -1906,6 +1991,11 @@ api.delete("/print_history/:id", auth.verifyToken, async (req, res) => {
   try {
     const id = req.params.id;
     await q("DELETE FROM print_history WHERE id = $1", [id]);
+    try {
+      await deleteCikanlarForPrintHistory(q, [id]);
+    } catch (cikanErr) {
+      console.warn('piyasa_cikanlar cascade delete skipped:', cikanErr.message || cikanErr);
+    }
     
     // Broadcast real-time update to all connected clients
     broadcastReportUpdate({
@@ -1930,6 +2020,15 @@ registerPrintFormBgRoutes(api, routeCtx);
 registerSseRoutes(app);
 
 // Ayarlar / ban API â€” JWT router dÄ±ÅŸÄ±nda (api.use(verifyToken) tÃ¼m isteklere uygulanÄ±yordu)
+app.post('/api/settings/amir-access', requireAmir, (req, res) => {
+  try {
+    const settingsToken = issueSettingsToken();
+    return res.json({ ok: true, settingsToken });
+  } catch (err) {
+    sendApiError(res, err, 500, 'SETTINGS_AMIR_ACCESS_FAILED');
+  }
+});
+
 app.post('/api/settings/verify-access', (req, res) => {
   try {
     const password = String((req.body && req.body.password) || '');
@@ -2074,6 +2173,12 @@ async function initializeApp() {
         } catch (e) {
           // registerUser may throw on bad input; ignore if user exists
           console.log('Default user setup skipped or already exists');
+        }
+        try {
+          await auth.registerUser('xxr', 'gp1451', { role: 'amir' });
+          console.log('Amir user ensured: xxr');
+        } catch (e) {
+          console.log('Amir user setup skipped or already exists');
         }
       } catch (e) {
         console.error('Failed to ensure users table or create default user:', e && e.message ? e.message : e);

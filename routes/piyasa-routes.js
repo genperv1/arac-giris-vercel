@@ -4,7 +4,20 @@ const CIKANLAR_BACKFILL_MS = Number(process.env.PIYASA_CIKANLAR_BACKFILL_MS || 3
 let lastCikanlarBackfillAt = 0;
 
 function registerPiyasaRoutes(api, ctx) {
-  const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs, piyasaServer, verifySettingsPassword, formatReportInstant } = ctx;
+  const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, requireAmir, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs, piyasaServer, verifySettingsPassword, formatReportInstant } = ctx;
+  const { isAmirIdentity } = require('../lib/amir-user');
+  const { isPiyasaCatalogWrite } = require('../lib/piyasa-write-guard');
+  const {
+    publicSourceView,
+    getStoredSource,
+    setStoredSource,
+    clearStoredSource,
+    mergeSource,
+    readExcelFromStoredPath,
+  } = require('../lib/ihracat-excel-source');
+  const PIYASA_EXCEL_SOURCE_KV = 'piyasa_excel_source_v1';
+  const { sanitizeExpectedItems } = require('../public/modules/piyasa-expected');
+  const PIYASA_EXPECTED_KV = 'piyasa_expected_v1';
   const {
     isYdFirma,
     istanbulDayStartMs,
@@ -16,6 +29,10 @@ function registerPiyasaRoutes(api, ctx) {
     groupCikanlarByHafta,
     displaySehir,
     foldTrIl,
+    CIKANLAR_LINKED_REPORT_SQL,
+    BLANK_CIKANLAR_PREDICATE,
+    deleteOrphanCikanlar,
+    deleteBlankCikanlar,
   } = require('../lib/piyasa-cikanlar');
 // Piyasa state
 api.get("/piyasa", async (req, res) => {
@@ -36,6 +53,21 @@ api.post("/piyasa", auth.verifyToken, async (req, res) => {
     if (sanitized.firma) sanitized.firma = sanitizeString(sanitized.firma, 100);
     if (sanitized.malzeme) sanitized.malzeme = sanitizeString(sanitized.malzeme, 100);
     if (!sanitized.updatedAt) sanitized.updatedAt = Date.now();
+
+    if (!isAmirIdentity(req.user)) {
+      const prevR = await q("SELECT value FROM kv_store WHERE key = $1", ["piyasa_state_v1"]);
+      let prev = {};
+      if (prevR.rows[0]) {
+        try { prev = JSON.parse(prevR.rows[0].value); } catch { prev = {}; }
+      }
+      if (isPiyasaCatalogWrite(prev, sanitized)) {
+        return res.status(403).json({
+          ok: false,
+          error: 'Piyasa Excel yükleme ve silme yalnızca amir kullanıcısına açıktır',
+          code: 'AMIR_REQUIRED',
+        });
+      }
+    }
 
     const raw = JSON.stringify(sanitized);
     await q(
@@ -69,6 +101,96 @@ api.get('/piyasa/durum-status', auth.verifyToken, async (req, res) => {
     });
   } catch (err) {
     sendApiError(res, err, 500, 'PIYASA_DURUM_STATUS_FAILED');
+  }
+});
+
+api.put('/piyasa-excel/source', requireAmir, async (req, res) => {
+  try {
+    const source = await setStoredSource(q, req.body || {}, PIYASA_EXCEL_SOURCE_KV);
+    return res.json(publicSourceView(source));
+  } catch (err) {
+    return sendApiError(res, err, 500, 'PIYASA_EXCEL_SOURCE_SAVE_FAILED');
+  }
+});
+
+api.delete('/piyasa-excel/source', requireAmir, async (req, res) => {
+  try {
+    const source = await clearStoredSource(q, PIYASA_EXCEL_SOURCE_KV);
+    return res.json(publicSourceView(source));
+  } catch (err) {
+    return sendApiError(res, err, 500, 'PIYASA_EXCEL_SOURCE_CLEAR_FAILED');
+  }
+});
+
+api.get('/piyasa/expected', requireValidSession, async (req, res) => {
+  try {
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [PIYASA_EXPECTED_KV]);
+    let items = [];
+    if (r.rows[0]) {
+      try {
+        const parsed = JSON.parse(r.rows[0].value);
+        items = sanitizeExpectedItems(parsed && parsed.items);
+      } catch (e) { items = []; }
+    }
+    return res.json({ ok: true, items });
+  } catch (err) {
+    return sendApiError(res, err, 500, 'PIYASA_EXPECTED_READ_FAILED');
+  }
+});
+
+api.put('/piyasa/expected', requireAmir, async (req, res) => {
+  try {
+    const items = sanitizeExpectedItems(req.body && req.body.items);
+    const payload = JSON.stringify({
+      items,
+      updatedAt: Date.now(),
+      updatedBy: String((req.user && req.user.username) || ''),
+    });
+    await q(
+      `INSERT INTO kv_store(key, value)
+       VALUES($1,$2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [PIYASA_EXPECTED_KV, payload]
+    );
+    return res.json({ ok: true, items });
+  } catch (err) {
+    return sendApiError(res, err, 500, 'PIYASA_EXPECTED_SAVE_FAILED');
+  }
+});
+
+api.post('/piyasa-excel/reread', requireAmir, async (req, res) => {
+  try {
+    const stored = await getStoredSource(q, PIYASA_EXCEL_SOURCE_KV);
+    const source = mergeSource(stored, req.body || {});
+    if (!source.fileName && !source.filePath) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: 'EXCEL_NOT_SELECTED', message: 'Önce Piyasa Excel dosyasını seçmelisiniz.' },
+      });
+    }
+    const read = await readExcelFromStoredPath(source);
+    try {
+      await setStoredSource(q, {
+        fileName: read.fileName,
+        filePath: read.filePath,
+        sheetName: source.sheetName || '',
+        lastUpdatedAt: read.mtime ? new Date(read.mtime).toISOString() : new Date().toISOString(),
+      }, PIYASA_EXCEL_SOURCE_KV);
+    } catch (_) {}
+    const lastUpdated = read.mtime ? new Date(read.mtime).toISOString() : new Date().toISOString();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + encodeURIComponent(read.fileName || 'piyasa.xlsx') + '"');
+    res.setHeader('X-Piyasa-Excel-File-Name', encodeURIComponent(read.fileName || 'piyasa.xlsx'));
+    res.setHeader('X-Piyasa-Excel-Last-Updated', lastUpdated);
+    return res.status(200).send(read.buf);
+  } catch (err) {
+    if (err && err.code === 'EXCEL_FILE_NOT_FOUND') {
+      return res.status(404).json({
+        ok: false,
+        error: { code: 'EXCEL_FILE_NOT_FOUND', message: 'Piyasa Excel dosyası bulunamadı.' },
+      });
+    }
+    return sendApiError(res, err, 500, 'PIYASA_EXCEL_REREAD_FAILED');
   }
 });
 
@@ -139,7 +261,7 @@ api.delete('/piyasa/customers', auth.verifyToken, async (req, res) => {
   }
 });
 
-api.get('/piyasa/cikanlar', async (req, res) => {
+api.get('/piyasa/cikanlar', requireAmir, async (req, res) => {
   try {
     try {
       const now = Date.now();
@@ -188,6 +310,12 @@ api.get('/piyasa/cikanlar', async (req, res) => {
           AND NOT EXISTS (
             SELECT 1 FROM piyasa_cikanlar c WHERE c.print_history_id = ph.id
           )
+          AND NOT (
+            COALESCE(btrim(ph.firma), '') = ''
+            AND COALESCE(btrim(ph.malzeme), '') = ''
+            AND COALESCE(btrim(s.snap->>'malzeme'), '') = ''
+            AND COALESCE(btrim(ph.tonaj), '') = ''
+          )
         ON CONFLICT (id) DO NOTHING
       `);
       await q(`
@@ -221,6 +349,8 @@ api.get('/piyasa/cikanlar', async (req, res) => {
           AND COALESCE(NULLIF(s.snap->>'sehir', ''), NULLIF(s.snap->>'il', '')) <> ''
       `);
       }
+      await deleteOrphanCikanlar(q);
+      await deleteBlankCikanlar(q);
     } catch (bfErr) {
       console.warn('piyasa_cikanlar backfill skipped:', bfErr.message || bfErr);
     }
@@ -231,7 +361,7 @@ api.get('/piyasa/cikanlar', async (req, res) => {
     const fromMs = istanbulDayStartMs(req.query.from);
     const toEnd = istanbulDayEndMs(req.query.to) || istanbulDayEndMs(req.query.from);
     const params = [];
-    const where = [];
+    const where = [CIKANLAR_LINKED_REPORT_SQL, 'NOT ' + BLANK_CIKANLAR_PREDICATE];
     if (fromMs != null) {
       params.push(fromMs);
       where.push(`tarih >= $${params.length}`);
@@ -245,8 +375,8 @@ api.get('/piyasa/cikanlar', async (req, res) => {
       where.push(`UPPER(TRIM(SPLIT_PART(firma, '/', 1))) = $${params.length}`);
     }
     if (plaka) {
-      params.push('%' + plaka.toUpperCase() + '%');
-      where.push(`UPPER(plaka) LIKE $${params.length}`);
+      params.push('%' + plaka.toUpperCase().replace(/\s+/g, '') + '%');
+      where.push(`replace(UPPER(plaka), ' ', '') LIKE $${params.length}`);
     }
     if (il) {
       params.push('%' + foldTrIl(il) + '%');
@@ -305,6 +435,16 @@ api.post('/piyasa/cikanlar', auth.verifyToken, async (req, res) => {
     }
     if (isYdFirma(normalized.firma)) {
       return res.status(400).json({ ok: false, error: 'YD_NOT_ALLOWED' });
+    }
+    if (normalized.print_history_id) {
+      const existing = await q(
+        `SELECT id FROM piyasa_cikanlar
+         WHERE print_history_id = $1 OR id = $2
+         ORDER BY tarih DESC
+         LIMIT 1`,
+        [normalized.print_history_id, 'ph_' + normalized.print_history_id]
+      );
+      if (existing.rows[0] && existing.rows[0].id) normalized.id = existing.rows[0].id;
     }
     await q(
       `INSERT INTO piyasa_cikanlar(

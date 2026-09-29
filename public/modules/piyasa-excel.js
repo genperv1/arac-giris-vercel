@@ -746,7 +746,7 @@
       // HP13: malzeme elle/çoklu; sevk yeri Excel şehrinden gelsin (ör. İSTANBUL)
       if (sevk) sevk.value = snapshot.sevkYeri || snapshot.il || '';
       if (ambalaj) ambalaj.value = snapshot.yuklemeTuru || '';
-      if (notu) notu.value = snapshot.aciklama || '';
+      if (notu) notu.value = (typeof piyasaNoteFromOrder === 'function' ? piyasaNoteFromOrder(snapshot) : (snapshot.aciklama || ''));
       if (tonaj) tonaj.value = snapshot.miktar != null && snapshot.miktar !== '' ? String(snapshot.miktar) : '';
     };
 

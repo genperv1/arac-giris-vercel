@@ -26,7 +26,7 @@ test('ipMatchesPattern supports exact, prefix and CIDR', () => {
   assert.equal(ipMatchesPattern('10.0.2.15', '10.0.2.0/24'), true);
 });
 
-test('resolveClientSite maps configured IPs and falls back to EDITOR', () => {
+test('resolveClientSite maps configured IPs and falls back to KANTAR', () => {
   const tmp = path.join(os.tmpdir(), `client-sites-${Date.now()}.json`);
   fs.writeFileSync(tmp, JSON.stringify({
     sites: {
@@ -41,9 +41,9 @@ test('resolveClientSite maps configured IPs and falls back to EDITOR', () => {
 
   assert.deepEqual(resolveClientSite('192.168.10.5', 'user'), { clientIp: '192.168.10.5', clientSite: 'AVDAN' });
   assert.deepEqual(resolveClientSite('10.20.30.40', 'user'), { clientIp: '10.20.30.40', clientSite: '1.OSB' });
-  assert.deepEqual(resolveClientSite('203.0.113.9', 'user'), { clientIp: '203.0.113.9', clientSite: 'EDITOR' });
-  assert.deepEqual(resolveClientSite('8.8.8.8', 'user'), { clientIp: '8.8.8.8', clientSite: 'EDITOR' });
-  assert.deepEqual(resolveClientSite('127.0.0.1', 'admin'), { clientIp: '127.0.0.1', clientSite: 'EDITOR' });
+  assert.deepEqual(resolveClientSite('203.0.113.9', 'user'), { clientIp: '203.0.113.9', clientSite: 'KANTAR' });
+  assert.deepEqual(resolveClientSite('8.8.8.8', 'user'), { clientIp: '8.8.8.8', clientSite: 'KANTAR' });
+  assert.deepEqual(resolveClientSite('127.0.0.1', 'admin'), { clientIp: '127.0.0.1', clientSite: 'KANTAR' });
 
   fs.unlinkSync(tmp);
 });

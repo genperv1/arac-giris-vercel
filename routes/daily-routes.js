@@ -1,5 +1,7 @@
 'use strict';
 
+const { compactPlate } = require('../lib/plate-format');
+
 function registerDailyRoutes(api, ctx) {
   const { q, pool, auth, parsePagination, sendApiError, requireValidSession, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs } = ctx;
 // Daily rows
@@ -26,13 +28,14 @@ api.post("/daily_rows", requireValidSession, async (req, res) => {
     const created = Number(row.created_at || Date.now());
     
     // âœ… SECURITY: Validate and sanitize plaka
-    const plaka = sanitizeString(row.plaka || "", 50);
-    if (plaka && !validatePlateFormat(plaka)) {
-      console.warn('Rejected plaka in daily_rows:', plaka, 'Original:', row.plaka);
-      return res.status(400).json({ error: 'Invalid plaka format', received: plaka });
+    const plakaRaw = sanitizeString(row.plaka || "", 50);
+    if (plakaRaw && !validatePlateFormat(plakaRaw)) {
+      console.warn('Rejected plaka in daily_rows:', plakaRaw, 'Original:', row.plaka);
+      return res.status(400).json({ error: 'Invalid plaka format', received: plakaRaw });
     }
 
     // Sanitize all text fields in daily rows
+    const plaka = compactPlate(plakaRaw);
     const sanitized = {
       ...row,
       plaka,

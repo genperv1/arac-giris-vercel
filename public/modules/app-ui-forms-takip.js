@@ -956,6 +956,11 @@ const applyDriverForPlate = (plate) => {
 
                 // şoför alanlarını doldur
                 applyDriverForPlate(p);
+                try {
+                  if (window.piyasa && typeof window.piyasa.offerExpectedForPlate === 'function') {
+                    window.piyasa.offerExpectedForPlate(p);
+                  }
+                } catch (e) {}
 
                 // mevcut şoför dropdown'unu refresh etsin
                 try { plateEl.dispatchEvent(new Event('change', { bubbles:true })); } catch(e) {}
@@ -1012,7 +1017,16 @@ const applyDriverForPlate = (plate) => {
               if (plateEl) {
                 addOnce(plateEl, 'input', () => renderBox(plateEl.value));
                 addOnce(plateEl, 'focus', () => renderBox(plateEl.value));
-                addOnce(plateEl, 'blur',  () => setTimeout(hideBox, 180));
+                addOnce(plateEl, 'blur',  () => {
+                  setTimeout(hideBox, 180);
+                  setTimeout(() => {
+                    try {
+                      if (window.piyasa && typeof window.piyasa.offerExpectedForPlate === 'function') {
+                        window.piyasa.offerExpectedForPlate(plateEl.value);
+                      }
+                    } catch (e) {}
+                  }, 220);
+                });
 
                 // ✅ ENTER: Firma/Malzeme gibi "Bul" ekranını aç
                 addOnce(plateEl, 'keydown', (ev) => {
@@ -2298,14 +2312,22 @@ try {
                             const nextCount = (parseInt(cur.printCount || '0', 10) || 0) + 1;
                             let snap = pending.snapshot || cur.lastPrintSnapshot || null;
                             const driverAtPrint = getTakipFormDriverPayload();
-                            const printedPlate = String(pending.plaka || cur.cekiciPlaka || '').trim();
+                            const printedPlate = (typeof formatPlakaForInput === 'function'
+                              ? formatPlakaForInput(String(pending.plaka || cur.cekiciPlaka || ''))
+                              : String(pending.plaka || cur.cekiciPlaka || '')
+                            ).trim();
                             if (snap && typeof snap === 'object') {
                               snap = Object.assign({}, snap, {
                                 ts: commitTs,
                                 plaka: printedPlate,
                                 cekiciPlaka: printedPlate,
-                                dorsePlaka: String(
-                                  driverAtPrint.dorsePlaka || snap.dorsePlaka || cur.dorsePlaka || ''
+                                dorsePlaka: (typeof formatPlakaForInput === 'function'
+                                  ? formatPlakaForInput(String(
+                                    driverAtPrint.dorsePlaka || snap.dorsePlaka || cur.dorsePlaka || ''
+                                  ))
+                                  : String(
+                                    driverAtPrint.dorsePlaka || snap.dorsePlaka || cur.dorsePlaka || ''
+                                  )
                                 ).trim(),
                               });
                             } else {
@@ -2313,8 +2335,13 @@ try {
                                 ts: commitTs,
                                 plaka: printedPlate,
                                 cekiciPlaka: printedPlate,
-                                dorsePlaka: String(
-                                  driverAtPrint.dorsePlaka || cur.dorsePlaka || ''
+                                dorsePlaka: (typeof formatPlakaForInput === 'function'
+                                  ? formatPlakaForInput(String(
+                                    driverAtPrint.dorsePlaka || cur.dorsePlaka || ''
+                                  ))
+                                  : String(
+                                    driverAtPrint.dorsePlaka || cur.dorsePlaka || ''
+                                  )
                                 ).trim(),
                               };
                             }
@@ -2672,6 +2699,19 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                 </div>`;
         }
 
+        function _sessionIsAmir() {
+            try {
+                if (window.SessionManager && typeof window.SessionManager.isAmirUser === 'function') {
+                    return !!window.SessionManager.isAmirUser();
+                }
+                const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+                const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+                return role === 'amir' || id === 'xxr';
+            } catch (e) {
+                return false;
+            }
+        }
+
         function _appStatusMeta() {
             let userId = '-';
             let clientSite = '';
@@ -2679,10 +2719,16 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             try { userId = localStorage.getItem('currentUserId') || '-'; } catch (e) { /* ignore */ }
             try { clientSite = localStorage.getItem('currentClientSite') || window.__clientSite || ''; } catch (e) { /* ignore */ }
             try { clientIp = localStorage.getItem('currentClientIp') || window.__clientIp || ''; } catch (e) { /* ignore */ }
-            const userLabel = clientSite ? `${userId} · ${clientSite}` : userId;
-            const userTitle = clientSite && clientIp
+            const amirSession = _sessionIsAmir();
+            const amirLabel = (window.SessionManager && typeof window.SessionManager.amirDisplayLabel === 'function')
+                ? window.SessionManager.amirDisplayLabel()
+                : 'GENPER · AMİR';
+            const userLabel = amirSession ? amirLabel : (clientSite ? `${userId} · ${clientSite}` : userId);
+            const userTitle = amirSession
+                ? (clientIp ? `Oturum: ${amirLabel} (${clientIp})` : `Oturum: ${amirLabel}`)
+                : (clientSite && clientIp
                 ? `Oturum: ${userId} — ${clientSite} (${clientIp})`
-                : (clientIp ? `Oturum: ${userId} (${clientIp})` : `Oturum kullanıcısı: ${userId}`);
+                : (clientIp ? `Oturum: ${userId} (${clientIp})` : `Oturum kullanıcısı: ${userId}`));
             let todayStr = '';
             try {
                 todayStr = new Date().toLocaleDateString('tr-TR', {
@@ -2877,7 +2923,9 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             }
             if (ihrText) ihrText.textContent = _buildIhracatChipText(_excelStatusInfo);
             const refreshChip = document.getElementById('excelIhracatRefreshButtonChip');
-            if (refreshChip) refreshChip.classList.toggle('hidden', !_excelCnt);
+            if (refreshChip) refreshChip.classList.toggle('hidden', _sessionIsAmir() || !_excelCnt);
+            const piyasaRefreshChip = document.getElementById('excelPiyasaRefreshButtonChip');
+            if (piyasaRefreshChip) piyasaRefreshChip.classList.toggle('hidden', !_sessionIsAmir() || !_piyasaCnt);
             const piyChip = document.getElementById('chipPiyasa');
             const piyText = document.getElementById('chipPiyasaText');
             if (piyChip) {
@@ -2893,6 +2941,11 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         function updateExcelWarnPartial() {
             const container = document.getElementById('excelDateWarnContainer');
             if (!container) return;
+            if (container.querySelector('.header-note__input')) return;
+            if (typeof _refreshExcelDateWarnBanner === 'function') {
+                _refreshExcelDateWarnBanner(false);
+                return;
+            }
             const html = (typeof _computeExcelDateWarnHtml === 'function') ? _computeExcelDateWarnHtml() : '';
             if (container.innerHTML !== html) container.innerHTML = html;
         }
@@ -2991,6 +3044,13 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const _piyChipText = _buildPiyasaChipText(_excelStatusInfo);
             const _totalVehicleCount = (state.vehicles || []).length;
             const _statusMeta = _appStatusMeta();
+            const _amirPiyasa = _sessionIsAmir();
+            const _piyasaCikanlarMenu = _amirPiyasa
+              ? '<button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>'
+              : '';
+            const _piyasaExcelMenu = _amirPiyasa
+              ? '<section class="app-excel-suite__group app-excel-suite__group--piyasa"><div class="app-excel-suite__head"><span class="app-excel-suite__badge">PİYASA</span><span class="app-excel-suite__hint">İç piyasa Excel</span></div><div class="app-excel-suite__actions"><button type="button" id="piyasaExcelUploadButtonTop" class="app-excel-tile app-excel-tile--load" title="PİYASA Excel Yükle"><span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-file-invoice"></i></span><span class="app-excel-tile__copy"><b>Yükle</b><small>Excel seç</small></span></button><button type="button" id="piyasaExcelClearButtonTop" class="app-excel-tile app-excel-tile--wipe" title="PİYASA Excel Sil"><span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-trash-alt"></i></span><span class="app-excel-tile__copy"><b>Sil</b><small>Listeyi temizle</small></span></button></div></section>'
+              : '';
             const _searchMeta = _searchMetaText(filteredVehicles.length, _totalVehicleCount);
             const _connChipClass = _statusMeta.online ? 'chip-ok' : 'chip-alert';
             const _connLabel = _statusMeta.online ? 'Çevrimiçi' : 'Çevrimdışı';
@@ -2999,8 +3059,9 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                     <div class="app-sticky-top">
                     <header class="app-header mb-3" role="banner">
   <div class="app-header-toolbar">
-    <button type="button" class="app-header-brand" id="appHeaderRefreshBtn" title="Listeyi yenile (sunucusuz)" aria-label="Listeyi yenile">
-      <img class="app-header-logo" src="/logo.png" alt="Logo" />
+    <button type="button" class="app-header-brand${_amirPiyasa ? ' app-header-brand--amir' : ''}" id="appHeaderRefreshBtn" title="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile (sunucusuz)'}" aria-label="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile'}">
+      <img class="app-header-logo${_amirPiyasa ? ' app-header-logo--amir' : ''}" src="${_amirPiyasa ? '/logo-amir.png?v=20260929b' : '/logo.png'}" alt="${_amirPiyasa ? 'GENPER · AMİR' : 'Logo'}" />
+      ${_amirPiyasa ? '<span class="app-header-amir-mark">AMİR</span>' : ''}
     </button>
     <div class="app-header-menus">
       <nav class="app-nav" aria-label="Ana menü">
@@ -3015,7 +3076,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             </summary>
             <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
               <button type="button" id="raporlarLinkGunlukSub" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük yazdırma raporları">📄 Günlük Raporlar</button>
-              <button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>
+              ${_piyasaCikanlarMenu}
             </div>
           </details>
         </div>
@@ -3058,43 +3119,10 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                   </button>
                 </div>
               </section>
-              <section class="app-excel-suite__group app-excel-suite__group--piyasa">
-                <div class="app-excel-suite__head">
-                  <span class="app-excel-suite__badge">PİYASA</span>
-                  <span class="app-excel-suite__hint">İç piyasa Excel</span>
-                </div>
-                <div class="app-excel-suite__actions">
-                  <button type="button" id="piyasaExcelUploadButtonTop" class="app-excel-tile app-excel-tile--load" title="PİYASA Excel Yükle">
-                    <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-file-invoice"></i></span>
-                    <span class="app-excel-tile__copy">
-                      <b>Yükle</b>
-                      <small>Excel seç</small>
-                    </span>
-                  </button>
-                  <button type="button" id="piyasaExcelClearButtonTop" class="app-excel-tile app-excel-tile--wipe" title="PİYASA Excel Sil">
-                    <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-trash-alt"></i></span>
-                    <span class="app-excel-tile__copy">
-                      <b>Sil</b>
-                      <small>Listeyi temizle</small>
-                    </span>
-                  </button>
-                </div>
-              </section>
+              ${_piyasaExcelMenu}
             </div>
             <div class="my-1 border-t"></div>
-            <button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm ayarlar-menu-btn" title="Ayarlar">
-              <span class="ayarlar-gear" aria-hidden="true"><i class="fas fa-cog"></i></span>
-              Ayarlar
-            </button>
-            <button type="button" id="ihracatTakipMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm iht-menu-btn" title="Liste · Plan · Sayı · İş Merkezi">
-              <span class="iht-radar iht-radar--menu" aria-hidden="true">
-                <span class="iht-radar__sweep"></span>
-                <span class="iht-radar__ring"></span>
-                <span class="iht-radar__ring iht-radar__ring--2"></span>
-                <span class="iht-radar__core"><i class="fas fa-ship"></i></span>
-              </span>
-              İhracat Takip
-            </button>
+            ${_amirPiyasa ? '<button type="button" id="ayarlarMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm ayarlar-menu-btn" title="Ayarlar"><span class="ayarlar-gear" aria-hidden="true"><i class="fas fa-cog"></i></span>Ayarlar</button><button type="button" id="ihracatTakipMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm iht-menu-btn" title="Liste · Plan · Sayı · İş Merkezi"><span class="iht-radar iht-radar--menu" aria-hidden="true"><span class="iht-radar__sweep"></span><span class="iht-radar__ring"></span><span class="iht-radar__ring iht-radar__ring--2"></span><span class="iht-radar__core"><i class="fas fa-ship"></i></span></span>İhracat Takip</button>' : ''}
           </div>
         </details>
         <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>
@@ -3107,13 +3135,19 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <span class="status-chip">Tanımlı şoför: <b>${_totalVehicleCount}</b></span>
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
-          <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${_excelCnt>0?'':'hidden'}" title="Yüklü İhracat Excel dosyasını yeniden oku">
+          <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${(!_amirPiyasa && _excelCnt>0)?'':'hidden'}" title="Yüklü İhracat Excel dosyasını yeniden oku">
             <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
             <span>Güncelle</span>
             <span id="excelIhracatLastUpdateChip" class="app-header-ihracat-excel__when hidden" title="İhracat Excel son okuma zamanı"></span>
           </button>
         </div>
-        <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">🧾 PİYASA: <b id="chipPiyasaText">${_piyChipText}</b></button>
+        <div class="app-header-ihracat-excel">
+          <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">🧾 PİYASA: <b id="chipPiyasaText">${_piyChipText}</b></button>
+          <button type="button" id="excelPiyasaRefreshButtonChip" class="status-chip app-header-ihracat-excel__refresh ${(_amirPiyasa && _piyasaCnt>0)?'':'hidden'}" title="Yüklü Piyasa Excel dosyasını yeniden oku">
+            <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
+            <span>Güncelle</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>

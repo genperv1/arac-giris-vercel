@@ -234,10 +234,9 @@ function isTurkishPlateInput(raw) {
 function formatForeignPlate(input) {
   if (!input) return '';
   return String(input)
+    .replace(/İ/g, 'I')
     .toUpperCase()
-    .replace(/[^A-Z0-9\s\-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/[^A-Z0-9]/g, '');
 }
 
 function formatTRPlate(input) {
@@ -268,10 +267,7 @@ function formatTRPlate(input) {
   letters = letters.slice(0, 3);
   digits = digits.slice(0, 4);
 
-  let out = il;
-  if (letters) out += ' ' + letters;
-  if (digits) out += ' ' + digits;
-  return out.trim();
+  return (il + letters + digits).trim();
 }
 
 function formatTRPhone(input) {
@@ -485,9 +481,9 @@ function formatPlakaInput(input) {
       }
 
       if (letters && numbers) {
-        input.value = first + ' ' + letters + ' ' + numbers;
+        input.value = first + letters + numbers;
       } else if (letters) {
-        input.value = first + ' ' + letters;
+        input.value = first + letters;
       } else {
         input.value = first;
       }

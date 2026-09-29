@@ -5,6 +5,7 @@
   window.piyasa = window.piyasa || {};
   window.piyasa.hasOrders = ()=> (state.orders && state.orders.length > 0);
   window.piyasa.openOrderPicker = openOrderPicker;
+  window.piyasa.offerExpectedForPlate = typeof offerExpectedForPlate === 'function' ? offerExpectedForPlate : function () {};
   window.piyasa.closeOrderPicker = function closeOrderPicker() {
     if (typeof window.__piyasaCloseOrderPicker === 'function') window.__piyasaCloseOrderPicker();
     else document.getElementById('piyasaModalClose')?.click();

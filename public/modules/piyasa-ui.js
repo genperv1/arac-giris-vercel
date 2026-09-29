@@ -63,6 +63,7 @@
             <option value="Yİ-GP">Yİ-GP</option>
             <option value="Yİ-HP">Yİ-HP</option>
           </select>
+          ${clientIsAmir() ? '<button type="button" id="piyasaExpectedBtn" title="WhatsApp’tan gelecek araç" style="border:0;background:#9a3412;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">Gelen araç</button>' : ''}
           <button type="button" id="piyasaCustomerListBtn" title="Sabit müşteri/bayi listesi" style="border:0;background:#0f766e;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">📋 Müşteri Listesi</button>
           <button type="button" id="piyasaPrintBtn" title="A4 yatay yazdır — Kenar: Yok, Ölçek: %100" style="position:relative;z-index:5;border:0;background:#4f46e5;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;pointer-events:auto;">🖨️ Yazdır</button>
           <div style="font-size:12px;color:#666;min-width:140px;text-align:right;" id="piyasaCount"></div>
@@ -202,6 +203,8 @@
           )
     );
     let visiblePickerRows = [];
+    let editingPickKey = '';
+    let editDraft = null;
     let pickerGpHp = _countPickerGpHp(
       searchAllSheets ? _getAllArchivePickerOrders() : (pickerViewSheet?.orders || state.orders)
     );
@@ -333,9 +336,6 @@
         : `<td class="piyasa-aciklama-cell" data-aciklama-toggle="${aciklamaFull ? '1' : '0'}" data-full="${escapeHtml(aciklamaFull)}" style="${aciklamaCellStyle}" title="${escapeHtml(aciklamaFull || '')}">
             <div class="piyasa-aciklama-text" style="font-size:11px;line-height:1.45;color:inherit;">${aciklamaOneLine ? escapeHtml(aciklamaOneLine) : '<span style="color:#9ca3af;">—</span>'}</div>
           </td>`;
-      const selectTd = forPrint ? '' : `<td style="${selectCellStyle}">
-            <button type="button" data-pick-key="${escapeHtml(o._pickKey || String(o.__idx))}" style="cursor:pointer;border:0;background:${isUsed ? '#4b5563' : '#111827'};color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;">Seç</button>
-          </td>`;
       const statusTd = forPrint
         ? `<td class="col-durum"${printDupClass || printUsedClass}>${statusInner || '—'}</td>`
         : `<td${printDupClass || printUsedClass} style="${cellStyle(false)}${STATUS_CELL_EXTRA}">${statusInner}</td>`;
@@ -347,12 +347,37 @@
       const noCellStyle = forPrint ? '' : `${cellStyle(false)}${NO_CELL_EXTRA}`;
 
       const sipNo = String(o.sipNo || '').trim();
+      const pickKey = String(o._pickKey || o.__idx);
+      const canEdit = !forPrint && clientIsAmir();
+      const isEditing = canEdit && editingPickKey === pickKey;
+      const draftSip = isEditing && editDraft ? String(editDraft.sipNo || '') : sipNo;
+      const draftAcik = isEditing && editDraft ? String(editDraft.aciklama || '') : aciklamaFull;
+      const sipCell = isEditing
+        ? `<td class="piyasa-sipno-cell" style="${sipNoCellStyle}">
+            <input class="piyasa-edit-sip" data-edit-key="${escapeHtml(pickKey)}" maxlength="40" value="${escapeHtml(draftSip)}" placeholder="Sipariş no" style="width:100%;box-sizing:border-box;padding:4px;border:1px solid #d97706;border-radius:6px;font-size:11px;font-weight:700;">
+          </td>`
+        : `<td class="piyasa-sipno-cell"${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : sipNoCellStyle}" title="${escapeHtml(sipNo)}">${sipNo ? escapeHtml(sipNo) : ''}</td>`;
+      const aciklamaEditTd = isEditing
+        ? `<td class="piyasa-aciklama-cell" data-aciklama-toggle="0" style="${aciklamaCellStyle}">
+            <textarea class="piyasa-edit-acik" data-edit-key="${escapeHtml(pickKey)}" maxlength="500" rows="3" placeholder="Açıklama" style="width:100%;box-sizing:border-box;padding:4px;border:1px solid #d97706;border-radius:6px;font-size:11px;resize:vertical;">${escapeHtml(draftAcik)}</textarea>
+          </td>`
+        : aciklamaTd;
+      const editActions = !canEdit ? '' : (isEditing
+        ? `<div style="display:flex;flex-direction:column;gap:4px;align-items:center;margin-bottom:4px;">
+            <button type="button" data-save-key="${escapeHtml(pickKey)}" style="cursor:pointer;border:0;background:#b45309;color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;font-weight:800;">Kaydet</button>
+            <button type="button" data-cancel-edit="1" style="cursor:pointer;border:0;background:#e5e7eb;color:#111;border-radius:8px;padding:4px 8px;font-size:10px;">Vazgeç</button>
+          </div>`
+        : `<button type="button" data-edit-key="${escapeHtml(pickKey)}" style="cursor:pointer;border:0;background:#fff7ed;color:#9a3412;border-radius:8px;padding:4px 8px;font-size:10px;font-weight:800;margin-bottom:4px;">Düzenle</button>`);
+      const selectTdLive = forPrint ? '' : `<td style="${selectCellStyle}">
+            ${editActions}
+            <button type="button" data-pick-key="${escapeHtml(pickKey)}" style="cursor:pointer;border:0;background:${isUsed ? '#4b5563' : '#111827'};color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;">Seç</button>
+          </td>`;
       return `
         <tr${rowClass}${rowStyle}>
           <td${forPrint ? ' class="col-no"' : ''} style="${noCellStyle}">${o.__idx}${weekBadge}</td>
           ${statusTd}
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(firmaCode)}</td>
-          <td class="piyasa-sipno-cell"${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : sipNoCellStyle}" title="${escapeHtml(sipNo)}">${sipNo ? escapeHtml(sipNo) : ''}</td>
+          ${sipCell}
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(firmaAdi)}</td>
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(o.malzeme||'')}</td>
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(true)}">${escapeHtml(o.yuklemeTuru||'')}</td>
@@ -360,8 +385,8 @@
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(o.org||'')}</td>
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : sehirCellStyle}" title="${escapeHtml(sehirFull)}">${formatSehirHtml(sehirFull)}</td>
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : miktarCellStyle}" title="${escapeHtml(miktarFull)}">${escapeHtml(miktarFull)}</td>
-          ${aciklamaTd}
-          ${selectTd}
+          ${aciklamaEditTd}
+          ${selectTdLive}
         </tr>
       `;
     }
@@ -533,9 +558,40 @@
       tbody.innerHTML = displayRows.map((o) => rowHtml(o, duplicateFirmas, { showWeek: searchAllSheets })).join('');
     }
 
+    function readEditDraftFromDom() {
+      if (!editDraft) return;
+      const sipEl = tbody.querySelector('input.piyasa-edit-sip');
+      const acikEl = tbody.querySelector('textarea.piyasa-edit-acik');
+      if (sipEl) editDraft.sipNo = sipEl.value;
+      if (acikEl) editDraft.aciklama = acikEl.value;
+    }
+
+    function savePickerRow(pickKey) {
+      if (!clientIsAmir() || !pickKey) return false;
+      readEditDraftFromDom();
+      const draft = editDraft && editDraft.key === pickKey ? editDraft : null;
+      const sipNo = draft ? draft.sipNo : (tbody.querySelector('input.piyasa-edit-sip') || {}).value;
+      const aciklama = draft ? draft.aciklama : (tbody.querySelector('textarea.piyasa-edit-acik') || {}).value;
+      if (typeof patchPiyasaOrderText !== 'function' || !patchPiyasaOrderText(pickKey, { sipNo, aciklama })) {
+        alert('Bu satır kaydedilemedi.');
+        return false;
+      }
+      editingPickKey = '';
+      editDraft = null;
+      rebuildPickerCacheForView();
+      render(searchEl.value);
+      return true;
+    }
+
     if (!tbody._piyasaPickerClickBound) {
       tbody._piyasaPickerClickBound = true;
+      tbody.addEventListener('input', (e) => {
+        if (!editDraft) return;
+        if (e.target.classList && e.target.classList.contains('piyasa-edit-sip')) editDraft.sipNo = e.target.value;
+        if (e.target.classList && e.target.classList.contains('piyasa-edit-acik')) editDraft.aciklama = e.target.value;
+      });
       tbody.addEventListener('click', async (e) => {
+        if (e.target.closest('input, textarea')) return;
         const acikCell = e.target.closest('.piyasa-aciklama-cell');
         if (acikCell && acikCell.getAttribute('data-aciklama-toggle') === '1') {
           e.preventDefault();
@@ -558,6 +614,37 @@
           if (selected) showMalzemeVehicleHistoryModal(selected);
           return;
         }
+        const editBtn = e.target.closest('button[data-edit-key]');
+        if (editBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!clientIsAmir()) return;
+          const key = editBtn.getAttribute('data-edit-key');
+          const row = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === key);
+          if (!row) return;
+          editingPickKey = key;
+          editDraft = { key, sipNo: String(row.sipNo || ''), aciklama: String(row.aciklama || '') };
+          render(searchEl.value);
+          const input = tbody.querySelector('input.piyasa-edit-sip');
+          if (input) input.focus();
+          return;
+        }
+        const saveBtn = e.target.closest('button[data-save-key]');
+        if (saveBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          savePickerRow(saveBtn.getAttribute('data-save-key'));
+          return;
+        }
+        const cancelBtn = e.target.closest('button[data-cancel-edit]');
+        if (cancelBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          editingPickKey = '';
+          editDraft = null;
+          render(searchEl.value);
+          return;
+        }
         const pickBtn = e.target.closest('button[data-pick-key]');
         if (!pickBtn) return;
         e.preventDefault();
@@ -565,7 +652,9 @@
         if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
         if (pickBtn.disabled) return;
         const pickKey = pickBtn.getAttribute('data-pick-key');
-        const selected = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === pickKey);
+        if (editingPickKey === pickKey && !savePickerRow(pickKey)) return;
+        const selected = (typeof getOrderByIdx === 'function' && getOrderByIdx(pickKey))
+          || visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === pickKey);
         if (!selected) return;
 
         const tipMode = sevkiyatFilterEl ? sevkiyatFilterEl.value : 'all';
@@ -599,6 +688,9 @@
         }
       });
     }
+
+    const expectedBtn = overlay.querySelector('#piyasaExpectedBtn');
+    if (expectedBtn) expectedBtn.onclick = () => { if (typeof openExpectedPasteModal === 'function') openExpectedPasteModal(); };
 
     const customerListBtn = overlay.querySelector('#piyasaCustomerListBtn');
     if (customerListBtn) customerListBtn.onclick = () => openPiyasaCustomerListModal();
@@ -793,7 +885,291 @@
     }catch(e){ if (typeof onClose === 'function') onClose(); }
   }
 
-  async function loadPiyasaExcel(file){
+  function clientIsAmir() {
+    try {
+      if (window.SessionManager && typeof window.SessionManager.isAmirUser === 'function') {
+        return !!window.SessionManager.isAmirUser();
+      }
+      const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+      const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+      return role === 'amir' || id === 'xxr';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const PIYASA_HANDLE_DB = 'piyasa_excel_handle_db';
+  let _piyasaLiveHandle = null;
+  let _piyasaRefreshBusy = false;
+
+  function setPiyasaLiveHandle(handle) {
+    if (!handle || typeof handle.getFile !== 'function') return;
+    _piyasaLiveHandle = handle;
+  }
+
+  async function persistPiyasaHandle(handle) {
+    if (!handle) return false;
+    setPiyasaLiveHandle(handle);
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open(PIYASA_HANDLE_DB, 1);
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains('handles')) req.result.createObjectStore('handles');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('handles', 'readwrite');
+        const req = tx.objectStore('handles').put(handle, 'piyasa');
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => reject(req.error);
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function loadPiyasaHandle() {
+    if (_piyasaLiveHandle && typeof _piyasaLiveHandle.getFile === 'function') return _piyasaLiveHandle;
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open(PIYASA_HANDLE_DB, 1);
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains('handles')) req.result.createObjectStore('handles');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      const handle = await new Promise((resolve, reject) => {
+        const tx = db.transaction('handles', 'readonly');
+        const req = tx.objectStore('handles').get('piyasa');
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+      if (handle && typeof handle.getFile === 'function') {
+        setPiyasaLiveHandle(handle);
+        return handle;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  async function clearPiyasaHandle() {
+    _piyasaLiveHandle = null;
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open(PIYASA_HANDLE_DB, 1);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      if (!db.objectStoreNames.contains('handles')) return;
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('handles', 'readwrite');
+        const req = tx.objectStore('handles').delete('piyasa');
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {}
+  }
+
+  function snapshotPiyasaKeep() {
+    const map = new Map();
+    const add = (o, week, sheet) => {
+      if (!o || o.__idx == null) return;
+      const key = o.__archiveKey || `${week ?? ''}:${sheet ?? ''}:${o.__idx}`;
+      map.set(key, {
+        sipNo: String(o.sipNo || '').trim(),
+        aciklama: String(o.aciklama || '').trim(),
+        usedAt: o.usedAt || null,
+        usedPlate: o.usedPlate || null,
+        printCount: o.printCount || 0,
+        lastPrintAt: o.lastPrintAt || null,
+        lastPrintPlate: o.lastPrintPlate || null,
+        printPlates: o.printPlates || {},
+      });
+    };
+    for (const o of state.orders || []) add(o, state.week, state.sheet);
+    for (const block of state.weekArchive || []) {
+      for (const o of block.orders || []) add(o, block.week, block.sheet);
+    }
+    return map;
+  }
+
+  function restorePiyasaKeep(map) {
+    if (!map || !map.size) return;
+    const apply = (o, week, sheet) => {
+      if (!o) return;
+      const key = o.__archiveKey || `${week ?? ''}:${sheet ?? ''}:${o.__idx}`;
+      const prev = map.get(key);
+      if (!prev) return;
+      if (!String(o.sipNo || '').trim() && prev.sipNo) o.sipNo = prev.sipNo;
+      if (!String(o.aciklama || '').trim() && prev.aciklama) o.aciklama = prev.aciklama;
+      if (typeof mergeOrderPersistedFields === 'function') mergeOrderPersistedFields(o, prev);
+    };
+    for (const o of state.orders || []) apply(o, state.week, state.sheet);
+    for (const block of state.weekArchive || []) {
+      for (const o of block.orders || []) apply(o, block.week, block.sheet);
+    }
+  }
+
+  async function pickPiyasaExcelViaPicker() {
+    if (typeof window.showOpenFilePicker !== 'function') return { unsupported: true };
+    try {
+      const handles = await window.showOpenFilePicker({
+        types: [{
+          description: 'Excel',
+          accept: {
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+            'application/vnd.ms-excel': ['.xls'],
+            'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'],
+          },
+        }],
+        multiple: false,
+      });
+      const handle = handles && handles[0];
+      if (!handle) return { cancelled: true };
+      await persistPiyasaHandle(handle);
+      const file = await handle.getFile();
+      return { file };
+    } catch (e) {
+      if (e && e.name === 'AbortError') return { cancelled: true };
+      return { unsupported: true };
+    }
+  }
+
+  function pickPiyasaExcelViaInput(asRefresh) {
+    const inp = ensureHiddenFileInput('piyasaExcelInputHidden');
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0];
+      inp.value = '';
+      if (!f) return;
+      loadPiyasaExcel(f, asRefresh ? { refresh: true } : undefined);
+    };
+    try { inp.showPicker ? inp.showPicker() : inp.click(); } catch (e) { inp.click(); }
+  }
+
+  function startPiyasaUpload() {
+    if (!clientIsAmir()) return;
+    pickPiyasaExcelViaPicker().then((picked) => {
+      if (picked && picked.file) {
+        loadPiyasaExcel(picked.file);
+        return;
+      }
+      if (picked && picked.cancelled) return;
+      pickPiyasaExcelViaInput();
+    }).catch(() => pickPiyasaExcelViaInput());
+  }
+
+  function piyasaExcelFilePath(file) {
+    try {
+      if (file && typeof file.path === 'string' && file.path.length > 1) return file.path;
+    } catch (e) {}
+    return '';
+  }
+
+  async function rememberPiyasaExcelSource(file) {
+    const fileName = String(file && file.name || '').trim();
+    if (!fileName) return;
+    try {
+      await fetch('/api/piyasa-excel/source', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName,
+          filePath: piyasaExcelFilePath(file),
+          sheetName: state.sheet || '',
+        }),
+      });
+    } catch (e) {}
+  }
+
+  async function fileFromPiyasaBackend() {
+    const sessionName = window.__piyasaWorkbookSession && window.__piyasaWorkbookSession.fileName;
+    let res;
+    try {
+      res = await fetch('/api/piyasa-excel/reread', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: sessionName || '',
+          sheetName: state.sheet || '',
+        }),
+      });
+    } catch (e) {
+      return null;
+    }
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    let name = sessionName || 'piyasa.xlsx';
+    try {
+      const headerName = res.headers.get('X-Piyasa-Excel-File-Name');
+      if (headerName) name = decodeURIComponent(headerName);
+    } catch (e) {}
+    return new File([blob], name, {
+      type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+  }
+
+  async function refreshPiyasaExcel(permPromise) {
+    if (!clientIsAmir() || _piyasaRefreshBusy) return;
+    if (!state.orders || !state.orders.length) {
+      alert('Önce Piyasa Excel yükleyin.');
+      return;
+    }
+    _piyasaRefreshBusy = true;
+    const btn = document.getElementById('excelPiyasaRefreshButtonChip');
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add('is-busy');
+    }
+    try {
+      let file = null;
+      const handle = _piyasaLiveHandle || await loadPiyasaHandle();
+      if (handle && typeof handle.getFile === 'function') {
+        try {
+          if (permPromise && typeof permPromise.then === 'function') {
+            const perm = await permPromise;
+            if (perm === 'granted') file = await handle.getFile();
+          } else if (typeof handle.requestPermission === 'function') {
+            const perm = await handle.requestPermission({ mode: 'read' });
+            if (perm === 'granted') file = await handle.getFile();
+          } else {
+            file = await handle.getFile();
+          }
+        } catch (e) {
+          file = null;
+        }
+      }
+      if (!file) file = await fileFromPiyasaBackend();
+      if (!file) {
+        const picked = await pickPiyasaExcelViaPicker();
+        if (picked && picked.cancelled) return;
+        if (picked && picked.file) file = picked.file;
+      }
+      if (!file) {
+        pickPiyasaExcelViaInput(true);
+        return;
+      }
+      await loadPiyasaExcel(file, { refresh: true });
+    } catch (e) {
+      console.error('Piyasa güncelle failed', e);
+      alert('Piyasa Excel güncellenemedi. Dosyayı tekrar seçin.');
+    } finally {
+      _piyasaRefreshBusy = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove('is-busy');
+      }
+    }
+  }
+
+  async function loadPiyasaExcel(file, opts){
+    const refreshing = !!(opts && opts.refresh);
+    if (!clientIsAmir()) return;
     if (!file){
       alert('❌ Dosya seçilemedi.');
       return;
@@ -818,7 +1194,7 @@
         if (eu().fingerprintFile) fp = await eu().fingerprintFile(file);
       } catch (e) {}
       loadState();
-      if (fp && state.fileFingerprint === fp && state.orders && state.orders.length) {
+      if (!refreshing && fp && state.fileFingerprint === fp && state.orders && state.orders.length) {
         hidePiyasaExcelLoading();
         const again = confirm('Bu dosya daha önce yüklendi.\n\nYine de yüklemek istiyor musunuz?');
         if (!again) return;
@@ -835,6 +1211,19 @@
         fileName: String(file.name || 'piyasa.xlsx'),
         workbook: wb,
       };
+      rememberPiyasaExcelSource(file);
+
+      if (refreshing && state.sheet && wb.Sheets[state.sheet]) {
+        const kept = snapshotPiyasaKeep();
+        applyChosenPiyasaSheet(wb, state.sheet);
+        restorePiyasaKeep(kept);
+        if (state.orders && state.orders.length) saveState();
+        scheduleWeekArchiveBuild(wb);
+        refreshPiyasaHeaderUi();
+        hidePiyasaExcelLoading();
+        toast('Piyasa Excel güncellendi.', 'success');
+        return;
+      }
 
       const metas = getSheetMetaForPicker(wb);
       if (!metas.length){
@@ -894,6 +1283,8 @@
       clearSavedState();
     }
     pushPiyasaToServer(emptyPayload).catch(() => {});
+    clearPiyasaHandle().catch(() => {});
+    fetch('/api/piyasa-excel/source', { method: 'DELETE', credentials: 'include' }).catch(() => {});
     refreshPiyasaHeaderUi();
   }
 
@@ -913,6 +1304,7 @@
   }
 
   async function handleClearPiyasaClick() {
+    if (!clientIsAmir()) return;
     try { window.closeAppToolsMenu && window.closeAppToolsMenu(); } catch (e) {}
     const ui = window.rpUi || {};
     if (!state.orders.length) {
@@ -963,14 +1355,7 @@
       uploadBtn.__piyasaBound = true;
       uploadBtn.addEventListener('click', ()=>{
         try { window.closeAppToolsMenu && window.closeAppToolsMenu(); } catch (e) {}
-        const inp = ensureHiddenFileInput('piyasaExcelInputHidden');
-        inp.onchange = ()=> {
-          const f = inp.files && inp.files[0];
-          inp.value = '';
-          loadPiyasaExcel(f);
-        };
-        // Safari vb. için güvenli click
-        try { inp.showPicker ? inp.showPicker() : inp.click(); } catch(e){ inp.click(); }
+        startPiyasaUpload();
       });
       console.log('✅ Piyasa: UPLOAD button bağlandı');
     }
@@ -984,19 +1369,25 @@
     if (!document.__piyasaDelegatedBound) {
       document.__piyasaDelegatedBound = true;
       document.addEventListener('click', (e)=>{
-        const target = e.target.closest('#piyasaExcelUploadButtonTop, #piyasaExcelClearButtonTop');
+        const target = e.target.closest('#piyasaExcelUploadButtonTop, #piyasaExcelClearButtonTop, #excelPiyasaRefreshButtonChip');
         if (!target) return;
         if (target.id === 'piyasaExcelUploadButtonTop'){
           e.preventDefault();
           e.stopPropagation();
           try { window.closeAppToolsMenu && window.closeAppToolsMenu(); } catch (err) {}
-          const inp = ensureHiddenFileInput('piyasaExcelInputHidden');
-          inp.onchange = ()=> {
-            const f = inp.files && inp.files[0];
-            inp.value = '';
-            loadPiyasaExcel(f);
-          };
-          try { inp.showPicker ? inp.showPicker() : inp.click(); } catch(err){ inp.click(); }
+          startPiyasaUpload();
+          return;
+        }
+        if (target.id === 'excelPiyasaRefreshButtonChip') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!clientIsAmir() || _piyasaRefreshBusy) return;
+          const handle = _piyasaLiveHandle;
+          let permPromise = null;
+          if (handle && typeof handle.requestPermission === 'function') {
+            try { permPromise = handle.requestPermission({ mode: 'read' }); } catch (err) {}
+          }
+          refreshPiyasaExcel(permPromise);
           return;
         }
         if (target.id === 'piyasaExcelClearButtonTop'){
@@ -1058,6 +1449,10 @@
         window.ensureXlsxLoaded().catch(() => {});
       }
     }
+
+    if (typeof loadExpectedArrivals === 'function') loadExpectedArrivals(false).catch(() => {});
+    if (!clientIsAmir()) return;
+    loadPiyasaHandle().catch(() => {});
 
     console.log('🔵 Piyasa init başladı - butonları arayacak...');
     

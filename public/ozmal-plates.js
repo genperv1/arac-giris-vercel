@@ -54,10 +54,7 @@
   }
 
   function formatPlateDisplay(raw) {
-    const compact = normKey(raw);
-    const m = compact.match(/^(\d{2})([A-Z]{1,3})(\d{2,5})$/);
-    if (m) return `${m[1]} ${m[2]} ${m[3]}`;
-    return String(raw || '').trim().toUpperCase().replace(/İ/g, 'I');
+    return normKey(raw);
   }
 
   function normalizeDriver(raw) {

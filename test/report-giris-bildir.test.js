@@ -29,14 +29,14 @@ test('buildGirisBildirText lists selected plates then giriş yaptı', () => {
     { plate: '34 ABC 123', firma: 'DEF', basimYeri: '1.OSB' },
     { plate: '43 NL 175', firma: '', basimYeri: '' }
   ]);
-  assert.match(text, /06 FLN 416 - ABC LTD - AVDAN/);
-  assert.match(text, /34 ABC 123 - DEF - 1\.OSB/);
-  assert.match(text, /43 NL 175/);
+  assert.match(text, /06FLN416 - ABC LTD - AVDAN/);
+  assert.match(text, /34ABC123 - DEF - 1\.OSB/);
+  assert.match(text, /43NL175/);
   assert.match(text, /Bu araçlar giriş yaptı\./);
 });
 
 test('buildGirisBildirText uses singular for one vehicle', () => {
   const api = loadGirisBildirApi();
   const text = api.buildGirisBildirText([{ plate: '06 FLN 416', firma: 'ABC' }]);
-  assert.equal(text, '06 FLN 416 - ABC\n\nBu araç giriş yaptı.');
+  assert.equal(text, '06FLN416 - ABC\n\nBu araç giriş yaptı.');
 });

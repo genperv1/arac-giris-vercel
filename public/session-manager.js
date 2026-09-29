@@ -673,11 +673,15 @@
     function isAmirUser() {
         try {
             const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
-            const id = String(localStorage.getItem('currentUserId') || '').trim().toUpperCase();
-            return role === 'admin' || id === 'GENPER';
+            const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+            return role === 'amir' || id === 'xxr';
         } catch (e) {
             return false;
         }
+    }
+
+    function amirDisplayLabel() {
+        return 'GENPER · AMİR';
     }
 
     window.SessionManager = {
@@ -686,6 +690,7 @@
         checkSessionValidity,
         requireValidSession,
         isAmirUser,
+        amirDisplayLabel,
         withSessionCheck,
         addSessionCheckToButton,
         addSessionCheckToForm,

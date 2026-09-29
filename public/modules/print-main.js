@@ -2433,8 +2433,13 @@ window.MALZEME_PRINT_BOX = MALZEME_PRINT_BOX;
     const soforBilgi       = readFieldText('soforBilgi');
     const iletisimBilgi    = readFieldText('iletisimBilgi');
     const tcBilgi          = readFieldText('tcBilgi');
-    const cekiciPlakaBilgi = readFieldText('cekiciPlakaBilgi');
-    const dorsePlakaBilgi  = readFieldText('dorsePlakaBilgi');
+    const compactPrintPlate = (raw) => {
+      const formatted = (typeof formatPlaka === 'function') ? formatPlaka(raw) : '';
+      if (formatted) return formatted;
+      return String(raw || '').replace(/İ/g, 'I').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    };
+    const cekiciPlakaBilgi = compactPrintPlate(readFieldText('cekiciPlakaBilgi'));
+    const dorsePlakaBilgi  = compactPrintPlate(readFieldText('dorsePlakaBilgi'));
 const sevkYeri = readFormValue('sevkYeri');
 const sevkYeriPrint = formatSevkYeriPrint(sevkYeri);
 const tonaj = readFormValue('tonaj');

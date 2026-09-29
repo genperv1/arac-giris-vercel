@@ -230,6 +230,7 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             });
 
             document.getElementById('piyasaCikanlarButton')?.addEventListener('click', async () => {
+                if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
                 const split = document.querySelector('.app-split-nav__details');
                 if (split) split.open = false;
                 if (typeof closeAppToolsMenu === 'function') closeAppToolsMenu();
@@ -259,6 +260,7 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             });
 
             document.getElementById('ihracatTakipMenuButton')?.addEventListener('click', async () => {
+                if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
                 closeAppToolsMenu();
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
@@ -274,6 +276,7 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
 
             document.getElementById('ayarlarMenuButton')?.addEventListener('click', async (ev) => {
                 ev.preventDefault();
+                if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;

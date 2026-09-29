@@ -74,6 +74,16 @@
     return String(password == null ? '' : password).trim() === PASSWORD;
   }
 
+  function isAmirUser() {
+    try {
+      var role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+      var id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+      return role === 'amir' || id === 'xxr';
+    } catch (e) {
+      return false;
+    }
+  }
+
   async function ensureAccess(opts) {
     opts = opts || {};
     if (!opts.force && isUnlocked()) return true;
@@ -95,6 +105,7 @@
     markUnlocked: markUnlocked,
     clearUnlock: clearUnlock,
     checkPassword: checkPassword,
+    isAmirUser: isAmirUser,
     ensureAccess: ensureAccess
   };
 

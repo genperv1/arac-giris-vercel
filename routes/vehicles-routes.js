@@ -1,6 +1,6 @@
 'use strict';
 
-const { validatePlateFormat } = require('../lib/plate-format');
+const { validatePlateFormat, compactRecordPlates } = require('../lib/plate-format');
 const {
   VEH_PLATE_NORM_SQL_CEK,
   VEH_PLATE_NORM_SQL_DORSE,
@@ -157,7 +157,7 @@ function registerVehicleRoutes(api, ctx) {
         return res.status(400).json({ error: 'Invalid phone number format' });
       }
 
-      const sanitized = {
+      const sanitized = compactRecordPlates({
         ...v,
         cekiciPlaka,
         dorsePlaka,
@@ -172,7 +172,7 @@ function registerVehicleRoutes(api, ctx) {
         defaultSevkYeri: sanitizeString(v.defaultSevkYeri || '', 200),
         defaultYuklemeNotu: sanitizeString(v.defaultYuklemeNotu || '', 500),
         id,
-      };
+      });
 
       const raw = JSON.stringify(sanitized);
       if (typeof raw === 'string' && raw.length > 2000) {
@@ -210,7 +210,7 @@ function registerVehicleRoutes(api, ctx) {
         return res.status(400).json({ error: 'Invalid phone number format' });
       }
 
-      const sanitized = {
+      const sanitized = compactRecordPlates({
         ...v,
         id,
         cekiciPlaka,
@@ -225,7 +225,7 @@ function registerVehicleRoutes(api, ctx) {
         defaultMalzeme: sanitizeString(v.defaultMalzeme || '', 100),
         defaultSevkYeri: sanitizeString(v.defaultSevkYeri || '', 200),
         defaultYuklemeNotu: sanitizeString(v.defaultYuklemeNotu || '', 500),
-      };
+      });
 
       const userId = sanitizeString((req.user && req.user.username) || v.editedBy || '', 80);
       await maybeLogVehicleEdit(q, id, sanitized, userId);

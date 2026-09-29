@@ -401,7 +401,7 @@
         await renderList();
         return;
       }
-      nextRow.plaka = newPlakaRaw;
+      nextRow.plaka = core.compactPlate(newPlakaRaw);
     }
 
     const statusCell = tr.querySelector('td.nb-side-red .nb-cell, td.nb-side-inside .nb-cell, td.nb-side-cift .nb-cell, td.nb-side-ozmal .nb-cell, td.nb-side-bassofor .nb-cell');
@@ -690,7 +690,7 @@
   function filterItems(items) {
     const raw = String(_searchNeedle || '').trim();
     if (!raw) return items;
-    const q = raw.toUpperCase().replace(/İ/g, 'I');
+    const q = raw.toUpperCase().replace(/İ/g, 'I').replace(/\s+/g, '');
     const ydQ = core && typeof core.normalizeYdKey === 'function' ? core.normalizeYdKey(raw) : '';
     return items.filter((it) => {
       if (ydQ) {
@@ -716,7 +716,8 @@
       ]
         .join(' ')
         .toUpperCase()
-        .replace(/İ/g, 'I');
+        .replace(/İ/g, 'I')
+        .replace(/\s+/g, '');
       return hay.includes(q);
     });
   }

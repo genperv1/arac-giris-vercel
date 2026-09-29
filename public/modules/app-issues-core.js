@@ -439,14 +439,14 @@ function vehicleCardHTML(vehicle) {
   const showBlockOverlay = isRejected;
   const plate = formatPlaka(vehicle.cekiciPlaka);
   const dv = escapeDataVehicleAttr(vehicle);
-  const isBassofor = typeof vehicleIsBassofor === 'function' && vehicleIsBassofor(vehicle);
-  const isOzmal = !isBassofor && typeof vehicleIsOzmal === 'function' && vehicleIsOzmal(vehicle);
-  const plateBadge = isBassofor
-    ? '<span class="vehicle-card__bassofor-badge" title="Başşoför — ' + (typeof OzmalPlates !== 'undefined' && OzmalPlates.BASSOFOR_DRIVER_HINT ? OzmalPlates.BASSOFOR_DRIVER_HINT : 'HASAN HÜSEYİN DİNÇ') + '"><i class="fas fa-crown" aria-hidden="true"></i> BAŞŞOFÖR</span>'
-    : (isOzmal ? '<span class="vehicle-card__ozmal-star" title="Özmal araç" aria-label="Özmal araç">★</span>' : '');
+  const isOzmal = (typeof vehicleIsOzmal === 'function' && vehicleIsOzmal(vehicle))
+    || (typeof vehicleIsBassofor === 'function' && vehicleIsBassofor(vehicle));
+  const plateBadge = isOzmal
+    ? '<span class="vehicle-card__ozmal-star" title="Özmal araç" aria-label="Özmal araç">★</span>'
+    : '';
   const cardClass = showBlockOverlay
     ? 'vehicle-card vehicle-card--blocked'
-    : `vehicle-card ${issueCardClass(vehicle.cekiciPlaka)}${isBassofor ? ' vehicle-card--bassofor' : ''}`;
+    : `vehicle-card ${issueCardClass(vehicle.cekiciPlaka)}`;
   const overlay = showBlockOverlay ? vehicleCardBlockOverlayHTML(vehicle, isRejected, hasProblems) : '';
   const rejectionInline = rejectionBadgeHTML(vehicle, { hideWhenOverlay: showBlockOverlay });
   const waTextPlain = 'Merhaba ' + formatPlaka(vehicle.cekiciPlaka)
@@ -498,7 +498,7 @@ ${overlay}
     <div class="vehicle-card__body">
       ${vehicleContactWarningsHTML(vehicle, dv)}
       ${vehicle.dorsePlaka ? `<div class="vehicle-card__field"><span class="vehicle-card__label">Dorse</span><span class="vehicle-card__value">${formatPlaka(vehicle.dorsePlaka)}</span></div>` : ''}
-      ${vehicle.soforAdi ? `<div class="vehicle-card__field${isBassofor ? ' vehicle-card__field--bassofor' : ''}"><span class="vehicle-card__label">Şoför</span><span class="vehicle-card__value">${vehicle.soforAdi} ${vehicle.soforSoyadi || ''}</span></div>` : ''}
+      ${vehicle.soforAdi ? `<div class="vehicle-card__field"><span class="vehicle-card__label">Şoför</span><span class="vehicle-card__value">${vehicle.soforAdi} ${vehicle.soforSoyadi || ''}</span></div>` : ''}
       ${vehicle.sofor2Adi || vehicle.sofor2Soyadi ? `<div class="vehicle-card__field"><span class="vehicle-card__label">Şoför 2</span><span class="vehicle-card__value">${vehicle.sofor2Adi || ''} ${vehicle.sofor2Soyadi || ''}</span></div>` : ''}
       ${showContactBlock ? `<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__contact-tc">
         ${phone ? `<div class="vehicle-card__contact-tc-item">

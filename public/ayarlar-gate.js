@@ -128,8 +128,41 @@
     }
   }
 
+  function clientIsAmir() {
+    try {
+      const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+      const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+      return role === 'amir' || id === 'xxr';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function grantAmirSettingsAccess() {
+    const r = await fetchWithTimeout('/api/settings/amir-access', {
+      method: 'POST',
+      credentials: 'include',
+      headers: authHeaders(true),
+      body: '{}'
+    }, 10000);
+    if (!r || !r.ok) return false;
+    try {
+      const data = await r.json();
+      if (data && data.ok && data.settingsToken) {
+        markUnlocked();
+        setSettingsToken(data.settingsToken);
+        return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
   async function ensureAyarlarAccess(opts) {
     opts = opts || {};
+    if (clientIsAmir()) {
+      if (isUnlocked() && getSettingsToken()) return true;
+      return grantAmirSettingsAccess();
+    }
     if (!opts.force && isUnlocked() && getSettingsToken()) {
       return true;
     }

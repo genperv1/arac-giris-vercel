@@ -5,6 +5,7 @@ const {
   printHistoryListColumns,
   mapPrintHistoryRowToReport,
 } = require('../lib/print-history-report-map');
+const { compactRecordPlates } = require('../lib/plate-format');
 
 function registerReportsRoutes(api, ctx) {
   const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs, formatReportInstant, istanbulMinutesFromTs } = ctx;
@@ -203,6 +204,7 @@ api.post("/reports", requireValidSession, async (req, res) => {
       dataObj = { value: sanitizeString(String(data || ''), 200) };
     }
     if (typeof dataObj.cikisYapildi === 'undefined') dataObj.cikisYapildi = false;
+    dataObj = compactRecordPlates(dataObj);
     
     // Sanitize string fields in dataObj
     if (dataObj.plaka) dataObj.plaka = sanitizeString(dataObj.plaka, 50);
