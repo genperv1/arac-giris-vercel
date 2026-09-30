@@ -2281,9 +2281,18 @@ try {
         }
 
 
-        // Bu bilgisayarın yazıcı kuyruğu görünüyorsa yalnız gerçek iş rapora yazılır.
-        // genper.site gibi uzak sunucu kuyruğu göremez; pencere kapanınca rapor yazılır.
+        function takipPrintUsesLocalQueue() {
+          try {
+            const host = String(location.hostname || '').toLowerCase();
+            return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+          } catch (e) {
+            return false;
+          }
+        }
+
+        // localhost yazıcı kuyruğunu görür. genper.site görmez; pencere kapanınca rapor yazılır.
         async function waitUntilPrintJobQueued(token, sinceSeq) {
+          if (!takipPrintUsesLocalQueue()) return true;
           const t = String(token || '').trim().toUpperCase();
           const seq = Number(sinceSeq);
           const hasSeq = Number.isFinite(seq) && seq >= 0;
