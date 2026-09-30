@@ -16,6 +16,8 @@
   var _cache = null;
   var _liveHandle = null;
   var _handleReady = null;
+  var _handlesByName = Object.create(null);
+  var _permInflight = [];
 
   function pad2(n) {
     return String(n).padStart(2, '0');
@@ -83,9 +85,43 @@
     try { window.__ihracatExcelLiveHandle = handle; } catch (e) {}
   }
 
-  async function persistHandle(handle) {
-    if (!handle) return false;
+  function handleKey(name) {
+    return String(name || '').trim().toLowerCase();
+  }
+
+  function openHandleDb() {
+    return new Promise(function (resolve, reject) {
+      var req = indexedDB.open(HANDLE_DB, 1);
+      req.onupgradeneeded = function () {
+        if (!req.result.objectStoreNames.contains('handles')) req.result.createObjectStore('handles');
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+
+  function indexHandle(handle, fileName) {
+    if (!handle || typeof handle.getFile !== 'function') return;
     setLiveHandle(handle);
+    var key = handleKey(fileName);
+    if (key) _handlesByName[key] = handle;
+  }
+
+  function handleForName(fileName) {
+    return _handlesByName[handleKey(fileName)] || null;
+  }
+
+  async function persistHandle(handle, fileName) {
+    if (!handle || typeof handle.getFile !== 'function') return false;
+    var name = String(fileName || '').trim();
+    if (!name) {
+      try {
+        var peeked = await handle.getFile();
+        name = peeked && peeked.name ? String(peeked.name).trim() : '';
+      } catch (e) {}
+    }
+    indexHandle(handle, name);
+    var key = handleKey(name);
     var ok = false;
     try {
       if (window.IDBStore && typeof IDBStore.kvSet === 'function') {
@@ -94,19 +130,14 @@
       }
     } catch (e) {}
     try {
-      var db = await new Promise(function (resolve, reject) {
-        var req = indexedDB.open(HANDLE_DB, 1);
-        req.onupgradeneeded = function () {
-          if (!req.result.objectStoreNames.contains('handles')) req.result.createObjectStore('handles');
-        };
-        req.onsuccess = function () { resolve(req.result); };
-        req.onerror = function () { reject(req.error); };
-      });
+      var db = await openHandleDb();
       await new Promise(function (resolve, reject) {
         var tx = db.transaction('handles', 'readwrite');
-        var req = tx.objectStore('handles').put(handle, 'ihracat');
-        req.onsuccess = function () { resolve(true); };
-        req.onerror = function () { reject(req.error); };
+        var store = tx.objectStore('handles');
+        if (key) store.put(handle, key);
+        store.put(handle, 'ihracat');
+        tx.oncomplete = function () { resolve(true); };
+        tx.onerror = function () { reject(tx.error); };
       });
       ok = true;
     } catch (e) {}
@@ -114,6 +145,27 @@
   }
 
   async function loadHandle() {
+    try {
+      var db = await openHandleDb();
+      var entries = await new Promise(function (resolve, reject) {
+        var tx = db.transaction('handles', 'readonly');
+        var out = [];
+        var cur = tx.objectStore('handles').openCursor();
+        cur.onsuccess = function () {
+          var cursor = cur.result;
+          if (!cursor) { resolve(out); return; }
+          out.push({ key: cursor.key, value: cursor.value });
+          cursor.continue();
+        };
+        cur.onerror = function () { reject(cur.error); };
+      });
+      entries.forEach(function (entry) {
+        var handle = entry && entry.value;
+        if (!handle || typeof handle.getFile !== 'function') return;
+        if (entry.key && entry.key !== 'ihracat') indexHandle(handle, String(entry.key));
+        else setLiveHandle(handle);
+      });
+    } catch (e) {}
     if (_liveHandle && typeof _liveHandle.getFile === 'function') return _liveHandle;
     try {
       if (window.IDBStore && typeof IDBStore.kvGet === 'function') {
@@ -124,31 +176,13 @@
         }
       }
     } catch (e) {}
-    try {
-      var db = await new Promise(function (resolve, reject) {
-        var req = indexedDB.open(HANDLE_DB, 1);
-        req.onupgradeneeded = function () {
-          if (!req.result.objectStoreNames.contains('handles')) req.result.createObjectStore('handles');
-        };
-        req.onsuccess = function () { resolve(req.result); };
-        req.onerror = function () { reject(req.error); };
-      });
-      var handle = await new Promise(function (resolve, reject) {
-        var tx = db.transaction('handles', 'readonly');
-        var req = tx.objectStore('handles').get('ihracat');
-        req.onsuccess = function () { resolve(req.result || null); };
-        req.onerror = function () { reject(req.error); };
-      });
-      if (handle && typeof handle.getFile === 'function') {
-        setLiveHandle(handle);
-        return handle;
-      }
-    } catch (e) {}
-    return null;
+    return _liveHandle && typeof _liveHandle.getFile === 'function' ? _liveHandle : null;
   }
 
   async function clearHandle() {
     _liveHandle = null;
+    _handlesByName = Object.create(null);
+    _permInflight = [];
     try { window.__ihracatExcelLiveHandle = null; } catch (e) {}
     try {
       if (window.IDBStore && typeof IDBStore.kvDel === 'function') {
@@ -156,21 +190,47 @@
       }
     } catch (e) {}
     try {
-      var db = await new Promise(function (resolve, reject) {
-        var req = indexedDB.open(HANDLE_DB, 1);
-        req.onupgradeneeded = function () {
-          if (!req.result.objectStoreNames.contains('handles')) req.result.createObjectStore('handles');
-        };
-        req.onsuccess = function () { resolve(req.result); };
-        req.onerror = function () { reject(req.error); };
-      });
+      var db = await openHandleDb();
       await new Promise(function (resolve, reject) {
         var tx = db.transaction('handles', 'readwrite');
-        var req = tx.objectStore('handles').delete('ihracat');
+        var req = tx.objectStore('handles').clear();
         req.onsuccess = function () { resolve(true); };
         req.onerror = function () { reject(req.error); };
       });
     } catch (e) {}
+  }
+
+  function primeHandlePermissions(names) {
+    var wanted = null;
+    if (Array.isArray(names) && names.length) {
+      wanted = Object.create(null);
+      names.forEach(function (n) { wanted[handleKey(n)] = true; });
+    }
+    var seen = [];
+    function kick(handle) {
+      if (!handle || typeof handle.requestPermission !== 'function') return;
+      if (seen.indexOf(handle) >= 0) return;
+      seen.push(handle);
+      try {
+        var p = handle.requestPermission({ mode: 'read' });
+        if (p && typeof p.then === 'function') _permInflight.push(p);
+      } catch (e) {}
+    }
+    Object.keys(_handlesByName).forEach(function (key) {
+      if (wanted && !wanted[key]) return;
+      kick(_handlesByName[key]);
+    });
+    if (!wanted || !seen.length) kick(_liveHandle);
+    return _permInflight.slice();
+  }
+
+  async function waitPrimedPermissions() {
+    var list = _permInflight.slice();
+    _permInflight = [];
+    if (!list.length) return;
+    await Promise.all(list.map(function (p) {
+      return Promise.resolve(p).catch(function () { return 'denied'; });
+    }));
   }
 
   async function clearStoredBinding() {
@@ -380,6 +440,7 @@
       overlay.querySelector('[data-act="ok"]').addEventListener('click', function () {
         var picked = selectedNames();
         if (!picked.length) return;
+        primeHandlePermissions(picked);
         finish(picked);
       });
       overlay.querySelectorAll('.ihracat-excel-pick__check').forEach(function (ch) {
@@ -555,16 +616,17 @@
   async function readFileFromHandle(handle) {
     if (!handle || typeof handle.getFile !== 'function') return null;
     try {
-      // Tıklama jesti dururken izin al — dosya seçici açılmaz.
+      if (typeof handle.queryPermission === 'function') {
+        var q = await handle.queryPermission({ mode: 'read' });
+        if (q === 'granted') return await handle.getFile();
+      }
+      // İzin tıklama anında primeHandlePermissions ile istenmiş olmalı.
       if (typeof handle.requestPermission === 'function') {
         var perm = await handle.requestPermission({ mode: 'read' });
         if (perm !== 'granted') return { __missing: true };
       }
       return await handle.getFile();
     } catch (e) {
-      if (e && (e.name === 'NotFoundError' || e.name === 'NotAllowedError')) {
-        return { __missing: true };
-      }
       return { __missing: true };
     }
   }
@@ -676,16 +738,27 @@
     var wanted = String(sourceName || '').trim();
     if (!wanted) return { __missing: true };
 
-    var handleOk = handleFile && !handleFile.__missing && !handleFile.__cancelled
-      && sameExcelName(handleFile.name, wanted);
+    var namedFile = null;
+    var namedHandle = handleForName(wanted);
+    if (namedHandle) {
+      try { namedFile = await readFileFromHandle(namedHandle); } catch (e) { namedFile = null; }
+    }
+    var handleOk = namedFile && !namedFile.__missing && !namedFile.__cancelled
+      && sameExcelName(namedFile.name, wanted);
+    if (!handleOk && handleFile && !handleFile.__missing && !handleFile.__cancelled
+      && sameExcelName(handleFile.name, wanted)) {
+      namedFile = handleFile;
+      handleOk = true;
+    }
+
     var fromBackend = null;
     try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
     var backendOk = fromBackend && !fromBackend.__missing && !fromBackend.__notSelected
       && sameExcelName(fromBackend.name, wanted);
 
-    if (backendOk && handleOk) return pickNewerExcelFile(handleFile, fromBackend);
+    if (backendOk && handleOk) return pickNewerExcelFile(namedFile, fromBackend);
+    if (handleOk) return namedFile;
     if (backendOk) return fromBackend;
-    if (handleOk) return handleFile;
     return { __missing: true };
   }
 
@@ -693,6 +766,7 @@
     if (_busy) return { ok: false, msg: 'Güncelleme sürüyor.' };
     setRefreshBusy(true);
     try {
+      await waitPrimedPermissions();
       adoptLoadedExcelAsSource();
       if (!hasLoadedExcel()) {
         await warn(MSG_CLEARED);
@@ -735,22 +809,28 @@
 
       for (var i = 0; i < sources.length; i++) {
         var sourceName = sources[i];
-        var file = await resolveFileForSource(sourceName, handleFile);
-        if (!file || file.__missing || file.__notSelected) {
-          failNames.push(sourceName);
-          continue;
-        }
-        var result = await applyPickedExcelFile(file, { silentToast: multi });
-        if (result && result.ok) {
-          okNames.push(sourceName);
-          lastOk = result;
-        } else {
+        try {
+          var file = await resolveFileForSource(sourceName, handleFile);
+          if (!file || file.__missing || file.__notSelected) {
+            failNames.push(sourceName);
+            continue;
+          }
+          var result = await applyPickedExcelFile(file, { silentToast: multi });
+          if (result && result.ok) {
+            okNames.push(sourceName);
+            lastOk = result;
+          } else {
+            failNames.push(sourceName);
+          }
+        } catch (err) {
           failNames.push(sourceName);
         }
       }
 
       if (!okNames.length) {
-        await warn(MSG_NOT_FOUND);
+        var missingMsg = MSG_NOT_FOUND;
+        if (failNames.length) missingMsg += '\n\n' + failNames.join('\n');
+        await warn(missingMsg);
         return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: MSG_NOT_FOUND, failNames: failNames };
       }
 
@@ -758,13 +838,11 @@
       if (multi) {
         if (!failNames.length) {
           summary = okNames.length + ' Excel güncellendi.';
+          if (typeof window.showToast === 'function') window.showToast(summary, 'success');
         } else {
           summary = okNames.length + '/' + sources.length + ' Excel güncellendi. Bulunamayan: '
-            + failNames.join(', ');
-        }
-        if (typeof window.showToast === 'function') {
-          window.showToast(summary, failNames.length ? 'warn' : 'success');
-        } else if (failNames.length) {
+            + failNames.join(', ')
+            + '\n\nBulunamayan dosyayı Yükle ile tekrar seçin.';
           await warn(summary);
         }
       }
@@ -777,6 +855,10 @@
         fileCount: sources.length,
       });
     } catch (e) {
+      if (okNames && okNames.length) {
+        await warn(okNames.join(', ') + ' güncellendi. Diğer dosya okunamadı.');
+        return { ok: true, okNames: okNames, failNames: failNames || [], msg: MSG_NOT_FOUND };
+      }
       await warn(MSG_NOT_FOUND);
       return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: MSG_NOT_FOUND };
     } finally {
@@ -807,15 +889,19 @@
       var sourcesNow = [];
       try { sourcesNow = listLoadedSourceNames(); } catch (err3) { sourcesNow = []; }
       function beginRefresh(onlyNames) {
+        var names = (onlyNames && onlyNames.length) ? onlyNames : sourcesNow;
+        if (_permInflight.length === 0) primeHandlePermissions(names);
         var handle = _liveHandle || window.__ihracatExcelLiveHandle;
         var permPromise = null;
-        if (handle && typeof handle.requestPermission === 'function') {
+        if (handle && typeof handle.requestPermission === 'function' && _permInflight.length === 0) {
           try { permPromise = handle.requestPermission({ mode: 'read' }); } catch (err2) {}
         }
         refreshFromStored(permPromise, onlyNames);
       }
       if (sourcesNow.length > 1) {
-        pickSourcesToRefresh(sourcesNow).then(function (picked) {
+        loadHandle().then(function () {
+          return pickSourcesToRefresh(sourcesNow);
+        }).then(function (picked) {
           if (!picked || !picked.length) return;
           beginRefresh(picked);
         });

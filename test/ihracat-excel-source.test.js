@@ -354,3 +354,19 @@ test('çoklu Excel Güncelle hangisini sorar, tek dosyada sormaz', () => {
   assert.doesNotMatch(refreshFn, /pickSourcesToRefresh/);
   assert.match(css, /\.ihracat-excel-pick__row/);
 });
+
+test('her Excel dosyasının konumu ayrı saklanır', () => {
+  assert.match(clientCode, /function handleForName/);
+  assert.match(clientCode, /_handlesByName\[key\] = handle/);
+  assert.match(clientCode, /if \(key\) store\.put\(handle, key\)/);
+  assert.match(clientCode, /function primeHandlePermissions/);
+  assert.match(clientCode, /primeHandlePermissions\(picked\)/);
+  assert.match(clientCode, /namedHandle = handleForName\(wanted\)/);
+  assert.match(clientCode, /if \(handleOk\) return namedFile/);
+  const refreshFn = clientCode.slice(
+    clientCode.indexOf('async function refreshFromStored'),
+    clientCode.indexOf("window.addEventListener('daily-store-ready'")
+  );
+  assert.match(refreshFn, /catch \(err\)/);
+  assert.doesNotMatch(refreshFn, /showOpenFilePicker/);
+});
