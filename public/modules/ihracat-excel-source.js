@@ -599,6 +599,15 @@
     },
   ];
 
+  function serverCanSeeLocalExcel() {
+    try {
+      var host = String(location.hostname || '').toLowerCase();
+      return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    } catch (e) {
+      return false;
+    }
+  }
+
   function namesLackHandle(names) {
     var list = names || [];
     if (!list.length) return false;
@@ -634,11 +643,110 @@
         files.push(file);
       } catch (e) {}
     }
-    var expected = expectedNames || [];
-    if (expected.length === 1 && files.length === 1 && !preset[handleKey(expected[0])]) {
-      preset[handleKey(expected[0])] = files[0];
+    return bindPresetToExpected(preset, files, expectedNames);
+  }
+
+  function bindPresetToExpected(preset, files, expectedNames) {
+    var map = preset || Object.create(null);
+    var list = files || [];
+    var expected = (expectedNames || []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+    var used = Object.create(null);
+    list.forEach(function (file) {
+      if (file && file.name) used[handleKey(file.name)] = false;
+    });
+    expected.forEach(function (name) {
+      var key = handleKey(name);
+      if (map[key]) {
+        used[key] = true;
+        return;
+      }
+      for (var i = 0; i < list.length; i++) {
+        var file = list[i];
+        var fk = handleKey(file && file.name);
+        if (!fk || used[fk]) continue;
+        if (fk === key || fk.indexOf(key) >= 0 || key.indexOf(fk) >= 0) {
+          map[key] = file;
+          used[fk] = true;
+          return;
+        }
+      }
+    });
+    var leftNames = expected.filter(function (name) { return !map[handleKey(name)]; });
+    var leftFiles = list.filter(function (file) {
+      var fk = handleKey(file && file.name);
+      return fk && !used[fk];
+    });
+    if (leftNames.length && leftNames.length === leftFiles.length) {
+      leftNames.forEach(function (name, i) { map[handleKey(name)] = leftFiles[i]; });
     }
-    return preset;
+    return map;
+  }
+
+  function offerRepick(names) {
+    var list = (names || []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+    if (!list.length) return Promise.resolve(null);
+    return new Promise(function (resolve) {
+      var done = false;
+      var overlay = document.createElement('div');
+      function finish(value) {
+        if (done) return;
+        done = true;
+        try { overlay.remove(); } catch (e) {}
+        resolve(value);
+      }
+      overlay.className = 'rp-dialog-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      var rows = list.map(function (name) {
+        return '<div class="ihracat-excel-pick__name">' + escHtml(name) + '</div>';
+      }).join('');
+      overlay.innerHTML =
+        '<div class="rp-dialog ihracat-excel-pick">' +
+          '<div class="rp-dialog-head">' +
+            '<div class="rp-dialog-icon is-info" aria-hidden="true"><i class="fas fa-file-excel"></i></div>' +
+            '<div class="rp-dialog-title">Excel dosyalarını seçin</div>' +
+          '</div>' +
+          '<div class="rp-dialog-body">' +
+            '<p class="rp-dialog-msg">Canlı sitede bu dosyalar bilgisayarınızdan kendiliğinden okunamıyor. Güncellemek için ikisini birlikte seçin.</p>' +
+            '<div class="ihracat-excel-pick__list">' + rows + '</div>' +
+          '</div>' +
+          '<div class="rp-dialog-actions">' +
+            '<button type="button" class="rp-dialog-btn rp-dialog-btn-ghost" data-act="cancel">Vazgeç</button>' +
+            '<button type="button" class="rp-dialog-btn rp-dialog-btn-primary" data-act="pick">Dosyaları seç</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      overlay.querySelector('[data-act="cancel"]').addEventListener('click', function () { finish(null); });
+      overlay.addEventListener('click', function (ev) {
+        if (ev.target === overlay) finish(null);
+      });
+      overlay.querySelector('[data-act="pick"]').addEventListener('click', function () {
+        var picker = openExcelPicker(list.length > 1);
+        if (picker) {
+          picker.then(function (handles) {
+            return presetFromPickerHandles(handles, list);
+          }).then(function (preset) {
+            finish(preset);
+          }).catch(function (err) {
+            if (err && err.name === 'AbortError') finish(null);
+          });
+          return;
+        }
+        var inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = '.xlsx,.xls,.xlsm,.xlsb';
+        inp.multiple = list.length > 1;
+        inp.style.display = 'none';
+        document.body.appendChild(inp);
+        inp.addEventListener('change', function () {
+          var files = Array.prototype.slice.call(inp.files || []);
+          try { inp.remove(); } catch (e) {}
+          if (!files.length) { finish(null); return; }
+          finish(bindPresetToExpected(Object.create(null), files, list));
+        });
+        inp.click();
+      });
+    });
   }
 
   async function pickFileWithHandle() {
@@ -805,7 +913,9 @@
     }
 
     var fromBackend = null;
-    try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
+    if (serverCanSeeLocalExcel()) {
+      try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
+    }
     var backendOk = fromBackend && !fromBackend.__missing && !fromBackend.__notSelected
       && sameExcelName(fromBackend.name, wanted);
 
@@ -882,23 +992,41 @@
         }
       }
 
+      var repick = null;
+      if (!okNames.length || failNames.length) {
+        repick = await offerRepick(failNames.length ? failNames : sources);
+        if (repick) {
+          for (var j = 0; j < failNames.length; j++) {
+            var againName = failNames[j];
+            var againFile = repick[handleKey(againName)];
+            if (!againFile) continue;
+            try {
+              var again = await applyPickedExcelFile(againFile, { silentToast: true });
+              if (again && again.ok) {
+                okNames.push(againName);
+                lastOk = again;
+                failNames.splice(j, 1);
+                j -= 1;
+              }
+            } catch (errAgain) {}
+          }
+        }
+      }
+
       if (!okNames.length) {
-        var missingMsg = MSG_NOT_FOUND;
-        if (failNames.length) missingMsg += '\n\n' + failNames.join('\n');
-        await warn(missingMsg);
         return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: MSG_NOT_FOUND, failNames: failNames };
       }
 
       var summary;
-      if (multi) {
+      if (multi || repick) {
         if (!failNames.length) {
           summary = okNames.length + ' Excel güncellendi.';
-          if (typeof window.showToast === 'function') window.showToast(summary, 'success');
         } else {
           summary = okNames.length + '/' + sources.length + ' Excel güncellendi. Bulunamayan: '
-            + failNames.join(', ')
-            + '\n\nBulunamayan dosyayı Yükle ile tekrar seçin.';
-          await warn(summary);
+            + failNames.join(', ');
+        }
+        if (typeof window.showToast === 'function') {
+          window.showToast(summary, failNames.length ? 'warn' : 'success');
         }
       }
 
