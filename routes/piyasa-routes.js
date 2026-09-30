@@ -16,10 +16,14 @@ function registerPiyasaRoutes(api, ctx) {
     readExcelFromStoredPath,
   } = require('../lib/ihracat-excel-source');
   const PIYASA_EXCEL_SOURCE_KV = 'piyasa_excel_source_v1';
-  const { sanitizeExpectedItems } = require('../public/modules/piyasa-expected');
+  const { sanitizeExpectedItems, stampExpectedPrint, applyPrintHistoryToExpected } = require('../public/modules/piyasa-expected');
+  const { plateNormSql } = require('../lib/plate-norm-sql');
+  const { compactPlate } = require('../lib/plate-format');
   const PIYASA_EXPECTED_KV = 'piyasa_expected_v1';
   const {
     isYdFirma,
+    displayFirmaKod,
+    firmaMatchesQuery,
     istanbulDayStartMs,
     istanbulDayEndMs,
     normalizeCikanlarInsert,
@@ -122,6 +126,27 @@ api.delete('/piyasa-excel/source', requireAmir, async (req, res) => {
   }
 });
 
+async function withExpectedPrints(items) {
+  const clean = sanitizeExpectedItems(items);
+  const plates = [];
+  clean.forEach((item) => {
+    if (item.cekici) plates.push(compactPlate(item.cekici).toLowerCase());
+    if (item.dorse) plates.push(compactPlate(item.dorse).toLowerCase());
+  });
+  const unique = [...new Set(plates.filter(Boolean))];
+  if (!unique.length) return clean;
+  const r = await q(
+    `SELECT plaka, dorse_plaka, basim_yeri, tarih
+     FROM print_history
+     WHERE ${plateNormSql('plaka')} = ANY($1::text[])
+        OR ${plateNormSql('dorse_plaka')} = ANY($1::text[])
+     ORDER BY tarih DESC
+     LIMIT 300`,
+    [unique]
+  );
+  return applyPrintHistoryToExpected(clean, r.rows);
+}
+
 api.get('/piyasa/expected', requireValidSession, async (req, res) => {
   try {
     const r = await q('SELECT value FROM kv_store WHERE key = $1', [PIYASA_EXPECTED_KV]);
@@ -129,12 +154,50 @@ api.get('/piyasa/expected', requireValidSession, async (req, res) => {
     if (r.rows[0]) {
       try {
         const parsed = JSON.parse(r.rows[0].value);
-        items = sanitizeExpectedItems(parsed && parsed.items);
+        items = parsed && parsed.items;
       } catch (e) { items = []; }
     }
+    items = await withExpectedPrints(items);
     return res.json({ ok: true, items });
   } catch (err) {
     return sendApiError(res, err, 500, 'PIYASA_EXPECTED_READ_FAILED');
+  }
+});
+
+api.post('/piyasa/expected/printed', requireValidSession, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [PIYASA_EXPECTED_KV]);
+    let stored = [];
+    if (r.rows[0]) {
+      try {
+        const parsed = JSON.parse(r.rows[0].value);
+        stored = parsed && parsed.items;
+      } catch (e) { stored = []; }
+    }
+    const stamped = stampExpectedPrint(stored, {
+      plate: body.plate,
+      dorse: body.dorse,
+      basimYeri: body.basimYeri,
+      ts: body.ts,
+      weekKey: body.weekKey,
+    });
+    if (stamped.changed) {
+      const payload = JSON.stringify({
+        items: stamped.items,
+        updatedAt: Date.now(),
+        updatedBy: String((req.user && req.user.username) || ''),
+      });
+      await q(
+        `INSERT INTO kv_store(key, value)
+         VALUES($1,$2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [PIYASA_EXPECTED_KV, payload]
+      );
+    }
+    return res.json({ ok: true, changed: stamped.changed, items: stamped.items });
+  } catch (err) {
+    return sendApiError(res, err, 500, 'PIYASA_EXPECTED_PRINT_FAILED');
   }
 });
 
@@ -361,7 +424,11 @@ api.get('/piyasa/cikanlar', requireAmir, async (req, res) => {
     const fromMs = istanbulDayStartMs(req.query.from);
     const toEnd = istanbulDayEndMs(req.query.to) || istanbulDayEndMs(req.query.from);
     const params = [];
-    const where = [CIKANLAR_LINKED_REPORT_SQL, 'NOT ' + BLANK_CIKANLAR_PREDICATE];
+    const where = [
+      CIKANLAR_LINKED_REPORT_SQL,
+      'NOT ' + BLANK_CIKANLAR_PREDICATE,
+      `COALESCE(firma, '') !~* '(^|[^A-Za-z0-9])G?YD[0-9]{1,4}'`,
+    ];
     if (fromMs != null) {
       params.push(fromMs);
       where.push(`tarih >= $${params.length}`);
@@ -371,8 +438,8 @@ api.get('/piyasa/cikanlar', requireAmir, async (req, res) => {
       where.push(`tarih < $${params.length}`);
     }
     if (firma) {
-      params.push(firma.toUpperCase());
-      where.push(`UPPER(TRIM(SPLIT_PART(firma, '/', 1))) = $${params.length}`);
+      params.push('%' + foldTrIl(firma).replace(/\s+/g, '') + '%');
+      where.push(`replace(replace(replace(upper(SPLIT_PART(firma, '/', 1)), 'İ', 'I'), 'ı', 'I'), ' ', '') LIKE $${params.length}`);
     }
     if (plaka) {
       params.push('%' + plaka.toUpperCase().replace(/\s+/g, '') + '%');
@@ -404,7 +471,7 @@ api.get('/piyasa/cikanlar', requireAmir, async (req, res) => {
         const d = new Date(Number(ms));
         return { tarih: d.toLocaleDateString('tr-TR'), saat: d.toLocaleTimeString('tr-TR') };
       };
-    const rows = (r.rows || []).map((row) => {
+    let rows = (r.rows || []).map((row) => {
       const inst = fmt(row.tarih);
       const week = resolveHafta(row.hafta, row.tarih);
       const info = isoWeekInfoFromMs(row.tarih);
@@ -412,13 +479,16 @@ api.get('/piyasa/cikanlar', requireAmir, async (req, res) => {
         tarihLabel: inst.tarih || '',
         saatLabel: inst.saat || '',
         sehirLabel: displaySehir(row),
+        firmaLabel: displayFirmaKod(row.firma),
         hafta: week != null ? String(week) : (row.hafta || ''),
         haftaLabel: haftaLabel(week),
         haftaYear: info ? info.year : null,
       });
-    });
+    }).filter((row) => !isYdFirma(row.firma));
+    if (firma) rows = rows.filter((row) => firmaMatchesQuery(row.firma, firma));
     const weeks = groupCikanlarByHafta(rows, Date.now());
-    res.json({ ok: true, total: Number(countR.rows[0]?.c || 0), rows, weeks });
+    const total = firma ? rows.length : Number(countR.rows[0]?.c || 0);
+    res.json({ ok: true, total, rows, weeks });
   } catch (err) {
     sendApiError(res, err, 500, 'PIYASA_CIKANLAR_LIST_FAILED');
   }

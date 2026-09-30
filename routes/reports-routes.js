@@ -3,6 +3,7 @@
 const {
   parseReportsListQuery,
   printHistoryListColumns,
+  printHistoryKantarSelect,
   mapPrintHistoryRowToReport,
 } = require('../lib/print-history-report-map');
 const { compactRecordPlates } = require('../lib/plate-format');
@@ -19,7 +20,7 @@ api.get("/reports", async (req, res) => {
       defaultLimit: slim ? 800 : (byId ? 1 : 5000),
       maxLimit: slim ? 5000 : 20000,
     });
-    let sql = 'SELECT ' + printHistoryListColumns(slim) + ' FROM print_history';
+    let sql = 'SELECT ' + printHistoryListColumns(slim) + ', ' + printHistoryKantarSelect() + ' FROM print_history';
     const params = [];
     const where = [];
     if (byId) {

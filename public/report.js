@@ -1848,6 +1848,7 @@
         || ''
       ).trim();
       const kantarCellHtml = kantarName ? escapeRpHtml(kantarName) : '-';
+      if (kantarName) tr.setAttribute('data-kantar', kantarName);
 
       tr.innerHTML = `
         <td class="col-plate font-semibold" data-label="Plaka / Sürücü">${plateCellHtml}</td>
@@ -2423,7 +2424,7 @@
       bosCuval: d.bosCuval || '',
       palet: d.palet || '',
       torba: d.torba || '',
-      kantar: d.kantar || d.imzaKantarAd || '',
+      kantar: d.kantar || d.imzaKantarAd || tr.getAttribute('data-kantar') || '',
       imzaSahaAd: d.imzaSahaAd || d.saha || '',
       imzaYukleyenAd: d.imzaYukleyenAd || '',
       imzaKaliteAd: d.imzaKaliteAd || '',
@@ -2435,8 +2436,9 @@
     const out = Object.assign({}, payload || {});
     const needsNote = !String(out.yuklemeNotu || '').trim();
     const needsAmb = !String(out.ambalajBilgisi || '').trim();
+    const needsKantar = !String(out.kantar || '').trim();
     const phId = String(out.printHistoryId || '').trim();
-    if ((!needsNote && !needsAmb) || !phId) return out;
+    if ((!needsNote && !needsAmb && !needsKantar) || !phId) return out;
     try {
       // Tek kayıt: listeden id ile bul (snapshot dahil)
       const r = await fetch('/api/reports?id=' + encodeURIComponent(phId) + '&limit=1&_=' + Date.now(), {
@@ -2462,6 +2464,7 @@
         'palet', 'torba', 'kantar', 'imzaSahaAd', 'imzaYukleyenAd', 'imzaKaliteAd', 'plaka'].forEach((k) => {
         mergeIfEmpty(k, d[k]);
       });
+      if (!String(out.kantar || '').trim()) mergeIfEmpty('kantar', d.imzaKantarAd);
       if (!out.vehicleId && d.vehicleId) out.vehicleId = String(d.vehicleId);
     } catch (e) { /* ignore */ }
     return out;

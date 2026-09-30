@@ -121,29 +121,35 @@
   }
 
   function getSheetMetaForPicker(wb){
-    const metas = [];
+    const light = [];
     const names = wb.SheetNames || [];
     for (let i = 0; i < names.length; i++){
       const name = names[i];
       if (isPiyasaAutoDataSheet(name)) continue;
       const week = getWeekFromSheetName(name, wb);
       if (!week) continue;
-
-      let orderCount = 0;
-      let approx = false;
+      light.push({ name, week, count: 0, approx: false, orderIndex: i });
+    }
+    const metas = recentPiyasaSheetMetas(light);
+    for (const m of metas) {
       try {
-        const ws = wb.Sheets[name];
-        if (ws) {
-          orderCount = countOrdersInVisibleSheet(ws);
-        }
+        const ws = wb.Sheets[m.name];
+        if (ws) m.count = countOrdersInVisibleSheet(ws);
       } catch (e) {
-        orderCount = 0;
-        approx = true;
+        m.count = 0;
+        m.approx = true;
       }
-
-      metas.push({ name, week, count: orderCount, approx, orderIndex: i });
     }
     return metas;
+  }
+
+  /** Excel yüklemede yalnızca en büyük iki hafta numarası (son hafta ve bir önceki). */
+  function recentPiyasaSheetMetas(metas) {
+    const list = (metas || []).filter((m) => m && Number.isFinite(Number(m.week)) && Number(m.week) > 0);
+    const keep = new Set(
+      [...new Set(list.map((m) => Number(m.week)))].sort((a, b) => b - a).slice(0, 2)
+    );
+    return list.filter((m) => keep.has(Number(m.week)));
   }
 
   function getWeekFromDate(dt){
@@ -386,7 +392,8 @@
   }
 
   function openSheetPickerModal(metas, wb, onConfirm){
-    const weeks = Array.from(new Set(metas.map(m=>m.week))).sort((a,b)=>a-b);
+    metas = recentPiyasaSheetMetas(metas);
+    const weeks = Array.from(new Set(metas.map((m) => Number(m.week)))).sort((a, b) => b - a);
     const defaultWeek = weeks[0] ?? null;
 
     const overlay = document.createElement('div');

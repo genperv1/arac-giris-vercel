@@ -65,6 +65,7 @@ const { plateNormSql, PLATE_NORM_SQL, PLATE_NORM_SQL_PH } = require('./lib/plate
 const { signatureRowToSrc } = require('./lib/signature-helpers');
 const { createPiyasaServerApi } = require('./lib/piyasa-server');
 const { formatReportInstant, istanbulMinutesFromTs } = require('./lib/report-format');
+const printSpoolWatch = require('./lib/print-spool-watch');
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is missing in environment (.env)");
@@ -1237,6 +1238,19 @@ api.get("/health", async (req, res) => {
 api.use(auth.verifyToken);
 api.use(requireMutatingSession);
 
+api.get('/print-spool/seen', (req, res) => {
+  const token = String(req.query.token || '').trim().toUpperCase();
+  if (!/^TF[A-Z0-9]{8}$/.test(token)) {
+    return res.status(400).json({ ok: false, seen: false });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    seen: printSpoolWatch.hasToken(token),
+    watching: printSpoolWatch.isWatching(),
+  });
+});
+
 api.post("/reports/bulk-delete", requireValidSession, async (req, res) => {
   try {
     const body = req.body || {};
@@ -2297,6 +2311,7 @@ function startServerWithPortFallback(basePort) {
 if (require.main === module) {
   (async () => {
     try {
+      printSpoolWatch.start();
       await initializeApp();
       startServerWithPortFallback(PORT);
     } catch (e) {

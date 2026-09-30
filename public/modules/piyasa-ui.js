@@ -741,6 +741,7 @@
   // Modal that allows selecting among the detected week-sheets and previews the sheet date/count
   function showWeekPickerModal(metas, wb, currentSheetName, onConfirm){
     try{
+      metas = typeof recentPiyasaSheetMetas === 'function' ? recentPiyasaSheetMetas(metas) : (metas || []);
       const overlay = document.createElement('div');
       overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_LAYER);
       markPiyasaModalLayer(overlay);
@@ -754,6 +755,7 @@
             <label style="font-size:13px;color:#444;min-width:80px;">Kitap:</label>
             <select id="piyasaPickerSelect" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:8px;"></select>
           </div>
+          <div style="padding:0 18px 8px;font-size:12px;color:#64748b;">Son hafta ve bir önceki hafta. Daha eski haftalar listelenmez.</div>
           <div style="padding:0 18px 12px;display:flex;gap:12px;align-items:center;">
             <div style="flex:1;color:#333;">Tarih: <span id="piyasaPickerDate" style="font-weight:600;margin-left:6px;"></span></div>
             <div style="flex:1;text-align:right;color:#333;">Tahmini Sipariş: <span id="piyasaPickerCount" style="font-weight:600;margin-left:6px;"></span></div>
@@ -1225,7 +1227,7 @@
         return;
       }
 
-      const metas = getSheetMetaForPicker(wb);
+      const metas = recentPiyasaSheetMetas(getSheetMetaForPicker(wb));
       if (!metas.length){
         alert('❌ Bu dosyada HAFTA sheet’i bulamadım (ör: 21.HAFTA).');
         return;

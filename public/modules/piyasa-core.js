@@ -489,9 +489,18 @@ function piyasaOverlayStyle(zIndex) {
     }));
   }
 
+  function _recentPiyasaWeekSet(weeks) {
+    return new Set(
+      [...new Set((weeks || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))]
+        .sort((a, b) => b - a)
+        .slice(0, 2)
+    );
+  }
+
   function _deserializeWeekArchive(raw, currentWeek, currentSheet) {
     if (!Array.isArray(raw) || !raw.length) return [];
-    return raw.map((block) => {
+    const keep = _recentPiyasaWeekSet(raw.map((b) => b && b.week));
+    return raw.filter((block) => keep.has(Number(block && block.week))).map((block) => {
       const week = block.week ?? null;
       const sheet = block.sheet || '';
       const isCurrent = week === currentWeek && sheet === currentSheet;
@@ -556,11 +565,15 @@ function piyasaOverlayStyle(zIndex) {
         sheetDateRaw: sheetDateRaw || null,
       });
     };
+    const keep = _recentPiyasaWeekSet(
+      (state.weekArchive || []).map((b) => b && b.week).concat(state.week != null ? [state.week] : [])
+    );
     for (const b of state.weekArchive || []) {
+      if (!keep.has(Number(b && b.week))) continue;
       upsert(b.week, b.sheet, b.orders, b.sheetDate, b.sheetDateRaw);
     }
     // Aktif sheet: state.orders seçim/yazdırma durumunu taşır — arşiv kopyasının üzerine yaz
-    if (state.sheet) {
+    if (state.sheet && (state.week == null || keep.has(Number(state.week)))) {
       upsert(state.week, state.sheet, state.orders, state.sheetDate, state.sheetDateRaw);
     }
     return opts.sort((a, b) => (Number(b.week) - Number(a.week)) || String(b.sheet).localeCompare(String(a.sheet), 'tr'));

@@ -805,7 +805,7 @@ function piyasaSevkiyatIdForPrint(pending) {
 }
 
 function _isYdFirmaValue(value) {
-  return /\bYD\d{1,4}(?:\([A-Za-z]+\))?/i.test(String(value || '').trim());
+  return /(^|[^A-Za-z0-9])G?YD\d{1,4}(?:\([A-Za-z]+\))?/i.test(String(value || '').trim());
 }
 
 function shouldWritePiyasaCikanlar(pending, printEv) {
@@ -4145,7 +4145,7 @@ function applyIhracatExcelBlockPick(item) {
 function _firmaLooksPiyasaNotYd(raw) {
   const s = String(raw || '').trim();
   if (!s) return false;
-  if (typeof _isYdFirmaValue === 'function' ? _isYdFirmaValue(s) : /\bYD\d{1,4}/i.test(s)) return false;
+  if (typeof _isYdFirmaValue === 'function' ? _isYdFirmaValue(s) : /(^|[^A-Za-z0-9])G?YD\d{1,4}/i.test(s)) return false;
   return true;
 }
 

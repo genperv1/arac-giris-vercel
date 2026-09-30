@@ -809,11 +809,13 @@
       fieldsHtml += `<div class="plf-field" data-key="${def.key}" style="${pos}${def.kind === 'note' && (htmlOverride || noteHtml) ? 'overflow:visible;' : ''}">${inner}</div>`;
     });
 
+    const docTitle = String((opts && opts.docTitle) || 'Sevkiyat Formu')
+      .replace(/[&<>"]/g, '');
     return `<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="utf-8">
-<title>Sevkiyat Formu</title>
+<title>${docTitle}</title>
 <style>
   @page { size: ${pageParams.size}; margin: 0; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }

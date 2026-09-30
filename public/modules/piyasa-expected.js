@@ -224,6 +224,8 @@
         sofor: clip(raw.sofor, 80),
         telefon: phoneDigits(raw.telefon),
         tc: tcDigits(raw.tc),
+        printedAt: printedAtMs(raw.printedAt),
+        basimYeri: normalizeBasimYeri(raw.basimYeri),
       };
       if (indexByKey.has(item.id)) out[indexByKey.get(item.id)] = item;
       else if (out.length < 400) {
@@ -250,6 +252,90 @@
       missing.push(key);
     });
     return missing;
+  }
+
+  function normalizeBasimYeri(value) {
+    const s = foldTr(value).replace(/[\s._-]/g, '');
+    if (s === 'AVDAN') return 'avdan';
+    if (s === '1OSB' || s === 'OSB') return '1.OSB';
+    return '';
+  }
+
+  function printedAtMs(value) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.round(value);
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 1e11) return Math.round(n);
+    const parsed = Date.parse(String(value || ''));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  function weekKeyFromMs(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    try {
+      const ymd = new Date(n).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+      const m = String(ymd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return '';
+      const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const isoYear = date.getUTCFullYear();
+      const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+      const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+      return week > 0 ? (isoYear + ':' + week) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function applyPrintHistoryToExpected(items, prints) {
+    const clean = sanitizeExpectedItems(items);
+    const rows = Array.isArray(prints) ? prints : [];
+    return clean.map((item) => {
+      const plates = new Set([item.cekici, item.dorse].filter(Boolean));
+      let best = null;
+      rows.forEach((row) => {
+        const plaka = normExpectedPlate(row && (row.plaka || row.plate));
+        const dorse = normExpectedPlate(row && (row.dorse_plaka || row.dorsePlaka || row.dorse));
+        if (!plates.has(plaka) && !plates.has(dorse)) return;
+        const ts = printedAtMs(row && (row.tarih || row.ts || row.printedAt));
+        if (!ts || weekKeyFromMs(ts) !== item.weekKey) return;
+        const basim = normalizeBasimYeri(row.basim_yeri || row.basimYeri);
+        if (!best || ts > best.ts) best = { ts, basim };
+      });
+      if (!best) return item;
+      if (item.printedAt >= best.ts && item.basimYeri) return item;
+      return Object.assign({}, item, {
+        printedAt: best.ts,
+        basimYeri: best.basim || item.basimYeri || '',
+      });
+    });
+  }
+
+  function stampExpectedPrint(items, opts) {
+    const src = opts && typeof opts === 'object' ? opts : {};
+    const plates = [src.plate, src.dorse].map(normExpectedPlate).filter(isPlateNorm);
+    const plate = plates[0] || '';
+    const place = normalizeBasimYeri(src.basimYeri);
+    const when = printedAtMs(src.ts) || Date.now();
+    const clean = sanitizeExpectedItems(items);
+    if (!isPlateNorm(plate) || !place) return { items: clean, changed: false };
+    const week = String(src.weekKey || '').trim();
+    const plateSet = new Set(plates);
+    const hits = clean.filter((item) => plateSet.has(item.cekici) || plateSet.has(item.dorse));
+    let targets = [];
+    if (/^\d{4}:\d{1,2}$/.test(week)) {
+      targets = hits.filter((item) => item.weekKey === week);
+    } else if (hits.length) {
+      const newest = hits.slice().sort((a, b) => String(b.weekKey).localeCompare(String(a.weekKey)))[0];
+      targets = newest ? hits.filter((item) => item.weekKey === newest.weekKey) : [];
+    }
+    if (!targets.length) return { items: clean, changed: false };
+    const ids = new Set(targets.map((item) => item.id));
+    const next = clean.map((item) => (
+      ids.has(item.id) ? Object.assign({}, item, { printedAt: when, basimYeri: place }) : item
+    ));
+    return { items: sanitizeExpectedItems(next), changed: true };
   }
 
   function matchExpectedByPlate(items, plate, weekKey) {
@@ -283,6 +369,9 @@
     matchExpectedByPlate,
     orderMatchesQuery,
     platesMissingFromRegistry,
+    stampExpectedPrint,
+    applyPrintHistoryToExpected,
+    normalizeBasimYeri,
     phoneDigits,
     tcDigits,
     extractLabels,
@@ -305,6 +394,27 @@
       try { return formatPlakaForInput(n); } catch (e) {}
     }
     return n;
+  }
+
+  function formatExpectedPrintLine(item) {
+    const ts = printedAtMs(item && item.printedAt);
+    if (!ts) return '';
+    const place = normalizeBasimYeri(item && item.basimYeri);
+    let when = '';
+    try {
+      when = new Date(ts).toLocaleString('tr-TR', {
+        timeZone: 'Europe/Istanbul',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch (e) {
+      when = new Date(ts).toLocaleString('tr-TR');
+    }
+    const where = place === '1.OSB' ? '1.OSB' : (place === 'avdan' ? 'avdan' : '');
+    return 'Basıldı · ' + when + (where ? ' · ' + where : '');
   }
 
   function formatPhoneShow(value) {
@@ -370,6 +480,36 @@
       _expectedLoadedAt = Date.now();
     } catch (e) {}
     return _expectedItems;
+  }
+
+  async function markExpectedArrivalPrinted(opts) {
+    const plate = normExpectedPlate(opts && opts.plate);
+    if (!isPlateNorm(plate)) return false;
+    try {
+      const res = await fetch('/api/piyasa/expected/printed', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plate,
+          dorse: opts && opts.dorse,
+          basimYeri: opts && opts.basimYeri,
+          ts: opts && opts.ts,
+          weekKey: (opts && opts.weekKey) || currentExpectedWeekKey(),
+        }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data && Array.isArray(data.items)) {
+        _expectedItems = sanitizeExpectedItems(data.items);
+        _expectedLoadedAt = Date.now();
+      }
+      const savedHost = document.getElementById('piyasaExpectedSaved');
+      if (savedHost) renderSavedExpected(savedHost, _expectedItems);
+      return !!(data && data.changed);
+    } catch (e) {
+      return false;
+    }
   }
 
   async function saveExpectedItems(items) {
@@ -473,9 +613,11 @@
       overlay.id = 'piyasaExpectedPrompt';
       overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.28);display:flex;align-items:flex-start;justify-content:center;padding:18px;';
       const rows = hits.map((hit, i) => {
+        const printed = formatExpectedPrintLine(hit);
         return '<button type="button" data-i="' + i + '" style="display:block;width:100%;text-align:left;border:1px solid #e2e8f0;background:#fff;border-radius:10px;padding:10px 12px;margin-top:8px;cursor:pointer;font-weight:700;">'
           + esc(expectedHitTitle(hit))
           + (hit.sofor ? '<div style="font-weight:500;color:#475569;margin-top:4px;">' + esc(hit.sofor) + '</div>' : '')
+          + (printed ? '<div style="font-weight:700;color:#166534;margin-top:4px;">' + esc(printed) + '</div>' : '')
           + '</button>';
       }).join('');
       overlay.innerHTML = ''
@@ -553,6 +695,46 @@
     });
   }
 
+  function expectedFieldStyle() {
+    return 'width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:8px;padding:8px;font:inherit;margin-top:4px;';
+  }
+
+  function expectedOrderOptions(orders, selectedKey) {
+    const selected = String(selectedKey || '');
+    const seen = new Set();
+    const opts = ['<option value="">Sipariş satırı seç</option>'];
+    (Array.isArray(orders) ? orders : []).slice(0, 80).forEach((order) => {
+      const key = typeof getOrderPickKey === 'function' ? String(getOrderPickKey(order) || '') : '';
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      opts.push('<option value="' + esc(key) + '"' + (key === selected ? ' selected' : '') + '>' + esc(orderOptionLabel(order)) + '</option>');
+    });
+    if (selected && !seen.has(selected)) {
+      opts.push('<option value="' + esc(selected) + '" selected>' + esc(selected) + '</option>');
+    }
+    return opts.join('');
+  }
+
+  function fillExpectedEditor(row, item, orders) {
+    const field = expectedFieldStyle();
+    const label = 'display:block;font-size:12px;color:#475569;font-weight:700;';
+    row.innerHTML = ''
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+      + '<label style="' + label + '">Çekici<input data-f="cekici" value="' + esc(formatPlateShow(item.cekici)) + '" style="' + field + '"></label>'
+      + '<label style="' + label + '">Dorse<input data-f="dorse" value="' + esc(formatPlateShow(item.dorse)) + '" style="' + field + '"></label>'
+      + '<label style="' + label + '">Şoför<input data-f="sofor" value="' + esc(item.sofor || '') + '" style="' + field + '"></label>'
+      + '<label style="' + label + '">Telefon<input data-f="telefon" value="' + esc(formatPhoneShow(item.telefon)) + '" style="' + field + '"></label>'
+      + '<label style="' + label + '">TC<input data-f="tc" value="' + esc(item.tc || '') + '" style="' + field + '"></label>'
+      + '<label style="' + label + '">Kod<input data-f="label" value="' + esc(item.label || '') + '" style="' + field + '"></label>'
+      + '</div>'
+      + '<label style="' + label + 'margin-top:8px;">Sipariş<select data-f="order" style="' + field + '">' + expectedOrderOptions(orders, item.orderKey) + '</select></label>'
+      + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">'
+      + '<button type="button" data-edit-cancel style="border:0;background:#e5e7eb;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Vazgeç</button>'
+      + '<button type="button" data-edit-save style="border:0;background:#111827;color:#fff;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Kaydet</button>'
+      + '</div></div>';
+  }
+
   function renderSavedExpected(host, items) {
     const week = currentExpectedWeekKey();
     const mine = (items || []).filter((item) => item.weekKey === week);
@@ -562,8 +744,13 @@
     }
     host.innerHTML = '<div style="font-weight:800;margin-top:14px;">Bu hafta kayıtlı</div>'
       + mine.map((item) => {
-        return '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;">'
-          + '<span style="flex:1;">' + esc(formatPlateShow(item.cekici)) + ' → ' + esc(item.label || item.firma || '') + '</span>'
+        const printed = formatExpectedPrintLine(item);
+        return '<div data-saved-row data-id="' + esc(item.id) + '" style="display:flex;align-items:flex-start;gap:8px;margin-top:6px;font-size:13px;">'
+          + '<button type="button" data-edit="' + esc(item.id) + '" title="Düzenle" style="flex:1;min-width:0;text-align:left;border:0;background:transparent;cursor:pointer;font:inherit;padding:4px 2px;border-radius:8px;">'
+          + '<div>' + esc(formatPlateShow(item.cekici)) + ' → ' + esc(item.label || item.firma || '') + '</div>'
+          + (printed ? '<div style="color:#166534;font-weight:700;margin-top:2px;">' + esc(printed) + '</div>' : '')
+          + '<div style="color:#64748b;font-size:11px;font-weight:700;margin-top:2px;">Düzenle</div>'
+          + '</button>'
           + '<button type="button" data-del="' + esc(item.id) + '" style="border:0;background:#fee2e2;color:#991b1b;border-radius:8px;padding:4px 8px;cursor:pointer;font-weight:700;">Sil</button>'
           + '</div>';
       }).join('');
@@ -584,7 +771,10 @@
       : 'position:fixed;inset:0;z-index:1000080;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding:16px;';
     overlay.innerHTML = ''
       + '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 10px 30px rgba(0,0,0,.25);">'
-      + '<div style="padding:14px 16px;border-bottom:1px solid #eee;font-weight:800;">Gelen araç</div>'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px;border-bottom:1px solid #eee;">'
+      + '<div style="font-weight:800;">Gelen araç</div>'
+      + '<button type="button" id="piyasaExpectedX" aria-label="Kapat" style="border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:#334155;padding:2px 4px;">✕</button>'
+      + '</div>'
       + '<div style="padding:12px 16px;">'
       + '<div style="font-size:13px;color:#475569;margin-bottom:8px;">WhatsApp metnini yapıştır. Plaka yazılınca bu sipariş bu sevkiyata gelecek.</div>'
       + '<textarea id="piyasaExpectedPaste" rows="8" style="width:100%;border:1px solid #ddd;border-radius:10px;padding:10px;font:inherit;"></textarea>'
@@ -606,10 +796,84 @@
       renderExpectedPreview(preview, parsed, orders);
     };
     area.addEventListener('input', paint);
-    overlay.querySelector('#piyasaExpectedClose').onclick = () => overlay.remove();
-    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) overlay.remove(); });
+    const closeExpected = () => overlay.remove();
+    overlay.querySelector('#piyasaExpectedClose').onclick = closeExpected;
+    overlay.querySelector('#piyasaExpectedX').onclick = closeExpected;
     savedHost.addEventListener('click', async (ev) => {
-      const btn = ev.target.closest && ev.target.closest('button[data-del]');
+      const target = ev.target;
+      const cancelBtn = target.closest && target.closest('[data-edit-cancel]');
+      if (cancelBtn) {
+        renderSavedExpected(savedHost, _expectedItems);
+        return;
+      }
+      const saveEdit = target.closest && target.closest('[data-edit-save]');
+      if (saveEdit) {
+        const row = saveEdit.closest('[data-saved-row]');
+        const id = row ? row.getAttribute('data-id') : '';
+        const item = (_expectedItems || []).find((entry) => entry.id === id);
+        if (!row || !item) return;
+        const fieldValue = (name) => {
+          const el = row.querySelector('[data-f="' + name + '"]');
+          return el ? String(el.value || '') : '';
+        };
+        const cekici = normExpectedPlate(fieldValue('cekici'));
+        const dorse = normExpectedPlate(fieldValue('dorse'));
+        if (!isPlateNorm(cekici)) {
+          if (typeof toast === 'function') toast('Çekici plakası geçersiz.', 'warn');
+          return;
+        }
+        if (dorse && !isPlateNorm(dorse)) {
+          if (typeof toast === 'function') toast('Dorse plakası geçersiz.', 'warn');
+          return;
+        }
+        const orderKey = fieldValue('order');
+        if (!orderKey) {
+          if (typeof toast === 'function') toast('Sipariş satırı seç.', 'warn');
+          return;
+        }
+        const newId = item.weekKey + ':' + cekici;
+        saveEdit.disabled = true;
+        try {
+          const prev = await loadExpectedArrivals(true);
+          if (prev.some((entry) => entry.id === newId && entry.id !== id)) {
+            saveEdit.disabled = false;
+            if (typeof toast === 'function') toast('Bu plaka bu hafta zaten kayıtlı.', 'warn');
+            return;
+          }
+          const order = typeof getOrderByIdx === 'function' ? getOrderByIdx(orderKey) : null;
+          const samePlate = newId === id;
+          await saveExpectedItems(prev.filter((entry) => entry.id !== id && entry.id !== newId).concat([{
+            weekKey: item.weekKey,
+            orderKey,
+            firma: order ? order.firma : item.firma,
+            malzeme: order ? order.malzeme : item.malzeme,
+            label: fieldValue('label') || item.label,
+            cekici,
+            dorse,
+            sofor: fieldValue('sofor'),
+            telefon: fieldValue('telefon'),
+            tc: fieldValue('tc'),
+            printedAt: samePlate ? item.printedAt : 0,
+            basimYeri: samePlate ? item.basimYeri : '',
+          }]));
+          await loadExpectedArrivals(true);
+          renderSavedExpected(savedHost, _expectedItems);
+          if (typeof toast === 'function') toast('Araç güncellendi.', 'success');
+        } catch (e) {
+          saveEdit.disabled = false;
+          if (typeof toast === 'function') toast('Kayıt güncellenemedi.', 'warn');
+        }
+        return;
+      }
+      const editBtn = target.closest && target.closest('button[data-edit]');
+      if (editBtn) {
+        const id = editBtn.getAttribute('data-edit');
+        const item = (_expectedItems || []).find((entry) => entry.id === id);
+        const row = editBtn.closest('[data-saved-row]');
+        if (item && row) fillExpectedEditor(row, item, orders);
+        return;
+      }
+      const btn = target.closest && target.closest('button[data-del]');
       if (!btn) return;
       const id = btn.getAttribute('data-del');
       btn.disabled = true;
@@ -656,6 +920,16 @@
       try {
         const prev = await loadExpectedArrivals(true);
         const drop = new Set(fresh.map((row) => weekKey + ':' + normExpectedPlate(row.cekici)));
+        const keptPrint = new Map();
+        prev.forEach((item) => {
+          if (item && item.printedAt) keptPrint.set(item.id, item);
+        });
+        fresh.forEach((row) => {
+          const old = keptPrint.get(weekKey + ':' + normExpectedPlate(row.cekici));
+          if (!old) return;
+          row.printedAt = old.printedAt;
+          row.basimYeri = old.basimYeri;
+        });
         await saveExpectedItems(prev.filter((item) => !drop.has(item.id)).concat(fresh));
         area.value = '';
         preview.innerHTML = '';
@@ -680,6 +954,7 @@
   root.matchExpectedByPlate = matchExpectedByPlate;
   root.loadExpectedArrivals = loadExpectedArrivals;
   root.openExpectedPasteModal = openExpectedPasteModal;
+  root.markExpectedArrivalPrinted = markExpectedArrivalPrinted;
   root.offerExpectedForPlate = offerExpectedForPlate;
   root.applyExpectedOnTakipOpen = applyExpectedOnTakipOpen;
 })(typeof window !== 'undefined' ? window : globalThis);

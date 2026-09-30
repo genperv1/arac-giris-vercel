@@ -1070,9 +1070,8 @@ try {
 } catch (e) {}
 
 // ✅ Yükleme sırası (NO-COMMIT)
-// Not: Tarayıcı "Yazdır" / "İptal" bilgisini kesin vermez.
-// Bu yüzden burada SADECE önerilen sırayı döndürüyoruz; localStorage sayaç yazımı YAPMIYORUZ.
-// Sayaç kesinleştirme işi app.js -> afterTakipPrint içinde (kullanıcı onayıyla) yapılır.
+// Burada SADECE önerilen sırayı döndürüyoruz; localStorage sayaç yazımı YAPMIYORUZ.
+// Sayaç kesinleştirme işi afterprint -> afterTakipPrint içinde yapılır.
 async function getNextYuklemeSirasi() {
  try {
     const res = await fetch("/reports/count");
@@ -2621,6 +2620,18 @@ const bosBbtText = amb.bosBbt;
       }
     })();
 
+    const printJobToken = (function () {
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let s = 'TF';
+      for (let i = 0; i < 8; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
+      return s;
+    })();
+    const printDocTitle = 'Sevkiyat Formu ' + printJobToken;
+    try {
+      window.__lastPrintJobToken = printJobToken;
+      if (window.__pendingPrintCommit) window.__pendingPrintCommit.printJobToken = printJobToken;
+    } catch (e) {}
+
     let printHTML;
     if (strictPrintLayout && typeof window.PrintLayoutSettings?.buildLayoutPrintDocument === 'function') {
       const fieldHtml = {};
@@ -2636,6 +2647,7 @@ const bosBbtText = amb.bosBbt;
         noteLines: hp13PrintParts.length ? null : noteLinesForLayout,
         noteHtml: fieldHtml.not || '',
         fieldHtml,
+        docTitle: printDocTitle,
       });
     } else {
     printHTML = `
@@ -2643,7 +2655,7 @@ const bosBbtText = amb.bosBbt;
 <html>
 <head>
 <meta charset="utf-8">
-<title>Sevkiyat Formu</title>
+<title>${printDocTitle}</title>
 <style>
       * { page-break-inside: avoid; break-inside: avoid; }
 
@@ -3332,6 +3344,7 @@ ${layoutPrintCss}
     w.document.open();
     w.document.write(printHTML);
     w.document.close();
+    try { w.document.title = printDocTitle; } catch (e) {}
 
     // ✅ pageSize'ı window objesine attach et (onload'da kullanmak için)
     w.__pageSize = pageSize;

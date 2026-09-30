@@ -563,7 +563,7 @@ function setupTakipFormButtons() {
             const firmaForKind = String(get('firmaKodu') || get('firmaSelect') || '').trim();
             const isYdPrint = typeof _isYdFirmaValue === 'function'
               ? _isYdFirmaValue(firmaForKind)
-              : /\bYD\d{1,4}(?:\([A-Za-z]+\))?/i.test(firmaForKind);
+              : /(^|[^A-Za-z0-9])G?YD\d{1,4}(?:\([A-Za-z]+\))?/i.test(firmaForKind);
             const fromIhracat = isYdPrint || (!!_isIhracatPrintContext(null) && isYdPrint);
             const printPayload = captureTakipPrintPayloadForReport(get);
             printPayload.basimYeri = basimYeriValue;
@@ -635,7 +635,7 @@ function setupTakipFormButtons() {
                 return;
             }
 
-            // Iframe yazdırmada sekme kapanmaz; onay onafterprint ile gelir.
+            // Iframe yazdırmada sekme kapanmaz; kayıt onafterprint ile yazılır.
             if (w && w.__takipPrintFrame) return;
             }
             };

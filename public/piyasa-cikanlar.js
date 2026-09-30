@@ -31,10 +31,38 @@
     return h;
   }
 
-  function csvCell(v) {
-    const s = String(v == null ? '' : v);
-    if (/[;"\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-    return s;
+  let xlsxPromise = null;
+  function ensureXlsx() {
+    if (window.XLSX && window.XLSX.utils && window.XLSX.writeFile) return Promise.resolve(window.XLSX);
+    if (xlsxPromise) return xlsxPromise;
+    xlsxPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/xlsx.full.min.js';
+      s.onload = () => {
+        if (window.XLSX && window.XLSX.utils && window.XLSX.writeFile) resolve(window.XLSX);
+        else {
+          xlsxPromise = null;
+          reject(new Error('XLSX'));
+        }
+      };
+      s.onerror = () => {
+        xlsxPromise = null;
+        reject(new Error('XLSX yüklenemedi'));
+      };
+      document.head.appendChild(s);
+    });
+    return xlsxPromise;
+  }
+
+  function exportColWidth(header, values) {
+    let max = String(header || '').length;
+    for (let i = 0; i < values.length; i++) {
+      const parts = String(values[i] == null ? '' : values[i]).split(/\r?\n/);
+      for (let j = 0; j < parts.length; j++) {
+        if (parts[j].length > max) max = parts[j].length;
+      }
+    }
+    return Math.min(Math.max(max + 3, 12), 72);
   }
 
   function queryParams() {
@@ -121,8 +149,32 @@
       .replace(/İ/g, 'I');
   }
 
-  function firmaKod(s) {
-    return foldTrIl(String(s || '').split('/')[0] || '');
+  function isIhracatFirma(value) {
+    return /(^|[^A-Za-z0-9])G?YD\d{1,4}/i.test(String(value || '').trim());
+  }
+
+  function displayFirmaKod(raw) {
+    const head = String(raw || '').split('/')[0].trim();
+    if (!head) return '';
+    const upper = head.toLocaleUpperCase('tr-TR');
+    if (/\s/.test(upper)) return upper;
+    const key = upper.replace(/İ/g, 'I').replace(/ı/g, 'I');
+    const m = key.match(/^([A-Z]{1,4}\d{1,4})([A-Z]{1,6})$/);
+    if (!m) return upper;
+    return upper.slice(0, m[1].length);
+  }
+
+  function shownFirma(r) {
+    return displayFirmaKod((r && (r.firmaLabel || r.firma)) || '');
+  }
+
+  function firmaMatchesQuery(stored, query) {
+    const q = foldTrIl(displayFirmaKod(query)).replace(/\s+/g, '');
+    if (!q) return true;
+    const shown = foldTrIl(displayFirmaKod(stored)).replace(/\s+/g, '');
+    const raw = foldTrIl(String(stored || '').split('/')[0]).replace(/\s+/g, '');
+    const first = foldTrIl(String(displayFirmaKod(stored)).split(/\s+/)[0] || '');
+    return shown === q || raw === q || first === q;
   }
 
   function rowSehir(r) {
@@ -130,10 +182,11 @@
   }
 
   function rowMatchesFilters(r) {
-    const firmaQ = firmaKod(document.getElementById('pcFirma')?.value || '');
+    const firmaQ = (document.getElementById('pcFirma')?.value || '').trim();
     const plakaQ = foldTrIl(document.getElementById('pcPlaka')?.value || '');
     const ilQ = foldTrIl(document.getElementById('pcIl')?.value || '');
-    if (firmaQ && firmaKod(r.firma) !== firmaQ) return false;
+    if (isIhracatFirma(r.firma) || isIhracatFirma(r.firmaLabel)) return false;
+    if (firmaQ && !firmaMatchesQuery(r.firmaLabel || r.firma, firmaQ)) return false;
     if (plakaQ && !foldTrIl(r.plaka || '').includes(plakaQ) && !foldTrIl(r.dorse_plaka || '').includes(plakaQ)) return false;
     if (ilQ) {
       const hay = foldTrIl([rowSehir(r), r.sehir, r.il, r.sevk_yeri].filter(Boolean).join(' '));
@@ -190,7 +243,7 @@
         '<td class="pc-mono"><strong>' + esc(r.plaka) + '</strong>' +
           (r.dorse_plaka ? '<div class="text-slate-400">' + esc(r.dorse_plaka) + '</div>' : '') +
         '</td>' +
-        '<td>' + esc(r.firma) + '</td>' +
+        '<td class="pc-firma">' + esc(shownFirma(r)) + '</td>' +
         '<td>' + esc(r.firma_adi) + '</td>' +
         '<td class="pc-mono">' + esc(r.sip_no) + '</td>' +
         '<td class="pc-malzeme">' + esc(r.malzeme) + '</td>' +
@@ -210,6 +263,11 @@
     return (
       '<div class="pc-table-wrap">' +
         '<table class="pc-table">' +
+          '<colgroup>' +
+            '<col class="c-tarih"><col class="c-saat"><col class="c-plaka"><col class="c-firma">' +
+            '<col class="c-firma-adi"><col class="c-sip"><col class="c-malzeme"><col class="c-yukleme">' +
+            '<col class="c-sehir"><col class="c-tonaj"><col class="c-sofor"><col class="c-basim">' +
+          '</colgroup>' +
           '<thead><tr>' +
             '<th>Tarih</th><th>Saat</th><th>Plaka</th><th>Firma</th><th>Firma adı</th><th>Sip no</th>' +
             '<th>Malzeme</th><th>Yükleme türü</th><th>Şehir</th><th>Tonaj</th><th>Şoför</th><th>Basım</th>' +
@@ -331,33 +389,39 @@
     host.innerHTML = html;
   }
 
-  function exportExcel() {
+  async function exportExcel() {
     const rows = filteredRows(_rows);
     if (!rows.length) {
       alert('Aktarılacak kayıt yok.');
       return;
     }
-    const headers = [
-      'Tarih', 'Hafta', 'Saat', 'Plaka', 'Dorse', 'Firma', 'Firma adı', 'Sip no',
-      'Malzeme', 'Yükleme türü', 'Şehir', 'Sevk yeri', 'Miktar', 'Tonaj', 'Şoför', 'Basım yeri',
-    ];
-    const lines = [headers.map(csvCell).join(';')];
-    for (const r of rows) {
-      lines.push([
-        r.tarihLabel, r.haftaLabel || r.hafta, r.saatLabel, r.plaka, r.dorse_plaka, r.firma, r.firma_adi, r.sip_no,
+    const btn = document.getElementById('pcExportBtn');
+    if (btn) btn.disabled = true;
+    try {
+      const XLSX = await ensureXlsx();
+      const headers = [
+        'Tarih', 'Hafta', 'Saat', 'Plaka', 'Dorse', 'Firma', 'Firma adı', 'Sip no',
+        'Malzeme', 'Yükleme türü', 'Şehir', 'Sevk yeri', 'Miktar', 'Tonaj', 'Şoför', 'Basım yeri',
+      ];
+      const body = rows.map((r) => [
+        r.tarihLabel, r.haftaLabel || r.hafta, r.saatLabel, r.plaka, r.dorse_plaka, shownFirma(r), r.firma_adi, r.sip_no,
         r.malzeme, r.yukleme_turu, rowSehir(r), r.sevk_yeri, r.miktar, r.tonaj, r.sofor, r.basim_yeri,
-      ].map(csvCell).join(';'));
+      ].map((v) => (v == null ? '' : String(v))));
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...body]);
+      const lastCol = XLSX.utils.encode_col(headers.length - 1);
+      ws['!autofilter'] = { ref: 'A1:' + lastCol + (body.length + 1) };
+      ws['!cols'] = headers.map((header, i) => ({
+        wch: exportColWidth(header, body.map((row) => row[i])),
+      }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Piyasa Cikanlar');
+      XLSX.writeFile(wb, 'piyasa-cikanlar-' + todayYmd() + '.xlsx');
+    } catch (e) {
+      console.warn('Excel aktarımı başarısız:', e);
+      alert('Excel dosyası hazırlanamadı.');
+    } finally {
+      if (btn) btn.disabled = false;
     }
-    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'piyasa-cikanlar-' + todayYmd() + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 500);
   }
 
   function bind() {

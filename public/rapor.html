@@ -502,26 +502,36 @@
     }
 
     .rp-filter-mid {
-      display: grid;
-      grid-template-columns: 1.05fr 1fr 1.15fr 0.85fr;
-      gap: 0;
-      border-top: 1px solid var(--rp-border);
-      background: #f8fafc;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 1rem 1.75rem;
+      padding: 0.8rem 1.15rem 0.9rem;
+      border-top: 1px solid #eef2f6;
+      background: #fff;
     }
 
     .rp-filter-group {
-      padding: 0.9rem 1.25rem;
+      padding: 0;
       min-width: 0;
     }
 
     .rp-filter-group + .rp-filter-group {
-      border-left: 1px solid var(--rp-border);
+      border-left: 0;
+    }
+
+    .rp-filter-group .rp-label {
+      font-size: 0.625rem;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+      margin-bottom: 0.4rem;
     }
 
     .rp-filter-chips {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.45rem;
+      align-items: center;
+      gap: 0.4rem;
     }
 
     .rp-filter-foot {
@@ -999,18 +1009,42 @@
 
     body.rp-page .rp-filter-chips .status-chip {
       margin: 0;
+      height: 2rem;
+      padding: 0 0.65rem;
+      border-radius: 999px;
+      border: 1px solid #e6ebf2;
+      background: #fff;
+      color: #334155;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      box-shadow: none;
+      gap: 0.35rem;
     }
 
-    body.rp-page .status-chip.chip-avdan {
-      border-color: #86efac;
-      background: #ecfdf5;
-      color: #166534;
+    body.rp-page .rp-filter-chips .status-chip i {
+      font-size: 0.72rem;
     }
 
-    body.rp-page .status-chip.chip-osb {
-      border-color: #fcd34d;
-      background: #fffbeb;
-      color: #92400e;
+    body.rp-page .rp-filter-chips .chip-piyasa i { color: #059669; }
+    body.rp-page .rp-filter-chips .chip-ihracat i { color: #2563eb; }
+    body.rp-page .rp-filter-chips .chip-avdan i { color: #16a34a; }
+    body.rp-page .rp-filter-chips .chip-osb i { color: #d97706; }
+    body.rp-page .rp-filter-chips .chip-shift-night i { color: #4f46e5; }
+    body.rp-page .rp-filter-chips .chip-shift-day i { color: #ea580c; }
+    body.rp-page .rp-filter-chips .chip-ozmal i { color: #0284c7; }
+    body.rp-page .rp-filter-chips .chip-dup i { color: #ea580c; }
+
+    body.rp-page .rp-filter-chips .chip-piyasa { background: #f0fdf4; border-color: #d1fae5; }
+    body.rp-page .rp-filter-chips .chip-ihracat { background: #eff6ff; border-color: #dbeafe; }
+    body.rp-page .rp-filter-chips .chip-avdan { background: #f0fdf4; border-color: #dcfce7; }
+    body.rp-page .rp-filter-chips .chip-osb { background: #fffbeb; border-color: #fde68a; }
+    body.rp-page .rp-filter-chips .chip-shift-night { background: #eef2ff; border-color: #e0e7ff; }
+    body.rp-page .rp-filter-chips .chip-shift-day { background: #fff7ed; border-color: #ffedd5; }
+    body.rp-page .rp-filter-chips .chip-ozmal { background: #f0f9ff; border-color: #e0f2fe; }
+    body.rp-page .rp-filter-chips .chip-dup { background: #fff7ed; border-color: #ffedd5; }
+
+    body.rp-page .rp-filter-chips .app-filter-chip.is-active {
+      box-shadow: none;
     }
 
     body.rp-page .status-chip.chip-today {
@@ -1023,86 +1057,64 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 1.25rem;
-      height: 1.25rem;
-      padding: 0 0.35rem;
-      margin-left: 0.25rem;
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.08);
-      font-size: 0.6875rem;
+      min-width: 0;
+      height: auto;
+      padding: 0;
+      margin-left: 0.1rem;
+      border-radius: 0;
+      background: transparent;
+      color: #64748b;
+      font-size: 0.75rem;
       font-weight: 700;
+      font-variant-numeric: tabular-nums;
       line-height: 1;
     }
 
     body.rp-page .app-filter-chip.is-active .rp-filter-count {
-      background: rgba(255, 255, 255, 0.28);
+      background: transparent;
       color: inherit;
     }
 
-    body.rp-page .status-chip.chip-shift-night {
-      border-color: #a5b4fc;
-      background: #eef2ff;
-      color: #4338ca;
-    }
-
-    body.rp-page .status-chip.chip-shift-day {
-      border-color: #fdba74;
-      background: #fff7ed;
-      color: #c2410c;
-    }
-
-    body.rp-page .status-chip.chip-piyasa {
-      border-color: #6ee7b7;
-      background: #ecfdf5;
-      color: #047857;
-    }
-
-    body.rp-page .status-chip.chip-ihracat {
-      border-color: #93c5fd;
-      background: #eff6ff;
-      color: #1d4ed8;
-    }
-
     body.rp-page .app-filter-chip.is-active.chip-avdan {
-      background: #16a34a;
-      border-color: #15803d;
-      color: #fff;
+      background: #f0fdf4;
+      border-color: #86efac;
+      color: #166534;
     }
 
     body.rp-page .app-filter-chip.is-active.chip-osb {
-      background: #d97706;
-      border-color: #b45309;
-      color: #fff;
+      background: #fffbeb;
+      border-color: #fcd34d;
+      color: #92400e;
     }
 
     body.rp-page .app-filter-chip.is-active.chip-shift-night {
-      background: #4f46e5;
-      border-color: #4338ca;
-      color: #fff;
+      background: #eef2ff;
+      border-color: #a5b4fc;
+      color: #4338ca;
     }
 
     body.rp-page .app-filter-chip.is-active.chip-shift-day {
-      background: #ea580c;
-      border-color: #c2410c;
-      color: #fff;
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #c2410c;
     }
 
     body.rp-page .app-filter-chip.is-active.chip-ozmal {
-      background: #0369a1;
-      border-color: #075985;
-      color: #fff;
+      background: #f0f9ff;
+      border-color: #7dd3fc;
+      color: #075985;
     }
 
     body.rp-page .app-filter-chip.is-active.chip-piyasa {
-      background: #059669;
-      border-color: #047857;
-      color: #fff;
+      background: #ecfdf5;
+      border-color: #6ee7b7;
+      color: #047857;
     }
 
     body.rp-page .app-filter-chip.is-active.chip-ihracat {
-      background: #2563eb;
-      border-color: #1d4ed8;
-      color: #fff;
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: #1d4ed8;
     }
 
     .rp-kind-tag {
@@ -1123,16 +1135,10 @@
       border: 1px solid #a7f3d0;
     }
 
-    body.rp-page .status-chip.chip-dup {
-      border-color: #fdba74;
-      background: #fff7ed;
-      color: #c2410c;
-    }
-
     body.rp-page .app-filter-chip.is-active.chip-dup {
-      background: #ea580c;
-      border-color: #c2410c;
-      color: #fff;
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #c2410c;
     }
 
     .rp-dup-tag {
@@ -1324,15 +1330,7 @@
       }
 
       .rp-filter-mid {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .rp-filter-group:nth-child(odd) {
-        border-left: none;
-      }
-
-      .rp-filter-group:nth-child(n + 3) {
-        border-top: 1px solid var(--rp-border);
+        gap: 0.85rem 1.25rem;
       }
     }
 
@@ -1347,9 +1345,12 @@
       }
 
       .rp-filter-top,
-      .rp-filter-mid,
       .rp-search-grid {
         grid-template-columns: 1fr;
+      }
+
+      .rp-filter-mid {
+        gap: 0.75rem 1rem;
       }
 
       .rp-filter-col--cal {
@@ -1759,7 +1760,7 @@
   <script src="sync-manager.js"></script>
   <script src="ozmal-plates.js?v=20260716-bassofor-sort"></script>
   <script src="rp-dialog.js?v=20260820-pwd"></script>
-  <script src="report.js?v=20260909-giris-bildir"></script>
+  <script src="report.js?v=20260930-kantarci"></script>
   <script>
     (function () {
       const THIRTY_MIN = 30 * 60 * 1000;

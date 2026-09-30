@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v27-malzfit';
+  var PRINT_REV = 'print-v28-spool';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

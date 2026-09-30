@@ -12,9 +12,58 @@ const {
 test('isYdFirma detects export codes only', () => {
   assert.equal(isYdFirma('YD28'), true);
   assert.equal(isYdFirma('YD28(G) / Firma'), true);
+  assert.equal(isYdFirma('GYD48'), true);
+  assert.equal(isYdFirma('GYD57'), true);
+  assert.equal(isYdFirma('GYD40(M)'), true);
   assert.equal(isYdFirma('HP7'), false);
   assert.equal(isYdFirma('HP7 / ANKARA'), false);
+  assert.equal(isYdFirma('G9SP'), false);
+  assert.equal(isYdFirma('G1BGSP'), false);
+  assert.equal(isYdFirma('G16BGP'), false);
   assert.equal(isYdFirma(''), false);
+});
+
+test('displayFirmaKod keeps the letter-number stem and does not shorten HP or place names', () => {
+  const { displayFirmaKod, firmaMatchesQuery } = require('../lib/piyasa-cikanlar');
+  const pairs = [
+    ['K1BGSP', 'K1'],
+    ['G9SP', 'G9'],
+    ['CR2S', 'CR2'],
+    ['CR2', 'CR2'],
+    ['Y44SP', 'Y44'],
+    ['Y44', 'Y44'],
+    ['CR6S', 'CR6'],
+    ['Y2SP', 'Y2'],
+    ['G14SP', 'G14'],
+    ['MD1S', 'MD1'],
+    ['G12SP', 'G12'],
+    ['DT1D', 'DT1'],
+    ['Y4SP', 'Y4'],
+    ['G1BGSP', 'G1'],
+    ['G16BGP', 'G16'],
+    ['T88D', 'T88'],
+    ['HP7', 'HP7'],
+    ['HP13', 'HP13'],
+    ['HP87', 'HP87'],
+    ['HP11', 'HP11'],
+    ['HP2 GEBZE', 'HP2 GEBZE'],
+    ['HP3 BOZÜYÜK', 'HP3 BOZÜYÜK'],
+    ['HP3 SİAS', 'HP3 SİAS'],
+    ['İ12', 'İ12'],
+    ['İ2D', 'İ2'],
+    ['İ110D', 'İ110'],
+    ['GYD48', 'GYD48'],
+  ];
+  for (const [raw, shown] of pairs) {
+    assert.equal(displayFirmaKod(raw), shown, raw);
+  }
+  assert.equal(firmaMatchesQuery('K1BGSP', 'K1'), true);
+  assert.equal(firmaMatchesQuery('K1BGSP', 'k1bgsp'), true);
+  assert.equal(firmaMatchesQuery('G12SP', 'G1'), false);
+  assert.equal(firmaMatchesQuery('HP13', 'HP1'), false);
+  assert.equal(firmaMatchesQuery('HP87', 'HP7'), false);
+  assert.equal(firmaMatchesQuery('HP2 GEBZE', 'HP2'), true);
+  assert.equal(firmaMatchesQuery('HP3 SİAS', 'HP3'), true);
 });
 
 test('istanbul day bounds are +03:00', () => {
@@ -25,9 +74,14 @@ test('istanbul day bounds are +03:00', () => {
   assert.equal(istanbulDayStartMs('bad'), null);
 });
 
-test('normalizeCikanlarInsert rejects YD', () => {
+test('normalizeCikanlarInsert rejects YD and GYD', () => {
   const row = normalizeCikanlarInsert({ plaka: '43 ABC 123', firma: 'YD33' }, (s, n) => String(s).slice(0, n));
   assert.equal(row.error, 'YD_NOT_ALLOWED');
+  const gyd = normalizeCikanlarInsert({ plaka: '43 ABC 123', firma: 'GYD48' }, (s, n) => String(s).slice(0, n));
+  assert.equal(gyd.error, 'YD_NOT_ALLOWED');
+  const g9 = normalizeCikanlarInsert({ plaka: '43 ABC 123', firma: 'G9SP' }, (s, n) => String(s).slice(0, n));
+  assert.equal(g9.error, undefined);
+  assert.equal(g9.firma, 'G9SP');
 });
 
 test('normalizeCikanlarInsert keeps HP7 even if fromIhracat flag is set', () => {

@@ -6,6 +6,7 @@
   window.piyasa.hasOrders = ()=> (state.orders && state.orders.length > 0);
   window.piyasa.openOrderPicker = openOrderPicker;
   window.piyasa.offerExpectedForPlate = typeof offerExpectedForPlate === 'function' ? offerExpectedForPlate : function () {};
+  window.piyasa.markExpectedPrinted = typeof markExpectedArrivalPrinted === 'function' ? markExpectedArrivalPrinted : function () { return false; };
   window.piyasa.applyExpectedOnTakipOpen = typeof applyExpectedOnTakipOpen === 'function' ? applyExpectedOnTakipOpen : function () {};
   window.piyasa.closeOrderPicker = function closeOrderPicker() {
     if (typeof window.__piyasaCloseOrderPicker === 'function') window.__piyasaCloseOrderPicker();

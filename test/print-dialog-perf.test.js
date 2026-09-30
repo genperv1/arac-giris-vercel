@@ -45,13 +45,14 @@ test('Yazdır tablo görseli yüklenmeden print açmaz', () => {
   assert.doesNotMatch(giris, /direkt-yazdir\.js/);
 });
 
-test('Boş takip formu zorunlu kargo alanı istemez', () => {
+test('Boş takip formu firma kodu olmadan yazdırılmaz', () => {
   const takip = fs.readFileSync(
     path.join(__dirname, '../public/modules/app-ui-forms-takip.js'),
     'utf8'
   );
-  assert.match(takip, /function isTakipFormCargoBlank/);
-  assert.match(takip, /opts\.allowBlank !== false && isTakipFormCargoBlank\(\)/);
+  assert.match(takip, /function visibleTakipFirmaKodu/);
+  assert.match(takip, /Firma \/ müşteri kodu zorunlu/);
+  assert.doesNotMatch(takip, /opts\.allowBlank !== false && isTakipFormCargoBlank\(\)/);
   const start = excelIhr.indexOf('function ensureIhracatExcelPickBeforePrint');
   const end = excelIhr.indexOf('async function maybeOfferIhracatExcelPickOnOpen');
   assert.ok(start >= 0 && end > start);

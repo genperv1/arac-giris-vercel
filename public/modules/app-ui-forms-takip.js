@@ -393,7 +393,7 @@ function showTakipFormu(vehicle) {
                                 </div>
                                 <p class="takip-form__field-hint" id="firmaFieldHint">
                                   <i class="fas fa-info-circle" aria-hidden="true"></i>
-                                  Kodu yazın. <strong>Piyasa</strong> sipariş seçer, <strong>İhracat</strong> YD seçer.
+                                  Zorunlu. İhracat için <strong>YD</strong> veya <strong>HP</strong>, piyasa için müşteri kodu yazın (<strong>HP7</strong>, K1). Boşsa yazdırılmaz.
                                 </p>
                                 <div id="piyasaPastSuggestBar" class="piyasa-past-suggest" hidden></div>
                             </td>
@@ -1666,8 +1666,8 @@ try {
         function ihracatFirmaTokenFromRaw(raw) {
             const s = String(raw || '').trim();
             if (!s) return '';
-            const m = s.match(/\bYD\d{1,4}(?:\([A-Za-z]+\))?/i);
-            return m ? m[0] : '';
+            const m = s.match(/(?:^|[^A-Za-z0-9])(G?YD\d{1,4}(?:\([A-Za-z]+\))?)/i);
+            return m ? m[1] : '';
         }
 
         function isIhracatFirmaValue(raw) {
@@ -1831,7 +1831,7 @@ try {
             hint.classList.remove('is-invalid', 'is-ok', 'is-yd', 'takip-form__field-hint--warn');
             if (!raw) {
                 hint.style.display = '';
-                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Kodu yazın. <strong>Piyasa</strong> veya <strong>İhracat</strong> ile seçin.';
+                hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Zorunlu. İhracat için <strong>YD</strong> veya <strong>HP</strong>, piyasa için müşteri kodu yazın (<strong>HP7</strong>, K1). Boşsa yazdırılmaz.';
                 _clearPiyasaPastSuggestBar();
                 return;
             }
@@ -1995,37 +1995,70 @@ try {
             hint.innerHTML = '<i class="fas fa-info-circle" aria-hidden="true"></i> Müşteri listesinde bulunamadı — Piyasa olarak basılır, çıkanlar listesine yazılır.';
         }
 
-        function isTakipFormCargoBlank() {
-            const firmaInp = String(document.getElementById('firmaKodu')?.value || '').trim();
-            const firmaSel = String(document.getElementById('firmaSelect')?.value || '').trim();
-            const malzeme = String(document.getElementById('malzeme')?.value || '').trim();
-            const sevk = String(document.getElementById('sevkYeri')?.value || '').trim();
-            const bbt = String(
-                document.getElementById('bbt')?.value
-                || document.getElementById('ihrPickBbtInput')?.value
-                || ''
-            ).trim();
-            return !firmaInp && !firmaSel && !malzeme && !sevk && !bbt;
+        function visibleTakipFirmaKodu() {
+            const inp = String(document.getElementById('firmaKodu')?.value || '').trim();
+            const sel = String(document.getElementById('firmaSelect')?.value || '').trim();
+            return inp || sel;
+        }
+
+        /** Rapor yönü: YD/GYD ihracat, harf+sayı müşteri kodu (HP7, K1, G9…) piyasa. */
+        function takipReportFirmaKind(raw) {
+            const s = String(raw || '').trim();
+            if (!s) return '';
+            if (ihracatFirmaTokenFromRaw(s)) return 'ihracat';
+            const head = (typeof getFirmaKodOnly === 'function' ? getFirmaKodOnly(s) : s.split('/')[0].trim()) || s;
+            const key = String(head).toUpperCase().replace(/\u0130/g, 'I').replace(/İ/g, 'I').replace(/\s+/g, '');
+            if (/^[A-Z]{1,4}\d{1,4}/.test(key)) return 'piyasa';
+            try {
+                const cust = window.piyasa && typeof window.piyasa.resolveCustomerByKod === 'function'
+                    ? window.piyasa.resolveCustomerByKod(head)
+                    : null;
+                if (cust && cust.kod && _customerKodMatchesTyped(head, cust.kod)) return 'piyasa';
+            } catch (e) { /* ignore */ }
+            return '';
         }
 
         function validateTakipForm(opts = {}){
             _clearTakipFormErrors();
 
-            // Boş takip formu: firma/malzeme/sevk yoksa şoför bilgisiyle basılabilir
-            if (opts.allowBlank !== false && isTakipFormCargoBlank()) {
-                refreshFirmaFieldHint();
-                return true;
-            }
-
             const issues = [];
             let firstEl = null;
 
             if (opts.requireFirma !== false) {
-                const firmaRaw = getTakipFirmaKoduRaw();
+                const visibleFirma = visibleTakipFirmaKodu();
+                const firmaRaw = visibleFirma || getTakipFirmaKoduRaw();
                 const firmaEl = document.getElementById('firmaKodu');
-                if (!firmaRaw) {
-                    issues.push('Firma/Müşteri Kodu');
+                if (!visibleFirma) {
                     if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
+                    const w = document.getElementById('takipFormWarn');
+                    const msg = 'Firma kodu boş. İhracat için YD veya HP, piyasa için müşteri kodu yazın (HP7, K1).';
+                    if (w) {
+                        w.textContent = '⚠️ ' + msg;
+                        w.classList.remove('hidden');
+                    } else {
+                        alert(msg);
+                    }
+                    const hint = document.getElementById('firmaFieldHint');
+                    if (hint) {
+                        hint.classList.add('is-invalid');
+                        hint.innerHTML = '<i class="fas fa-exclamation-circle" aria-hidden="true"></i> ' + msg;
+                    }
+                    try { firstEl && firstEl.focus(); } catch (e) {}
+                    return false;
+                } else if (!takipReportFirmaKind(visibleFirma)) {
+                    if (firmaEl) { firmaEl.classList.add('input-error'); firstEl = firstEl || firmaEl; }
+                    const w = document.getElementById('takipFormWarn');
+                    const msg = 'Bu yazı rapor kodu değil. YD/GYD (ihracat) veya müşteri kodu yazın (HP7, K1, G9).';
+                    if (w) {
+                        w.textContent = '⚠️ ' + msg;
+                        w.classList.remove('hidden');
+                    } else {
+                        alert(msg);
+                    }
+                    const hint = document.getElementById('firmaFieldHint');
+                    if (hint) hint.classList.add('is-invalid');
+                    try { firstEl && firstEl.focus(); } catch (e) {}
+                    return false;
                 } else {
                     applyCanonicalFirmaKodu(firmaRaw);
                     if (!isIhracatFirmaValue(firmaRaw) && !takipIsHp13Firma(firmaRaw)) {
@@ -2067,7 +2100,7 @@ try {
               const ihrPicked = !window.__skipIhracatExcelPick
                 && (window.__ihracatActivePrintShipment || window.__activeExcelShipment);
               const ydPick = ihrPicked && String(ihrPicked.ydKey || ihrPicked.firma || '').trim();
-              if (ydPick && /\bYD\d{1,4}/i.test(ydPick)) {
+              if (ydPick && /(^|[^A-Za-z0-9])G?YD\d{1,4}/i.test(ydPick)) {
                 required.push({ id: 'bbt', label: 'BBT' });
               }
             } catch (e) {}
@@ -2248,6 +2281,35 @@ try {
         }
 
 
+        // Yazıcı kuyruğunda bu jetonlu iş görünmeden rapor yazılmaz (İptal iş oluşturmaz).
+        async function waitUntilPrintJobQueued(token) {
+          const t = String(token || '').trim().toUpperCase();
+          if (!/^TF[A-Z0-9]{8}$/.test(t)) return false;
+          const headers = {};
+          try {
+            const auth = localStorage.getItem('authToken');
+            if (auth) headers.Authorization = 'Bearer ' + auth;
+          } catch (e) {}
+          const deadline = Date.now() + 2000;
+          do {
+            try {
+              const res = await fetch('/api/print-spool/seen?token=' + encodeURIComponent(t), {
+                method: 'GET',
+                cache: 'no-store',
+                credentials: 'same-origin',
+                headers,
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data && data.seen) return true;
+              }
+            } catch (e) {}
+            if (Date.now() >= deadline) break;
+            await new Promise((r) => setTimeout(r, 250));
+          } while (Date.now() < deadline);
+          return false;
+        }
+
         // Print penceresi (print.js) yazdırma bittikten sonra bunu çağırır
         window.afterTakipPrint = async function(){
           if (window.__afterTakipPrintRunning) return;
@@ -2261,28 +2323,25 @@ try {
 
           try {
             if (pending || wasRequested) {
-              // Kullanıcıdan onay al: çıktı gerçekten alındı mı?
-              // Özel modal ile inatçı onay al
-              const printed = await showPersistentConfirmModal(
-                'Takip formu basıldı. Rapora ve Piyasa Çıkanlar’a yazılsın mı?',
-                'Evet, yaz',
-                'Hayır'
-              );
-              if (!printed) {
-                try {
-                  if (typeof showToast === 'function') {
-                    showToast('Kayıt rapora eklenmedi. Eklemek için tekrar Yazdır’a basıp Evet deyin.', 'warning');
-                  }
-                } catch (e) {}
-                return;
-              }
+              // Evet/Hayır yok. Rapor, penceredeki Yazdır yazıcı kuyruğuna düşünce yazılır.
               if (!pending) {
-                console.warn('Yazdırma onaylandı ancak bekleyen kayıt bulunamadı; rapora eklenmedi.');
+                console.warn('Yazdırma bitti ancak bekleyen kayıt bulunamadı; rapora eklenmedi.');
                 try { resetTakipFormUI(); } catch(e){}
                 try { kapatForm(); } catch(e){}
                 return;
               }
-              // Yazdır tıklanınca değil, kullanıcı çıktıyı onayladığında anlık zaman damgası
+              const jobSent = await waitUntilPrintJobQueued(
+                pending.printJobToken || window.__lastPrintJobToken
+              );
+              if (!jobSent) {
+                try {
+                  if (typeof showToast === 'function') {
+                    showToast('İptal edildi. Yükleme sırası ve raporlara yazılmadı.', 'warning');
+                  }
+                } catch (e) {}
+                return;
+              }
+              // Yazdır tıklanınca değil, baskı kuyruğa düşünce anlık zaman damgası
               const commitTs = Date.now();
               const commitTarihTr = (() => {
                 try {
@@ -2415,6 +2474,20 @@ try {
                         } catch(e) {}
                     }
                 } catch(e) {}
+
+                try {
+                  if (window.piyasa && typeof window.piyasa.markExpectedPrinted === 'function' && pending) {
+                    const snap = pending.snapshot || {};
+                    await window.piyasa.markExpectedPrinted({
+                      plate: pending.plaka || snap.plaka || snap.cekiciPlaka || '',
+                      dorse: snap.dorsePlaka || snap.dorse || '',
+                      basimYeri: pending.basimYeri || snap.basimYeri || '',
+                      ts: commitTs,
+                    });
+                  }
+                } catch (e) {
+                  console.warn('Gelen araç basım kaydı yazılamadı:', e);
+                }
 
                 // ✅ Piyasa siparişi yazdırma sayacı (takip formu onaylandıysa)
                 try {

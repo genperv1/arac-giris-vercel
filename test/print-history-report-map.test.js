@@ -69,3 +69,24 @@ test('slim liste snapshot olmadan kolonlardan dolar', () => {
   assert.equal(slim.data.sevkiyat_id, 'ihracat:1');
   assert.equal(slim.data.hugeExcelGrid, undefined);
 });
+
+test('slim satır kantarcı adını snapshot blob olmadan taşır', () => {
+  const slim = mapPrintHistoryRowToReport({
+    id: 'ph-kantar',
+    plaka: '43 ABC 01',
+    kantarci: 'Burak Karataş',
+    tarih: 1700000000000,
+  }, { slim: true });
+  assert.equal(slim.snapshot, null);
+  assert.equal(slim.kantar, 'Burak Karataş');
+  assert.equal(slim.data.kantar, 'Burak Karataş');
+
+  const fromSnap = mapPrintHistoryRowToReport({
+    id: 'ph-kantar-2',
+    plaka: '06 ABC 01',
+    kantarci: 'Eski Ad',
+    tarih: 1700000000000,
+    snapshot: JSON.stringify({ kantar: 'Ergin Gördü' }),
+  }, { slim: false });
+  assert.equal(fromSnap.data.kantar, 'Ergin Gördü');
+});
