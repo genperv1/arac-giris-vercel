@@ -129,18 +129,18 @@
         ok = true;
       }
     } catch (e) {}
-    try {
-      var db = await openHandleDb();
-      await new Promise(function (resolve, reject) {
-        var tx = db.transaction('handles', 'readwrite');
-        var store = tx.objectStore('handles');
-        if (key) store.put(handle, key);
-        store.put(handle, 'ihracat');
-        tx.oncomplete = function () { resolve(true); };
-        tx.onerror = function () { reject(tx.error); };
-      });
-      ok = true;
-    } catch (e) {}
+      try {
+        var db = await openHandleDb();
+        await new Promise(function (resolve, reject) {
+          var tx = db.transaction('handles', 'readwrite');
+          var store = tx.objectStore('handles');
+          if (key) store.put(handle, key);
+          var req = store.put(handle, 'ihracat');
+          req.onsuccess = function () { resolve(true); };
+          req.onerror = function () { reject(req.error); };
+        });
+        ok = true;
+      } catch (e) {}
     return ok;
   }
 
@@ -402,6 +402,10 @@
           '</label>'
         );
       }).join('');
+      var needPick = namesLackHandle(list);
+      var pickHint = needPick
+        ? ' Konum kayıtlı değil. Güncelle deyince açılan pencereden bu dosyaları birlikte seçin.'
+        : '';
       overlay.innerHTML =
         '<div class="rp-dialog ihracat-excel-pick">' +
           '<div class="rp-dialog-head">' +
@@ -409,7 +413,7 @@
             '<div id="ihracatExcelRefreshPickTitle" class="rp-dialog-title">Hangi Excel güncellensin?</div>' +
           '</div>' +
           '<div class="rp-dialog-body">' +
-            '<p class="rp-dialog-msg">' + list.length + ' Excel yüklü. Hepsini güncelleyebilir veya yalnızca istediklerinizi seçebilirsiniz.</p>' +
+            '<p class="rp-dialog-msg">' + list.length + ' Excel yüklü. Hepsini güncelleyebilir veya yalnızca istediklerinizi seçebilirsiniz.' + pickHint + '</p>' +
             '<div class="ihracat-excel-pick__list">' + rowsHtml + '</div>' +
           '</div>' +
           '<div class="rp-dialog-actions">' +
@@ -440,8 +444,13 @@
       overlay.querySelector('[data-act="ok"]').addEventListener('click', function () {
         var picked = selectedNames();
         if (!picked.length) return;
-        primeHandlePermissions(picked);
-        finish(picked);
+        var pickerPromise = null;
+        if (namesLackHandle(picked)) {
+          pickerPromise = openExcelPicker(true);
+        } else {
+          primeHandlePermissions(picked);
+        }
+        finish({ names: picked, pickerPromise: pickerPromise });
       });
       overlay.querySelectorAll('.ihracat-excel-pick__check').forEach(function (ch) {
         ch.addEventListener('change', syncOk);
@@ -578,33 +587,77 @@
     syncLastUpdateUiFromLocal();
   }
 
+  var EXCEL_PICKER_TYPES = [
+    {
+      description: 'Excel',
+      accept: {
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+        'application/vnd.ms-excel': ['.xls'],
+        'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'],
+        'application/vnd.ms-excel.sheet.binary.macroEnabled.12': ['.xlsb'],
+      },
+    },
+  ];
+
+  function namesLackHandle(names) {
+    var list = names || [];
+    if (!list.length) return false;
+    for (var i = 0; i < list.length; i++) {
+      if (!handleForName(list[i])) return true;
+    }
+    return false;
+  }
+
+  function openExcelPicker(multiple) {
+    if (typeof window.showOpenFilePicker !== 'function') return null;
+    try {
+      return window.showOpenFilePicker({
+        types: EXCEL_PICKER_TYPES,
+        excludeAcceptAllOption: false,
+        multiple: !!multiple,
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function presetFromPickerHandles(handles, expectedNames) {
+    var preset = Object.create(null);
+    var files = [];
+    var list = handles || [];
+    for (var i = 0; i < list.length; i++) {
+      try {
+        var file = await list[i].getFile();
+        if (!file) continue;
+        try { await persistHandle(list[i], file.name); } catch (e) {}
+        preset[handleKey(file.name)] = file;
+        files.push(file);
+      } catch (e) {}
+    }
+    var expected = expectedNames || [];
+    if (expected.length === 1 && files.length === 1 && !preset[handleKey(expected[0])]) {
+      preset[handleKey(expected[0])] = files[0];
+    }
+    return preset;
+  }
+
   async function pickFileWithHandle() {
     if (typeof window.showOpenFilePicker !== 'function') return { unsupported: true };
     try {
       var handles = await window.showOpenFilePicker({
-        types: [
-          {
-            description: 'Excel',
-            accept: {
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-              'application/vnd.ms-excel': ['.xls'],
-              'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'],
-              'application/vnd.ms-excel.sheet.binary.macroEnabled.12': ['.xlsb'],
-            },
-          },
-        ],
+        types: EXCEL_PICKER_TYPES,
         excludeAcceptAllOption: false,
         multiple: false,
       });
       var handle = handles && handles[0];
       if (!handle) return { cancelled: true };
       var file = null;
-      try { await persistHandle(handle); } catch (err) {}
       try {
         file = await handle.getFile();
       } catch (err) {
         return { unsupported: true };
       }
+      try { await persistHandle(handle, file && file.name); } catch (err2) {}
       try { await rememberSelectedFile(file); } catch (err) {}
       return { file: file };
     } catch (e) {
@@ -762,7 +815,7 @@
     return { __missing: true };
   }
 
-  async function refreshFromStored(permPromise, onlyNames) {
+  async function refreshFromStored(permPromise, onlyNames, presetFiles) {
     if (_busy) return { ok: false, msg: 'Güncelleme sürüyor.' };
     setRefreshBusy(true);
     try {
@@ -810,7 +863,9 @@
       for (var i = 0; i < sources.length; i++) {
         var sourceName = sources[i];
         try {
-          var file = await resolveFileForSource(sourceName, handleFile);
+          var preset = presetFiles || {};
+          var file = preset[handleKey(sourceName)] || null;
+          if (!file) file = await resolveFileForSource(sourceName, handleFile);
           if (!file || file.__missing || file.__notSelected) {
             failNames.push(sourceName);
             continue;
@@ -888,26 +943,49 @@
       } catch (err) {}
       var sourcesNow = [];
       try { sourcesNow = listLoadedSourceNames(); } catch (err3) { sourcesNow = []; }
-      function beginRefresh(onlyNames) {
+      function beginRefresh(onlyNames, presetFiles, fromClick) {
         var names = (onlyNames && onlyNames.length) ? onlyNames : sourcesNow;
-        if (_permInflight.length === 0) primeHandlePermissions(names);
+        if (fromClick && _permInflight.length === 0) primeHandlePermissions(names);
         var handle = _liveHandle || window.__ihracatExcelLiveHandle;
         var permPromise = null;
-        if (handle && typeof handle.requestPermission === 'function' && _permInflight.length === 0) {
+        if (fromClick && handle && typeof handle.requestPermission === 'function' && _permInflight.length === 0) {
           try { permPromise = handle.requestPermission({ mode: 'read' }); } catch (err2) {}
         }
-        refreshFromStored(permPromise, onlyNames);
+        refreshFromStored(permPromise, onlyNames, presetFiles);
       }
       if (sourcesNow.length > 1) {
         loadHandle().then(function () {
           return pickSourcesToRefresh(sourcesNow);
         }).then(function (picked) {
-          if (!picked || !picked.length) return;
-          beginRefresh(picked);
+          if (!picked || !picked.names || !picked.names.length) return null;
+          if (!picked.pickerPromise) return { names: picked.names, preset: null };
+          return picked.pickerPromise.then(function (handles) {
+            return presetFromPickerHandles(handles, picked.names).then(function (preset) {
+              return { names: picked.names, preset: preset };
+            });
+          });
+        }).then(function (ready) {
+          if (!ready) return;
+          beginRefresh(ready.names, ready.preset, false);
+        }).catch(function (err) {
+          if (err && err.name === 'AbortError') return;
         });
         return;
       }
-      beginRefresh(null);
+      if (namesLackHandle(sourcesNow)) {
+        var onePicker = openExcelPicker(false);
+        if (onePicker) {
+          onePicker.then(function (handles) {
+            return presetFromPickerHandles(handles, sourcesNow);
+          }).then(function (preset) {
+            beginRefresh(null, preset, false);
+          }).catch(function (err4) {
+            if (err4 && err4.name === 'AbortError') return;
+          });
+          return;
+        }
+      }
+      beginRefresh(null, null, true);
     }, true);
   }
 
