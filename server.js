@@ -1239,16 +1239,18 @@ function printSpoolSeenNow(token, rawSeq) {
   const tokenOk = /^TF[A-Z0-9]{8}$/.test(token) && printSpoolWatch.hasToken(token);
   const hasSeq = rawSeq != null && rawSeq !== '' && Number.isFinite(Number(rawSeq));
   const jobOk = hasSeq && printSpoolWatch.hasJobSince(Number(rawSeq));
-  const recentOk = !hasSeq && printSpoolWatch.hasRecentJob(6000);
+  const recentOk = printSpoolWatch.hasRecentJob(25000);
   return !!(tokenOk || jobOk || recentOk);
 }
 
 api.get('/print-spool/seen', (req, res) => {
   const token = String(req.query.token || '').trim().toUpperCase();
   res.setHeader('Cache-Control', 'no-store');
+  const seen = printSpoolSeenNow(token, null);
+  if (seen) printSpoolWatch.consumeJobs();
   res.json({
     ok: true,
-    seen: printSpoolSeenNow(token, null),
+    seen,
     watching: printSpoolWatch.isWatching(),
   });
 });
@@ -1264,10 +1266,12 @@ api.get('/print-spool/cursor', (req, res) => {
 
 api.get('/print-spool/since', (req, res) => {
   const token = String(req.query.token || '').trim().toUpperCase();
+  const seen = printSpoolSeenNow(token, req.query.seq);
+  if (seen) printSpoolWatch.consumeJobs();
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     ok: true,
-    seen: printSpoolSeenNow(token, req.query.seq),
+    seen,
     watching: printSpoolWatch.isWatching(),
   });
 });

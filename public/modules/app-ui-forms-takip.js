@@ -2286,7 +2286,7 @@ try {
           const t = String(token || '').trim().toUpperCase();
           const seq = Number(sinceSeq);
           const hasSeq = Number.isFinite(seq) && seq >= 0;
-          const deadline = Date.now() + 4000;
+          const deadline = Date.now() + 20000;
           do {
             try {
               const qs = new URLSearchParams();
