@@ -2281,12 +2281,14 @@ try {
         }
 
 
-        // Yazıcı kuyruğuna yeni iş düşmeden rapor yazılmaz (İptal iş oluşturmaz).
+        // Bu bilgisayarın yazıcı kuyruğu görünüyorsa yalnız gerçek iş rapora yazılır.
+        // genper.site gibi uzak sunucu kuyruğu göremez; pencere kapanınca rapor yazılır.
         async function waitUntilPrintJobQueued(token, sinceSeq) {
           const t = String(token || '').trim().toUpperCase();
           const seq = Number(sinceSeq);
           const hasSeq = Number.isFinite(seq) && seq >= 0;
           const deadline = Date.now() + 20000;
+          let serverWatchesQueue = false;
           do {
             try {
               const qs = new URLSearchParams();
@@ -2297,15 +2299,18 @@ try {
                 cache: 'no-store',
                 credentials: 'same-origin',
               });
+              if (res.status === 404) return true;
               if (res.ok) {
                 const data = await res.json();
                 if (data && data.seen) return true;
+                if (!data || data.watching === false) return true;
+                serverWatchesQueue = true;
               }
             } catch (e) {}
             if (Date.now() >= deadline) break;
             await new Promise((r) => setTimeout(r, 200));
           } while (Date.now() < deadline);
-          return false;
+          return !serverWatchesQueue;
         }
 
         // Print penceresi (print.js) yazdırma bittikten sonra bunu çağırır
