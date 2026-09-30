@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v29-spool-job';
+  var PRINT_REV = 'print-v30-spool-user';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

@@ -1234,19 +1234,21 @@ api.get("/health", async (req, res) => {
   }
 });
 
-// JWT + yazma iÅŸlemleri iÃ§in oturum zorunluluÄŸu
-api.use(auth.verifyToken);
-api.use(requireMutatingSession);
+// Yazıcı kuyruğu: oturumdan bağımsız. Amir ve Kantar aynı bakışı kullanır.
+function printSpoolSeenNow(token, rawSeq) {
+  const tokenOk = /^TF[A-Z0-9]{8}$/.test(token) && printSpoolWatch.hasToken(token);
+  const hasSeq = rawSeq != null && rawSeq !== '' && Number.isFinite(Number(rawSeq));
+  const jobOk = hasSeq && printSpoolWatch.hasJobSince(Number(rawSeq));
+  const recentOk = !hasSeq && printSpoolWatch.hasRecentJob(6000);
+  return !!(tokenOk || jobOk || recentOk);
+}
 
 api.get('/print-spool/seen', (req, res) => {
   const token = String(req.query.token || '').trim().toUpperCase();
-  if (!/^TF[A-Z0-9]{8}$/.test(token)) {
-    return res.status(400).json({ ok: false, seen: false });
-  }
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     ok: true,
-    seen: printSpoolWatch.hasToken(token),
+    seen: printSpoolSeenNow(token, null),
     watching: printSpoolWatch.isWatching(),
   });
 });
@@ -1261,18 +1263,18 @@ api.get('/print-spool/cursor', (req, res) => {
 });
 
 api.get('/print-spool/since', (req, res) => {
-  const rawSeq = req.query.seq;
-  const hasSeq = rawSeq != null && rawSeq !== '' && Number.isFinite(Number(rawSeq));
   const token = String(req.query.token || '').trim().toUpperCase();
-  const tokenOk = /^TF[A-Z0-9]{8}$/.test(token) && printSpoolWatch.hasToken(token);
-  const jobOk = hasSeq && printSpoolWatch.hasJobSince(Number(rawSeq));
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     ok: true,
-    seen: !!(tokenOk || jobOk),
+    seen: printSpoolSeenNow(token, req.query.seq),
     watching: printSpoolWatch.isWatching(),
   });
 });
+
+// JWT + yazma iÅŸlemleri iÃ§in oturum zorunluluÄŸu
+api.use(auth.verifyToken);
+api.use(requireMutatingSession);
 
 api.post("/reports/bulk-delete", requireValidSession, async (req, res) => {
   try {

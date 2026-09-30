@@ -279,6 +279,116 @@
     } catch (e) {}
   }
 
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function sourceRowCount(name) {
+    try {
+      if (typeof loadDailyShipments !== 'function') return 0;
+      var rows = loadDailyShipments() || [];
+      var target = String(name || '').trim();
+      var n = 0;
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i] && String(rows[i].fileName || '').trim() === target) n++;
+      }
+      return n;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  var _picking = false;
+
+  /** 2+ Excel yüklüyse hangilerinin güncelleneceğini sor. Hepsi seçili gelir. */
+  function pickSourcesToRefresh(names) {
+    var list = (names || []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+    if (list.length < 2) return Promise.resolve(list);
+    if (_picking) return Promise.resolve(null);
+    _picking = true;
+    return new Promise(function (resolve) {
+      var done = false;
+      var overlay = document.createElement('div');
+      function finish(value) {
+        if (done) return;
+        done = true;
+        _picking = false;
+        try { overlay.remove(); } catch (e) {}
+        document.removeEventListener('keydown', onKey);
+        resolve(value);
+      }
+      function onKey(ev) {
+        if (ev.key !== 'Escape') return;
+        ev.preventDefault();
+        finish(null);
+      }
+      overlay.id = 'ihracatExcelRefreshPick';
+      overlay.className = 'rp-dialog-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-labelledby', 'ihracatExcelRefreshPickTitle');
+      var rowsHtml = list.map(function (name) {
+        var cnt = sourceRowCount(name);
+        var meta = cnt ? (cnt + ' kayıt') : '';
+        return (
+          '<label class="ihracat-excel-pick__row">' +
+            '<input type="checkbox" class="ihracat-excel-pick__check" data-name="' + escHtml(name) + '" checked>' +
+            '<span class="ihracat-excel-pick__name">' + escHtml(name) + '</span>' +
+            (meta ? '<span class="ihracat-excel-pick__meta">' + escHtml(meta) + '</span>' : '') +
+          '</label>'
+        );
+      }).join('');
+      overlay.innerHTML =
+        '<div class="rp-dialog ihracat-excel-pick">' +
+          '<div class="rp-dialog-head">' +
+            '<div class="rp-dialog-icon is-info" aria-hidden="true"><i class="fas fa-sync-alt"></i></div>' +
+            '<div id="ihracatExcelRefreshPickTitle" class="rp-dialog-title">Hangi Excel güncellensin?</div>' +
+          '</div>' +
+          '<div class="rp-dialog-body">' +
+            '<p class="rp-dialog-msg">' + list.length + ' Excel yüklü. Hepsini güncelleyebilir veya yalnızca istediklerinizi seçebilirsiniz.</p>' +
+            '<div class="ihracat-excel-pick__list">' + rowsHtml + '</div>' +
+          '</div>' +
+          '<div class="rp-dialog-actions">' +
+            '<button type="button" class="rp-dialog-btn rp-dialog-btn-ghost" data-act="cancel">İptal</button>' +
+            '<button type="button" class="rp-dialog-btn rp-dialog-btn-primary" data-act="ok">Hepsini güncelle</button>' +
+          '</div>' +
+        '</div>';
+      function selectedNames() {
+        var out = [];
+        overlay.querySelectorAll('.ihracat-excel-pick__check').forEach(function (ch) {
+          if (ch.checked) out.push(ch.getAttribute('data-name') || '');
+        });
+        return out.filter(Boolean);
+      }
+      function syncOk() {
+        var okBtn = overlay.querySelector('[data-act="ok"]');
+        if (!okBtn) return;
+        var picked = selectedNames();
+        okBtn.textContent = picked.length === list.length ? 'Hepsini güncelle' : 'Seçilenleri güncelle';
+        okBtn.disabled = !picked.length;
+      }
+      document.body.appendChild(overlay);
+      document.addEventListener('keydown', onKey);
+      overlay.addEventListener('click', function (ev) {
+        if (ev.target === overlay) finish(null);
+      });
+      overlay.querySelector('[data-act="cancel"]').addEventListener('click', function () { finish(null); });
+      overlay.querySelector('[data-act="ok"]').addEventListener('click', function () {
+        var picked = selectedNames();
+        if (!picked.length) return;
+        finish(picked);
+      });
+      overlay.querySelectorAll('.ihracat-excel-pick__check').forEach(function (ch) {
+        ch.addEventListener('change', syncOk);
+      });
+      syncOk();
+    });
+  }
+
   function setRefreshBusy(busy) {
     _busy = !!busy;
     document.querySelectorAll('.js-ihracat-excel-refresh').forEach(function (btn) {
@@ -316,9 +426,12 @@
       }
       var btn = chip.closest ? chip.closest('.js-ihracat-excel-refresh') : null;
       if (btn) {
-        btn.title = label
-          ? ('Yüklü İhracat Excel dosyasını yeniden oku — ' + label)
+        var multi = false;
+        try { multi = listLoadedSourceNames().length > 1; } catch (e2) {}
+        var baseTitle = multi
+          ? 'Yüklü Excel dosyalarından hangilerinin güncelleneceğini seç'
           : 'Yüklü İhracat Excel dosyasını yeniden oku';
+        btn.title = label ? (baseTitle + ' — ' + label) : baseTitle;
       }
     }
   }
@@ -576,7 +689,7 @@
     return { __missing: true };
   }
 
-  async function refreshFromStored(permPromise) {
+  async function refreshFromStored(permPromise, onlyNames) {
     if (_busy) return { ok: false, msg: 'Güncelleme sürüyor.' };
     setRefreshBusy(true);
     try {
@@ -587,6 +700,15 @@
       }
 
       var sources = listLoadedSourceNames();
+      if (Array.isArray(onlyNames) && onlyNames.length) {
+        var allow = Object.create(null);
+        onlyNames.forEach(function (n) {
+          allow[String(n || '').trim().toLowerCase()] = true;
+        });
+        sources = sources.filter(function (n) {
+          return allow[String(n || '').trim().toLowerCase()];
+        });
+      }
       if (!sources.length) {
         await warn(MSG_CLEARED);
         return { ok: false, code: 'EXCEL_CLEARED', msg: MSG_CLEARED };
@@ -678,16 +800,28 @@
       if (!btn) return;
       e.preventDefault();
       e.stopPropagation();
-      if (_busy || btn.disabled || btn.getAttribute('aria-busy') === 'true') return;
+      if (_busy || _picking || btn.disabled || btn.getAttribute('aria-busy') === 'true') return;
       try {
         if (typeof window.closeAppToolsMenu === 'function') window.closeAppToolsMenu();
       } catch (err) {}
-      var handle = _liveHandle || window.__ihracatExcelLiveHandle;
-      var permPromise = null;
-      if (handle && typeof handle.requestPermission === 'function') {
-        try { permPromise = handle.requestPermission({ mode: 'read' }); } catch (err2) {}
+      var sourcesNow = [];
+      try { sourcesNow = listLoadedSourceNames(); } catch (err3) { sourcesNow = []; }
+      function beginRefresh(onlyNames) {
+        var handle = _liveHandle || window.__ihracatExcelLiveHandle;
+        var permPromise = null;
+        if (handle && typeof handle.requestPermission === 'function') {
+          try { permPromise = handle.requestPermission({ mode: 'read' }); } catch (err2) {}
+        }
+        refreshFromStored(permPromise, onlyNames);
       }
-      refreshFromStored(permPromise);
+      if (sourcesNow.length > 1) {
+        pickSourcesToRefresh(sourcesNow).then(function (picked) {
+          if (!picked || !picked.length) return;
+          beginRefresh(picked);
+        });
+        return;
+      }
+      beginRefresh(null);
     }, true);
   }
 
@@ -701,6 +835,7 @@
     adoptLoadedExcelAsSource: adoptLoadedExcelAsSource,
     hasLoadedExcel: hasLoadedExcel,
     listLoadedSourceNames: listLoadedSourceNames,
+    pickSourcesToRefresh: pickSourcesToRefresh,
     getCachedSheetName: getCachedSheetName,
     hydrateFromBackend: hydrateFromBackend,
     syncLastUpdateUiFromLocal: syncLastUpdateUiFromLocal,

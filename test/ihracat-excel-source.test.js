@@ -275,7 +275,7 @@ test('client refresh is manual only — no timer / watch', () => {
   const busyPos = refreshFn.indexOf('setRefreshBusy(true)');
   const awaitPos = refreshFn.indexOf('await');
   assert.ok(busyPos >= 0 && busyPos < awaitPos, 'Güncelle kilidi ilk await öncesi konmalı');
-  assert.match(clientCode, /if \(_busy \|\| btn\.disabled/);
+  assert.match(clientCode, /if \(_busy \|\| _picking \|\| btn\.disabled/);
 });
 
 test('Araçlar menüsünde Güncelle yok — yalnızca ana sayfa chip', () => {
@@ -337,4 +337,20 @@ test('Güncelle refreshes every loaded Excel source by name', () => {
   assert.match(clientCode, /Bulunamayan:/);
   assert.match(clientCode, /__wrongName/);
   assert.match(clientCode, /sameExcelName\(name, wanted\)/);
+});
+
+test('çoklu Excel Güncelle hangisini sorar, tek dosyada sormaz', () => {
+  assert.match(clientCode, /function pickSourcesToRefresh/);
+  assert.match(clientCode, /Hangi Excel güncellensin/);
+  assert.match(clientCode, /Hepsini güncelle/);
+  assert.match(clientCode, /Seçilenleri güncelle/);
+  assert.match(clientCode, /if \(sourcesNow\.length > 1\)/);
+  assert.match(clientCode, /onlyNames/);
+  const refreshFn = clientCode.slice(
+    clientCode.indexOf('async function refreshFromStored'),
+    clientCode.indexOf("window.addEventListener('daily-store-ready'")
+  );
+  assert.match(refreshFn, /onlyNames/);
+  assert.doesNotMatch(refreshFn, /pickSourcesToRefresh/);
+  assert.match(css, /\.ihracat-excel-pick__row/);
 });

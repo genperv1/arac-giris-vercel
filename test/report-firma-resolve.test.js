@@ -61,6 +61,23 @@ test('same-name suffix variants share the short code', () => {
   assert.equal(api.lookupFirmaName('MD2'), 'Eti Maden İşletmeleri');
 });
 
+test('G16BGP displays as G16 and keeps the customer name', () => {
+  const api = loadApi();
+  api.ingestFirmaCustomers([
+    { kod: 'G16BGP', ad: 'Adm Besin ve Tarim' },
+  ]);
+  const resolved = api.resolveReportFirma({ firma: 'G16BGP' });
+  assert.equal(resolved.code, 'G16');
+  assert.equal(resolved.name, 'Adm Besin ve Tarim');
+});
+
+test('HP13 and place-name codes are not shortened', () => {
+  const api = loadApi();
+  assert.equal(api.resolveReportFirma({ firma: 'HP13' }).code, 'HP13');
+  assert.equal(api.resolveReportFirma({ firma: 'HP7' }).code, 'HP7');
+  assert.equal(api.resolveReportFirma({ firma: 'HP2 GEBZE' }).code, 'HP2 GEBZE');
+});
+
 test('stored name is used only when müşteri listesinde yok', () => {
   const api = loadApi();
   const resolved = api.resolveReportFirma({

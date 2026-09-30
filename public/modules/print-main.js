@@ -176,22 +176,12 @@
       ';max-width:calc(100vw - 24px);border:0;background:#fff;margin:16px auto 24px;display:block;pointer-events:auto;';
   }
 
-  function authHeadersForPrint() {
-    const headers = {};
-    try {
-      const auth = localStorage.getItem('authToken');
-      if (auth) headers.Authorization = 'Bearer ' + auth;
-    } catch (e) {}
-    return headers;
-  }
-
   async function armTakipPrintSpool() {
     try {
       const res = await fetch('/api/print-spool/cursor', {
         method: 'GET',
         cache: 'no-store',
         credentials: 'same-origin',
-        headers: authHeadersForPrint(),
       });
       if (!res.ok) return null;
       const data = await res.json();

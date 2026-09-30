@@ -2398,6 +2398,55 @@ html.allow-ui-motion:not(.reduce-motion-os) .vehicle-card .excel-copy-btn:hover 
   background: #f1f5f9;
 }
 
+.ihracat-excel-pick {
+  max-width: 440px;
+}
+
+.ihracat-excel-pick .rp-dialog-body {
+  white-space: normal;
+}
+
+.ihracat-excel-pick__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ihracat-excel-pick__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--rp-border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  color: var(--rp-text);
+}
+
+.ihracat-excel-pick__row:hover {
+  background: #f8fafc;
+}
+
+.ihracat-excel-pick__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  word-break: break-word;
+}
+
+.ihracat-excel-pick__meta {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--rp-muted);
+}
+
+.ihracat-excel-pick .rp-dialog-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* =========================================================
    TAKİP FORMU MODAL — indigo / slate tema
    ========================================================= */

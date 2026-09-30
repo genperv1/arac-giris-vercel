@@ -381,6 +381,21 @@
     return m ? m[1] : '';
   }
 
+  /**
+   * Ekranda görünen firma kodu.
+   * Sayıdan sonra yalnızca harf eki varsa çekirdek kalır: G16BGP→G16, K1BGSP→K1, G9SP→G9.
+   * Sayı kısılmaz: HP13, HP7, HP87 olduğu gibi kalır. Boşluklu yer adı kesilmez: HP2 GEBZE.
+   */
+  function displayReportFirmaCode(raw) {
+    const head = String(raw || '').trim();
+    if (!head) return '';
+    if (/\s/.test(head)) return head;
+    const key = head.toLocaleUpperCase('tr-TR').replace(/İ/g, 'I').replace(/ı/g, 'I');
+    const m = key.match(/^([A-Z]{1,4}\d{1,4})([A-Z]{1,6})$/);
+    if (!m) return head;
+    return key.slice(0, m[1].length);
+  }
+
   function ingestFirmaCustomers(list) {
     if (!Array.isArray(list)) return 0;
     let added = 0;
@@ -422,11 +437,15 @@
       src.firma || src.firmaKodu || src.firmaSelect || fallbackCode || ''
     ).trim();
     const parsed = splitFirmaCodeAndName(raw);
-    const code = parsed.code;
-    const official = code ? lookupFirmaName(code) : '';
+    const storedCode = parsed.code;
+    const code = displayReportFirmaCode(storedCode);
+    const official = storedCode
+      ? (lookupFirmaName(storedCode) || (code !== storedCode ? lookupFirmaName(code) : ''))
+      : '';
     const stored = String(src.firmaAdi || src.musteriAdi || src.customerName || '').trim() || parsed.name;
     let name = official || stored;
     if (name && code && normFirmaCodeKey(name) === normFirmaCodeKey(code)) name = '';
+    if (name && storedCode && normFirmaCodeKey(name) === normFirmaCodeKey(storedCode)) name = '';
     return { code, name };
   }
 

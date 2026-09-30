@@ -11,6 +11,18 @@ test('yazıcı kuyruğundaki belge adı jetonu taşır', () => {
   spool.resetForTests();
 });
 
+test('aynı iş numarası ara verince yeni yazdırma sayılır', () => {
+  spool.resetForTests();
+  spool.rememberDocument('4\tAraç Plaka Takip Sistemi', 10_000);
+  const mid = spool.currentSeq();
+  spool.rememberDocument('4\tAraç Plaka Takip Sistemi', 10_200);
+  assert.equal(spool.currentSeq(), mid);
+  spool.rememberDocument('4\tAraç Plaka Takip Sistemi', 12_000);
+  assert.equal(spool.hasJobSince(mid, 12_000), true);
+  assert.equal(spool.hasRecentJob(6000, 12_000), true);
+  spool.resetForTests();
+});
+
 test('imleçten sonraki yazıcı işi yazdırma sayılır', () => {
   spool.resetForTests();
   const before = spool.currentSeq();

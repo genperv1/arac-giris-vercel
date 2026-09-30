@@ -2286,12 +2286,6 @@ try {
           const t = String(token || '').trim().toUpperCase();
           const seq = Number(sinceSeq);
           const hasSeq = Number.isFinite(seq) && seq >= 0;
-          if (!hasSeq && !/^TF[A-Z0-9]{8}$/.test(t)) return false;
-          const headers = {};
-          try {
-            const auth = localStorage.getItem('authToken');
-            if (auth) headers.Authorization = 'Bearer ' + auth;
-          } catch (e) {}
           const deadline = Date.now() + 4000;
           do {
             try {
@@ -2302,7 +2296,6 @@ try {
                 method: 'GET',
                 cache: 'no-store',
                 credentials: 'same-origin',
-                headers,
               });
               if (res.ok) {
                 const data = await res.json();
@@ -3233,7 +3226,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <span class="status-chip">Tanımlı şoför: <b>${_totalVehicleCount}</b></span>
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
-          <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${(!_amirPiyasa && _excelCnt>0)?'':'hidden'}" title="Yüklü İhracat Excel dosyasını yeniden oku">
+          <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${(!_amirPiyasa && _excelCnt>0)?'':'hidden'}" title="${(typeof listIhracatExcelSources === 'function' && listIhracatExcelSources().length > 1) ? 'Yüklü Excel dosyalarından hangilerinin güncelleneceğini seç' : 'Yüklü İhracat Excel dosyasını yeniden oku'}">
             <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
             <span>Güncelle</span>
             <span id="excelIhracatLastUpdateChip" class="app-header-ihracat-excel__when hidden" title="İhracat Excel son okuma zamanı"></span>
