@@ -1251,6 +1251,29 @@ api.get('/print-spool/seen', (req, res) => {
   });
 });
 
+api.get('/print-spool/cursor', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    seq: printSpoolWatch.currentSeq(),
+    watching: printSpoolWatch.isWatching(),
+  });
+});
+
+api.get('/print-spool/since', (req, res) => {
+  const rawSeq = req.query.seq;
+  const hasSeq = rawSeq != null && rawSeq !== '' && Number.isFinite(Number(rawSeq));
+  const token = String(req.query.token || '').trim().toUpperCase();
+  const tokenOk = /^TF[A-Z0-9]{8}$/.test(token) && printSpoolWatch.hasToken(token);
+  const jobOk = hasSeq && printSpoolWatch.hasJobSince(Number(rawSeq));
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    seen: !!(tokenOk || jobOk),
+    watching: printSpoolWatch.isWatching(),
+  });
+});
+
 api.post("/reports/bulk-delete", requireValidSession, async (req, res) => {
   try {
     const body = req.body || {};

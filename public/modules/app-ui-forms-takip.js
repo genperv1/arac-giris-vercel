@@ -2281,19 +2281,24 @@ try {
         }
 
 
-        // Yazıcı kuyruğunda bu jetonlu iş görünmeden rapor yazılmaz (İptal iş oluşturmaz).
-        async function waitUntilPrintJobQueued(token) {
+        // Yazıcı kuyruğuna yeni iş düşmeden rapor yazılmaz (İptal iş oluşturmaz).
+        async function waitUntilPrintJobQueued(token, sinceSeq) {
           const t = String(token || '').trim().toUpperCase();
-          if (!/^TF[A-Z0-9]{8}$/.test(t)) return false;
+          const seq = Number(sinceSeq);
+          const hasSeq = Number.isFinite(seq) && seq >= 0;
+          if (!hasSeq && !/^TF[A-Z0-9]{8}$/.test(t)) return false;
           const headers = {};
           try {
             const auth = localStorage.getItem('authToken');
             if (auth) headers.Authorization = 'Bearer ' + auth;
           } catch (e) {}
-          const deadline = Date.now() + 2000;
+          const deadline = Date.now() + 4000;
           do {
             try {
-              const res = await fetch('/api/print-spool/seen?token=' + encodeURIComponent(t), {
+              const qs = new URLSearchParams();
+              if (hasSeq) qs.set('seq', String(seq));
+              if (/^TF[A-Z0-9]{8}$/.test(t)) qs.set('token', t);
+              const res = await fetch('/api/print-spool/since?' + qs.toString(), {
                 method: 'GET',
                 cache: 'no-store',
                 credentials: 'same-origin',
@@ -2305,7 +2310,7 @@ try {
               }
             } catch (e) {}
             if (Date.now() >= deadline) break;
-            await new Promise((r) => setTimeout(r, 250));
+            await new Promise((r) => setTimeout(r, 200));
           } while (Date.now() < deadline);
           return false;
         }
@@ -2331,7 +2336,8 @@ try {
                 return;
               }
               const jobSent = await waitUntilPrintJobQueued(
-                pending.printJobToken || window.__lastPrintJobToken
+                pending.printJobToken || window.__lastPrintJobToken,
+                pending.printSpoolSeq != null ? pending.printSpoolSeq : window.__printSpoolCursor
               );
               if (!jobSent) {
                 try {
@@ -2341,6 +2347,19 @@ try {
                 } catch (e) {}
                 return;
               }
+              try { refreshPendingPrintSnapshotFromForm(pending); } catch (e) {}
+              try {
+                const frame = document.getElementById('takipDirectPrintFrame');
+                if (frame) {
+                  frame.style.left = '-10000px';
+                  frame.style.visibility = 'hidden';
+                  frame.style.pointerEvents = 'none';
+                }
+                const overlay = document.getElementById('takipPrintOverlay');
+                if (overlay) overlay.style.display = 'none';
+              } catch (e) {}
+              try { resetTakipFormUI(); } catch (e) {}
+              try { kapatForm(); } catch (e) {}
               // Yazdır tıklanınca değil, baskı kuyruğa düşünce anlık zaman damgası
               const commitTs = Date.now();
               const commitTarihTr = (() => {

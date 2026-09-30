@@ -11,6 +11,18 @@ test('yazıcı kuyruğundaki belge adı jetonu taşır', () => {
   spool.resetForTests();
 });
 
+test('imleçten sonraki yazıcı işi yazdırma sayılır', () => {
+  spool.resetForTests();
+  const before = spool.currentSeq();
+  spool.rememberDocument('12\tSevkiyat Formu');
+  assert.equal(spool.hasJobSince(before), true);
+  const after = spool.currentSeq();
+  spool.rememberDocument('12\tSevkiyat Formu');
+  assert.equal(spool.currentSeq(), after);
+  assert.equal(spool.hasJobSince(after), false);
+  spool.resetForTests();
+});
+
 test('jeton formatı bozuksa görülmüş sayılmaz', () => {
   spool.resetForTests();
   spool.rememberDocument('Sevkiyat Formu');

@@ -176,6 +176,35 @@
       ';max-width:calc(100vw - 24px);border:0;background:#fff;margin:16px auto 24px;display:block;pointer-events:auto;';
   }
 
+  function authHeadersForPrint() {
+    const headers = {};
+    try {
+      const auth = localStorage.getItem('authToken');
+      if (auth) headers.Authorization = 'Bearer ' + auth;
+    } catch (e) {}
+    return headers;
+  }
+
+  async function armTakipPrintSpool() {
+    try {
+      const res = await fetch('/api/print-spool/cursor', {
+        method: 'GET',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: authHeadersForPrint(),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const seq = Number(data && data.seq);
+      if (!Number.isFinite(seq) || seq < 0) return null;
+      window.__printSpoolCursor = seq;
+      if (window.__pendingPrintCommit) window.__pendingPrintCommit.printSpoolSeq = seq;
+      return seq;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function bindTakipPrint(win) {
     if (!win) return;
     const started = Date.now();
@@ -254,11 +283,12 @@
       printBtn.setAttribute('data-takip-print-send', '1');
       printBtn.textContent = 'Yazıcıya gönder';
       printBtn.style.cssText = 'border:0;background:#0f766e;color:#fff;border-radius:10px;padding:12px 22px;min-height:48px;min-width:180px;font:700 16px/1 Arial,sans-serif;cursor:pointer;pointer-events:auto;';
-      printBtn.addEventListener('click', function (ev) {
+      printBtn.addEventListener('click', async function (ev) {
         try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {}
         const win = frame && frame.contentWindow;
         if (!win) return;
         try {
+          try { await armTakipPrintSpool(); } catch (e) {}
           bindTakipPrint(win);
           try { win.focus(); } catch (e) {}
           win.print();
@@ -3370,9 +3400,10 @@ ${layoutPrintCss}
       } catch (e) {}
     };
 
-    const doPrint = () => {
+    const doPrint = async () => {
       if (isPreview) return;
       try { applyPrintSafeScale(); } catch (e) {}
+      try { await armTakipPrintSpool(); } catch (e) {}
       try {
         try { w.focus(); } catch (e) {}
         bindTakipPrint(w);
