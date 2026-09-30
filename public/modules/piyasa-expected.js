@@ -234,6 +234,24 @@
     return out;
   }
 
+  function platesMissingFromRegistry(plates, vehicles) {
+    const known = new Set();
+    (Array.isArray(vehicles) ? vehicles : []).forEach((vehicle) => {
+      const key = normExpectedPlate(vehicle && (vehicle.cekiciPlaka || vehicle.plaka));
+      if (key) known.add(key);
+    });
+    if (!known.size) return [];
+    const missing = [];
+    const seen = new Set();
+    (Array.isArray(plates) ? plates : []).forEach((plate) => {
+      const key = normExpectedPlate(plate);
+      if (!isPlateNorm(key) || seen.has(key) || known.has(key)) return;
+      seen.add(key);
+      missing.push(key);
+    });
+    return missing;
+  }
+
   function matchExpectedByPlate(items, plate, weekKey) {
     const key = normExpectedPlate(plate);
     const week = String(weekKey || '').trim();
@@ -264,6 +282,7 @@
     normExpectedPlate,
     matchExpectedByPlate,
     orderMatchesQuery,
+    platesMissingFromRegistry,
     phoneDigits,
     tcDigits,
     extractLabels,
@@ -375,6 +394,27 @@
     return [firma, malzeme, il].filter(Boolean).join(' · ');
   }
 
+  const AMIR_ENTRY_NOTE = 'Şaban Lahaçlar adlı amir girdi.';
+
+  function registryVehicles() {
+    try {
+      if (root.storage && typeof root.storage.loadAll === 'function') {
+        const list = root.storage.loadAll();
+        if (Array.isArray(list) && list.length) return list;
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  function stampAmirEntryNote() {
+    const el = document.getElementById('yuklemeNotu');
+    if (!el) return;
+    const cur = String(el.value || '');
+    if (cur.indexOf(AMIR_ENTRY_NOTE) !== -1) return;
+    el.value = cur.trim() ? (cur.replace(/\s+$/, '') + '\n' + AMIR_ENTRY_NOTE) : AMIR_ENTRY_NOTE;
+    try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+  }
+
   function fillExpectedContact(hit) {
     const setIfEmpty = (id, value) => {
       const el = document.getElementById(id);
@@ -397,9 +437,26 @@
       if (typeof markOrderUsed === 'function') markOrderUsed(order, plate);
     }
     fillExpectedContact(hit);
-    if (typeof toast === 'function') {
-      toast(order ? 'Sipariş forma geldi.' : 'Plaka kaydı bulundu, sipariş satırı listede yok.', order ? 'success' : 'warn');
-    }
+    setTimeout(stampAmirEntryNote, 280);
+    if (typeof toast === 'function') toast(AMIR_ENTRY_NOTE, 'info');
+  }
+
+  async function applyExpectedOnTakipOpen(raw) {
+    const plate = normExpectedPlate(raw);
+    if (!isPlateNorm(plate)) return;
+    if (_expectedBusy) return;
+    _expectedPromptPlate = plate;
+    try {
+      const items = await loadExpectedArrivals(true);
+      const hits = matchExpectedByPlate(items, plate, currentExpectedWeekKey());
+      if (!hits.length) {
+        _expectedPromptPlate = '';
+        return;
+      }
+      const chosen = hits.length === 1 ? hits[0] : await promptExpectedHits(hits);
+      if (!chosen) return;
+      applyExpectedHit(chosen, plate);
+    } catch (e) {}
   }
 
   function expectedHitTitle(hit) {
@@ -604,7 +661,13 @@
         preview.innerHTML = '';
         parsed = [];
         renderSavedExpected(savedHost, _expectedItems);
-        if (typeof toast === 'function') toast('Gelen araç kaydedildi.', 'success');
+        const missing = platesMissingFromRegistry(fresh.map((row) => row.cekici), registryVehicles());
+        if (missing.length) {
+          const lines = missing.map((plate) => formatPlateShow(plate)).join('\n');
+          alert('Gelen araç kaydedildi.\n\nSistemde kayıtlı değil:\n' + lines);
+        } else if (typeof toast === 'function') {
+          toast('Gelen araç kaydedildi.', 'success');
+        }
       } catch (e) {
         if (typeof toast === 'function') toast('Kayıt yazılamadı.', 'warn');
       }
@@ -618,4 +681,5 @@
   root.loadExpectedArrivals = loadExpectedArrivals;
   root.openExpectedPasteModal = openExpectedPasteModal;
   root.offerExpectedForPlate = offerExpectedForPlate;
+  root.applyExpectedOnTakipOpen = applyExpectedOnTakipOpen;
 })(typeof window !== 'undefined' ? window : globalThis);

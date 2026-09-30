@@ -1597,6 +1597,12 @@ try {
                 }).catch(() => {});
               }
             } catch (e) {}
+            try {
+              const gelenPlate = (vehicle && vehicle.cekiciPlaka) || (_rawVehicle && _rawVehicle.cekiciPlaka) || '';
+              if (gelenPlate && window.piyasa && typeof window.piyasa.applyExpectedOnTakipOpen === 'function') {
+                window.piyasa.applyExpectedOnTakipOpen(gelenPlate);
+              }
+            } catch (e) {}
 
 }
 

@@ -409,6 +409,69 @@ function formatDupPlateRowDetail(d) {
   return (d?.irsaliyeNos || []).filter(Boolean).join(' · ') || '(irsaliye yok)';
 }
 
+/** "40.HAFTA" veya "36-37-38-39-40.HAFTA" içindeki hafta numaraları. Tarih metni (HAFTA yok) boş döner. */
+function parseSevkHaftasiWeeks(value) {
+  const s = normKey(value);
+  if (!s || !s.includes('HAFTA')) return [];
+  const weeks = [];
+  const re = /(^|[^0-9])(\d{1,2})(?![0-9])/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const n = parseInt(m[2], 10);
+    if (n >= 1 && n <= 53 && !weeks.includes(n)) weeks.push(n);
+  }
+  return weeks;
+}
+
+/** Aynı siparişin başka sayfadan ikinci kez eklenmemesi için. */
+function piyasaOrderCarryKey(o) {
+  const sip = String((o && o.sipNo) || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (sip) return 'sip:' + sip;
+  return [
+    'row',
+    normKey(o && o.firma),
+    normKey(o && o.malzeme),
+    normKey(o && (o.il || o.sevkYeri)),
+    normKey(o && o.miktar),
+  ].join('|');
+}
+
+/**
+ * Sevk haftası hedef haftayı gösteren, ama o haftanın sayfasında olmayan siparişler.
+ * Örnek: K1 satırı 35-HAFTA sayfasında, sevk haftası 40.HAFTA — 40. hafta listesine eklenir.
+ */
+function carrySevkHaftasiOrders(blocks, targetWeek) {
+  const week = Number(targetWeek);
+  if (!Number.isFinite(week)) return [];
+  const home = [];
+  const foreign = [];
+  for (const b of blocks || []) {
+    const isHome = Number(b && b.week) === week;
+    for (const o of (b && b.orders) || []) {
+      if (!o) continue;
+      if (isHome) home.push(o);
+      else foreign.push({ order: o, fromSheet: b.sheet, fromWeek: b.week });
+    }
+  }
+  foreign.sort((a, b) => (Number(b.fromWeek) || 0) - (Number(a.fromWeek) || 0));
+  const seen = new Set(home.map(piyasaOrderCarryKey));
+  const out = [];
+  for (const item of foreign) {
+    const weeks = parseSevkHaftasiWeeks(item.order.sevkHaftasi);
+    if (!weeks.includes(week)) continue;
+    const key = piyasaOrderCarryKey(item.order);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      ...item.order,
+      carriedFromSheet: String(item.fromSheet || ''),
+      carriedFromWeek: item.fromWeek,
+      __archiveKey: `${week}:sevk:${item.fromWeek}:${item.fromSheet}:${item.order.__idx}`,
+    });
+  }
+  return out;
+}
+
 function scorePiyasaOrder(order, ctx) {
   const firma = normKey(ctx.firma || '');
   const malzeme = normKey(ctx.malzeme || '');
@@ -460,6 +523,9 @@ var ExcelUtils = {
   buildDupPlateSevkiyatLabel,
   formatDupPlateEntryLabel,
   formatDupPlateRowDetail,
+  parseSevkHaftasiWeeks,
+  piyasaOrderCarryKey,
+  carrySevkHaftasiOrders,
   scorePiyasaOrder,
   suggestPiyasaOrders,
 };

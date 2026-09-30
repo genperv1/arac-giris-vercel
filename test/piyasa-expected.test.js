@@ -5,6 +5,7 @@ const {
   sanitizeExpectedItems,
   matchExpectedByPlate,
   orderMatchesQuery,
+  platesMissingFromRegistry,
 } = require('../public/modules/piyasa-expected');
 
 test('çekici ve dorse satırları, isim, telefon, TC', () => {
@@ -84,6 +85,13 @@ test('kayıt aynı plakada yenilenir ve eski hafta eşleşmez', () => {
   assert.equal(now[0].orderKey, '40:a:2');
   assert.equal(matchExpectedByPlate(items, '42 FDV 63', '2026:41').length, 0);
   assert.equal(matchExpectedByPlate(items, '42 BHP 062', '2026:40').length, 0);
+});
+
+test('kayıtlı olmayan plaka uyarı listesine girer', () => {
+  const vehicles = [{ cekiciPlaka: '34 ABC 123' }, { cekiciPlaka: '06 ETZ 736' }];
+  assert.deepEqual(platesMissingFromRegistry(['34ABC123', '42 FDV 63'], vehicles), ['42FDV63']);
+  assert.deepEqual(platesMissingFromRegistry(['34 ABC 123'], vehicles), []);
+  assert.deepEqual(platesMissingFromRegistry(['42 FDV 63'], []), []);
 });
 
 test('etiket sipariş satırında kelime olarak durur', () => {
