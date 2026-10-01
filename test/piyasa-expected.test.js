@@ -5,6 +5,7 @@ const {
   sanitizeExpectedItems,
   matchExpectedByPlate,
   orderMatchesQuery,
+  filterOrdersForSelect,
   platesMissingFromRegistry,
   stampExpectedPrint,
   applyPrintHistoryToExpected,
@@ -147,6 +148,20 @@ test('bu hafta basılmış plaka gelen araçta görünür, eski baskı yazılmaz
   const hp97 = merged.find((item) => item.cekici === '43AFH436');
   assert.equal(hp97.printedAt, 0);
   assert.equal(hp97.basimYeri, '');
+});
+
+test('excelde görünen geç satır gelen araç listesinde kalır', () => {
+  const orders = [];
+  for (let i = 0; i < 45; i++) orders.push({ firma: 'HP' + i, malzeme: 'HP 0.15-0.60', il: 'ANKARA' });
+  orders.push({ firma: 'M24', firmaAdi: 'ŞEMES GIDA SANAYİ', malzeme: 'P2 (PA170-12)', il: 'TOKAT' });
+  const all = filterOrdersForSelect(orders, '');
+  assert.equal(all.length, 46);
+  assert.equal(all[45].firma, 'M24');
+  const hit = filterOrdersForSelect(orders, 'm24');
+  assert.equal(hit.length, 1);
+  assert.equal(hit[0].il, 'TOKAT');
+  const byName = filterOrdersForSelect(orders, 'şemes');
+  assert.equal(byName.length, 1);
 });
 
 test('etiket sipariş satırında kelime olarak durur', () => {

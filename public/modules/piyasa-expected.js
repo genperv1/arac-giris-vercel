@@ -362,12 +362,36 @@
     return new RegExp('(^|[^A-Z0-9])' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)').test(blob);
   }
 
+  function orderSearchText(order) {
+    return foldTr([
+      order && order.firma,
+      order && order.firmaAdi,
+      order && order.malzeme,
+      order && order.sipNo,
+      order && order.il,
+      order && order.sevkYeri,
+    ].filter(Boolean).join(' '));
+  }
+
+  function filterOrdersForSelect(orders, query) {
+    const list = Array.isArray(orders) ? orders : [];
+    const q = foldTr(query).replace(/\s+/g, ' ').trim();
+    if (!q) return list.slice();
+    const compact = q.replace(/[^A-Z0-9]/g, '');
+    return list.filter((order) => {
+      const blob = orderSearchText(order);
+      if (blob.indexOf(q) !== -1) return true;
+      return !!(compact && blob.replace(/[^A-Z0-9]/g, '').indexOf(compact) !== -1);
+    });
+  }
+
   const api = {
     parsePiyasaExpectedPaste,
     sanitizeExpectedItems,
     normExpectedPlate,
     matchExpectedByPlate,
     orderMatchesQuery,
+    filterOrdersForSelect,
     platesMissingFromRegistry,
     stampExpectedPrint,
     applyPrintHistoryToExpected,
@@ -662,18 +686,25 @@
     finally { _expectedBusy = false; }
   }
 
+  function rankOrdersForLabel(orders, label) {
+    const all = Array.isArray(orders) ? orders : [];
+    if (!label) return all.slice();
+    const hits = [];
+    const rest = [];
+    all.forEach((order) => {
+      if (orderMatchesQuery(order, label)) hits.push(order);
+      else rest.push(order);
+    });
+    return hits.length ? hits.concat(rest) : all.slice();
+  }
+
   function renderExpectedPreview(host, vehicles, orders) {
     if (!vehicles.length) {
       host.innerHTML = '<div style="color:#92400e;font-size:13px;">Plaka bulunamadı. Metni olduğu gibi yapıştır.</div>';
       return;
     }
+    const searchStyle = 'margin-top:8px;width:100%;box-sizing:border-box;padding:8px;border:1px solid #ddd;border-radius:8px;font:inherit;';
     host.innerHTML = vehicles.map((row, i) => {
-      const choices = orders.filter((order) => row.label && orderMatchesQuery(order, row.label)).slice(0, 40);
-      const list = choices.length ? choices : orders.slice(0, 40);
-      const options = ['<option value="">Sipariş satırı seç</option>'].concat(list.map((order) => {
-        const key = typeof getOrderPickKey === 'function' ? getOrderPickKey(order) : '';
-        return '<option value="' + esc(key) + '">' + esc(orderOptionLabel(order)) + '</option>';
-      })).join('');
       return '<div data-expected-row="' + i + '" style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-top:8px;">'
         + '<div style="font-weight:800;">' + esc(formatPlateShow(row.cekici))
         + (row.dorse ? ' / ' + esc(formatPlateShow(row.dorse)) : '')
@@ -682,16 +713,26 @@
         + '<div style="font-size:13px;color:#334155;margin-top:4px;">'
         + esc([row.sofor, formatPhoneShow(row.telefon), row.tc].filter(Boolean).join(' · '))
         + '</div>'
-        + '<select data-order style="margin-top:8px;width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;">' + options + '</select>'
+        + '<input data-order-q type="text" placeholder="Sipariş ara (M24, firma, şehir)" style="' + searchStyle + '">'
+        + '<select data-order style="margin-top:8px;width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;"></select>'
         + '</div>';
     }).join('');
     host.querySelectorAll('[data-expected-row]').forEach((card, i) => {
       const row = vehicles[i];
-      const choices = orders.filter((order) => row.label && orderMatchesQuery(order, row.label));
+      const ranked = rankOrdersForLabel(orders, row.label);
+      const hits = (orders || []).filter((order) => row.label && orderMatchesQuery(order, row.label));
       const sel = card.querySelector('[data-order]');
-      if (sel && choices.length === 1 && typeof getOrderPickKey === 'function') {
-        sel.value = String(getOrderPickKey(choices[0]) || '');
-      }
+      const input = card.querySelector('[data-order-q]');
+      const selected = (hits.length === 1 && typeof getOrderPickKey === 'function')
+        ? String(getOrderPickKey(hits[0]) || '')
+        : '';
+      const paint = () => {
+        if (!sel) return;
+        const keep = sel.value || selected;
+        sel.innerHTML = expectedOrderOptions(filterOrdersForSelect(ranked, input ? input.value : ''), keep, ranked);
+      };
+      paint();
+      if (input) input.addEventListener('input', paint);
     });
   }
 
@@ -699,18 +740,23 @@
     return 'width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:8px;padding:8px;font:inherit;margin-top:4px;';
   }
 
-  function expectedOrderOptions(orders, selectedKey) {
+  function expectedOrderOptions(orders, selectedKey, allOrders) {
     const selected = String(selectedKey || '');
     const seen = new Set();
     const opts = ['<option value="">Sipariş satırı seç</option>'];
-    (Array.isArray(orders) ? orders : []).slice(0, 80).forEach((order) => {
+    (Array.isArray(orders) ? orders : []).forEach((order) => {
       const key = typeof getOrderPickKey === 'function' ? String(getOrderPickKey(order) || '') : '';
       if (!key || seen.has(key)) return;
       seen.add(key);
       opts.push('<option value="' + esc(key) + '"' + (key === selected ? ' selected' : '') + '>' + esc(orderOptionLabel(order)) + '</option>');
     });
     if (selected && !seen.has(selected)) {
-      opts.push('<option value="' + esc(selected) + '" selected>' + esc(selected) + '</option>');
+      const pool = Array.isArray(allOrders) ? allOrders : [];
+      const hit = pool.find((order) => {
+        const key = typeof getOrderPickKey === 'function' ? String(getOrderPickKey(order) || '') : '';
+        return key === selected;
+      });
+      opts.push('<option value="' + esc(selected) + '" selected>' + esc(hit ? orderOptionLabel(hit) : selected) + '</option>');
     }
     return opts.join('');
   }
@@ -728,11 +774,21 @@
       + '<label style="' + label + '">TC<input data-f="tc" value="' + esc(item.tc || '') + '" style="' + field + '"></label>'
       + '<label style="' + label + '">Kod<input data-f="label" value="' + esc(item.label || '') + '" style="' + field + '"></label>'
       + '</div>'
-      + '<label style="' + label + 'margin-top:8px;">Sipariş<select data-f="order" style="' + field + '">' + expectedOrderOptions(orders, item.orderKey) + '</select></label>'
+      + '<label style="' + label + 'margin-top:8px;">Sipariş'
+      + '<input data-order-q type="text" placeholder="Sipariş ara (M24, firma, şehir)" style="' + field + '">'
+      + '<select data-f="order" style="' + field + '">' + expectedOrderOptions(orders, item.orderKey, orders) + '</select></label>'
       + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">'
       + '<button type="button" data-edit-cancel style="border:0;background:#e5e7eb;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Vazgeç</button>'
       + '<button type="button" data-edit-save style="border:0;background:#111827;color:#fff;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Kaydet</button>'
       + '</div></div>';
+    const sel = row.querySelector('[data-f="order"]');
+    const input = row.querySelector('[data-order-q]');
+    if (sel && input) {
+      input.addEventListener('input', () => {
+        const keep = sel.value || item.orderKey || '';
+        sel.innerHTML = expectedOrderOptions(filterOrdersForSelect(orders, input.value), keep, orders);
+      });
+    }
   }
 
   function renderSavedExpected(host, items) {
@@ -776,7 +832,7 @@
       + '<button type="button" id="piyasaExpectedX" aria-label="Kapat" style="border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:#334155;padding:2px 4px;">✕</button>'
       + '</div>'
       + '<div style="padding:12px 16px;">'
-      + '<div style="font-size:13px;color:#475569;margin-bottom:8px;">WhatsApp metnini yapıştır. Plaka yazılınca bu sipariş bu sevkiyata gelecek.</div>'
+      + '<div style="font-size:13px;color:#475569;margin-bottom:8px;">WhatsApp metnini yapıştır. Sipariş listesi yüklü Excel’in tamamıdır; M24 yazarak ara.</div>'
       + '<textarea id="piyasaExpectedPaste" rows="8" style="width:100%;border:1px solid #ddd;border-radius:10px;padding:10px;font:inherit;"></textarea>'
       + '<div id="piyasaExpectedPreview"></div>'
       + '<div id="piyasaExpectedSaved"></div>'

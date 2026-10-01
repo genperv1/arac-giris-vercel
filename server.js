@@ -45,6 +45,7 @@ const { registerDailyRoutes } = require('./routes/daily-routes');
 const { registerIhracatExcelRoutes } = require('./routes/ihracat-excel-routes');
 const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
+const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
 const { registerPrintFormBgImageRoute, registerPrintFormBgRoutes } = require('./routes/print-form-bg-routes');
@@ -1314,6 +1315,7 @@ registerVehicleRoutes(api, routeCtx);
 registerDailyRoutes(api, routeCtx);
 registerIhracatExcelRoutes(api, routeCtx);
 registerPiyasaRoutes(api, routeCtx);
+registerAmirNoticeRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
 

@@ -2502,6 +2502,14 @@ try {
                 } catch(e) {}
 
                 try {
+                  if (typeof window.notifyAmirVehicleEntry === 'function' && pending) {
+                    await window.notifyAmirVehicleEntry(pending);
+                  }
+                } catch (e) {
+                  console.warn('Amir giriş bildirimi yazılamadı:', e);
+                }
+
+                try {
                   if (window.piyasa && typeof window.piyasa.markExpectedPrinted === 'function' && pending) {
                     const snap = pending.snapshot || {};
                     await window.piyasa.markExpectedPrinted({
