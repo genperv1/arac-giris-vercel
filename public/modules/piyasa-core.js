@@ -219,6 +219,11 @@ function piyasaOverlayStyle(zIndex) {
           lastPrintAt: o.lastPrintAt || null,
           lastPrintPlate: o.lastPrintPlate || null,
           printPlates: _normalizePrintPlates(o.printPlates),
+          siraNo: o.siraNo || '',
+          planlananSev: o.planlananSev || '',
+          fiiliSevkCikis: o.fiiliSevkCikis || '',
+          fiiliSevkCikisIso: o.fiiliSevkCikisIso || '',
+          aciklamaRenk: o.aciklamaRenk || '',
           _hSutunValue: o.firmaAdi,
         })),
         weekArchive: _serializeWeekArchive(state.weekArchive),
@@ -448,6 +453,11 @@ function piyasaOverlayStyle(zIndex) {
       lastPrintAt: o.lastPrintAt || null,
       lastPrintPlate: o.lastPrintPlate || null,
       printPlates: _normalizePrintPlates(o.printPlates),
+      siraNo: o.siraNo || '',
+      planlananSev: o.planlananSev || '',
+      fiiliSevkCikis: o.fiiliSevkCikis || '',
+      fiiliSevkCikisIso: o.fiiliSevkCikisIso || '',
+      aciklamaRenk: o.aciklamaRenk || '',
     };
   }
 
@@ -475,6 +485,11 @@ function piyasaOverlayStyle(zIndex) {
       lastPrintAt: o.lastPrintAt || null,
       lastPrintPlate: o.lastPrintPlate || null,
       printPlates: _normalizePrintPlates(o.printPlates),
+      siraNo: o.siraNo || '',
+      planlananSev: o.planlananSev || '',
+      fiiliSevkCikis: o.fiiliSevkCikis || '',
+      fiiliSevkCikisIso: o.fiiliSevkCikisIso || '',
+      aciklamaRenk: o.aciklamaRenk || '',
       _hSutunValue: o.firmaAdi,
     };
   }
@@ -658,7 +673,7 @@ function piyasaOverlayStyle(zIndex) {
   }
 
   function _pickerEntrySearchHay(o, firmaAdi, sevkiyat) {
-    return `${o.firma || ''} ${o.sipNo || ''} ${firmaAdi} ${o.malzeme || ''} ${o.sevkYeri || ''} ${o.il || ''} ${o.yuklemeTuru || ''} ${o.aciklama || ''} ${o.miktar || ''} ${o.odemeTuru || ''} ${o.org || ''} ${sevkiyat} ${o._weekLabel || ''}`.toLowerCase();
+    return `${o.firma || ''} ${o.sipNo || ''} ${firmaAdi} ${o.malzeme || ''} ${o.sevkYeri || ''} ${o.il || ''} ${o.yuklemeTuru || ''} ${o.aciklama || ''} ${o.miktar || ''} ${o.odemeTuru || ''} ${o.org || ''} ${sevkiyat} ${o.planlananSev || ''} ${o.fiiliSevkCikis || ''} ${o._weekLabel || ''}`.toLowerCase();
   }
 
   /** Sipariş seçici araması için önceden hesaplanmış metin (her tuşta getFirmaFullName çağrılmasın). */

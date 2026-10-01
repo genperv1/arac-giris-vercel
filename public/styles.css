@@ -962,6 +962,299 @@ html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
   gap: 0.45rem;
 }
 
+/* Amir oturumu — ayrı masa, operatör menüsünden farklı */
+body.session-amir .app-header {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 34%);
+  border-color: #e7d3c0;
+  box-shadow: 0 14px 36px rgba(124, 45, 18, 0.1);
+}
+
+body.session-amir .app-header::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #7c2d12 0%, #ea580c 42%, #e7c27a 72%, #7c2d12 100%);
+}
+
+body.session-amir .app-header-status {
+  align-items: center;
+  flex-wrap: nowrap;
+  width: 100%;
+  min-width: 0;
+  gap: 0.4rem;
+  padding: 0.35rem;
+  overflow: hidden;
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(234, 88, 12, 0.16), transparent 46%),
+    linear-gradient(165deg, #292524 0%, #1c1917 100%);
+  border: 1px solid rgba(231, 194, 122, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 237, 213, 0.12);
+}
+
+body.session-amir .app-header-status > .status-chip {
+  flex: 0 0 auto;
+}
+
+body.session-amir .app-header-status .status-chip {
+  min-width: 0;
+  max-width: none;
+  border-radius: 10px;
+  border-color: rgba(255, 237, 213, 0.12);
+  background: rgba(68, 64, 60, 0.55);
+  color: #f5f0ea;
+  white-space: nowrap;
+}
+
+body.session-amir .app-header-status .status-chip b {
+  color: #fff7ed;
+}
+
+body.session-amir .app-header-status .status-chip.chip-ok {
+  background: rgba(22, 101, 52, 0.42);
+  border-color: rgba(134, 239, 172, 0.32);
+  color: #bbf7d0;
+}
+
+body.session-amir .app-header-status .status-chip.chip-ok b {
+  color: #dcfce7;
+}
+
+body.session-amir .app-header-status .status-chip.chip-warn {
+  background: rgba(146, 64, 14, 0.42);
+  border-color: rgba(252, 211, 77, 0.34);
+  color: #fde68a;
+}
+
+body.session-amir .app-header-status .status-chip.chip-warn b {
+  color: #fef3c7;
+}
+
+body.session-amir .app-header-status .status-chip.chip-alert {
+  background: rgba(154, 52, 18, 0.45);
+  border-color: rgba(251, 146, 60, 0.4);
+  color: #ffedd5;
+}
+
+body.session-amir .app-header-status .status-chip.chip-alert b {
+  color: #ffedd5;
+}
+
+body.session-amir .app-header-ihracat-excel {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+body.session-amir .app-header-ihracat-excel .status-chip--excel {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+body.session-amir .app-header-ihracat-excel .status-chip--excel b {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.session-amir .app-header-status .app-header-ihracat-excel__refresh {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 1.85rem;
+  padding: 0.28rem 0.75rem;
+  border-radius: 10px;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: linear-gradient(180deg, #c2410c 0%, #9a3412 100%);
+  color: #fff7ed;
+  box-shadow: none;
+}
+
+body.session-amir .app-header-status .app-header-ihracat-excel__refresh:hover:not(:disabled) {
+  filter: none;
+  background: linear-gradient(180deg, #ea580c 0%, #c2410c 100%);
+  color: #fff7ed;
+}
+
+.app-nav--amir {
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.4rem;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(234, 88, 12, 0.22), transparent 42%),
+    linear-gradient(165deg, #292524 0%, #1c1917 100%);
+  border: 1px solid rgba(231, 194, 122, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 237, 213, 0.16),
+    0 10px 24px rgba(28, 25, 23, 0.22);
+}
+
+.amir-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 0.55rem;
+  min-height: 3rem;
+  padding: 0.35rem 0.7rem 0.35rem 0.4rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 237, 213, 0.1);
+  background: linear-gradient(180deg, rgba(68, 64, 60, 0.72), rgba(28, 25, 23, 0.35));
+  color: #faf7f2;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 150ms ease, border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.amir-nav-btn:hover,
+.amir-nav-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(251, 191, 36, 0.55);
+  background: linear-gradient(180deg, rgba(124, 45, 18, 0.55), rgba(41, 37, 36, 0.72));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  outline: none;
+}
+
+.amir-nav-btn__icon {
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(255, 247, 237, 0.08);
+  color: #fdba74;
+  font-size: 0.95rem;
+}
+
+.amir-nav-btn__icon--report {
+  color: #fde68a;
+  background: rgba(180, 83, 9, 0.45);
+}
+
+.amir-nav-btn__icon--market {
+  color: #fecaca;
+  background: rgba(153, 27, 27, 0.5);
+}
+
+.amir-nav-btn__copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.amir-nav-btn__copy b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #fff7ed;
+}
+
+.amir-nav-btn__copy small {
+  margin-top: 0.12rem;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: #d6d3d1;
+}
+
+.amir-nav-btn--ship .amir-nav-btn__copy small {
+  max-width: none;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.amir-nav-btn--ship {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: linear-gradient(180deg, rgba(12, 74, 110, 0.55), rgba(28, 25, 23, 0.4));
+}
+
+.amir-nav-btn--ship:hover,
+.amir-nav-btn--ship:focus-visible {
+  border-color: rgba(125, 211, 252, 0.7);
+  background: linear-gradient(180deg, rgba(3, 105, 161, 0.62), rgba(28, 25, 23, 0.55));
+}
+
+.app-nav--amir .iht-radar--menu {
+  margin-right: 0;
+  width: 2.15rem;
+  height: 2.15rem;
+}
+
+.app-nav--amir .iht-radar__core {
+  font-size: 1.05rem;
+}
+
+.amir-nav-btn--settings {
+  margin-left: 0;
+  flex: 0 0 auto;
+}
+
+.app-nav--amir .ayarlar-gear {
+  width: auto;
+  margin-right: 0;
+  color: inherit;
+}
+
+.amir-nav-btn--exit {
+  margin-left: 0;
+  flex: 0 0 auto;
+  background: transparent;
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.amir-nav-btn--exit .amir-nav-btn__icon {
+  background: rgba(127, 29, 29, 0.55);
+  color: #fecaca;
+}
+
+.amir-nav-btn--exit:hover,
+.amir-nav-btn--exit:focus-visible {
+  border-color: rgba(252, 165, 165, 0.7);
+  background: rgba(127, 29, 29, 0.45);
+}
+
+body.kiosk-mode .app-nav--amir,
+body.kiosk-mode .app-nav--amir #raporlarLinkGunluk {
+  display: flex !important;
+}
+
+@media (max-width: 720px) {
+  .app-nav--amir {
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  .amir-nav-btn,
+  .amir-nav-btn--settings,
+  .amir-nav-btn--exit {
+    flex: 1 1 0;
+    margin-left: 0;
+    min-width: 0;
+  }
+}
+
 .app-tools-menu--nested {
   position: relative;
   display: inline-flex;

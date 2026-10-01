@@ -494,6 +494,77 @@ function suggestPiyasaOrders(orders, ctx, limit) {
     .slice(0, lim);
 }
 
+function _pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function _isoFromYmd(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return '';
+  if (y < 1990 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return '';
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return '';
+  return `${y}-${_pad2(m)}-${_pad2(d)}`;
+}
+
+function _labelFromIso(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
+/** Excel seri tarihi (gün kesri yok sayılır) → YYYY-MM-DD. 1990–2100 dışı boş. */
+function excelSerialToIsoDate(serial) {
+  const n = Number(serial);
+  if (!Number.isFinite(n)) return '';
+  const day = Math.floor(n + 1e-8);
+  if (day < 32874 || day > 73415) return '';
+  const dt = new Date((day - 25569) * 86400 * 1000);
+  if (isNaN(dt.getTime())) return '';
+  return _isoFromYmd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+}
+
+/**
+ * Fiili sevk çıkış tarihi. Boş, hafta etiketi (40.HAFTA) ve aralık metinleri tarih sayılmaz.
+ * @returns {{ iso: string, label: string } | null}
+ */
+function parseFiiliSevkCikis(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    const iso = _isoFromYmd(value.getFullYear(), value.getMonth() + 1, value.getDate());
+    return iso ? { iso, label: _labelFromIso(iso) } : null;
+  }
+  if (typeof value === 'number') {
+    const iso = excelSerialToIsoDate(value);
+    return iso ? { iso, label: _labelFromIso(iso) } : null;
+  }
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  if (/^\d{4,6}(\.\d+)?$/.test(s)) {
+    const iso = excelSerialToIsoDate(s);
+    return iso ? { iso, label: _labelFromIso(iso) } : null;
+  }
+  const m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+  if (!m) return null;
+  let year = parseInt(m[3], 10);
+  if (year < 100) year += 2000;
+  const iso = _isoFromYmd(year, parseInt(m[2], 10), parseInt(m[1], 10));
+  return iso ? { iso, label: _labelFromIso(iso) } : null;
+}
+
+function todayIsoLocal(now) {
+  const d = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`;
+}
+
+/** Takvim günü bugünden önceyse geçmiş sayılır. Bugün ve sonrası işleme açık. */
+function isFiiliSevkCikisPast(iso, now) {
+  const s = String(iso || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  return s < todayIsoLocal(now);
+}
+
 var ExcelUtils = {
   TONAJ_WARN_PCT,
   TONAJ_DANGER_PCT,
@@ -528,6 +599,10 @@ var ExcelUtils = {
   carrySevkHaftasiOrders,
   scorePiyasaOrder,
   suggestPiyasaOrders,
+  excelSerialToIsoDate,
+  parseFiiliSevkCikis,
+  todayIsoLocal,
+  isFiiliSevkCikisPast,
 };
 
 window.ExcelUtils = ExcelUtils;

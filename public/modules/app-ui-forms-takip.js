@@ -2801,7 +2801,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                 : (state.vehicles.length === 0
                 ? 'Henüz kayıt yok.'
                 : (hasFilters ? 'Seçili filtrelere uygun kayıt bulunamadı.' : 'Aramanıza uygun kayıt bulunamadı.'));
-            const showCta = state.vehicles.length === 0 && !state.searchTerm && !hasFilters;
+            const showCta = state.vehicles.length === 0 && !state.searchTerm && !hasFilters && !_sessionIsAmir();
             return `
                 <div class="col-span-full vehicle-list-empty">
                     <svg class="vehicle-list-empty__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -3158,25 +3158,34 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const _totalVehicleCount = (state.vehicles || []).length;
             const _statusMeta = _appStatusMeta();
             const _amirPiyasa = _sessionIsAmir();
-            const _piyasaCikanlarMenu = _amirPiyasa
-              ? '<button type="button" id="piyasaCikanlarButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Basılan piyasa takip formları — çıkan araç listesi">🚨 Piyasa Çıkanlar</button>'
-              : '';
+            try { document.body.classList.toggle('session-amir', !!_amirPiyasa); } catch (e) {}
+            if (_amirPiyasa) state.showForm = false;
             const _piyasaExcelMenu = _amirPiyasa
               ? '<section class="app-excel-suite__group app-excel-suite__group--piyasa"><div class="app-excel-suite__head"><span class="app-excel-suite__badge">PİYASA</span><span class="app-excel-suite__hint">İç piyasa Excel</span></div><div class="app-excel-suite__actions"><button type="button" id="piyasaExcelUploadButtonTop" class="app-excel-tile app-excel-tile--load" title="PİYASA Excel Yükle"><span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-file-invoice"></i></span><span class="app-excel-tile__copy"><b>Yükle</b><small>Excel seç</small></span></button><button type="button" id="piyasaExcelClearButtonTop" class="app-excel-tile app-excel-tile--wipe" title="PİYASA Excel Sil"><span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-trash-alt"></i></span><span class="app-excel-tile__copy"><b>Sil</b><small>Listeyi temizle</small></span></button></div></section>'
               : '';
-            const _searchMeta = _searchMetaText(filteredVehicles.length, _totalVehicleCount);
-            const _connChipClass = _statusMeta.online ? 'chip-ok' : 'chip-alert';
-            const _connLabel = _statusMeta.online ? 'Çevrimiçi' : 'Çevrimdışı';
-            app.innerHTML = `
-                <div class="max-w-7xl mx-auto">
-                    <div class="app-sticky-top">
-                    <header class="app-header mb-3" role="banner">
-  <div class="app-header-toolbar">
-    <button type="button" class="app-header-brand${_amirPiyasa ? ' app-header-brand--amir' : ''}" id="appHeaderRefreshBtn" title="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile (sunucusuz)'}" aria-label="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile'}">
-      <img class="app-header-logo${_amirPiyasa ? ' app-header-logo--amir' : ''}" src="${_amirPiyasa ? '/logo-amir.png?v=20260929b' : '/logo.png'}" alt="${_amirPiyasa ? 'GENPER · AMİR' : 'Logo'}" />
-      ${_amirPiyasa ? '<span class="app-header-amir-mark">AMİR</span>' : ''}
-    </button>
-    <div class="app-header-menus">
+            const _navHtml = _amirPiyasa ? `
+      <nav class="app-nav app-nav--amir" aria-label="Amir menü">
+        <button type="button" id="raporlarLinkGunluk" class="amir-nav-btn" title="Günlük Raporlar">
+          <span class="amir-nav-btn__icon amir-nav-btn__icon--report" aria-hidden="true"><i class="fas fa-file-alt"></i></span>
+          <span class="amir-nav-btn__copy"><b>Günlük Raporlar</b><small>Yazdırma listesi</small></span>
+        </button>
+        <button type="button" id="piyasaCikanlarButton" class="amir-nav-btn" title="Basılan piyasa takip formları — çıkan araç listesi">
+          <span class="amir-nav-btn__icon amir-nav-btn__icon--market" aria-hidden="true"><i class="fas fa-bullhorn"></i></span>
+          <span class="amir-nav-btn__copy"><b>Piyasa Çıkanlar</b><small>Çıkan araçlar</small></span>
+        </button>
+        <button type="button" id="ihracatTakipMenuButton" class="amir-nav-btn amir-nav-btn--ship" title="İhracat Excel ve Operasyon Formülleri">
+          <span class="iht-radar iht-radar--menu" aria-hidden="true"><span class="iht-radar__sweep"></span><span class="iht-radar__ring"></span><span class="iht-radar__ring iht-radar__ring--2"></span><span class="iht-radar__core"><i class="fas fa-ship"></i></span></span>
+          <span class="amir-nav-btn__copy"><b>İhracat Takip</b><small>İhracat Excel ve Operasyon Formülleri</small></span>
+        </button>
+        <button type="button" id="ayarlarMenuButton" class="amir-nav-btn amir-nav-btn--settings" title="Ayarlar">
+          <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-cog ayarlar-gear"></i></span>
+          <span class="amir-nav-btn__copy"><b>Ayarlar</b></span>
+        </button>
+        <button type="button" id="logoutButton" class="amir-nav-btn amir-nav-btn--exit" title="Çıkış">
+          <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-sign-out-alt"></i></span>
+          <span class="amir-nav-btn__copy"><b>Çıkış</b></span>
+        </button>
+      </nav>` : `
       <nav class="app-nav" aria-label="Ana menü">
         <button id="toggleFormButton" class="app-nav-btn app-nav-btn--primary app-nav-btn--always">
           ${state.showForm ? 'İptal' : 'Yeni Kayıt'}
@@ -3189,7 +3198,6 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             </summary>
             <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
               <button type="button" id="raporlarLinkGunlukSub" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Günlük yazdırma raporları">📄 Günlük Raporlar</button>
-              ${_piyasaCikanlarMenu}
             </div>
           </details>
         </div>
@@ -3240,7 +3248,21 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         </details>
         <button id="manualTakipFormButton" class="app-nav-btn" title="Manuel takip formu">Takip Formu</button>
         <button id="logoutButton" class="app-nav-btn app-nav-btn--danger app-nav-btn--always">Çıkış</button>
-      </nav>
+      </nav>`;
+            const _searchMeta = _searchMetaText(filteredVehicles.length, _totalVehicleCount);
+            const _connChipClass = _statusMeta.online ? 'chip-ok' : 'chip-alert';
+            const _connLabel = _statusMeta.online ? 'Çevrimiçi' : 'Çevrimdışı';
+            app.innerHTML = `
+                <div class="max-w-7xl mx-auto">
+                    <div class="app-sticky-top">
+                    <header class="app-header mb-3" role="banner">
+  <div class="app-header-toolbar">
+    <button type="button" class="app-header-brand${_amirPiyasa ? ' app-header-brand--amir' : ''}" id="appHeaderRefreshBtn" title="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile (sunucusuz)'}" aria-label="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile'}">
+      <img class="app-header-logo${_amirPiyasa ? ' app-header-logo--amir' : ''}" src="${_amirPiyasa ? '/logo-amir.png?v=20260929b' : '/logo.png'}" alt="${_amirPiyasa ? 'GENPER · AMİR' : 'Logo'}" />
+      ${_amirPiyasa ? '<span class="app-header-amir-mark">AMİR</span>' : ''}
+    </button>
+    <div class="app-header-menus">
+      ${_navHtml}
       <div class="app-header-status" id="quickStatusRow">
         <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
         <span class="status-chip" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b>${_statusMeta.userLabel}</b></span>

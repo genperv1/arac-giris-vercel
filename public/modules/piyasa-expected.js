@@ -700,21 +700,20 @@
 
   function renderExpectedPreview(host, vehicles, orders) {
     if (!vehicles.length) {
-      host.innerHTML = '<div style="color:#92400e;font-size:13px;">Plaka bulunamadı. Metni olduğu gibi yapıştır.</div>';
+      host.innerHTML = '<div class="gea-empty">Plaka bulunamadı. Metni olduğu gibi yapıştır.</div>';
       return;
     }
-    const searchStyle = 'margin-top:8px;width:100%;box-sizing:border-box;padding:8px;border:1px solid #ddd;border-radius:8px;font:inherit;';
-    host.innerHTML = vehicles.map((row, i) => {
-      return '<div data-expected-row="' + i + '" style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-top:8px;">'
-        + '<div style="font-weight:800;">' + esc(formatPlateShow(row.cekici))
-        + (row.dorse ? ' / ' + esc(formatPlateShow(row.dorse)) : '')
-        + (row.label ? ' → ' + esc(row.label) : '')
+    host.innerHTML = '<div class="gea-section-title">Okunan araçlar</div>' + vehicles.map((row, i) => {
+      return '<div class="gea-preview" data-expected-row="' + i + '">'
+        + '<div class="gea-plate">' + esc(formatPlateShow(row.cekici))
+        + (row.dorse ? ' <span class="gea-muted">/</span> ' + esc(formatPlateShow(row.dorse)) : '')
+        + (row.label ? ' <span class="gea-arrow">→</span> ' + esc(row.label) : '')
         + '</div>'
-        + '<div style="font-size:13px;color:#334155;margin-top:4px;">'
+        + '<div class="gea-meta">'
         + esc([row.sofor, formatPhoneShow(row.telefon), row.tc].filter(Boolean).join(' · '))
         + '</div>'
-        + '<input data-order-q type="text" placeholder="Sipariş ara (M24, firma, şehir)" style="' + searchStyle + '">'
-        + '<select data-order style="margin-top:8px;width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;"></select>'
+        + '<input class="gea-input" data-order-q type="text" placeholder="Sipariş ara (M24, firma, şehir)">'
+        + '<select class="gea-input" data-order></select>'
         + '</div>';
     }).join('');
     host.querySelectorAll('[data-expected-row]').forEach((card, i) => {
@@ -737,7 +736,7 @@
   }
 
   function expectedFieldStyle() {
-    return 'width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:8px;padding:8px;font:inherit;margin-top:4px;';
+    return 'gea-input';
   }
 
   function expectedOrderOptions(orders, selectedKey, allOrders) {
@@ -763,23 +762,22 @@
 
   function fillExpectedEditor(row, item, orders) {
     const field = expectedFieldStyle();
-    const label = 'display:block;font-size:12px;color:#475569;font-weight:700;';
     row.innerHTML = ''
-      + '<div style="flex:1;min-width:0;">'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
-      + '<label style="' + label + '">Çekici<input data-f="cekici" value="' + esc(formatPlateShow(item.cekici)) + '" style="' + field + '"></label>'
-      + '<label style="' + label + '">Dorse<input data-f="dorse" value="' + esc(formatPlateShow(item.dorse)) + '" style="' + field + '"></label>'
-      + '<label style="' + label + '">Şoför<input data-f="sofor" value="' + esc(item.sofor || '') + '" style="' + field + '"></label>'
-      + '<label style="' + label + '">Telefon<input data-f="telefon" value="' + esc(formatPhoneShow(item.telefon)) + '" style="' + field + '"></label>'
-      + '<label style="' + label + '">TC<input data-f="tc" value="' + esc(item.tc || '') + '" style="' + field + '"></label>'
-      + '<label style="' + label + '">Kod<input data-f="label" value="' + esc(item.label || '') + '" style="' + field + '"></label>'
+      + '<div class="gea-editor">'
+      + '<div class="gea-grid">'
+      + '<label class="gea-field">Çekici<input class="' + field + '" data-f="cekici" value="' + esc(formatPlateShow(item.cekici)) + '"></label>'
+      + '<label class="gea-field">Dorse<input class="' + field + '" data-f="dorse" value="' + esc(formatPlateShow(item.dorse)) + '"></label>'
+      + '<label class="gea-field">Şoför<input class="' + field + '" data-f="sofor" value="' + esc(item.sofor || '') + '"></label>'
+      + '<label class="gea-field">Telefon<input class="' + field + '" data-f="telefon" value="' + esc(formatPhoneShow(item.telefon)) + '"></label>'
+      + '<label class="gea-field">TC<input class="' + field + '" data-f="tc" value="' + esc(item.tc || '') + '"></label>'
+      + '<label class="gea-field">Kod<input class="' + field + '" data-f="label" value="' + esc(item.label || '') + '"></label>'
       + '</div>'
-      + '<label style="' + label + 'margin-top:8px;">Sipariş'
-      + '<input data-order-q type="text" placeholder="Sipariş ara (M24, firma, şehir)" style="' + field + '">'
-      + '<select data-f="order" style="' + field + '">' + expectedOrderOptions(orders, item.orderKey, orders) + '</select></label>'
-      + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">'
-      + '<button type="button" data-edit-cancel style="border:0;background:#e5e7eb;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Vazgeç</button>'
-      + '<button type="button" data-edit-save style="border:0;background:#111827;color:#fff;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Kaydet</button>'
+      + '<label class="gea-field">Sipariş'
+      + '<input class="' + field + '" data-order-q type="text" placeholder="Sipariş ara (M24, firma, şehir)">'
+      + '<select class="' + field + '" data-f="order">' + expectedOrderOptions(orders, item.orderKey, orders) + '</select></label>'
+      + '<div class="gea-editor-actions">'
+      + '<button type="button" class="gea-btn" data-edit-cancel>Vazgeç</button>'
+      + '<button type="button" class="gea-btn gea-btn-primary" data-edit-save>Kaydet</button>'
       + '</div></div>';
     const sel = row.querySelector('[data-f="order"]');
     const input = row.querySelector('[data-order-q]');
@@ -795,19 +793,19 @@
     const week = currentExpectedWeekKey();
     const mine = (items || []).filter((item) => item.weekKey === week);
     if (!mine.length) {
-      host.innerHTML = '';
+      host.innerHTML = '<div class="gea-section-title">Bu hafta kayıtlı</div><div class="gea-empty">Henüz araç yok. Metni yapıştırıp sipariş satırını seçin.</div>';
       return;
     }
-    host.innerHTML = '<div style="font-weight:800;margin-top:14px;">Bu hafta kayıtlı</div>'
+    host.innerHTML = '<div class="gea-section-title">Bu hafta kayıtlı <span class="gea-count">' + mine.length + '</span></div>'
       + mine.map((item) => {
         const printed = formatExpectedPrintLine(item);
-        return '<div data-saved-row data-id="' + esc(item.id) + '" style="display:flex;align-items:flex-start;gap:8px;margin-top:6px;font-size:13px;">'
-          + '<button type="button" data-edit="' + esc(item.id) + '" title="Düzenle" style="flex:1;min-width:0;text-align:left;border:0;background:transparent;cursor:pointer;font:inherit;padding:4px 2px;border-radius:8px;">'
-          + '<div>' + esc(formatPlateShow(item.cekici)) + ' → ' + esc(item.label || item.firma || '') + '</div>'
-          + (printed ? '<div style="color:#166534;font-weight:700;margin-top:2px;">' + esc(printed) + '</div>' : '')
-          + '<div style="color:#64748b;font-size:11px;font-weight:700;margin-top:2px;">Düzenle</div>'
+        return '<div class="gea-saved" data-saved-row data-id="' + esc(item.id) + '">'
+          + '<button type="button" class="gea-saved-main" data-edit="' + esc(item.id) + '" title="Düzenle">'
+          + '<div class="gea-plate">' + esc(formatPlateShow(item.cekici)) + ' <span class="gea-arrow">→</span> ' + esc(item.label || item.firma || '—') + '</div>'
+          + (printed ? '<div class="gea-status">' + esc(printed) + '</div>' : '<div class="gea-meta">Henüz basılmadı</div>')
           + '</button>'
-          + '<button type="button" data-del="' + esc(item.id) + '" style="border:0;background:#fee2e2;color:#991b1b;border-radius:8px;padding:4px 8px;cursor:pointer;font-weight:700;">Sil</button>'
+          + '<button type="button" class="gea-mini" data-edit="' + esc(item.id) + '">Düzenle</button>'
+          + '<button type="button" class="gea-del" data-del="' + esc(item.id) + '">Sil</button>'
           + '</div>';
       }).join('');
   }
@@ -826,20 +824,66 @@
       ? piyasaOverlayStyle(typeof PIYASA_Z_TOP === 'number' ? PIYASA_Z_TOP : 1000080)
       : 'position:fixed;inset:0;z-index:1000080;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding:16px;';
     overlay.innerHTML = ''
-      + '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 10px 30px rgba(0,0,0,.25);">'
-      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px;border-bottom:1px solid #eee;">'
-      + '<div style="font-weight:800;">Gelen araç</div>'
-      + '<button type="button" id="piyasaExpectedX" aria-label="Kapat" style="border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:#334155;padding:2px 4px;">✕</button>'
+      + '<div class="gea-shell">'
+      + '<style>'
+      + '#piyasaExpectedOverlay .gea-shell{background:#fff;border-radius:16px;width:min(680px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.28);color:#1c1917;}'
+      + '#piyasaExpectedOverlay .gea-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #e7e5e4;background:#fafaf9;}'
+      + '#piyasaExpectedOverlay .gea-head-main{display:flex;gap:12px;min-width:0;}'
+      + '#piyasaExpectedOverlay .gea-mark{width:36px;height:36px;border-radius:10px;background:#fff7ed;color:#c2410c;display:flex;align-items:center;justify-content:center;flex:none;}'
+      + '#piyasaExpectedOverlay .gea-title{font-size:16px;font-weight:700;letter-spacing:-.02em;line-height:1.2;}'
+      + '#piyasaExpectedOverlay .gea-sub{margin-top:3px;font-size:12px;line-height:1.4;color:#78716c;}'
+      + '#piyasaExpectedOverlay .gea-x{border:0;background:#fff;width:32px;height:32px;border-radius:8px;color:#57534e;font-size:20px;line-height:1;cursor:pointer;}'
+      + '#piyasaExpectedOverlay .gea-x:hover{background:#f5f5f4;}'
+      + '#piyasaExpectedOverlay .gea-body{padding:16px 18px 8px;overflow:auto;min-height:0;}'
+      + '#piyasaExpectedOverlay .gea-label{display:block;font-size:12px;font-weight:700;color:#44403c;margin-bottom:6px;}'
+      + '#piyasaExpectedOverlay .gea-paste{width:100%;min-height:148px;resize:vertical;border:1px solid #e7e5e4;border-radius:12px;padding:12px;font:inherit;font-size:13px;line-height:1.45;background:#fff;color:#1c1917;outline:none;}'
+      + '#piyasaExpectedOverlay .gea-paste:focus{border-color:#c2410c;box-shadow:0 0 0 3px rgba(194,65,12,.12);}'
+      + '#piyasaExpectedOverlay .gea-section-title{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-size:13px;font-weight:700;color:#292524;}'
+      + '#piyasaExpectedOverlay .gea-count{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#ffedd5;color:#9a3412;font-size:11px;line-height:20px;text-align:center;}'
+      + '#piyasaExpectedOverlay .gea-empty{border:1px dashed #e7e5e4;border-radius:12px;padding:14px;font-size:13px;color:#78716c;background:#fafaf9;}'
+      + '#piyasaExpectedOverlay .gea-saved,#piyasaExpectedOverlay .gea-preview{display:flex;align-items:center;gap:8px;margin-top:8px;padding:10px 12px;border:1px solid #e7e5e4;border-radius:12px;background:#fff;}'
+      + '#piyasaExpectedOverlay .gea-preview{display:block;}'
+      + '#piyasaExpectedOverlay .gea-saved-main{flex:1;min-width:0;text-align:left;border:0;background:transparent;cursor:pointer;font:inherit;padding:0;}'
+      + '#piyasaExpectedOverlay .gea-plate{font-size:14px;font-weight:700;letter-spacing:-.01em;color:#1c1917;}'
+      + '#piyasaExpectedOverlay .gea-arrow{color:#a8a29e;font-weight:600;}'
+      + '#piyasaExpectedOverlay .gea-muted{color:#a8a29e;font-weight:600;}'
+      + '#piyasaExpectedOverlay .gea-meta{margin-top:3px;font-size:12px;color:#78716c;}'
+      + '#piyasaExpectedOverlay .gea-status{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;background:#f0fdf4;color:#166534;font-size:11px;font-weight:700;}'
+      + '#piyasaExpectedOverlay .gea-mini,#piyasaExpectedOverlay .gea-del{height:32px;padding:0 10px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;background:#fff;white-space:nowrap;}'
+      + '#piyasaExpectedOverlay .gea-mini{border:1px solid #e7e5e4;color:#44403c;}'
+      + '#piyasaExpectedOverlay .gea-mini:hover{background:#fafaf9;}'
+      + '#piyasaExpectedOverlay .gea-del{border:1px solid #fecaca;color:#b91c1c;}'
+      + '#piyasaExpectedOverlay .gea-del:hover{background:#fef2f2;}'
+      + '#piyasaExpectedOverlay .gea-input{width:100%;box-sizing:border-box;margin-top:8px;height:36px;border:1px solid #e7e5e4;border-radius:8px;padding:0 10px;font:inherit;font-size:13px;background:#fff;color:#1c1917;outline:none;}'
+      + '#piyasaExpectedOverlay .gea-input:focus{border-color:#c2410c;}'
+      + '#piyasaExpectedOverlay .gea-editor{width:100%;flex:1 1 100%;min-width:0;}'
+      + '#piyasaExpectedOverlay .gea-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;}'
+      + '#piyasaExpectedOverlay .gea-field{display:block;font-size:11px;font-weight:700;color:#57534e;}'
+      + '#piyasaExpectedOverlay .gea-editor-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;}'
+      + '#piyasaExpectedOverlay .gea-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid #e7e5e4;background:#fff;}'
+      + '#piyasaExpectedOverlay .gea-btn{height:36px;padding:0 14px;border-radius:8px;border:1px solid #e7e5e4;background:#fff;color:#292524;font-size:13px;font-weight:700;cursor:pointer;}'
+      + '#piyasaExpectedOverlay .gea-btn:hover{background:#f5f5f4;}'
+      + '#piyasaExpectedOverlay .gea-btn-primary{background:#c2410c;border-color:#c2410c;color:#fff;}'
+      + '#piyasaExpectedOverlay .gea-btn-primary:hover{background:#9a3412;}'
+      + '@media (max-width:640px){#piyasaExpectedOverlay .gea-grid{grid-template-columns:1fr;}#piyasaExpectedOverlay .gea-saved{flex-wrap:wrap;}}'
+      + '</style>'
+      + '<div class="gea-head">'
+      + '<div class="gea-head-main">'
+      + '<div class="gea-mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7h11v8H3V7z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 10h3.2L20 13v2h-6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.4" fill="currentColor"/><circle cx="17" cy="17.5" r="1.4" fill="currentColor"/></svg></div>'
+      + '<div><div class="gea-title">Gelen araç</div>'
+      + '<div class="gea-sub">WhatsApp metnini yapıştır. Sipariş, yüklü Excel’in tamamında aranır.</div></div>'
       + '</div>'
-      + '<div style="padding:12px 16px;">'
-      + '<div style="font-size:13px;color:#475569;margin-bottom:8px;">WhatsApp metnini yapıştır. Sipariş listesi yüklü Excel’in tamamıdır; M24 yazarak ara.</div>'
-      + '<textarea id="piyasaExpectedPaste" rows="8" style="width:100%;border:1px solid #ddd;border-radius:10px;padding:10px;font:inherit;"></textarea>'
+      + '<button type="button" id="piyasaExpectedX" class="gea-x" aria-label="Kapat">×</button>'
+      + '</div>'
+      + '<div class="gea-body">'
+      + '<label class="gea-label" for="piyasaExpectedPaste">WhatsApp metni</label>'
+      + '<textarea id="piyasaExpectedPaste" class="gea-paste" rows="7" placeholder="Metni buraya yapıştır…"></textarea>'
       + '<div id="piyasaExpectedPreview"></div>'
       + '<div id="piyasaExpectedSaved"></div>'
       + '</div>'
-      + '<div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #eee;">'
-      + '<button type="button" id="piyasaExpectedClose" style="border:0;background:#e5e7eb;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Kapat</button>'
-      + '<button type="button" id="piyasaExpectedSave" style="border:0;background:#111827;color:#fff;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Kaydet</button>'
+      + '<div class="gea-foot">'
+      + '<button type="button" id="piyasaExpectedClose" class="gea-btn">Kapat</button>'
+      + '<button type="button" id="piyasaExpectedSave" class="gea-btn gea-btn-primary">Kaydet</button>'
       + '</div></div>';
     document.body.appendChild(overlay);
     if (typeof markPiyasaModalLayer === 'function') markPiyasaModalLayer(overlay);

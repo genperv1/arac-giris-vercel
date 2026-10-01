@@ -26,6 +26,12 @@ function registerAmirNoticeRoutes(api, ctx) {
     return String((user && (user.username || user.id)) || '').trim().toLowerCase();
   }
 
+  function noticeClient(req) {
+    const body = req && req.body && req.body.client;
+    const query = req && req.query && req.query.client;
+    return String(body || query || '').trim();
+  }
+
   async function readItems() {
     const r = await q('SELECT value FROM kv_store WHERE key = $1', [NOTICE_KV]);
     if (!r.rows[0]) return [];
@@ -86,7 +92,7 @@ function registerAmirNoticeRoutes(api, ctx) {
 
   api.get('/amir-notices', requireAmir, async (req, res) => {
     try {
-      const items = unreadGirisNotices(await readItems(), noticeUser(req));
+      const items = unreadGirisNotices(await readItems(), noticeUser(req), Date.now(), noticeClient(req));
       return res.json({ ok: true, items });
     } catch (err) {
       return sendApiError(res, err, 500, 'AMIR_NOTICE_READ_FAILED');
@@ -99,7 +105,7 @@ function registerAmirNoticeRoutes(api, ctx) {
       const user = noticeUser(req);
       const result = await withLock(async () => {
         const current = await readItems();
-        const next = ackGirisNotice(current, id, user, Date.now());
+        const next = ackGirisNotice(current, id, user, Date.now(), noticeClient(req));
         if (next.ok) await writeItems(next.items);
         return next.ok;
       });

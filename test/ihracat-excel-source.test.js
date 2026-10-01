@@ -361,11 +361,12 @@ test('her Excel dosyasının konumu ayrı saklanır', () => {
   assert.match(clientCode, /if \(key\) store\.put\(handle, key\)/);
   assert.match(clientCode, /function primeHandlePermissions/);
   assert.match(clientCode, /primeHandlePermissions\(picked\)/);
-  assert.match(clientCode, /function openExcelPicker/);
+  assert.match(clientCode, /function openFolderPicker/);
   assert.match(clientCode, /namesLackHandle\(picked\)/);
   assert.match(clientCode, /function serverCanSeeLocalExcel/);
-  assert.match(clientCode, /function offerRepick/);
-  assert.match(clientCode, /Dosyaları seç/);
+  assert.match(clientCode, /function persistDirHandle/);
+  assert.match(clientCode, /ihracat_dir/);
+  assert.doesNotMatch(clientCode, /Dosyaları seç/);
   assert.match(clientCode, /namedHandle = handleForName\(wanted\)/);
   assert.match(clientCode, /if \(handleOk\) return namedFile/);
   const refreshFn = clientCode.slice(

@@ -26,69 +26,73 @@
       : _g1DateLabelFromBlock(pickerViewSheet) || getPiyasaG1DateLabel();
     const g1DateHtml = g1DateLabel
       ? `<div id="piyasaG1DateBadge" style="flex:1;display:flex;align-items:center;justify-content:center;min-width:0;padding:0 16px;">
-           <span style="font-size:clamp(24px,3.5vw,36px);font-weight:800;color:#4338ca;letter-spacing:-0.02em;line-height:1.1;white-space:nowrap;">${escapeHtml(g1DateLabel)}</span>
+           <span style="font-size:clamp(16px,2.4vw,32px);font-weight:800;color:#4338ca;letter-spacing:-0.02em;line-height:1.1;white-space:normal;overflow-wrap:anywhere;text-align:center;">${escapeHtml(g1DateLabel)}</span>
          </div>`
       : `<div id="piyasaG1DateBadge" style="flex:1;min-width:0;"></div>`;
     const overlay = document.createElement('div');
     overlay.id = 'piyasaOrderPickerOverlay';
     overlay.setAttribute('data-piyasa-order-picker', '1');
-    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_BASE);
+    overlay.style.cssText = piyasaOverlayStyle(PIYASA_Z_BASE) + 'padding:14px;overflow:hidden;align-items:stretch;justify-content:stretch;box-sizing:border-box;';
     const durumFreezeBanner = isDurumFrozen() && _durumStatus.message
       ? `<div style="padding:8px 14px;background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;border-bottom:1px solid #fde68a;">⏸ ${escapeHtml(_durumStatus.message)}</div>`
       : '';
     overlay.innerHTML = `
-      <div style="position:relative;z-index:1;background:#fff;border-radius:14px;max-width:min(96vw,1400px);width:100%;max-height:88vh;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;">
+      <div style="position:relative;z-index:1;background:#fff;border-radius:14px;width:100%;height:100%;max-width:100%;max-height:100%;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;box-shadow:0 18px 50px rgba(0,0,0,.35);">
         ${durumFreezeBanner}
-        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #eee;">
-          <div style="flex:0 1 auto;min-width:0;">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #eee;flex-wrap:wrap;min-width:0;max-width:100%;box-sizing:border-box;">
+          <div style="flex:0 1 auto;min-width:0;max-width:100%;">
             <div style="font-weight:900;">Piyasa Sipariş Seç</div>
-            <div id="duplicateWarning" style="font-size:12px;color:#000;background:#FFD700;padding:4px 8px;border-radius:4px;display:none;margin-top:4px;">⚠️ BENZER SİPARİŞ VAR — HP için yükleme türü + şehir, diğerleri için firma/malzeme sütunlarına dikkat edin</div>
+            <div id="duplicateWarning" style="font-size:12px;color:#6b5344;background:#faf6f1;border:1px solid #eadfce;padding:4px 8px;border-radius:8px;display:none;margin-top:4px;">Benzer sipariş var — HP için yükleme türü ve şehir, diğerleri için firma ve malzeme sütunlarına bakın</div>
           </div>
           ${g1DateHtml}
-          <div style="flex:0 1 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+          <div style="flex:1 1 220px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%;">
             ${skippedCount ? `<button type="button" id="piyasaSkippedBtn" style="border:0;background:#fef3c7;color:#92400e;border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;font-weight:700;">Elenen satırlar (${skippedCount})</button>` : ''}
             ${searchAllSheets
-              ? `<div style="font-size:12px;color:#4338ca;font-weight:700;white-space:nowrap;">${state.week != null ? `${state.week}. hafta — tüm sayfalar` : 'Bu haftanın tüm sayfalarında ara'}</div>`
-              : `<label style="font-size:12px;color:#666;display:flex;align-items:center;gap:6px;white-space:nowrap;">
+              ? `<div style="font-size:12px;color:#4338ca;font-weight:700;white-space:normal;min-width:0;">${state.week != null ? `${state.week}. hafta — tüm sayfalar` : 'Bu haftanın tüm sayfalarında ara'}</div>`
+              : `<label style="font-size:12px;color:#666;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;max-width:100%;">
                   <span>Sheet:</span>
                   <select id="piyasaPickerSheet" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:12px;font-weight:700;max-width:min(42vw,240px);cursor:pointer;"></select>
                 </label>`}
             <button id="piyasaModalClose" style="border:0;background:#eee;border-radius:10px;padding:6px 10px;cursor:pointer;">Kapat</button>
           </div>
         </div>
-        <div style="padding:10px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #eee;flex-wrap:wrap;">
-          <input id="piyasaSearch" placeholder="${searchAllSheets ? (state.week != null ? `Firma / Malzeme / İl ara… (${state.week}. hafta, tüm sayfalar)` : 'Firma / Malzeme / İl ara… (bu hafta, tüm sayfalar)') : 'Firma / Malzeme / İl ara… (seçili sheet)'}" style="flex:1;min-width:200px;padding:10px;border:1px solid #ddd;border-radius:10px;">
-          <select id="piyasaSevkiyatFilter" style="padding:10px;border:1px solid #ddd;border-radius:10px;font-size:13px;" title="Excel SEVKİYAT TİPİ">
+        <div class="piyasa-toolbar">
+          <input id="piyasaSearch" class="piyasa-tool-search" placeholder="${searchAllSheets ? (state.week != null ? `Firma / Malzeme / İl ara… (${state.week}. hafta, tüm sayfalar)` : 'Firma / Malzeme / İl ara… (bu hafta, tüm sayfalar)') : 'Firma / Malzeme / İl ara… (seçili sheet)'}" >
+          <select id="piyasaSevkiyatFilter" class="piyasa-tool-select" title="Excel SEVKİYAT TİPİ">
             <option value="all">Tüm siparişler</option>
             <option value="Yİ-GP">Yİ-GP</option>
             <option value="Yİ-HP">Yİ-HP</option>
           </select>
-          ${clientIsAmir() ? '<button type="button" id="piyasaExpectedBtn" title="WhatsApp’tan gelecek araç" style="border:0;background:#9a3412;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">Gelen araç</button>' : ''}
-          <button type="button" id="piyasaCustomerListBtn" title="Sabit müşteri/bayi listesi" style="border:0;background:#0f766e;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">📋 Müşteri Listesi</button>
-          <button type="button" id="piyasaPrintBtn" title="A4 yatay yazdır — Kenar: Yok, Ölçek: %100" style="position:relative;z-index:5;border:0;background:#4f46e5;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;pointer-events:auto;">🖨️ Yazdır</button>
-          <div style="font-size:12px;color:#666;min-width:140px;text-align:right;" id="piyasaCount"></div>
+          <div class="piyasa-tool-actions">
+            ${clientIsAmir() ? '<button type="button" id="piyasaExpectedBtn" class="piyasa-tool-btn is-expected" title="WhatsApp’tan gelecek araç"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7h11v8H3V7z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 10h3.2L20 13v2h-6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.4" fill="currentColor"/><circle cx="17" cy="17.5" r="1.4" fill="currentColor"/></svg><span>Gelen araç</span></button>' : ''}
+            <button type="button" id="piyasaCustomerListBtn" class="piyasa-tool-btn is-customers" title="Sabit müşteri/bayi listesi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9" cy="8" r="2.4" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 17.5c.6-2.2 2.4-3.5 4.5-3.5s3.9 1.3 4.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="16.2" cy="8.5" r="1.8" stroke="currentColor" stroke-width="1.7"/><path d="M16 14c1.6.2 2.9 1.2 3.5 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Müşteri listesi</span></button>
+            <div id="piyasaCount" class="piyasa-tool-count"></div>
+          </div>
         </div>
-        <div id="piyasaTableScroll" style="padding:0 14px 14px;overflow-x:hidden;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;">
-          <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;">
+        <div id="piyasaTableScroll" style="padding:0 8px 8px;overflow-x:hidden;overflow-y:auto;flex:1;min-width:0;min-height:0;max-width:100%;width:100%;box-sizing:border-box;-webkit-overflow-scrolling:touch;">
+          <table style="width:100%;max-width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;">
             <colgroup>
-              <col style="width:3%">
-              <col style="width:5%">
-              <col style="width:5%">
-              <col style="width:9%">
-              <col style="width:8%">
-              <col style="width:9%">
-              <col style="width:7%">
-              <col style="width:7%">
               <col style="width:4%">
               <col style="width:8%">
               <col style="width:8%">
-              <col style="width:21%">
+              <col style="width:5%">
+              <col style="width:7%">
+              <col style="width:8%">
+              <col style="width:8%">
               <col style="width:6%">
+              <col style="width:5%">
+              <col style="width:4%">
+              <col style="width:6%">
+              <col style="width:6%">
+              <col style="width:13%">
+              <col style="width:9%">
+              <col style="width:3%">
             </colgroup>
             <thead>
               <tr style="background:#f6f6f6;position:sticky;top:0;z-index:2;">
-                <th style="text-align:center;padding:6px 4px;border:1px solid #eee;white-space:nowrap;font-size:10px;">#</th>
-                <th style="text-align:center;padding:6px 2px;border:1px solid #eee;white-space:nowrap;font-size:9px;">DURUM</th>
+                <th style="text-align:center;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;">SIRA<br>NO</th>
+                <th style="text-align:center;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;" title="Excel: PLANLANAN SEV TARİHİ">PLANLANAN<br>SEV</th>
+                <th style="text-align:center;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;" title="Excel: FİİLİ SEVK ÇIKIŞ TARİHİ. Tarihi geçen satır soluk, Seç ve Düzenle kapalı.">FİİLİ<br>ÇIKIŞ</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">FİRMA</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">SİP NO</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">FİRMA<br>ADI</th>
@@ -98,46 +102,167 @@
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;">ORG</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">ŞEHİR</th>
                 <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;word-break:break-word;">MİKTAR</th>
-                <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;" title="Tıklayınca açılır">AÇIKLAMA</th>
-                <th style="text-align:center;padding:6px 4px;border:1px solid #eee;white-space:nowrap;font-size:10px;">SEÇ</th>
+                <th style="text-align:left;padding:6px 4px;border:1px solid #eee;white-space:normal;line-height:1.2;font-size:10px;" title="Excel açıklamasındaki renk ve satır düzeni">AÇIKLAMA</th>
+                <th style="text-align:center;padding:6px 2px;border:1px solid #eee;white-space:normal;font-size:10px;">SEÇ</th>
+                <th style="text-align:center;padding:4px 1px;border:1px solid #eee;white-space:normal;font-size:8px;">DURUM</th>
               </tr>
             </thead>
             <tbody id="piyasaTbody"></tbody>
           </table>
         </div>
         <style>
-          #piyasaOrderPickerOverlay .piyasa-sipno-cell {
-            white-space: nowrap;
+          #piyasaOrderPickerOverlay, #piyasaOrderPickerOverlay * { box-sizing: border-box; }
+          #piyasaOrderPickerOverlay { overflow: hidden !important; }
+          #piyasaOrderPickerOverlay table { width: 100%; max-width: 100%; table-layout: fixed; }
+          #piyasaOrderPickerOverlay th,
+          #piyasaOrderPickerOverlay td {
             overflow: hidden;
-            text-overflow: ellipsis;
-            word-break: keep-all;
-            overflow-wrap: normal;
+            min-width: 0;
+            max-width: 100%;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            white-space: normal;
+            border-left: 1px solid #6f6862 !important;
+            border-right: 1px solid #6f6862 !important;
+            border-top: 1px solid #cfc9c2 !important;
+            border-bottom: 1px solid #cfc9c2 !important;
+          }
+          #piyasaOrderPickerOverlay thead th {
+            border-bottom: 2px solid #44403c !important;
+          }
+          #piyasaOrderPickerOverlay tbody tr td {
+            transition: box-shadow .12s ease;
+          }
+          #piyasaOrderPickerOverlay tbody tr:hover td {
+            box-shadow: inset 0 0 0 999px rgba(67, 56, 202, 0.13);
+          }
+          #piyasaOrderPickerOverlay tbody tr:hover td:first-child {
+            box-shadow: inset 4px 0 0 #4338ca, inset 0 0 0 999px rgba(67, 56, 202, 0.13);
+          }
+          #piyasaOrderPickerOverlay td button { max-width: 100%; white-space: normal; }
+          #piyasaOrderPickerOverlay .piyasa-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 10px 14px;
+            border-bottom: 1px solid #e7e5e4;
+            background: #fafaf9;
+            min-width: 0;
+            max-width: 100%;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-search,
+          #piyasaOrderPickerOverlay .piyasa-tool-select {
+            height: 36px;
+            border: 1px solid #e7e5e4;
+            border-radius: 8px;
+            background: #fff;
+            color: #1c1917;
+            font-size: 13px;
+            padding: 0 12px;
+            outline: none;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-search {
+            flex: 1 1 220px;
+            min-width: 0;
+            max-width: 100%;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-search:focus,
+          #piyasaOrderPickerOverlay .piyasa-tool-select:focus {
+            border-color: #a8a29e;
+            box-shadow: 0 0 0 3px rgba(28, 25, 23, 0.06);
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-select { cursor: pointer; max-width: 100%; }
+          #piyasaOrderPickerOverlay .piyasa-tool-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            min-width: 0;
+            max-width: 100%;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 36px;
+            padding: 0 12px;
+            border: 1px solid #e7e5e4;
+            border-radius: 8px;
+            background: #fff;
+            color: #292524;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1;
+            cursor: pointer;
+            white-space: nowrap;
+            max-width: 100%;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-btn:hover {
+            background: #f5f5f4;
+            border-color: #d6d3d1;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-btn.is-expected {
+            background: #c2410c;
+            border-color: #c2410c;
+            color: #fff;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-btn.is-expected:hover { background: #9a3412; }
+          #piyasaOrderPickerOverlay .piyasa-tool-btn.is-customers {
+            background: #0f766e;
+            border-color: #0f766e;
+            color: #fff;
+          }
+          #piyasaOrderPickerOverlay .piyasa-tool-btn.is-customers:hover { background: #115e59; }
+          #piyasaOrderPickerOverlay .piyasa-tool-count {
+            margin-left: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #78716c;
+            line-height: 1.3;
+            min-width: 0;
+          }
+          #piyasaOrderPickerOverlay [data-history-key] { width: 100% !important; max-width: 26px; min-width: 0; height: auto; padding: 2px; }
+          #piyasaOrderPickerOverlay .piyasa-sipno-cell {
+            white-space: normal;
+            overflow: hidden;
+            word-break: break-all;
+            overflow-wrap: anywhere;
             font-size: 11px;
             letter-spacing: -0.02em;
           }
           #piyasaOrderPickerOverlay .piyasa-aciklama-text {
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 4;
             overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            line-height: 1.45;
-          }
-          #piyasaOrderPickerOverlay .piyasa-aciklama-cell.is-open .piyasa-aciklama-text {
             white-space: normal;
-            overflow: visible;
-            text-overflow: unset;
             word-break: break-word;
             overflow-wrap: anywhere;
+            line-height: 1.35;
+            max-height: 5.4em;
+            min-height: 1.35em;
+          }
+          #piyasaOrderPickerOverlay .piyasa-aciklama-cell.is-open .piyasa-aciklama-text {
+            display: block;
+            -webkit-line-clamp: unset;
+            max-height: none;
+            overflow: visible;
+            white-space: pre-wrap;
           }
           #piyasaOrderPickerOverlay .piyasa-aciklama-cell[data-aciklama-toggle="1"] { cursor: pointer; }
           #piyasaOrderPickerOverlay .piyasa-aciklama-cell[data-aciklama-toggle="1"]:hover { filter: brightness(0.97); }
         </style>
       </div>
     `;
+    const prevBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     document.body.appendChild(overlay);
 
     const close = ()=> {
       _pickerRenderHook = null;
       window.__piyasaPickerOpen = false;
+      document.body.style.overflow = prevBodyOverflow;
       try { delete window.__piyasaCloseOrderPicker; } catch (_) { window.__piyasaCloseOrderPicker = null; }
       overlay.remove();
       document.removeEventListener('keydown', handleEsc, true);
@@ -171,14 +296,22 @@
     const CELL_WRAP_EXTRA = 'white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;vertical-align:middle;';
     const SEHIR_CELL_EXTRA = CELL_WRAP_EXTRA;
     const MIKTAR_CELL_EXTRA = CELL_WRAP_EXTRA;
-    const SIPNO_CELL_EXTRA = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;word-break:keep-all;overflow-wrap:normal;vertical-align:middle;font-size:11px;';
+    const SIPNO_CELL_EXTRA = 'white-space:normal;overflow:hidden;word-break:break-all;overflow-wrap:anywhere;vertical-align:middle;font-size:11px;';
     const ACIKLAMA_CELL_EXTRA = 'vertical-align:middle;font-size:11px;color:#1e293b;max-width:0;';
     const SELECT_CELL_EXTRA = 'white-space:nowrap;text-align:center;vertical-align:middle;';
-    const STATUS_CELL_EXTRA = 'white-space:nowrap;text-align:center;vertical-align:middle;font-size:10px;padding:4px 2px;';
+    const STATUS_CELL_EXTRA = 'white-space:nowrap;text-align:center;vertical-align:middle;font-size:10px;padding:4px 1px;';
     const NO_CELL_EXTRA = 'white-space:nowrap;text-align:center;vertical-align:middle;font-weight:700;';
+
+    const ACIKLAMA_PREVIEW_LIMIT = 100;
 
     function formatAciklamaHtml(text) {
       return escapeHtml(String(text || '').trim()).replace(/\r\n/g, '\n').replace(/\n/g, '<br>');
+    }
+
+    function clipAciklamaPreview(text) {
+      const s = String(text || '').replace(/\s+/g, ' ').trim();
+      if (s.length <= ACIKLAMA_PREVIEW_LIMIT) return s;
+      return s.slice(0, ACIKLAMA_PREVIEW_LIMIT).trimEnd() + '…';
     }
 
     /** Şehir: ANKARA/BALA → ANKARA/<br>BALA */
@@ -307,51 +440,65 @@
       const isUsed = !!o.usedAt;
       const printCount = getOrderPrintCount(o);
       const statusInner = buildOrderStatusCell(o, forPrint);
+      const fiiliSevkLabel = String(o.fiiliSevkCikis || '').trim();
+      const fiiliSevkPast = typeof isOrderFiiliSevkPast === 'function' && isOrderFiiliSevkPast(o);
 
       const normalStyle = 'padding:6px 4px;border:1px solid #eee;' + CELL_WRAP_EXTRA;
       const usedStyle = 'padding:6px 4px;border:1px solid #eee;background:#f3f4f6;color:#6b7280;' + CELL_WRAP_EXTRA;
-      const redStyle = 'padding:6px 4px;border:1px solid #eee;background:#111210;color:#FFBF00;font-weight:bold;' + CELL_WRAP_EXTRA;
-      const highlightStyle = 'padding:6px 4px;border:1px solid #eee;background:#111210;color:#FFBF00;font-weight:bold;font-size:13px;' + CELL_WRAP_EXTRA;
-      const printDupClass = forPrint ? '' : (isDuplicate ? ' class="piyasa-print-dup"' : '');
-      const printUsedClass = forPrint ? '' : ((!isDuplicate && (isUsed || printCount > 0)) ? ' class="piyasa-print-used"' : '');
+      const dupStyle = 'padding:6px 4px;border:1px solid #f0e6da;background:#faf6f1;color:#3f342c;font-weight:600;' + CELL_WRAP_EXTRA;
+      const dupMarkStyle = 'padding:6px 4px;border:1px solid #eadfce;background:#f3ebe1;color:#6b4423;font-weight:700;' + CELL_WRAP_EXTRA;
+      const pastStyle = 'padding:6px 4px;border:1px solid #e7e5e4;background:#f7f6f5;color:#a8a29e;' + CELL_WRAP_EXTRA;
+      const printDupClass = forPrint ? '' : (fiiliSevkPast ? '' : (isDuplicate ? ' class="piyasa-print-dup"' : ''));
+      const printUsedClass = forPrint ? '' : ((!fiiliSevkPast && !isDuplicate && (isUsed || printCount > 0)) ? ' class="piyasa-print-used"' : '');
       const cellStyle = (highlight) => {
-        if (isDuplicate) return highlight ? highlightStyle : redStyle;
+        if (fiiliSevkPast) return pastStyle;
+        if (isDuplicate) return highlight ? dupMarkStyle : dupStyle;
         if (isUsed || printCount >= 2) return usedStyle;
         if (printCount === 1) return normalStyle + 'background:#f0fdf4;';
         return normalStyle;
       };
-      const aciklamaFull = String(o.aciklama || '').trim();
-      const aciklamaOneLine = aciklamaFull.replace(/\s+/g, ' ');
+      let aciklamaFull = String(o.aciklama || '').trim();
+      if (/^#?[0-9A-Fa-f]{6}$/.test(aciklamaFull)) aciklamaFull = '';
       const miktarFull = String(o.miktar || '').trim();
       const sehirFull = String(o.il || o.sevkYeri || '').trim();
-      const sehirCellStyle = `${isDuplicate ? redStyle : cellStyle(false)}${SEHIR_CELL_EXTRA}`;
-      const miktarCellStyle = `${isDuplicate ? redStyle : cellStyle(false)}${MIKTAR_CELL_EXTRA}${isDuplicate ? 'color:#FFBF00;' : ''}`;
-      const sipNoCellStyle = `${isDuplicate ? redStyle : cellStyle(false)}${SIPNO_CELL_EXTRA}`;
-      const aciklamaCellStyle = `${cellStyle(false)}${ACIKLAMA_CELL_EXTRA}${isDuplicate ? 'color:#FFBF00;font-weight:bold;' : ''}`;
-      const selectBg = isDuplicate ? '#111210' : (isUsed ? '#f3f4f6' : '#fff');
+      const sehirCellStyle = `${fiiliSevkPast ? pastStyle : (isDuplicate ? dupStyle : cellStyle(false))}${SEHIR_CELL_EXTRA}`;
+      const miktarCellStyle = `${fiiliSevkPast ? pastStyle : (isDuplicate ? dupMarkStyle : cellStyle(false))}${MIKTAR_CELL_EXTRA}`;
+      const sipNoCellStyle = `${fiiliSevkPast ? pastStyle : (isDuplicate ? dupStyle : cellStyle(false))}${SIPNO_CELL_EXTRA}`;
+      const aciklamaCellStyle = `${cellStyle(false)}${ACIKLAMA_CELL_EXTRA}`;
+      const selectBg = fiiliSevkPast ? '#f7f6f5' : (isDuplicate ? '#faf6f1' : (isUsed ? '#f3f4f6' : '#fff'));
       const selectCellStyle = `${cellStyle(false)}${SELECT_CELL_EXTRA}background:${selectBg};text-align:center;`;
       const aciklamaInner = formatAciklamaHtml(aciklamaFull) || '<span style="color:#9ca3af;">—</span>';
+      const aciklamaPreview = clipAciklamaPreview(aciklamaFull);
+      const aciklamaCanOpen = aciklamaFull.replace(/\s+/g, ' ').trim().length > ACIKLAMA_PREVIEW_LIMIT;
+      const aciklamaRenk = (aciklamaFull && !forPrint && /^#[0-9A-Fa-f]{6}$/.test(String(o.aciklamaRenk || ''))) ? String(o.aciklamaRenk) : '';
+      const aciklamaExcelStyle = aciklamaRenk ? `background:${aciklamaRenk};color:#111827;` : '';
       const aciklamaTd = forPrint
         ? `<td class="col-acik"${printDupClass || printUsedClass}>${aciklamaInner}</td>`
-        : `<td class="piyasa-aciklama-cell" data-aciklama-toggle="${aciklamaFull ? '1' : '0'}" data-full="${escapeHtml(aciklamaFull)}" style="${aciklamaCellStyle}" title="${escapeHtml(aciklamaFull || '')}">
-            <div class="piyasa-aciklama-text" style="font-size:11px;line-height:1.45;color:inherit;">${aciklamaOneLine ? escapeHtml(aciklamaOneLine) : '<span style="color:#9ca3af;">—</span>'}</div>
+        : `<td class="piyasa-aciklama-cell" data-aciklama-toggle="${aciklamaCanOpen ? '1' : '0'}" data-full="${escapeHtml(aciklamaFull)}" data-preview="${escapeHtml(aciklamaPreview)}" style="${aciklamaCellStyle}${aciklamaExcelStyle}" title="${escapeHtml(aciklamaCanOpen ? 'Tıklayınca tam açıklama açılır' : (aciklamaFull || ''))}">
+            <div class="piyasa-aciklama-text" style="font-size:11px;line-height:1.35;color:inherit;">${aciklamaPreview ? escapeHtml(aciklamaPreview) : '<span style="color:#9ca3af;">—</span>'}</div>
           </td>`;
       const statusTd = forPrint
         ? `<td class="col-durum"${printDupClass || printUsedClass}>${statusInner || '—'}</td>`
         : `<td${printDupClass || printUsedClass} style="${cellStyle(false)}${STATUS_CELL_EXTRA}">${statusInner}</td>`;
-      const rowClass = forPrint && isDuplicate ? ' class="piyasa-print-strong"' : '';
-      const rowStyle = (!forPrint && isUsed && !isDuplicate && printCount < 2) ? ' style="opacity:.92;"' : '';
+      const rowClass = forPrint && isDuplicate && !fiiliSevkPast ? ' class="piyasa-print-strong"' : '';
+      const rowStyle = fiiliSevkPast
+        ? ' title="Fiili sevk çıkış tarihi geçti"'
+        : ((!forPrint && isDuplicate)
+          ? ' style="box-shadow:inset 3px 0 0 #c4a484;"'
+          : ((!forPrint && isUsed && printCount < 2) ? ' style="opacity:.92;"' : ''));
       const weekBadge = (showWeek && (o._weekLabel || o._sourceSheet))
-        ? `<span style="font-size:9px;color:${o._isCurrentWeek ? '#059669' : '#6366f1'};font-weight:700;display:block;margin-top:2px;line-height:1.2;">${escapeHtml([o._weekLabel, o._sourceSheet].filter(Boolean).join(' · '))}</span>`
+        ? `<span style="display:block;margin-top:2px;max-width:100%;overflow:hidden;font-size:8px;line-height:1.15;font-weight:700;word-break:break-word;color:${o._isCurrentWeek ? '#059669' : '#6366f1'};">${escapeHtml([o._weekLabel, o._sourceSheet].filter(Boolean).join(' · '))}</span>`
         : '';
-      const noCellStyle = forPrint ? '' : `${cellStyle(false)}${NO_CELL_EXTRA}`;
+      const noCellStyle = forPrint ? '' : `${cellStyle(false)}${NO_CELL_EXTRA}overflow:hidden;`;
 
       const sipNo = String(o.sipNo || '').trim();
       const pickKey = String(o._pickKey || o.__idx);
-      const canEdit = !forPrint && clientIsAmir();
+      const showEdit = !forPrint && clientIsAmir();
+      const canEdit = showEdit;
       const isEditing = canEdit && editingPickKey === pickKey;
       const draftSip = isEditing && editDraft ? String(editDraft.sipNo || '') : sipNo;
       const draftAcik = isEditing && editDraft ? String(editDraft.aciklama || '') : aciklamaFull;
+      const draftFiili = isEditing && editDraft ? String(editDraft.fiiliSevkCikis || '') : fiiliSevkLabel;
       const sipCell = isEditing
         ? `<td class="piyasa-sipno-cell" style="${sipNoCellStyle}">
             <input class="piyasa-edit-sip" data-edit-key="${escapeHtml(pickKey)}" maxlength="40" value="${escapeHtml(draftSip)}" placeholder="Sipariş no" style="width:100%;box-sizing:border-box;padding:4px;border:1px solid #d97706;border-radius:6px;font-size:11px;font-weight:700;">
@@ -362,20 +509,41 @@
             <textarea class="piyasa-edit-acik" data-edit-key="${escapeHtml(pickKey)}" maxlength="500" rows="3" placeholder="Açıklama" style="width:100%;box-sizing:border-box;padding:4px;border:1px solid #d97706;border-radius:6px;font-size:11px;resize:vertical;">${escapeHtml(draftAcik)}</textarea>
           </td>`
         : aciklamaTd;
-      const editActions = !canEdit ? '' : (isEditing
-        ? `<div style="display:flex;flex-direction:column;gap:4px;align-items:center;margin-bottom:4px;">
-            <button type="button" data-save-key="${escapeHtml(pickKey)}" style="cursor:pointer;border:0;background:#b45309;color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;font-weight:800;">Kaydet</button>
-            <button type="button" data-cancel-edit="1" style="cursor:pointer;border:0;background:#e5e7eb;color:#111;border-radius:8px;padding:4px 8px;font-size:10px;">Vazgeç</button>
+      const pickerBtn = 'display:block;width:100%;max-width:100%;box-sizing:border-box;min-height:28px;min-width:0;border:0;border-radius:8px;font-size:11px;font-weight:800;line-height:1.15;white-space:normal;overflow-wrap:anywhere;padding:4px 2px;';
+      const editLive = pickerBtn + 'cursor:pointer;background:#fff7ed;color:#9a3412;';
+      const pickLive = pickerBtn + `cursor:pointer;background:${isUsed ? '#57534e' : '#292524'};color:#fff;`;
+      const editActions = !showEdit ? '' : (isEditing
+        ? `<div style="display:flex;flex-direction:column;gap:4px;width:100%;">
+            <button type="button" data-save-key="${escapeHtml(pickKey)}" style="${pickerBtn}cursor:pointer;background:#9a3412;color:#fff;">Kaydet</button>
+            <button type="button" data-cancel-edit="1" style="${pickerBtn}cursor:pointer;background:#f5f5f4;color:#44403c;font-weight:700;">Vazgeç</button>
           </div>`
-        : `<button type="button" data-edit-key="${escapeHtml(pickKey)}" style="cursor:pointer;border:0;background:#fff7ed;color:#9a3412;border-radius:8px;padding:4px 8px;font-size:10px;font-weight:800;margin-bottom:4px;">Düzenle</button>`);
+          : `<button type="button" data-edit-key="${escapeHtml(pickKey)}" style="${editLive}">Düzenle</button>`);
+      const fiiliSevkTd = forPrint
+        ? `<td style="white-space:nowrap;">${fiiliSevkLabel ? escapeHtml(fiiliSevkLabel) : '—'}${fiiliSevkPast ? '<br>geçti' : ''}</td>`
+        : (isEditing
+          ? `<td style="${cellStyle(false)}overflow:hidden;text-align:center;">
+              <input class="piyasa-edit-fiili" data-edit-key="${escapeHtml(pickKey)}" maxlength="10" value="${escapeHtml(draftFiili)}" placeholder="gg.aa.yyyy" title="Fiili çıkış tarihi" style="width:100%;box-sizing:border-box;padding:4px 2px;border:1px solid #d97706;border-radius:6px;font-size:11px;font-weight:700;text-align:center;">
+            </td>`
+          : `<td style="${cellStyle(false)}overflow:hidden;text-align:center;line-height:1.15;" title="${escapeHtml(fiiliSevkPast ? 'Fiili sevk çıkış tarihi geçti' : 'Fiili sevk çıkış tarihi')}">
+            <div style="white-space:normal;overflow-wrap:anywhere;font-size:11px;font-weight:700;">${fiiliSevkLabel ? escapeHtml(fiiliSevkLabel) : '<span style="color:#a8a29e;font-weight:500;">—</span>'}</div>
+            ${fiiliSevkPast ? '<div style="white-space:normal;font-size:9px;font-weight:700;letter-spacing:.04em;color:#a8a29e;margin-top:2px;">geçti</div>' : ''}
+          </td>`);
       const selectTdLive = forPrint ? '' : `<td style="${selectCellStyle}">
-            ${editActions}
-            <button type="button" data-pick-key="${escapeHtml(pickKey)}" style="cursor:pointer;border:0;background:${isUsed ? '#4b5563' : '#111827'};color:#fff;border-radius:8px;padding:5px 8px;font-size:11px;">Seç</button>
+            <div style="display:flex;flex-direction:column;gap:4px;width:100%;align-items:stretch;">
+              ${editActions}
+              <button type="button" data-pick-key="${escapeHtml(pickKey)}" style="${pickLive}">Seç</button>
+            </div>
           </td>`;
+      const siraLabel = String(o.siraNo || o.__idx || '').trim();
+      const planlananLabel = String(o.planlananSev || '').trim();
+      const planlananTd = forPrint
+        ? `<td style="white-space:nowrap;">${planlananLabel ? escapeHtml(planlananLabel) : '—'}</td>`
+        : `<td style="${cellStyle(false)}overflow:hidden;text-align:center;white-space:normal;overflow-wrap:anywhere;font-size:11px;font-weight:700;" title="Planlanan sev tarihi">${planlananLabel ? escapeHtml(planlananLabel) : '<span style="color:#a8a29e;font-weight:500;">—</span>'}</td>`;
       return `
         <tr${rowClass}${rowStyle}>
-          <td${forPrint ? ' class="col-no"' : ''} style="${noCellStyle}">${o.__idx}${weekBadge}</td>
-          ${statusTd}
+          <td${forPrint ? ' class="col-no"' : ''} style="${noCellStyle}">${escapeHtml(siraLabel)}${weekBadge}</td>
+          ${planlananTd}
+          ${fiiliSevkTd}
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(firmaCode)}</td>
           ${sipCell}
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : cellStyle(false)}">${escapeHtml(firmaAdi)}</td>
@@ -387,6 +555,7 @@
           <td${forPrint ? (printDupClass || printUsedClass) : ''} style="${forPrint ? '' : miktarCellStyle}" title="${escapeHtml(miktarFull)}">${escapeHtml(miktarFull)}</td>
           ${aciklamaEditTd}
           ${selectTdLive}
+          ${statusTd}
         </tr>
       `;
     }
@@ -451,7 +620,9 @@
     .piyasa-print-meta b { color: #000; font-weight: 700; }
     .piyasa-print-warn { color: #000; padding: 0 0 4px; margin-bottom: 4px; font-size: 9px; font-weight: 700; page-break-after: avoid; break-after: avoid-page; }
     table.piyasa-print-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0; }
-    col.c-no { width: 3%; }
+    col.c-no { width: 4%; }
+    col.c-plan { width: 8%; }
+    col.c-fiili { width: 8%; }
     col.c-durum { width: 5%; }
     col.c-firma { width: 6%; }
     col.c-sip { width: 6%; }
@@ -462,7 +633,7 @@
     col.c-org { width: 4%; }
     col.c-seh { width: 8%; }
     col.c-mik { width: 8%; }
-    col.c-acik { width: 27%; }
+    col.c-acik { width: 18%; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; break-inside: avoid-page; }
     th, td { border: 1px solid #000; padding: 1px 2px; vertical-align: top; line-height: 1.25; color: #000; background: #fff; overflow: visible; max-width: none; }
@@ -518,15 +689,15 @@
   ${dupWarn}
   <table class="piyasa-print-table">
     <colgroup>
-      <col class="c-no"><col class="c-durum"><col class="c-firma"><col class="c-sip"><col class="c-fadi"><col class="c-malz">
+      <col class="c-no"><col class="c-plan"><col class="c-fiili"><col class="c-firma"><col class="c-sip"><col class="c-fadi"><col class="c-malz">
       <col class="c-yuk"><col class="c-ode"><col class="c-org"><col class="c-seh">
-      <col class="c-mik"><col class="c-acik">
+      <col class="c-mik"><col class="c-acik"><col class="c-durum">
     </colgroup>
     <thead>
       <tr>
-        <th class="col-no">#</th><th class="col-durum">DURUM</th><th>FİRMA</th><th>SİP NO</th><th>FİRMA ADI</th><th>MALZEME</th>
+        <th class="col-no">SIRA NO</th><th>PLANLANAN SEV</th><th>FİİLİ ÇIKIŞ</th><th>FİRMA</th><th>SİP NO</th><th>FİRMA ADI</th><th>MALZEME</th>
         <th>YÜK.TÜR</th><th>ÖD.TÜR</th><th>ORG</th><th>ŞEHİR</th>
-        <th>MİKTAR</th><th class="col-acik">AÇIKLAMA</th>
+        <th>MİKTAR</th><th class="col-acik">AÇIKLAMA</th><th class="col-durum">DURUM</th>
       </tr>
     </thead>
     <tbody>${tableBody}</tbody>
@@ -562,8 +733,10 @@
       if (!editDraft) return;
       const sipEl = tbody.querySelector('input.piyasa-edit-sip');
       const acikEl = tbody.querySelector('textarea.piyasa-edit-acik');
+      const fiiliEl = tbody.querySelector('input.piyasa-edit-fiili');
       if (sipEl) editDraft.sipNo = sipEl.value;
       if (acikEl) editDraft.aciklama = acikEl.value;
+      if (fiiliEl) editDraft.fiiliSevkCikis = fiiliEl.value;
     }
 
     function savePickerRow(pickKey) {
@@ -572,7 +745,13 @@
       const draft = editDraft && editDraft.key === pickKey ? editDraft : null;
       const sipNo = draft ? draft.sipNo : (tbody.querySelector('input.piyasa-edit-sip') || {}).value;
       const aciklama = draft ? draft.aciklama : (tbody.querySelector('textarea.piyasa-edit-acik') || {}).value;
-      if (typeof patchPiyasaOrderText !== 'function' || !patchPiyasaOrderText(pickKey, { sipNo, aciklama })) {
+      const fiiliRaw = draft ? draft.fiiliSevkCikis : (tbody.querySelector('input.piyasa-edit-fiili') || {}).value;
+      const fiiliText = String(fiiliRaw || '').trim();
+      if (fiiliText && !(window.ExcelUtils && window.ExcelUtils.parseFiiliSevkCikis && window.ExcelUtils.parseFiiliSevkCikis(fiiliText))) {
+        alert('Fiili çıkış tarihi gg.aa.yyyy biçiminde olmalı. Örnek: 01.10.2026. Boş bırakılırsa tarih silinir.');
+        return false;
+      }
+      if (typeof patchPiyasaOrderText !== 'function' || !patchPiyasaOrderText(pickKey, { sipNo, aciklama, fiiliSevkCikis: fiiliText })) {
         alert('Bu satır kaydedilemedi.');
         return false;
       }
@@ -589,6 +768,7 @@
         if (!editDraft) return;
         if (e.target.classList && e.target.classList.contains('piyasa-edit-sip')) editDraft.sipNo = e.target.value;
         if (e.target.classList && e.target.classList.contains('piyasa-edit-acik')) editDraft.aciklama = e.target.value;
+        if (e.target.classList && e.target.classList.contains('piyasa-edit-fiili')) editDraft.fiiliSevkCikis = e.target.value;
       });
       tbody.addEventListener('click', async (e) => {
         if (e.target.closest('input, textarea')) return;
@@ -598,10 +778,11 @@
           e.stopPropagation();
           const textEl = acikCell.querySelector('.piyasa-aciklama-text');
           const full = acikCell.getAttribute('data-full') || '';
+          const preview = acikCell.getAttribute('data-preview') || clipAciklamaPreview(full);
           const open = acikCell.classList.toggle('is-open');
           if (textEl) {
             if (open) textEl.innerHTML = formatAciklamaHtml(full) || '—';
-            else textEl.textContent = full.replace(/\s+/g, ' ');
+            else textEl.textContent = preview;
           }
           return;
         }
@@ -623,7 +804,7 @@
           const row = visiblePickerRows.find((x) => (x._pickKey || String(x.__idx)) === key);
           if (!row) return;
           editingPickKey = key;
-          editDraft = { key, sipNo: String(row.sipNo || ''), aciklama: String(row.aciklama || '') };
+          editDraft = { key, sipNo: String(row.sipNo || ''), aciklama: String(row.aciklama || ''), fiiliSevkCikis: String(row.fiiliSevkCikis || '') };
           render(searchEl.value);
           const input = tbody.querySelector('input.piyasa-edit-sip');
           if (input) input.focus();
@@ -694,17 +875,6 @@
 
     const customerListBtn = overlay.querySelector('#piyasaCustomerListBtn');
     if (customerListBtn) customerListBtn.onclick = () => openPiyasaCustomerListModal();
-
-    const printBtn = overlay.querySelector('#piyasaPrintBtn');
-    if (printBtn && !printBtn._piyasaPrintBound) {
-      printBtn._piyasaPrintBound = true;
-      printBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-        printPiyasaPickerTable();
-      }, true);
-    }
 
     const renderDebounced = _debounce((v) => render(v), PICKER_SEARCH_DEBOUNCE_MS);
     searchEl.oninput = () => renderDebounced(searchEl.value);

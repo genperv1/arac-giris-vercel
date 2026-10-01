@@ -98,17 +98,33 @@
     if (state._lastAppliedOrder) visit(state._lastAppliedOrder);
   }
 
-  /** Amir: sipariş no ve açıklamayı ortak listeye yazar. Seçince takip formuna bu değerler gider. */
+  /** Amir: sipariş no, açıklama ve fiili çıkış tarihini ortak listeye yazar. */
   function patchPiyasaOrderText(pickKey, fields) {
     const key = String(pickKey || '').trim();
     if (!key) return false;
     const src = fields && typeof fields === 'object' ? fields : {};
     const sipNo = String(src.sipNo || '').replace(/\s+/g, ' ').trim().slice(0, 40);
     const aciklama = String(src.aciklama || '').replace(/\r\n/g, '\n').trim().slice(0, 500);
+    const hasFiili = Object.prototype.hasOwnProperty.call(src, 'fiiliSevkCikis');
+    let fiiliLabel = '';
+    let fiiliIso = '';
+    if (hasFiili) {
+      const raw = String(src.fiiliSevkCikis || '').trim();
+      if (raw) {
+        const parsed = eu().parseFiiliSevkCikis ? eu().parseFiiliSevkCikis(raw) : null;
+        if (!parsed || !parsed.iso) return false;
+        fiiliLabel = parsed.label || '';
+        fiiliIso = parsed.iso;
+      }
+    }
     const apply = (hit) => {
       if (!hit) return;
       hit.sipNo = sipNo;
       hit.aciklama = aciklama;
+      if (hasFiili) {
+        hit.fiiliSevkCikis = fiiliLabel;
+        hit.fiiliSevkCikisIso = fiiliIso;
+      }
       if (!hit.__archiveKey) hit.__archiveKey = key;
     };
     let n = 0;
@@ -536,13 +552,19 @@
       isUsed ? `seçildi${o.usedPlate ? ': ' + o.usedPlate : ''}` : '',
       'detay için tıklayın',
     ].filter(Boolean).join(' · ') || (isHpStyleFirma(o.firma) ? 'Bu yükleme türü / şehir için geçmiş araç yok' : 'Bu firma ve malzeme için geçmiş araç yok');
-    const truckLabel = truckCount > 0 ? `🚛${truckCount}` : '🚛';
-    const usedMark = isUsed
-      ? `<span style="color:#4b5563;font-weight:700;line-height:1;" title="Seçildi${o.usedPlate ? ': ' + escapeHtml(o.usedPlate) : ''}">✓</span>`
+    const truckIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="display:block;"><path d="M3 6.5h10.2v9.2H3V6.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M13.2 9.2H17l3.2 3.1v3.4h-7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7.1" cy="17.4" r="1.45" fill="currentColor"/><circle cx="17.2" cy="17.4" r="1.45" fill="currentColor"/></svg>';
+    const countMark = truckCount > 0
+      ? `<span style="min-width:14px;height:14px;padding:0 3px;border-radius:999px;background:#292524;color:#fff;font-size:9px;font-weight:800;line-height:14px;text-align:center;">${truckCount}</span>`
       : '';
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+    const usedMark = isUsed
+      ? `<span style="width:6px;height:6px;border-radius:999px;background:#059669;display:block;" title="Seçildi${o.usedPlate ? ': ' + escapeHtml(o.usedPlate) : ''}"></span>`
+      : '';
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
       ${usedMark}
-      <button type="button" data-history-key="${pickKey}" title="${escapeHtml(truckTitle)}" style="border:0;background:#eef2ff;color:#4338ca;border-radius:6px;padding:2px 6px;font-size:10px;font-weight:700;cursor:pointer;line-height:1.2;white-space:nowrap;">${truckLabel}</button>
+      <button type="button" data-history-key="${pickKey}" title="${escapeHtml(truckTitle)}" style="border:1px solid #e7e5e4;background:#fafaf9;color:#44403c;border-radius:8px;padding:3px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;">
+        ${truckIcon}
+        ${countMark ? `<span style="position:absolute;top:-5px;right:-6px;">${countMark}</span>` : ''}
+      </button>
     </div>`;
   }
 
@@ -857,6 +879,10 @@
       : -1;
     const miktarUnit = eu().detectMiktarUnit ? eu().detectMiktarUnit(header) : 'kg';
     const templateValidation = eu().validatePiyasaTemplate ? eu().validatePiyasaTemplate(header) : { ok: true };
+    const aciklamaColIndex = header.findIndex((h) => {
+      const n = foldHeaderKey(h);
+      return n === 'ACIKLAMA' || n.startsWith('ACIKLAMA ');
+    });
 
     const out = [];
     for (let r = headerRowIndex + 1; r < table.length; r++){
@@ -871,8 +897,12 @@
       } else if (row.length > 7) {
         obj._hSutunValue = String(row[7] || '').trim();
       }
-      if (Number.isFinite(row._excelRowNum) && row._excelRowNum > 0) {
-        obj._excelRowNum = row._excelRowNum;
+      const excelRowNum = (Number.isFinite(row._excelRowNum) && row._excelRowNum > 0)
+        ? row._excelRowNum
+        : (r + 1);
+      obj._excelRowNum = excelRowNum;
+      if (aciklamaColIndex >= 0) {
+        obj._aciklamaRenk = aciklamaFillHex(sheetCellAt(ws, excelRowNum - 1, aciklamaColIndex));
       }
       out.push(obj);
     }
@@ -965,11 +995,114 @@
     return '';
   }
 
+  function sheetCellAt(ws, zeroRow, col) {
+    if (!ws || col < 0 || zeroRow < 0) return null;
+    try {
+      if (Array.isArray(ws)) return (ws[zeroRow] && ws[zeroRow][col]) || null;
+      if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.utils.encode_cell) {
+        return ws[XLSX.utils.encode_cell({ r: zeroRow, c: col })] || null;
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  /** Excel açıklama hücresinin dolgu rengi. Beyaz/siyah ve temalı varsayılanlar yok sayılır. */
+  function aciklamaFillHex(cell) {
+    const s = cell && cell.s;
+    if (!s || !s.patternType || s.patternType === 'none') return '';
+    const rgb = s.fgColor && s.fgColor.rgb;
+    if (!rgb) return '';
+    let hex = String(rgb).replace('#', '').toUpperCase();
+    if (hex.length === 8) hex = hex.slice(2);
+    if (!/^[0-9A-F]{6}$/.test(hex)) return '';
+    if (hex === 'FFFFFF' || hex === '000000') return '';
+    return '#' + hex;
+  }
+
+  function foldHeaderKey(k) {
+    return normKey(k)
+      .replace(/Ç/g, 'C')
+      .replace(/Ğ/g, 'G')
+      .replace(/Ö/g, 'O')
+      .replace(/Ş/g, 'S')
+      .replace(/Ü/g, 'U');
+  }
+
+  function pickSiraNo(r) {
+    const v = pick(r, ['SIRA NO', 'SİRA NO', 'SIRA', 'SİRA']);
+    if (v == null || String(v).trim() === '') return '';
+    let s = String(v).trim();
+    if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+    return s;
+  }
+
+  function pickPlanlananSevRaw(r) {
+    let v = pick(r, [
+      'PLANLANAN SEV TARİHİ',
+      'PLANLANAN SEVK TARİHİ',
+      'PLANLANAN SEV TARIHI',
+      'PLANLANAN SEVK TARIHI',
+    ]);
+    if (v !== '' && v != null) return v;
+    try {
+      for (const hk of Object.keys(r || {})) {
+        const nk = foldHeaderKey(hk);
+        if (nk.includes('PLANLANAN') && nk.includes('TARIH') && !nk.includes('FIILI')) {
+          const val = r[hk];
+          if (val != null && String(val).trim() !== '') return val;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
+  function readPlanlananSevLabel(raw) {
+    if (raw == null || String(raw).trim() === '') return '';
+    const parsed = eu().parseFiiliSevkCikis ? eu().parseFiiliSevkCikis(raw) : null;
+    if (parsed && parsed.label) return parsed.label;
+    return String(raw).replace(/\s+/g, ' ').trim();
+  }
+
+  function pickFiiliSevkRaw(r) {
+    let v = pick(r, [
+      'FİİLİ SEVK ÇIKIŞ TARİHİ',
+      'FIILI SEVK CIKIS TARIHI',
+      'FİİLİ SEVK CIKIS TARIHI',
+      'FİİLİ SEVK ÇIKIŞ TARİH',
+    ]);
+    if (v !== '' && v != null) return v;
+    try {
+      for (const hk of Object.keys(r || {})) {
+        const nk = foldHeaderKey(hk);
+        if (nk.includes('FIILI') && nk.includes('CIKIS') && nk.includes('TARIH')) {
+          const val = r[hk];
+          if (val != null && String(val).trim() !== '') return val;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
+  function readFiiliSevkCikis(raw) {
+    const parsed = eu().parseFiiliSevkCikis ? eu().parseFiiliSevkCikis(raw) : null;
+    if (!parsed || !parsed.iso) return { label: '', iso: '' };
+    return { label: parsed.label || '', iso: parsed.iso };
+  }
+
+  function isOrderFiiliSevkPast(o, now) {
+    if (!o) return false;
+    const iso = String(o.fiiliSevkCikisIso || '').trim();
+    if (!iso) return false;
+    const fn = eu().isFiiliSevkCikisPast;
+    return typeof fn === 'function' ? !!fn(iso, now) : false;
+  }
+
   function pickAciklama(r) {
     let v = pick(r, ['AÇIKLAMA', 'ACIKLAMA', 'NOT', 'YÜKLEME NOTU', 'YUKLEME NOTU', 'AÇIKLAMA 1', 'ACIKLAMA 1']);
     if (v) return v;
     try {
       for (const hk of Object.keys(r || {})) {
+        if (String(hk).charAt(0) === '_') continue;
         const nk = normKey(hk);
         if (!nk) continue;
         if (nk.includes('ACIKLAMA') || (nk.includes('NOT') && !nk.includes('SN'))) {
@@ -1036,9 +1169,18 @@
 
       let sevkiyatTipi = pickSevkiyatTipi(r);
       if (!sevkiyatTipi) sevkiyatTipi = inferSevkiyatTipiFromFirma(firmaCode);
+      const fiiliSevk = readFiiliSevkCikis(pickFiiliSevkRaw(r));
+      const siraNo = pickSiraNo(r);
+      let aciklama = String(pickAciklama(r) || '').trim();
+      let aciklamaRenk = String(r._aciklamaRenk || '').trim();
+      if (!aciklama || /^#?[0-9A-Fa-f]{6}$/.test(aciklama)) {
+        aciklama = '';
+        aciklamaRenk = '';
+      }
 
       const o = {
         __idx: idx + 1,
+        siraNo: siraNo,
         firma: firmaCode,
         sipNo: pickSipNo(r),
         firmaAdi: firmaAdi,
@@ -1047,10 +1189,14 @@
         yuklemeTuru: yuklemeVal,
         org: orgVal,
         sevkiyatTipi: sevkiyatTipi,
-        aciklama: pickAciklama(r),
+        aciklama: aciklama,
+        aciklamaRenk: aciklamaRenk,
         sevkYeri: pick(r, ['SEVK','SEVK YERİ','SEVKYERI']),
         il: pick(r, ['İL','IL']),
         miktar: miktarVal,
+        planlananSev: readPlanlananSevLabel(pickPlanlananSevRaw(r)),
+        fiiliSevkCikis: fiiliSevk.label,
+        fiiliSevkCikisIso: fiiliSevk.iso,
         _raw: r
       };
 

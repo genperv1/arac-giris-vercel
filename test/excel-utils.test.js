@@ -76,3 +76,21 @@ test('pickPiyasaMiktar prefers Miktar Dane column', () => {
   const row = { 'MİKTAR': '1000', 'MİKTAR DANE': '4 X 2.000 KG' };
   assert.strictEqual(eu.pickPiyasaMiktar(row), '4 X 2.000 KG');
 });
+
+test('parseFiiliSevkCikis reads excel serial and calendar text', () => {
+  const serial = eu.parseFiiliSevkCikis(46291);
+  assert.deepStrictEqual(serial, { iso: '2026-09-26', label: '26.09.2026' });
+  assert.deepStrictEqual(eu.parseFiiliSevkCikis(46291.375), serial);
+  assert.deepStrictEqual(eu.parseFiiliSevkCikis('26.09.2026'), serial);
+  assert.strictEqual(eu.parseFiiliSevkCikis(''), null);
+  assert.strictEqual(eu.parseFiiliSevkCikis('40.HAFTA'), null);
+  assert.strictEqual(eu.parseFiiliSevkCikis('26-27.09.26'), null);
+});
+
+test('isFiiliSevkCikisPast is true only before today', () => {
+  const today = new Date(2026, 9, 1);
+  assert.strictEqual(eu.isFiiliSevkCikisPast('2026-09-26', today), true);
+  assert.strictEqual(eu.isFiiliSevkCikisPast('2026-10-01', today), false);
+  assert.strictEqual(eu.isFiiliSevkCikisPast('2026-10-02', today), false);
+  assert.strictEqual(eu.isFiiliSevkCikisPast('', today), false);
+});
