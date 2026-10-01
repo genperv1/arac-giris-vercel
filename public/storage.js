@@ -20,12 +20,14 @@
     _KEY: 'vehicles',
     _cache: null,
     _loaded: false,
+    _etag: '',
     _readPromise: null,
 
     /** Oturum açıldığında veya yeniden yüklemede cache'i sıfırla */
     invalidate() {
       storage._cache = [];
       storage._loaded = false;
+      storage._etag = '';
       storage._readPromise = null;
       try {
         sessionStorage.removeItem('vehicles_etag');
@@ -42,14 +44,25 @@
             sessionStorage.removeItem('vehicles_etag');
             sessionStorage.removeItem('vehicles_boot_cache');
           } catch (e) {}
+          const headers = {};
+          if (storage._loaded && storage._etag) headers['If-None-Match'] = storage._etag;
           const resp = await fetch('/api/vehicles?limit=20000', {
             credentials: 'same-origin',
             cache: 'no-store',
+            headers,
           });
+          if (resp.status === 304 && storage._loaded && Array.isArray(storage._cache) && storage._cache.length) {
+            return storage._cache;
+          }
           if (resp.ok) {
             const vehicles = await resp.json();
             storage._cache = Array.isArray(vehicles) ? vehicles : [];
             storage._loaded = true;
+            try {
+              storage._etag = (resp.headers && resp.headers.get && resp.headers.get('ETag')) || '';
+            } catch (e) {
+              storage._etag = '';
+            }
             return storage._cache;
           }
           // 401 vb. — tekrar denenebilsin diye _loaded false kalsın

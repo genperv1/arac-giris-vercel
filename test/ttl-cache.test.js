@@ -49,12 +49,16 @@ test('vehicle list cache etag and writes', () => {
   assert.strictEqual(getVehicleListCache(20000, 0), null);
 });
 
-test('vehicle fingerprint changes when row data changes', async () => {
-  let sql = '';
-  const fp = await fetchVehicleFingerprint(async (text) => {
-    sql = text;
-    return { rows: [{ c: 4, m: '10', i: 'ab', h: 'deadbeef' }] };
-  });
-  assert.match(sql, /hashtext\(COALESCE\(data/);
-  assert.strictEqual(fp, '4:10:ab:deadbeef');
+test('vehicle fingerprint changes on write without reading every row', async () => {
+  invalidateVehicleListCache();
+  const answer = async (text) => {
+    assert.match(text, /COUNT\(\*\)/);
+    assert.doesNotMatch(text, /hashtext/);
+    return { rows: [{ c: 4, m: '10', i: 'ab' }] };
+  };
+  const fp1 = await fetchVehicleFingerprint(answer);
+  invalidateVehicleListCache();
+  const fp2 = await fetchVehicleFingerprint(answer);
+  assert.notStrictEqual(fp1, fp2);
+  assert.ok(String(fp1).startsWith('4:10:ab:'));
 });
