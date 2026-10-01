@@ -41,10 +41,7 @@ function registerVehicleRoutes(api, ctx) {
       const fingerprint = await fetchVehicleFingerprint(q);
       const etag = etagFromFingerprint(fingerprint, limit, offset);
       res.setHeader('ETag', etag);
-      res.setHeader('Cache-Control', 'private, max-age=15');
-      if (req.headers['if-none-match'] === etag) {
-        return res.status(304).end();
-      }
+      res.setHeader('Cache-Control', 'no-store');
       const cached = getVehicleListCache(limit, offset);
       if (cached && cached.etag === etag) {
         return res.json(cached.body);

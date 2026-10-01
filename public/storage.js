@@ -38,36 +38,18 @@
 
       storage._readPromise = (async () => {
         try {
-          let storedEtag = '';
           try {
-            storedEtag = sessionStorage.getItem('vehicles_etag') || '';
-            if (!storage._cache || !storage._cache.length) {
-              const raw = sessionStorage.getItem('vehicles_boot_cache');
-              if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) storage._cache = parsed;
-              }
-            }
+            sessionStorage.removeItem('vehicles_etag');
+            sessionStorage.removeItem('vehicles_boot_cache');
           } catch (e) {}
-          const headers = {};
-          if (storedEtag) headers['If-None-Match'] = storedEtag;
           const resp = await fetch('/api/vehicles?limit=20000', {
             credentials: 'same-origin',
-            headers,
+            cache: 'no-store',
           });
-          if (resp.status === 304 && Array.isArray(storage._cache) && storage._cache.length) {
-            storage._loaded = true;
-            return storage._cache;
-          }
           if (resp.ok) {
             const vehicles = await resp.json();
             storage._cache = Array.isArray(vehicles) ? vehicles : [];
             storage._loaded = true;
-            try {
-              const etag = resp.headers && resp.headers.get ? resp.headers.get('ETag') : '';
-              if (etag) sessionStorage.setItem('vehicles_etag', etag);
-              sessionStorage.setItem('vehicles_boot_cache', JSON.stringify(storage._cache));
-            } catch (e) {}
             return storage._cache;
           }
           // 401 vb. — tekrar denenebilsin diye _loaded false kalsın
@@ -109,6 +91,14 @@
       } catch (e) {}
 
       // localStorage fallback removed (no-op)
+    },
+
+    /** Kayıt sunucuya yazıldıktan sonra yenilemenin eski listeyi geri getirmemesi için */
+    touchBootCache() {
+      try {
+        sessionStorage.removeItem('vehicles_etag');
+        sessionStorage.removeItem('vehicles_boot_cache');
+      } catch (e) {}
     },
 
     // SENKRON: cache'i döndür (hızlı fallback)

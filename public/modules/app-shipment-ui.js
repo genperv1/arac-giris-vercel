@@ -1459,11 +1459,16 @@ let sonuc = {
                 lastPrintSnapshot: prevVehicle?.lastPrintSnapshot ?? null,
             };
 
-            // Veritabanına kaydet (asenkron)
-            saveVehicleToDatabase(vehicleData);
-            
-            // Storage cache'e de kaydet (geçici)
+            const saved = await saveVehicleToDatabase(vehicleData);
+            if (!saved) {
+                const failMsg = 'Kayıt sunucuya yazılamadı. TC diğer ekranlara geçmedi.';
+                if (typeof ui.alert === 'function') await ui.alert(failMsg, 'danger');
+                else alert(failMsg);
+                return false;
+            }
+
             storage.save(`vehicle_${vehicleData.id}`, vehicleData);
+            try { if (typeof storage.touchBootCache === 'function') storage.touchBootCache(); } catch (e) {}
             
             // Yeni veya düzenlenen kayıt her zaman listenin en üstüne gelsin
             // Önce aynı ID'li kaydı listeden çıkar, sonra başa ekle
@@ -1520,10 +1525,12 @@ let sonuc = {
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error('❌ Araç DB kaydetme hatası:', response.status, errorText);
-                } else {
+                    return false;
                 }
+                return true;
             } catch (error) {
                 console.error('❌ Araç DB kaydetme hatası:', error);
+                return false;
             }
         }
 

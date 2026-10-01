@@ -12,7 +12,7 @@ const {
   clearKvCache,
   PRINT_FORM_BG_KEY,
 } = require('../lib/kv-cache');
-const { etagFromFingerprint, isVehicleWrite, invalidateVehicleListCache, setVehicleListCache, getVehicleListCache } = require('../lib/vehicle-list-cache');
+const { etagFromFingerprint, isVehicleWrite, invalidateVehicleListCache, setVehicleListCache, getVehicleListCache, fetchVehicleFingerprint } = require('../lib/vehicle-list-cache');
 
 test('ttl cache expires and evicts', () => {
   const cache = createTtlCache({ defaultTtlMs: 20, maxEntries: 2 });
@@ -47,4 +47,14 @@ test('vehicle list cache etag and writes', () => {
   assert.strictEqual(isVehicleWrite('SELECT * FROM vehicles'), false);
   invalidateVehicleListCache();
   assert.strictEqual(getVehicleListCache(20000, 0), null);
+});
+
+test('vehicle fingerprint changes when row data changes', async () => {
+  let sql = '';
+  const fp = await fetchVehicleFingerprint(async (text) => {
+    sql = text;
+    return { rows: [{ c: 4, m: '10', i: 'ab', h: 'deadbeef' }] };
+  });
+  assert.match(sql, /hashtext\(COALESCE\(data/);
+  assert.strictEqual(fp, '4:10:ab:deadbeef');
 });

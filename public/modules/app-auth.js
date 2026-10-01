@@ -475,11 +475,13 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 }
             });
 
-            addOnce(document.getElementById('appHeaderRefreshBtn'), 'click', function () {
-                // Yerel yenile — /api/vehicles veya oturum kontrolü yok (rate limit)
+            addOnce(document.getElementById('appHeaderRefreshBtn'), 'click', async function () {
                 try {
                     state.searchTerm = '';
                     state.showAll = false;
+                    if (window.storage && typeof window.storage._readAll === 'function') {
+                        await window.storage._readAll();
+                    }
                     if (window.storage && typeof window.storage.loadAll === 'function') {
                         state.vehicles = window.storage.loadAll() || [];
                     }
