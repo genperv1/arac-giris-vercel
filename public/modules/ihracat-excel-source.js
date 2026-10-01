@@ -369,6 +369,26 @@
   }
 
   var _picking = false;
+  var _needPath = false;
+
+  function setNeedPath(on) {
+    _needPath = !!on;
+    try {
+      if (_needPath) sessionStorage.setItem('ihracatExcelNeedPath', '1');
+      else sessionStorage.removeItem('ihracatExcelNeedPath');
+    } catch (e) {}
+  }
+
+  function pathPickNeeded() {
+    if (_needPath) return true;
+    try {
+      if (sessionStorage.getItem('ihracatExcelNeedPath') === '1') {
+        _needPath = true;
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
 
   /** 2+ Excel yüklüyse hangilerinin güncelleneceğini sor. Hepsi seçili gelir. */
   function pickSourcesToRefresh(names) {
@@ -447,11 +467,11 @@
         var picked = selectedNames();
         if (!picked.length) return;
         primeHandlePermissions(picked);
-        var folderPromise = null;
-        if (!serverCanSeeLocalExcel() && !_dirHandle && namesLackHandle(picked)) {
-          folderPromise = openFolderPicker();
+        var pickerPromise = null;
+        if (namesLackHandle(picked) || pathPickNeeded()) {
+          pickerPromise = openExcelPicker(picked.length > 1);
         }
-        finish({ names: picked, folderPromise: folderPromise });
+        finish({ names: picked, pickerPromise: pickerPromise });
       });
       overlay.querySelectorAll('.ihracat-excel-pick__check').forEach(function (ch) {
         ch.addEventListener('change', syncOk);
@@ -618,33 +638,103 @@
     return false;
   }
 
-  function openExcelPicker(multiple) {
-    if (typeof window.showOpenFilePicker !== 'function') return null;
-    try {
-      return window.showOpenFilePicker({
-        types: EXCEL_PICKER_TYPES,
-        excludeAcceptAllOption: false,
-        multiple: !!multiple,
+  function openExcelInput(multiple) {
+    return new Promise(function (resolve, reject) {
+      var input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.xlsx,.xls,.xlsm,.xlsb';
+      if (multiple) input.multiple = true;
+      input.style.cssText = 'position:fixed;left:-9999px;top:0';
+      var settled = false;
+      function done(err, files) {
+        if (settled) return;
+        settled = true;
+        try { input.remove(); } catch (e) {}
+        if (err) reject(err);
+        else resolve(files);
+      }
+      input.addEventListener('change', function () {
+        var files = Array.prototype.slice.call(input.files || []);
+        if (!files.length) {
+          done(Object.assign(new Error('cancel'), { name: 'AbortError' }));
+          return;
+        }
+        done(null, files.map(function (file) {
+          return { getFile: function () { return Promise.resolve(file); } };
+        }));
       });
-    } catch (e) {
-      return null;
+      input.addEventListener('cancel', function () {
+        done(Object.assign(new Error('cancel'), { name: 'AbortError' }));
+      });
+      document.body.appendChild(input);
+      input.click();
+    });
+  }
+
+  function openExcelPicker(multiple) {
+    if (typeof window.showOpenFilePicker === 'function') {
+      try {
+        return window.showOpenFilePicker({
+          types: EXCEL_PICKER_TYPES,
+          excludeAcceptAllOption: false,
+          multiple: !!multiple,
+        });
+      } catch (e) {}
     }
+    return openExcelInput(!!multiple);
   }
 
   async function presetFromPickerHandles(handles, expectedNames) {
     var preset = Object.create(null);
     var files = [];
+    var pairs = [];
     var list = handles || [];
     for (var i = 0; i < list.length; i++) {
       try {
+        if (!list[i] || typeof list[i].getFile !== 'function') continue;
         var file = await list[i].getFile();
         if (!file) continue;
         try { await persistHandle(list[i], file.name); } catch (e) {}
         preset[handleKey(file.name)] = file;
         files.push(file);
+        pairs.push({ handle: list[i], file: file });
       } catch (e) {}
     }
-    return bindPresetToExpected(preset, files, expectedNames);
+    var map = bindPresetToExpected(preset, files, expectedNames);
+    var expected = (expectedNames || []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+    for (var n = 0; n < expected.length; n++) {
+      var sourceName = expected[n];
+      var picked = map[handleKey(sourceName)];
+      if (!picked) continue;
+      for (var h = 0; h < pairs.length; h++) {
+        if (!pairs[h].file || !sameExcelName(pairs[h].file.name, picked.name)) continue;
+        try { await persistHandle(pairs[h].handle, sourceName); } catch (e3) {}
+        break;
+      }
+      map[handleKey(sourceName)] = aliasFileToSource(picked, sourceName);
+    }
+    return map;
+  }
+
+  function aliasFileToSource(file, sourceName) {
+    var wanted = String(sourceName || '').trim();
+    if (!file || !wanted) return file;
+    if (sameExcelName(file.name, wanted)) return file;
+    try {
+      return new File([file], wanted, {
+        type: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        lastModified: Number(file.lastModified) || Date.now(),
+      });
+    } catch (e) {
+      return file;
+    }
+  }
+
+  function dateToken(name) {
+    var m = String(name || '').match(/(\d{1,2})[.\-_](\d{1,2})[.\-_](\d{4})/);
+    if (!m) return '';
+    function pad(n) { return n.length === 1 ? '0' + n : n; }
+    return pad(m[1]) + '.' + pad(m[2]) + '.' + m[3];
   }
 
   function bindPresetToExpected(preset, files, expectedNames) {
@@ -665,7 +755,8 @@
         var file = list[i];
         var fk = handleKey(file && file.name);
         if (!fk || used[fk]) continue;
-        if (fk === key || fk.indexOf(key) >= 0 || key.indexOf(fk) >= 0) {
+        var sameDate = dateToken(name) && dateToken(name) === dateToken(file && file.name);
+        if (fk === key || fk.indexOf(key) >= 0 || key.indexOf(fk) >= 0 || sameDate) {
           map[key] = file;
           used[fk] = true;
           return;
@@ -746,7 +837,7 @@
     for (var i = 0; i < keys.length; i++) await take(_handlesByName[keys[i]]);
     await take(_liveHandle);
     if (_dirHandle) {
-      var fromDir = await collectDirExcelFiles(_dirHandle, 1);
+      var fromDir = await collectDirExcelFiles(_dirHandle, 4);
       for (var j = 0; j < fromDir.length; j++) files.push(fromDir[j]);
     }
     return files;
@@ -907,13 +998,15 @@
     if (namedHandle) {
       try { namedFile = await readFileFromHandle(namedHandle); } catch (e) { namedFile = null; }
     }
-    var handleOk = namedFile && !namedFile.__missing && !namedFile.__cancelled
-      && sameExcelName(namedFile.name, wanted);
-    if (!handleOk && handleFile && !handleFile.__missing && !handleFile.__cancelled
-      && sameExcelName(handleFile.name, wanted)) {
-      namedFile = handleFile;
-      handleOk = true;
+    var handleOk = namedFile && !namedFile.__missing && !namedFile.__cancelled && !namedFile.__notSelected;
+    if (!handleOk && handleFile && !handleFile.__missing && !handleFile.__cancelled) {
+      var dated = dateToken(handleFile.name) && dateToken(handleFile.name) === dateToken(wanted);
+      if (sameExcelName(handleFile.name, wanted) || dated) {
+        namedFile = handleFile;
+        handleOk = true;
+      }
     }
+    if (handleOk) namedFile = aliasFileToSource(namedFile, wanted);
 
     var fromBackend = null;
     if (serverCanSeeLocalExcel()) {
@@ -972,6 +1065,7 @@
       var okNames = [];
       var failNames = [];
       var lastOk = null;
+      var lastFailMsg = '';
       var gathered = await collectReadableExcelFiles();
       var fromDisk = bindPresetToExpected(Object.create(null), gathered, sources);
       var presetAll = Object.assign(fromDisk, presetFiles || {});
@@ -979,7 +1073,8 @@
       for (var i = 0; i < sources.length; i++) {
         var sourceName = sources[i];
         try {
-          var file = presetAll[handleKey(sourceName)] || null;
+          var rawPreset = presetAll[handleKey(sourceName)] || null;
+          var file = rawPreset ? aliasFileToSource(rawPreset, sourceName) : null;
           if (!file) file = await resolveFileForSource(sourceName, handleFile);
           if (!file || file.__missing || file.__notSelected) {
             failNames.push(sourceName);
@@ -991,6 +1086,7 @@
             lastOk = result;
           } else {
             failNames.push(sourceName);
+            if (result && result.msg) lastFailMsg = result.msg;
           }
         } catch (err) {
           failNames.push(sourceName);
@@ -998,9 +1094,11 @@
       }
 
       if (!okNames.length) {
-        if (typeof window.showToast === 'function') window.showToast(MSG_NOT_FOUND, 'warn');
-        return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: MSG_NOT_FOUND, failNames: failNames };
+        setNeedPath(true);
+        if (typeof window.showToast === 'function') window.showToast(lastFailMsg || MSG_NOT_FOUND, 'warn');
+        return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames };
       }
+      setNeedPath(false);
 
       var summary;
       if (multi) {
@@ -1067,31 +1165,37 @@
         refreshFromStored(permPromise, onlyNames, presetFiles);
       }
       if (sourcesNow.length > 1) {
+        var chosenNames = null;
         loadHandle().then(function () {
           return pickSourcesToRefresh(sourcesNow);
         }).then(function (picked) {
           if (!picked || !picked.names || !picked.names.length) return null;
-          if (!picked.folderPromise) return picked.names;
-          return picked.folderPromise.then(function (dir) {
-            return persistDirHandle(dir).then(function () { return picked.names; });
+          chosenNames = picked.names;
+          if (!picked.pickerPromise) return { names: picked.names, preset: null };
+          return picked.pickerPromise.then(function (handles) {
+            return presetFromPickerHandles(handles, picked.names).then(function (preset) {
+              return { names: picked.names, preset: preset };
+            });
           });
-        }).then(function (names) {
-          if (!names || !names.length) return;
-          beginRefresh(names, null, false);
+        }).then(function (ready) {
+          if (!ready || !ready.names || !ready.names.length) return;
+          beginRefresh(ready.names, ready.preset, false);
         }).catch(function (err) {
-          if (err && err.name === 'AbortError') return;
+          if (err && err.name === 'AbortError') {
+            beginRefresh(chosenNames, null, true);
+          }
         });
         return;
       }
-      if (!serverCanSeeLocalExcel() && !_dirHandle && namesLackHandle(sourcesNow)) {
-        var folderPicker = openFolderPicker();
-        if (folderPicker) {
-          folderPicker.then(function (dir) {
-            return persistDirHandle(dir);
-          }).then(function () {
-            beginRefresh(null, null, true);
+      if (namesLackHandle(sourcesNow) || pathPickNeeded()) {
+        var onePicker = openExcelPicker(false);
+        if (onePicker) {
+          onePicker.then(function (handles) {
+            return presetFromPickerHandles(handles, sourcesNow);
+          }).then(function (preset) {
+            beginRefresh(null, preset, false);
           }).catch(function (err4) {
-            if (err4 && err4.name === 'AbortError') return;
+            if (err4 && err4.name === 'AbortError') beginRefresh(null, null, true);
           });
           return;
         }

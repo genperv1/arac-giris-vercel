@@ -2073,6 +2073,187 @@ function _buildExcelDateWarnBannerHtml(title, label) {
   </div>`;
 }
 
+const DAY_TIPS = [
+  {
+    title: 'Yanlış işlemi geri al',
+    keys: ['Ctrl', 'Z'],
+    text: 'Sildiğin veya bozduğun hücreyi bir adım geri alır.',
+  },
+  {
+    title: 'Dosyayı kaydet',
+    keys: ['Ctrl', 'S'],
+    text: 'Listeyi kapatmadan kaydet. Son hal yerinde kalır.',
+  },
+  {
+    title: 'Kopyala, yapıştır',
+    keys: ['Ctrl', 'C'],
+    text: 'Seçili hücreyi kopyalar. Yapıştırmak için Ctrl+V.',
+  },
+  {
+    title: 'Plakayı veya firmayı bul',
+    keys: ['Ctrl', 'F'],
+    text: 'Uzun listede plakayı, firma adını veya bir yazıyı arar.',
+  },
+  {
+    title: 'Yazıyı değiştir',
+    keys: ['Ctrl', 'H'],
+    text: 'Bir kelimeyi veya plakayı listede başka bir yazıyla değiştirir.',
+  },
+  {
+    title: 'Hücrenin içini düzelt',
+    keys: ['F2'],
+    text: 'Hücreyi silmeden içindeki yazıyı düzeltmeye başlarsın.',
+  },
+  {
+    title: 'Listenin sonuna git',
+    keys: ['Ctrl', '↓'],
+    text: 'Uzun listede kaydırmadan son dolu satıra iner.',
+  },
+  {
+    title: 'Aşağıdaki satırları seç',
+    keys: ['Ctrl', 'Shift', '↓'],
+    text: 'Bulunduğun hücreden listenin sonuna kadar seçer.',
+  },
+  {
+    title: 'Filtreyi aç',
+    keys: ['Ctrl', 'Shift', 'L'],
+    text: 'Başlık satırından plaka, firma veya tarih süzer.',
+  },
+  {
+    title: 'Üstteki hücreyi aşağı indir',
+    keys: ['Ctrl', 'D'],
+    text: 'Bir üstteki yazıyı veya formülü alttaki seçili hücrelere doldurur.',
+  },
+  {
+    title: 'Seçili hücrelere aynı yazıyı bas',
+    keys: ['Ctrl', 'Enter'],
+    text: 'Birden fazla hücre seçip yazarsın. Hepsi aynı değeri alır.',
+  },
+  {
+    title: 'Hücre içinde alt satır',
+    keys: ['Alt', 'Enter'],
+    text: 'Aynı hücrenin içinde bir alt satıra geçer. Hücre bölünmez.',
+  },
+  {
+    title: 'Sayfanın başına dön',
+    keys: ['Ctrl', 'Home'],
+    text: 'Listenin en üstüne, A1 hücresine döner.',
+  },
+  {
+    title: 'Satırın tamamını seç',
+    keys: ['Shift', 'Boşluk'],
+    text: 'İmlecin durduğu satırı soldan sağa seçer.',
+  },
+  {
+    title: 'Sonraki sayfaya geç',
+    keys: ['Ctrl', 'Page Down'],
+    text: 'Dosyadaki bir sonraki sayfaya geçer. Geri gelmek için Ctrl+Page Up.',
+  },
+];
+
+const DAY_FIXED = [
+  { m: 1, d: 1, label: '1 Ocak Yılbaşı', short: 'Yılbaşı', week: 'Yılbaşı haftası' },
+  { m: 4, d: 23, label: '23 Nisan', short: '23 Nisan', week: '23 Nisan haftası' },
+  { m: 5, d: 1, label: '1 Mayıs', short: '1 Mayıs', week: '1 Mayıs haftası' },
+  { m: 5, d: 19, label: '19 Mayıs', short: '19 Mayıs', week: '19 Mayıs haftası' },
+  { m: 7, d: 15, label: '15 Temmuz', short: '15 Temmuz', week: '15 Temmuz haftası' },
+  { m: 8, d: 30, label: '30 Ağustos Zafer Bayramı', short: 'Zafer Bayramı', week: 'Zafer Bayramı haftası' },
+  { m: 10, d: 29, label: '29 Ekim Cumhuriyet Bayramı', short: 'Cumhuriyet Bayramı', week: 'Cumhuriyet Bayramı haftası' },
+  { m: 11, d: 10, label: '10 Kasım', short: '10 Kasım', week: '10 Kasım haftası' },
+];
+
+const DAY_BAYRAMS = [
+  { y: 2026, m: 3, d: 20, span: 3, short: 'Ramazan Bayramı', week: 'Ramazan Bayramı haftası' },
+  { y: 2026, m: 5, d: 27, span: 4, short: 'Kurban Bayramı', week: 'Kurban Bayramı haftası' },
+  { y: 2027, m: 3, d: 9, span: 3, short: 'Ramazan Bayramı', week: 'Ramazan Bayramı haftası' },
+  { y: 2027, m: 5, d: 16, span: 4, short: 'Kurban Bayramı', week: 'Kurban Bayramı haftası' },
+];
+
+const TR_MONTHS = ['', 'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+function _istanbulToday() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const pick = (type) => Number(parts.find((p) => p.type === type).value);
+  return { y: pick('year'), m: pick('month'), d: pick('day') };
+}
+
+function _utcDay(p) {
+  return Date.UTC(p.y, p.m - 1, p.d);
+}
+
+function _diffDays(a, b) {
+  return Math.round((_utcDay(b) - _utcDay(a)) / 86400000);
+}
+
+function _addDays(p, n) {
+  const dt = new Date(_utcDay(p) + n * 86400000);
+  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
+}
+
+function _dayOfYear(p) {
+  return _diffDays({ y: p.y, m: 1, d: 1 }, p);
+}
+
+function _dayEvents() {
+  const today = _istanbulToday();
+  const events = [];
+  for (const year of [today.y, today.y + 1]) {
+    DAY_FIXED.forEach((f) => {
+      const start = { y: year, m: f.m, d: f.d };
+      events.push({ start, end: start, short: f.short, week: f.week, label: f.label });
+    });
+  }
+  DAY_BAYRAMS.forEach((b) => {
+    const start = { y: b.y, m: b.m, d: b.d };
+    events.push({
+      start,
+      end: _addDays(start, b.span - 1),
+      short: b.short,
+      week: b.week,
+      label: `${b.d} ${TR_MONTHS[b.m]} ${b.short}`,
+    });
+  });
+  return events.filter((ev) => _diffDays(today, ev.end) >= 0);
+}
+
+function _activeDayText(ev, today) {
+  const into = _diffDays(ev.start, today);
+  if (into <= 0) return `Bugün · ${ev.short}`;
+  return `${ev.short} · ${into + 1}. gün`;
+}
+
+function _upcomingDayLabel(today) {
+  const events = _dayEvents().sort((a, b) => _diffDays(b.start, a.start) || _diffDays(b.end, a.end));
+  const active = events.filter((ev) => _diffDays(ev.start, today) >= 0);
+  if (!active.length) return '';
+  const rest = active.slice(1).map((ev) => ev.short);
+  const head = _activeDayText(active[0], today);
+  return rest.length ? `${head} · ${rest.join(' · ')}` : head;
+}
+
+function _xlsKeysHtml(keys) {
+  return (Array.isArray(keys) ? keys : []).map((key, i) => {
+    const plus = i ? '<span class="xls-tip__plus" aria-hidden="true">+</span>' : '';
+    return `${plus}<kbd class="xls-tip__kbd">${_escapeHeaderNote(key)}</kbd>`;
+  }).join('');
+}
+
+function _dayStripHtml() {
+  const today = _istanbulToday();
+  const tip = DAY_TIPS[_dayOfYear(today) % DAY_TIPS.length];
+  const day = _upcomingDayLabel(today);
+  const dayHtml = day ? `<span class="xls-tip__day">${_escapeHeaderNote(day)}</span>` : '';
+  const keys = tip.keys && tip.keys.length
+    ? `<span class="xls-tip__combo">${_xlsKeysHtml(tip.keys)}</span>`
+    : '';
+  return `<section class="xls-tip" aria-label="Günün Excel Kısayolu"><div class="xls-tip__label"><span aria-hidden="true">💡</span> Günün Excel Kısayolu</div><div class="xls-tip__row"><span class="xls-tip__mark" aria-hidden="true"><i class="fas fa-file-excel"></i></span>${keys}${dayHtml}</div><p class="xls-tip__text">${_escapeHeaderNote(tip.text)}</p></section>`;
+}
+
 const HEADER_NOTE_LIMIT = 3;
 let _headerNotes = [];
 let _headerNoteDrafts = [];
@@ -2114,11 +2295,12 @@ function _headerNoteBanner(text) {
 }
 
 function _headerNoteHtml() {
+  const strip = _dayStripHtml();
   const saved = _headerNoteLines(_headerNotes);
   const amir = _headerNoteIsAmir();
   if (!amir) {
-    if (!saved.length) return '';
-    return `<div class="header-note-stack">${saved.map(_headerNoteBanner).join('')}</div>`;
+    if (!saved.length) return strip;
+    return `${strip}<div class="header-note-stack">${saved.map(_headerNoteBanner).join('')}</div>`;
   }
   if (_headerNoteEditing) {
     const drafts = (_headerNoteDrafts.length ? _headerNoteDrafts : ['']).slice(0, HEADER_NOTE_LIMIT);
@@ -2129,15 +2311,15 @@ function _headerNoteHtml() {
     const err = _headerNoteError
       ? `<span class="header-note__error">${_escapeHeaderNote(_headerNoteError)}</span>`
       : '';
-    return `<form id="headerNoteForm" class="header-note-stack">${fields}<div class="header-note-stack__actions">${add}<button type="submit" class="header-note__save">Kaydet</button><button type="button" id="headerNoteCancel" class="header-note__cancel">Vazgeç</button>${err}</div></form>`;
+    return `${strip}<form id="headerNoteForm" class="header-note-stack">${fields}<div class="header-note-stack__actions">${add}<button type="submit" class="header-note__save">Kaydet</button><button type="button" id="headerNoteCancel" class="header-note__cancel">Vazgeç</button>${err}</div></form>`;
   }
   if (!saved.length) {
-    return '<button type="button" id="headerNoteAdd" class="header-note__add">Not yaz</button>';
+    return `${strip}<button type="button" id="headerNoteAdd" class="header-note__add">Not yaz</button>`;
   }
   const add = saved.length < HEADER_NOTE_LIMIT
     ? '<button type="button" id="headerNoteAdd" class="header-note__add">Not ekle</button>'
     : '';
-  return `<div class="header-note-stack">${saved.map(_headerNoteBanner).join('')}<div class="header-note-stack__actions">${add}<button type="button" id="headerNoteEdit" class="header-note__edit">Düzenle</button></div></div>`;
+  return `${strip}<div class="header-note-stack">${saved.map(_headerNoteBanner).join('')}<div class="header-note-stack__actions">${add}<button type="button" id="headerNoteEdit" class="header-note__edit">Düzenle</button></div></div>`;
 }
 
 function _paintHeaderNote(force) {
