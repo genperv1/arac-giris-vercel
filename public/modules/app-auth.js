@@ -1,6 +1,25 @@
 // app-auth.js — giriş, oturum, yedekleme
 // Otomatik bölüm — scripts/split-large-files.js
 
+function bindLoginUserPicker() {
+  document.querySelectorAll('.login-user').forEach((btn) => {
+    if (btn.dataset.loginUserBound === '1') return;
+    btn.dataset.loginUserBound = '1';
+    btn.addEventListener('click', () => {
+      const idInput = document.getElementById('loginId');
+      if (idInput) idInput.value = btn.getAttribute('data-user') || '';
+      document.querySelectorAll('.login-user').forEach((other) => {
+        const on = other === btn;
+        other.classList.toggle('is-selected', on);
+        other.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      const pass = document.getElementById('loginPassword');
+      if (pass) pass.focus();
+    });
+  });
+}
+bindLoginUserPicker();
+
 async function openWhatsAppFromCard(phone, text) {
   const sendUrl = buildWhatsAppWebUrl(phone, text);
   if (!sendUrl) {
@@ -166,6 +185,7 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             window.addEventListener('resize', syncNavMoreMenu, { passive: true });
           }
           addOnce(document.getElementById('loginButton'), 'click', login);
+          bindLoginUserPicker();
           addOnce(document.getElementById('loginId'), 'keypress', function(e) { if (e.key === 'Enter') login(); });
           addOnce(document.getElementById('loginPassword'), 'keypress', function(e) { if (e.key === 'Enter') login(); });
             // Note: token validation is performed once on DOMContentLoaded to avoid repeated checks on every render.
@@ -1229,7 +1249,10 @@ async function login() {
   passInput.classList.remove('border-red-500');
 
   if (!id || !password) {
-    if (loginError) loginError.classList.remove('hidden');
+    if (loginError) {
+      loginError.textContent = !id ? 'Önce kullanıcı seçin, sonra şifreyi girin.' : 'Şifreyi girin.';
+      loginError.classList.remove('hidden');
+    }
     idInput.classList.add('border-red-500');
     passInput.classList.add('border-red-500');
     return;

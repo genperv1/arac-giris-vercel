@@ -34,7 +34,7 @@
     state.days = data.days || [];
     state.version = data.version || '';
     state.canEdit = !!data.canEdit;
-    state.admin = data.admin || null;
+    state.sites = data.sites || {};
     if (!state.days.some(function (d) { return d.dateKey === state.day; })) {
       state.day = state.days[0] ? state.days[0].dateKey : '';
     }
@@ -49,43 +49,17 @@
   function renderAdmin() {
     var box = $('adminBox');
     if (!box) return;
-    var admin = state.canEdit ? state.admin : null;
-    if (!admin) {
+    if (!state.canEdit) {
       box.innerHTML = '';
       return;
     }
-    var html = '';
-    (admin.pending || []).forEach(function (p) {
-      var when = p.at ? new Date(p.at).toLocaleString('tr-TR') : '';
-      html += '<div class="pending">' +
-        '<b>Tanınmayan bilgisayar liste gönderdi</b> · IP <code>' + esc(p.ip) + '</code> · ' +
-        esc(p.fileName || 'dosya adı yok') + ' · ' + p.rowCount + ' satır · ' + esc(when) +
-        (p.guess ? ' · tahmin: <b>' + esc(p.guess) + '</b>' : '') +
-        '<span class="pending-actions">' +
-          '<button type="button" class="btn-ok" data-approve="AVDAN" data-ip="' + esc(p.ip) + '">AVDAN olarak kabul et</button>' +
-          '<button type="button" class="btn-ok" data-approve="1.OSB" data-ip="' + esc(p.ip) + '">1.OSB olarak kabul et</button>' +
-          '<button type="button" class="btn-no" data-remove-ip="' + esc(p.ip) + '">Reddet</button>' +
-        '</span></div>';
+    var parts = Object.keys(state.sites || {}).map(function (site) {
+      var info = state.sites[site];
+      if (!info) return '<span><b>' + esc(site) + ':</b> <i>liste yok</i></span>';
+      var when = info.updatedAt ? new Date(info.updatedAt).toLocaleString('tr-TR') : '';
+      return '<span><b>' + esc(site) + ':</b> ' + esc(info.fileName || '') + ' · ' + info.rowCount + ' satır · ' + esc(when) + '</span>';
     });
-    var ips = admin.ips || {};
-    var known = Object.keys(ips).map(function (site) {
-      var list = (ips[site] || []).map(function (ip) {
-        return '<code>' + esc(ip) + '</code> <button type="button" class="x" data-remove-ip="' + esc(ip) + '" title="Kaldır">×</button>';
-      }).join(' ');
-      return '<span><b>' + esc(site) + ':</b> ' + (list || '<i>tanımlı değil</i>') + '</span>';
-    }).join(' &nbsp; ');
-    html += '<div class="known">Liste kabul edilen kantarlar → ' + known + '</div>';
-    box.innerHTML = html;
-  }
-
-  function adminPost(path, body) {
-    return api(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(function (data) {
-      applyView(data);
-    });
+    box.innerHTML = '<div class="known">Son gönderim → ' + parts.join(' &nbsp; ') + '</div>';
   }
 
   function activeDay() {
@@ -308,22 +282,6 @@
   });
 
   document.body.addEventListener('click', function (ev) {
-    var approveBtn = ev.target.closest('[data-approve]');
-    if (approveBtn) {
-      adminPost('/api/liman/ip/approve', {
-        ip: approveBtn.getAttribute('data-ip'),
-        site: approveBtn.getAttribute('data-approve'),
-      }).then(function () { toast('Kantar kaydedildi, liste işlendi'); })
-        .catch(function (err) { toast(err.message || 'Kaydedilemedi'); });
-      return;
-    }
-    var removeBtn = ev.target.closest('[data-remove-ip]');
-    if (removeBtn) {
-      adminPost('/api/liman/ip/remove', { ip: removeBtn.getAttribute('data-remove-ip') })
-        .then(function () { toast('Kaldırıldı'); })
-        .catch(function (err) { toast(err.message || 'Kaldırılamadı'); });
-      return;
-    }
     var dayBtn = ev.target.closest('[data-day]');
     if (dayBtn) {
       state.day = dayBtn.getAttribute('data-day') || '';
@@ -348,6 +306,13 @@
     }).then(function () {
       toast('Not kaydedildi');
     }).catch(function (err) { toast(err.message || 'Not kaydedilemedi'); });
+  });
+
+  window.addEventListener('gpm-presence', function (ev) {
+    var el = $('chipPresence');
+    if (el && window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') {
+      el.innerHTML = SessionManager.presenceChipHtml((ev.detail && ev.detail.list) || []);
+    }
   });
 
   async function init() {

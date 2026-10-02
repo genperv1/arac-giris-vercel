@@ -45,6 +45,8 @@ const { registerDailyRoutes } = require('./routes/daily-routes');
 const { registerIhracatExcelRoutes } = require('./routes/ihracat-excel-routes');
 const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerLimanRoutes, STATE_KEY: LIMAN_STATE_KEY } = require('./routes/liman-routes');
+const bcrypt = require('bcryptjs');
+const { createPresence } = require('./lib/presence');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
@@ -1151,8 +1153,11 @@ const piyasaServer = createPiyasaServerApi({
   rootDir: __dirname,
 });
 
+const presence = createPresence();
+
 const routeCtx = {
   q,
+  presence,
   pool,
   auth,
   parsePagination,
@@ -1325,6 +1330,12 @@ registerAmirNoticeRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
 registerLimanRoutes(api, routeCtx);
+
+api.get('/presence', requireValidSession, (req, res) => {
+  presence.touch(req.user);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true, presence: presence.snapshot() });
+});
 
 
 
@@ -2216,15 +2227,27 @@ async function initializeApp() {
         console.log('Report cleanup disabled (REPORT_CLEANUP_ENABLED=false).');
       }
 
-      // Ensure users table exists and create default user GENPER if missing
+      // Kantar kullanıcıları: her kantarın kendi hesabı (liman listesi kullanıcı adından eşlenir)
       try {
         await auth.ensureUsersTable();
+        const kantarUsers = { AVDAN: 'GEN20AVDAN', '1.OSB': 'GEN201.OSB' };
+        for (const [kantarUser, kantarPass] of Object.entries(kantarUsers)) {
+          try {
+            await auth.registerUser(kantarUser, kantarPass, { role: 'admin' });
+            const row = await pool.query('SELECT password_hash FROM users WHERE username = $1', [kantarUser]);
+            const hash = row.rows[0] && row.rows[0].password_hash;
+            if (hash && !(await bcrypt.compare(kantarPass, hash))) {
+              await pool.query('UPDATE users SET password_hash = $1 WHERE username = $2', [await bcrypt.hash(kantarPass, 10), kantarUser]);
+            }
+            console.log('Kantar user ensured:', kantarUser);
+          } catch (e) {
+            console.log('Kantar user setup skipped or already exists:', kantarUser);
+          }
+        }
         try {
-          await auth.registerUser('GENPER', 'GEN20PER26', { role: 'admin' });
-          console.log('Default user ensured: GENPER');
+          await pool.query('DELETE FROM users WHERE username = $1', ['GENPER']);
         } catch (e) {
-          // registerUser may throw on bad input; ignore if user exists
-          console.log('Default user setup skipped or already exists');
+          console.log('GENPER user removal skipped:', e && e.message ? e.message : e);
         }
         try {
           await auth.registerUser('xxr', 'gp1451', { role: 'amir' });

@@ -134,7 +134,51 @@ function getBasimPrefKey() {
   const uid = getCurrentUserIdSafe();
   return BASIM_PREF_PREFIX + (uid || 'GLOBAL');
 }
+/** AVDAN / 1.OSB kantar kullanıcısında basım yeri sabittir. */
+function lockedBasimYeri() {
+  const uid = String(getCurrentUserIdSafe() || '').trim().toUpperCase();
+  if (uid === 'AVDAN') return 'avdan';
+  if (uid === '1.OSB') return '1.OSB';
+  return '';
+}
+function applyBasimYeriLock(el) {
+  const locked = lockedBasimYeri();
+  if (!el || !locked || el.dataset.basimLocked === '1') return;
+  const input = document.createElement('input');
+  input.id = 'basimYeri';
+  input.type = 'text';
+  input.className = 'form-input basim-yeri-locked';
+  input.value = locked;
+  input.readOnly = true;
+  input.tabIndex = -1;
+  input.title = 'Basım yeri kullanıcıya sabit: ' + locked;
+  input.setAttribute('aria-readonly', 'true');
+  input.dataset.basimLocked = '1';
+  const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get() { return desc.get.call(this); },
+    set() { desc.set.call(this, locked); }
+  });
+  el.replaceWith(input);
+}
+function watchBasimYeriLock() {
+  const run = () => {
+    const el = document.getElementById('basimYeri');
+    if (el) applyBasimYeriLock(el);
+  };
+  run();
+  try {
+    new MutationObserver(run).observe(document.body, { childList: true, subtree: true });
+  } catch (e) { /* ignore */ }
+}
+if (typeof document !== 'undefined') {
+  if (document.body) watchBasimYeriLock();
+  else document.addEventListener('DOMContentLoaded', watchBasimYeriLock);
+}
 function loadSavedBasimYeri() {
+  const locked = lockedBasimYeri();
+  if (locked) return locked;
   try {
     const key = getBasimPrefKey();
     const v1 = localStorage.getItem(key);

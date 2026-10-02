@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liman — İhracat Takip Listesi</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <script src="session-manager.js?v=20261003-liman3"></script>
+  <script src="session-manager.js?v=20261003-presence2"></script>
   <style>
     body { margin: 0; background: #d9e2d4; color: #1a1a1a; font-family: Calibri, "Segoe UI", sans-serif; }
     .top { position: sticky; top: 0; z-index: 5; background: #1f4e2a; color: #fff; box-shadow: 0 1px 0 #16381e; }
@@ -23,13 +23,7 @@
     .blok:last-child { margin-bottom: 0; }
     #adminBox:empty { display: none; }
     #adminBox { margin-bottom: 14px; font-size: .85rem; }
-    .pending { background: #fff7ed; border: 2px solid #f97316; padding: 10px 12px; margin-bottom: 8px; }
-    .pending-actions { display: inline-flex; gap: 6px; margin-left: 10px; flex-wrap: wrap; }
-    .btn-ok, .btn-no { border: 0; padding: 6px 10px; font: inherit; font-weight: 700; cursor: pointer; }
-    .btn-ok { background: #166534; color: #fff; }
-    .btn-no { background: #e5e7eb; color: #111827; }
     .known { background: #fff; border: 1px solid #cbd5e1; padding: 8px 12px; color: #334155; }
-    .known .x { border: 0; background: none; color: #b91c1c; cursor: pointer; font-weight: 700; }
     .blok-head { display: grid; grid-template-columns: 1.4fr .9fr; gap: 0; border-bottom: 1px solid #9ccc9c; }
     .blok-title { margin: 0; padding: 8px 10px; background: #e2efda; font-size: .92rem; line-height: 1.35; font-weight: 700; }
     .meta { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -55,13 +49,24 @@
     .blok.is-done table.grid td { background: #f0fdf4; }
     .rownote { display: block; color: #9f1239; font-size: .72rem; font-weight: 700; white-space: normal; }
     .rownote input { width: 140px; border: 1px solid #fecdd3; font: inherit; font-size: .72rem; }
+    .title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .presence-chip { display: inline-flex; gap: 12px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 4px 12px; font-size: .78rem; }
+    .presence-item { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; opacity: .65; }
+    .presence-item i { width: 8px; height: 8px; border-radius: 999px; background: #9ca3af; }
+    .presence-item.is-on { opacity: 1; }
+    .presence-item.is-on i { background: #4ade80; box-shadow: 0 0 0 2px rgba(74,222,128,.3); }
+    .presence-item small { font-weight: 600; }
+    .presence-item.is-on small { color: #bbf7d0; }
     .toast { position: fixed; bottom: 36px; right: 16px; background: #14532d; color: #fff; padding: 10px 14px; display: none; }
   </style>
 </head>
 <body>
   <header class="top">
     <div class="top-inner">
-      <h1>İhracat Takip Listesi</h1>
+      <div class="title-row">
+        <h1>İhracat Takip Listesi</h1>
+        <span class="presence-chip" id="chipPresence"></span>
+      </div>
       <div class="ports">
         <div id="ports"></div>
         <input id="plate" class="search" type="search" placeholder="Plaka ara" />
@@ -76,6 +81,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261003-liman8"></script>
+  <script src="liman.js?v=20261003-liman10"></script>
 </body>
 </html>

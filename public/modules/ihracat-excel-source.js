@@ -1100,7 +1100,9 @@
       }
       setNeedPath(false);
       try {
-        if (typeof window.publishLimanFromStore === 'function') setTimeout(window.publishLimanFromStore, 800);
+        if (typeof window.publishLimanFromStore === 'function') {
+          Promise.resolve().then(function () { return window.publishLimanFromStore(true); }).catch(function () {});
+        }
       } catch (e) {}
 
       var summary;

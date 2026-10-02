@@ -646,6 +646,7 @@ function showTakipFormu(vehicle) {
                   });
                   const savedBasim = loadSavedBasimYeri();
                   if (savedBasim) try { basimEl.value = savedBasim; } catch(e) {}
+                  try { applyBasimYeriLock(basimEl); } catch(e) {}
                   // ✅ Form açıldığında da sıra sayısını göster
                   if (basimEl.value) updateQueueDisplay(basimEl.value);
                 }
@@ -1485,6 +1486,7 @@ try {
             // ✅ BASIM YERİ otomatik seçilsin → updateQueueDisplay() çağrılsın
             try {
               const basimEl = document.getElementById('basimYeri');
+              applyBasimYeriLock(basimEl);
               if (basimEl && !String(basimEl.value || '').trim()) {
                 const savedBasim = loadSavedBasimYeri() || 'avdan';
                 basimEl.value = savedBasim;
@@ -2201,6 +2203,7 @@ try {
             try {
               const b = document.getElementById('basimYeri');
               if (b && keepBasim) b.value = keepBasim;
+              try { applyBasimYeriLock(b); } catch(e) {}
               if (b) { persistBasimYeri(b.value); }
             } catch(e) {}
 
@@ -2875,6 +2878,15 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             el.classList.toggle('hidden', !text);
         }
 
+        if (!window.__gpmPresenceChipBound) {
+            window.__gpmPresenceChipBound = true;
+            window.addEventListener('gpm-presence', (ev) => {
+                const el = document.getElementById('chipPresence');
+                if (!el || !window.SessionManager || typeof SessionManager.presenceChipHtml !== 'function') return;
+                el.innerHTML = SessionManager.presenceChipHtml((ev.detail && ev.detail.list) || []);
+            });
+        }
+
         function syncConnectionChip() {
             const el = document.getElementById('chipConnection');
             if (!el) return;
@@ -3281,8 +3293,13 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
       ${_navHtml}
       <div class="app-header-status" id="quickStatusRow">
         <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
-        <span class="status-chip" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b>${_statusMeta.userLabel}</b></span>
-        <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
+        <div class="status-stack">
+          <div class="status-stack__row">
+            <span class="status-chip" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b>${_statusMeta.userLabel}</b></span>
+            <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
+          </div>
+          <span class="status-chip presence-chip" id="chipPresence" title="Kim çevrimiçi">${(window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') ? SessionManager.presenceChipHtml(SessionManager.getPresence()) : ''}</span>
+        </div>
         <span class="status-chip">Tanımlı şoför: <b>${_totalVehicleCount}</b></span>
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>

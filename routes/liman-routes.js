@@ -5,18 +5,36 @@ const { daysFromSheetState, siteHasBlocks, sanitizeBlocks } = require('../lib/li
 
 const STATE_KEY = 'liman_state_v1';
 const MAX_ROWS = 2000;
-const MAX_PENDING = 4;
+const DEFAULT_SITE_IPS = {
+  AVDAN: ['95.3.27.82'],
+  '1.OSB': ['195.175.103.150'],
+};
+
+function loadSiteIps() {
+  const out = { AVDAN: DEFAULT_SITE_IPS.AVDAN.slice(), '1.OSB': DEFAULT_SITE_IPS['1.OSB'].slice() };
+  try {
+    const extra = JSON.parse(process.env.LIMAN_SITE_IPS || '{}');
+    SITES.forEach((site) => {
+      if (Array.isArray(extra[site])) out[site] = extra[site].map((ip) => String(ip || '').trim()).filter(Boolean);
+    });
+  } catch (_) { /* geçersiz env: varsayılan IP'ler */ }
+  return out;
+}
 
 function registerLimanRoutes(api, ctx) {
-  const {
-    q, sendApiError, requireValidSession, requireAmir, sanitizeString,
-    getClientIp, normalizeClientIp, resolveClientSite,
-  } = ctx;
+  const { q, sendApiError, requireValidSession, requireAmir, sanitizeString, getClientIp, normalizeClientIp } = ctx;
+  const siteIps = loadSiteIps();
 
-  function emptyIps() {
-    const out = {};
-    SITES.forEach((site) => { out[site] = []; });
-    return out;
+  function ipSite(ip) {
+    for (let i = 0; i < SITES.length; i++) {
+      if ((siteIps[SITES[i]] || []).indexOf(ip) >= 0) return SITES[i];
+    }
+    return '';
+  }
+
+  function requestIp(req) {
+    const raw = typeof getClientIp === 'function' ? getClientIp(req) : (req.ip || '');
+    return typeof normalizeClientIp === 'function' ? normalizeClientIp(raw) : String(raw || '');
   }
 
   // Tek Railway örneği: durum bellekte tutulur, DB yalnız açılışta okunur ve yazmada güncellenir.
@@ -33,16 +51,20 @@ function registerLimanRoutes(api, ctx) {
 
   async function readState() {
     const raw = await loadRaw();
-    const base = Object.assign(emptyState(), { ips: emptyIps(), pending: [] });
+    const base = emptyState();
     if (!raw) return base;
     try {
       const parsed = JSON.parse(raw);
       SITES.forEach((site) => {
         if (parsed.sites && parsed.sites[site]) base.sites[site] = parsed.sites[site];
-        if (parsed.ips && Array.isArray(parsed.ips[site])) base.ips[site] = parsed.ips[site].slice(0, 10);
       });
       if (parsed.notes && typeof parsed.notes === 'object') base.notes = parsed.notes;
-      if (Array.isArray(parsed.pending)) base.pending = parsed.pending.slice(0, MAX_PENDING);
+      (Array.isArray(parsed.pending) ? parsed.pending : []).forEach((p) => {
+        const site = ipSite(p && p.ip) || normalizeSite(p && p.guess);
+        if (!site || !p.snapshot) return;
+        const cur = base.sites[site];
+        if (!cur || String(cur.updatedAt || '') < String(p.snapshot.updatedAt || '')) base.sites[site] = p.snapshot;
+      });
       return base;
     } catch (_) {
       return base;
@@ -67,22 +89,20 @@ function registerLimanRoutes(api, ctx) {
     return role === 'amir' || username === 'xxr';
   }
 
-  function requestIp(req) {
-    const raw = typeof getClientIp === 'function' ? getClientIp(req) : (req.ip || '');
-    return typeof normalizeClientIp === 'function' ? normalizeClientIp(raw) : String(raw || '');
-  }
-
-  /** client_sites.json veya amirin onayladığı IP listesi; ikisinde de yoksa ''. */
-  function siteForIp(state, ip) {
-    if (!ip || ip === 'unknown') return '';
-    if (typeof resolveClientSite === 'function') {
-      const fromConfig = normalizeSite(resolveClientSite(ip).clientSite);
-      if (fromConfig) return fromConfig;
-    }
-    for (let i = 0; i < SITES.length; i++) {
-      if ((state.ips[SITES[i]] || []).indexOf(ip) >= 0) return SITES[i];
-    }
-    return '';
+  /** Kantarın bildirdiği yer; yoksa listedeki yükleme yerlerinin çoğunluğu. */
+  function siteFromPayload(guess, blocks, rows) {
+    const direct = normalizeSite(guess);
+    if (direct) return direct;
+    const count = {};
+    const add = (raw) => {
+      const s = String(raw || '').toUpperCase();
+      const site = s.indexOf('OSB') >= 0 ? '1.OSB' : (s.indexOf('AVDAN') >= 0 ? 'AVDAN' : '');
+      if (site) count[site] = (count[site] || 0) + 1;
+    };
+    blocks.forEach((b) => (b.rows || []).forEach((r) => add(r.yukleme)));
+    if (!blocks.length) rows.forEach((r) => add(r.yuklemeYeri));
+    const sorted = Object.keys(count).sort((a, b) => count[b] - count[a]);
+    return sorted[0] || '';
   }
 
   function snapshotRowCount(snap) {
@@ -91,10 +111,6 @@ function registerLimanRoutes(api, ctx) {
       return snap.blocks.reduce((sum, block) => sum + ((block.rows && block.rows.length) || 0), 0);
     }
     return Array.isArray(snap.rows) ? snap.rows.length : 0;
-  }
-
-  function viewDays(state) {
-    return daysFromSheetState(state);
   }
 
   function publicSites(state) {
@@ -111,30 +127,19 @@ function registerLimanRoutes(api, ctx) {
     return out;
   }
 
-  function adminView(state) {
-    return {
-      ips: state.ips,
-      pending: state.pending.map((p) => ({
-        ip: p.ip,
-        guess: p.guess || '',
-        fileName: p.fileName || '',
-        at: p.at || '',
-        rowCount: snapshotRowCount(p.snapshot),
-      })),
-    };
-  }
-
   function viewFor(req, state) {
-    const canEdit = isAmirUser(req);
-    const out = { ok: true, version, canEdit, sites: publicSites(state), days: viewDays(state) };
-    if (canEdit) out.admin = adminView(state);
-    return out;
+    return {
+      ok: true,
+      version,
+      canEdit: isAmirUser(req),
+      sites: publicSites(state),
+      days: daysFromSheetState(state),
+    };
   }
 
   api.get('/liman', requireValidSession, async (req, res) => {
     try {
-      const state = await readState();
-      return res.json(viewFor(req, state));
+      return res.json(viewFor(req, await readState()));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_READ_FAILED');
     }
@@ -157,74 +162,35 @@ function registerLimanRoutes(api, ctx) {
         return res.json({ ok: true, skipped: true });
       }
       const fileName = sanitizeString(body.fileName || '', 180);
-      const guess = normalizeSite(body.site);
       const incoming = Array.isArray(body.rows) ? body.rows.slice(0, MAX_ROWS) : [];
       const blocks = sanitizeBlocks(body.blocks);
-      const ip = requestIp(req);
-      const state = await readState();
-      const site = siteForIp(state, ip);
-      const rowSite = site || guess || 'AVDAN';
-      const rows = incoming.map((row) => slimRow(row, rowSite, fileName)).filter((row) => {
+      const site = normalizeSite(req.user && req.user.username)
+        || ipSite(requestIp(req))
+        || siteFromPayload(body.site, blocks, incoming);
+      if (!site) {
+        return res.status(400).json({ ok: false, error: 'Kantar (AVDAN / 1.OSB) anlaşılamadı. Basım yerini seçin.' });
+      }
+      const rows = incoming.map((row) => slimRow(row, site, fileName)).filter((row) => {
         return row.irsaliyeNo || row.plaka || row.headerText;
       });
+      const state = await readState();
+      const prev = state.sites[site];
       const snapshot = {
         fileName,
         updatedAt: new Date().toISOString(),
         user: sanitizeString((req.user && req.user.username) || '', 40),
-        ip,
         rows: blocks.length ? [] : rows,
         blocks,
       };
-      if (!site) {
-        state.pending = [{ ip, guess, fileName, at: snapshot.updatedAt, snapshot }]
-          .concat(state.pending.filter((p) => p.ip !== ip))
-          .slice(0, MAX_PENDING);
-        await writeState(state);
-        return res.json({ ok: true, pending: true, ip });
-      }
-      const prev = state.sites[site];
       const sameContent = prev && prev.fileName === snapshot.fileName
         && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
         && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
-      if (sameContent) return res.json({ ok: true, site, ip, unchanged: true });
+      if (sameContent) return res.json({ ok: true, site, unchanged: true });
       state.sites[site] = snapshot;
       await writeState(state);
-      return res.json({ ok: true, site, ip });
+      return res.json({ ok: true, site });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_SNAPSHOT_FAILED');
-    }
-  });
-
-  api.post('/liman/ip/approve', requireAmir, async (req, res) => {
-    try {
-      const body = req.body || {};
-      const ip = sanitizeString(body.ip || '', 64);
-      const site = normalizeSite(body.site);
-      if (!ip || !site) return res.status(400).json({ ok: false, error: 'IP ve kantar gerekli.' });
-      const state = await readState();
-      SITES.forEach((s) => { state.ips[s] = (state.ips[s] || []).filter((x) => x !== ip); });
-      state.ips[site].push(ip);
-      const pend = state.pending.find((p) => p.ip === ip);
-      if (pend && pend.snapshot) state.sites[site] = pend.snapshot;
-      state.pending = state.pending.filter((p) => p.ip !== ip);
-      await writeState(state);
-      return res.json(viewFor(req, state));
-    } catch (err) {
-      return sendApiError(res, err, 500, 'LIMAN_IP_APPROVE_FAILED');
-    }
-  });
-
-  api.post('/liman/ip/remove', requireAmir, async (req, res) => {
-    try {
-      const ip = sanitizeString((req.body && req.body.ip) || '', 64);
-      if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli.' });
-      const state = await readState();
-      SITES.forEach((s) => { state.ips[s] = (state.ips[s] || []).filter((x) => x !== ip); });
-      state.pending = state.pending.filter((p) => p.ip !== ip);
-      await writeState(state);
-      return res.json(viewFor(req, state));
-    } catch (err) {
-      return sendApiError(res, err, 500, 'LIMAN_IP_REMOVE_FAILED');
     }
   });
 
@@ -252,7 +218,7 @@ function registerLimanRoutes(api, ctx) {
       if (note) state.notes[key] = note;
       else delete state.notes[key];
       await writeState(state);
-      return res.json({ ok: true, days: viewDays(state) });
+      return res.json({ ok: true, days: daysFromSheetState(state) });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_NOTE_FAILED');
     }

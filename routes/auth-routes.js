@@ -1,6 +1,7 @@
 'use strict';
 
 const jwt = require('jsonwebtoken');
+const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 
 /**
  * @param {import('express').Router} api
@@ -21,7 +22,9 @@ function registerAuthRoutes(api, ctx) {
     AUTH_COOKIE_OPTIONS,
     JWT_SECRET,
     AUTH_SESSION_EXPIRES,
+    presence,
   } = ctx;
+  const REMOVED_USERS = new Set(['GENPER']);
 
   api.post('/login', loginEndpointLimiter, async (req, res) => {
     try {
@@ -65,6 +68,7 @@ function registerAuthRoutes(api, ctx) {
         res.cookie(AUTH_COOKIE_NAME, r.token, AUTH_COOKIE_OPTIONS);
       } catch (e) { /* ignore */ }
       const { clientIp, clientSite } = resolveClientSite(ip, r.user && r.user.role);
+      if (presence) presence.touch(r.user);
       return res.json({ ok: true, user: r.user, clientIp, clientSite });
     } catch (e) {
       return res.status(500).json({ ok: false, error: e && e.message ? e.message : String(e) });
@@ -74,6 +78,13 @@ function registerAuthRoutes(api, ctx) {
   api.get('/me', auth.verifyToken, async (req, res) => {
     try {
       const u = req.user;
+      if (u && REMOVED_USERS.has(String(u.username || ''))) {
+        try {
+          res.cookie(AUTH_COOKIE_NAME, '', Object.assign({}, AUTH_COOKIE_OPTIONS, { maxAge: 0 }));
+        } catch (e) { /* ignore */ }
+        return res.status(401).json({ ok: false, error: 'Bu kullanıcı kaldırıldı. AVDAN veya 1.OSB ile giriş yapın.' });
+      }
+      if (presence) presence.touch(u);
       const ip = normalizeClientIp(getClientIp(req));
       const { clientIp, clientSite } = resolveClientSite(ip, u && u.role);
       if (u && u.username) {
@@ -90,6 +101,11 @@ function registerAuthRoutes(api, ctx) {
   });
 
   api.post('/logout', (req, res) => {
+    try {
+      const token = extractAuthTokenFromRequest(req, AUTH_COOKIE_NAME);
+      const decoded = token ? jwt.verify(token, JWT_SECRET) : null;
+      if (presence && decoded && decoded.username) presence.remove(decoded.username);
+    } catch (e) { /* ignore */ }
     try {
       res.cookie(AUTH_COOKIE_NAME, '', Object.assign({}, AUTH_COOKIE_OPTIONS, { maxAge: 0 }));
     } catch (e) { /* ignore */ }

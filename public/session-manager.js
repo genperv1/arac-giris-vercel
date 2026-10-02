@@ -525,10 +525,11 @@
             }
             return false;
         }
-        
+
+        startPresence();
         return true;
     }
-    
+
     // Form submit veya buton tıklamalarında kullanılmak üzere wrapper
     async function withSessionCheck(callback, options = {}) {
         const { showImmediateError = false } = options;
@@ -674,6 +675,7 @@
             checkInterval: SESSION_CACHE_VALID_MS
         };
         startSessionKeepAlive();
+        startPresence();
     }
 
     // Public API
@@ -691,7 +693,77 @@
         return 'GENPER · AMİR';
     }
 
+    // Kim çevrimiçi: 2 dk'da bir küçük istek; aynı bilgisayardaki sekmeler sonucu localStorage üzerinden paylaşır.
+    const PRESENCE_KEY = 'gpm_presence_v1';
+    const PRESENCE_INTERVAL_MS = 2 * 60 * 1000;
+    let presenceTimer = null;
+
+    function readPresenceCache() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(PRESENCE_KEY) || 'null');
+            return raw && Array.isArray(raw.list) ? raw : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function emitPresence(list) {
+        try {
+            window.dispatchEvent(new CustomEvent('gpm-presence', { detail: { list: list || [] } }));
+        } catch (e) { /* ignore */ }
+    }
+
+    async function pollPresence() {
+        if (document.hidden || !isLikelyLoggedIn()) return;
+        const cached = readPresenceCache();
+        if (cached && Date.now() - cached.at < PRESENCE_INTERVAL_MS - 10000) {
+            emitPresence(cached.list);
+            return;
+        }
+        try {
+            const res = await fetch('/api/presence', { credentials: 'include', cache: 'no-store' });
+            if (!res.ok) return;
+            const data = await res.json();
+            const list = Array.isArray(data.presence) ? data.presence : [];
+            try { localStorage.setItem(PRESENCE_KEY, JSON.stringify({ at: Date.now(), list })); } catch (e) { /* ignore */ }
+            emitPresence(list);
+        } catch (e) { /* ignore */ }
+    }
+
+    function startPresence() {
+        if (presenceTimer) return;
+        pollPresence();
+        presenceTimer = setInterval(pollPresence, PRESENCE_INTERVAL_MS);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) pollPresence(); });
+        window.addEventListener('storage', (ev) => {
+            if (ev.key !== PRESENCE_KEY) return;
+            const cached = readPresenceCache();
+            if (cached) emitPresence(cached.list);
+        });
+    }
+
+    function getPresence() {
+        const cached = readPresenceCache();
+        return cached ? cached.list : [];
+    }
+
+    /** Tek chip: "AVDAN ● · 1.OSB ○ · AMİR ●" */
+    function presenceChipHtml(list) {
+        const items = (list || []).map((p) => {
+            const cls = p.online ? 'presence-item is-on' : 'presence-item';
+            const title = p.online ? 'çevrimiçi' : (p.lastSeen ? 'son görülme ' + new Date(p.lastSeen).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'çevrimdışı');
+            return '<span class="' + cls + '" title="' + p.label + ' — ' + title + '"><i aria-hidden="true"></i>' + p.label + ' <small>' + (p.online ? 'online' : 'offline') + '</small></span>';
+        }).join('');
+        if (items) return items;
+        return ['AVDAN', '1.OSB', 'AMİR'].map((label) =>
+            '<span class="presence-item"><i aria-hidden="true"></i>' + label + ' <small>…</small></span>'
+        ).join('');
+    }
+
     window.SessionManager = {
+        startPresence,
+        getPresence,
+        presenceChipHtml,
         markSessionValid,
         invalidateSession,
         checkSessionValidity,

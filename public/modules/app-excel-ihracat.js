@@ -1242,6 +1242,8 @@ function slimIhracatRowsForStorage(rows) {
 
 function limanPublishSite(rows) {
   try {
+    const userId = String(localStorage.getItem('currentUserId') || '').trim().toUpperCase();
+    if (userId === 'AVDAN' || userId === '1.OSB') return userId;
     const picked = String(localStorage.getItem('liman_site_v1') || '').trim();
     if (picked === 'AVDAN' || picked === '1.OSB') return picked;
     const client = String(localStorage.getItem('currentClientSite') || '');
@@ -1412,7 +1414,7 @@ function _limanHash(text) {
   return (h >>> 0).toString(36);
 }
 
-function publishLimanSnapshot(rows, meta) {
+function publishLimanSnapshot(rows, meta, opts) {
   try {
     const site = limanPublishSite(rows);
     const blocks = limanSheetBlocksFor(rows, meta);
@@ -1440,7 +1442,8 @@ function publishLimanSnapshot(rows, meta) {
     try { sentBefore = localStorage.getItem('liman_last_sent_v1') || ''; } catch (e) {}
     const stamp = String(body.length) + ':' + _limanHash(body);
     const sentAt = Number(sentBefore.split('|')[1] || 0);
-    if (sentBefore.split('|')[0] === stamp && Date.now() - sentAt < 6 * 60 * 60 * 1000) return;
+    const force = !!(opts && opts.force);
+    if (!force && sentBefore.split('|')[0] === stamp && Date.now() - sentAt < 6 * 60 * 60 * 1000) return;
     fetch('/api/liman/snapshot', {
       method: 'PUT',
       credentials: 'same-origin',
@@ -1454,7 +1457,7 @@ function publishLimanSnapshot(rows, meta) {
   } catch (e) {}
 }
 
-function publishLimanFromStore() {
+function publishLimanFromStore(force) {
   try {
     if (!window.DailyStore || typeof DailyStore.getRows !== 'function') return;
     const ready = typeof DailyStore.ensureReady === 'function' ? DailyStore.ensureReady() : Promise.resolve();
@@ -1462,14 +1465,14 @@ function publishLimanFromStore() {
       const rows = DailyStore.getRows() || [];
       if (!rows.length) return;
       const meta = typeof DailyStore.getMeta === 'function' ? (DailyStore.getMeta() || {}) : {};
-      publishLimanSnapshot(rows, meta);
+      publishLimanSnapshot(rows, meta, { force: force === true });
     }).catch(() => {});
   } catch (e) {}
 }
 
 try { window.publishLimanFromStore = publishLimanFromStore; } catch (e) {}
 
-if (typeof window !== 'undefined' && !/\/liman(\.html)?$/i.test(String(location.pathname || ''))) {
+if (typeof window !== 'undefined' && typeof location !== 'undefined' && !/\/liman(\.html)?$/i.test(String(location.pathname || ''))) {
   setTimeout(publishLimanFromStore, 5000);
 }
 

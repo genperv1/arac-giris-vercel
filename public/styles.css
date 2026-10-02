@@ -1051,6 +1051,60 @@ html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
   cursor: default;
 }
 
+.status-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+}
+
+.status-stack__row {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.status-chip.presence-chip {
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+.presence-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.presence-item i {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #9ca3af;
+}
+
+.presence-item small {
+  font-weight: 600;
+  font-size: 0.85em;
+}
+
+.presence-item.is-on {
+  opacity: 1;
+}
+
+.presence-item.is-on i {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+}
+
+.presence-item.is-on small {
+  color: #16a34a;
+}
+
+body.session-amir .presence-item.is-on small {
+  color: #86efac;
+}
+
 .app-header-status button.status-chip {
   cursor: pointer;
 }
@@ -3687,6 +3741,15 @@ html.allow-ui-motion:not(.reduce-motion-os) .takip-modal__btn {
   line-height: 1.2;
 }
 
+#takipFormuModal .basim-yeri-locked,
+.basim-yeri-locked {
+  pointer-events: none;
+  background: #f3f4f6;
+  color: #111827;
+  cursor: default;
+  user-select: none;
+}
+
 #takipFormuModal .form-input,
 #takipFormuModal .takip-form select,
 #takipFormuModal .takip-form textarea {
@@ -3709,6 +3772,18 @@ html.allow-ui-motion:not(.reduce-motion-os) .takip-modal__btn {
   outline: none;
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+#takipFormuModal .highlight-section .takip-form__control .form-input.basim-yeri-locked,
+#takipFormuModal .highlight-section .takip-form__control .form-input.basim-yeri-locked:focus,
+#takipFormuModal .form-input.basim-yeri-locked,
+#takipFormuModal .form-input.basim-yeri-locked:focus {
+  background: #f3f4f6;
+  color: #111827;
+  border-color: #d1d5db;
+  box-shadow: none;
+  pointer-events: none;
+  cursor: default;
 }
 
 #takipFormuModal .form-input.input-error,
@@ -4183,6 +4258,37 @@ html.logged-in #mainApp,
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
+}
+
+.login-users {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.login-user {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 12px;
+  padding: 0.75rem 0.2rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.login-user:hover {
+  border-color: #c7d2fe;
+  background: #fff;
+}
+
+.login-user.is-selected {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #3730a3;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
 .login-field__label {
