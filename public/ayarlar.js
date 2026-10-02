@@ -683,7 +683,123 @@
     await deletePasifDrivers(ids);
   }
 
+  // ===== Şoför listesi Excel indirme (İsim · Soyisim · Telefon · Plaka) =====
+  function splitDriverName(row) {
+    let ad = String(row.soforAdi || '').trim();
+    let soyad = String(row.soforSoyadi || '').trim();
+    if (!ad && !soyad) {
+      const parts = String(row.soforName || '').trim().split(/\s+/).filter(Boolean);
+      if (parts.length > 1) { soyad = parts.pop(); ad = parts.join(' '); }
+      else ad = parts[0] || '';
+    }
+    return { ad, soyad };
+  }
+
+  function driverRowsToSheetRows(rows) {
+    return (rows || []).map((row, i) => {
+      const n = splitDriverName(row);
+      return {
+        '#': i + 1,
+        'İsim': n.ad,
+        'Soyisim': n.soyad,
+        'Telefon': String(row.iletisim || '').trim(),
+        'Plaka': compactShownPlate(row.plaka || row.cekiciPlaka || '') || '',
+      };
+    });
+  }
+
+  async function downloadDriversExcel(rows, fileBase, sheetName) {
+    if (typeof window.ensureXlsxLoaded === 'function') await window.ensureXlsxLoaded();
+    if (typeof XLSX === 'undefined') throw new Error('Excel kütüphanesi yüklenemedi.');
+    const data = driverRowsToSheetRows(rows);
+    const ws = XLSX.utils.json_to_sheet(data, { header: ['#', 'İsim', 'Soyisim', 'Telefon', 'Plaka'] });
+    ws['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 14 }];
+    ws['!autofilter'] = { ref: 'A1:E' + Math.max(1, data.length + 1) };
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName || 'Şoförler');
+    const d = new Date();
+    const stamp = String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+    XLSX.writeFile(wb, fileBase + ' ' + stamp + '.xlsx');
+    return data.length;
+  }
+
+  async function fetchAllPasifRows() {
+    const q = (document.getElementById('pasifSearch')?.value || '').trim();
+    const out = [];
+    const step = 500;
+    for (let offset = 0; offset < 20000; offset += step) {
+      const url = '/api/inactive-drivers?tab=idle' +
+        '&days=' + encodeURIComponent(String(pasifDays)) +
+        '&search=' + encodeURIComponent(q) +
+        '&limit=' + step + '&offset=' + offset;
+      const r = await apiFetch(url);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const items = data.items || [];
+      out.push(...items);
+      if (items.length < step) break;
+    }
+    return out;
+  }
+
+  async function fetchAllDriverRows() {
+    const r = await apiFetch('/api/vehicles?limit=20000&offset=0');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const list = await r.json();
+    return (Array.isArray(list) ? list : [])
+      .filter((v) => v && (String(v.soforAdi || '').trim() || String(v.soforSoyadi || '').trim() || String(v.cekiciPlaka || '').trim()))
+      .map((v) => ({
+        soforAdi: v.soforAdi,
+        soforSoyadi: v.soforSoyadi,
+        iletisim: v.iletisim,
+        plaka: v.cekiciPlaka,
+      }))
+      .sort((a, b) => (String(a.soforAdi || '') + ' ' + String(a.soforSoyadi || '')).localeCompare(
+        String(b.soforAdi || '') + ' ' + String(b.soforSoyadi || ''), 'tr'));
+  }
+
+  async function withBusyButton(btn, fn) {
+    if (!btn || btn.disabled) return;
+    const html = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Hazırlanıyor…';
+    try {
+      await fn();
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = html;
+    }
+  }
+
+  async function handlePasifExcel(btn) {
+    await withBusyButton(btn, async () => {
+      try {
+        const rows = await fetchAllPasifRows();
+        if (!rows.length) { toast('İndirilecek pasif şoför kaydı yok.', true); return; }
+        const n = await downloadDriversExcel(rows, 'Pasif Soforler ' + pasifDays + ' gun', 'Pasif Şoförler');
+        toast(n + ' pasif şoför Excel olarak indirildi.');
+      } catch (e) {
+        toast('Excel hazırlanamadı: ' + String(e.message || e), true);
+      }
+    });
+  }
+
+  async function handleAllDriversExcel(btn) {
+    await withBusyButton(btn, async () => {
+      try {
+        const rows = await fetchAllDriverRows();
+        if (!rows.length) { toast('Kayıtlı şoför bulunamadı.', true); return; }
+        const n = await downloadDriversExcel(rows, 'Sofor Listesi', 'Şoförler');
+        toast(n + ' şoför Excel olarak indirildi.');
+      } catch (e) {
+        toast('Excel hazırlanamadı: ' + String(e.message || e), true);
+      }
+    });
+  }
+
   function bindPasifUi() {
+    document.getElementById('pasifExcelBtn')?.addEventListener('click', (e) => handlePasifExcel(e.currentTarget));
+    document.getElementById('allDriversExcelBtn')?.addEventListener('click', (e) => handleAllDriversExcel(e.currentTarget));
     document.getElementById('pasifIdleDays')?.addEventListener('change', (e) => {
       pasifDays = Math.min(Math.max(Number(e.target.value) || 180, 7), 365);
       pasifPage = 1;

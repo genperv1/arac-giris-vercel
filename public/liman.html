@@ -24,6 +24,14 @@
     #adminBox:empty { display: none; }
     #adminBox { margin-bottom: 14px; font-size: .85rem; }
     .known { background: #fff; border: 1px solid #cbd5e1; padding: 8px 12px; color: #334155; }
+    .known + .known { margin-top: 6px; }
+    .admin-days { display: flex; flex-direction: column; gap: 8px; }
+    .close-day-row, .closed-days-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .btn-close-day { background: #b91c1c; padding: 6px 12px; font-size: .8rem; }
+    .btn-close-day:disabled { opacity: .55; cursor: default; }
+    .closed-label { font-weight: 700; color: #7f1d1d; }
+    .closed-item { background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 3px 8px; }
+    .chip-reopen { padding: 3px 9px; font-size: .74rem; background: #dcfce7; color: #14532d; }
     .blok-head { display: grid; grid-template-columns: 1.4fr .9fr; gap: 0; border-bottom: 1px solid #9ccc9c; }
     .blok-title { margin: 0; padding: 8px 10px; background: #e2efda; font-size: .92rem; line-height: 1.35; font-weight: 700; }
     .meta { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -58,6 +66,78 @@
     .presence-item small { font-weight: 600; }
     .presence-item.is-on small { color: #bbf7d0; }
     .toast { position: fixed; bottom: 36px; right: 16px; background: #14532d; color: #fff; padding: 10px 14px; display: none; }
+    a.tel { color: inherit; text-decoration: none; }
+    table.grid td.c-sum { display: none; }
+
+    /* ===== Telefon (liman görevlisi): plaka · durum · şoför · telefon öne çıkar ===== */
+    @media (max-width: 760px) {
+      body { padding-bottom: 56px; }
+      .top-inner { padding: 8px 10px 10px; }
+      .top h1 { font-size: .95rem; }
+      .title-row { gap: 6px; }
+      .presence-chip { display: none; }
+      .ports { gap: 6px; margin-top: 8px; }
+      .ports #ports { display: contents; }
+      .chip { padding: 7px 10px; font-size: .8rem; }
+      .search { flex: 1 1 120px; min-width: 0; font-size: 16px; }
+      .btn { padding: 7px 12px; }
+      .wrap { padding: 10px 8px 60px; }
+      .sheet { min-width: 0; }
+      .blok { margin-bottom: 22px; border-radius: 8px; overflow: hidden; }
+      .blok-head { grid-template-columns: 1fr; }
+      .blok-title { font-size: .85rem; padding: 8px 10px; }
+      .meta { font-size: .76rem; }
+      .meta th { width: 84px; }
+      #adminBox .known { font-size: .76rem; }
+
+      table.grid, table.grid tbody { display: block; width: 100%; }
+      table.grid thead { display: none; }
+      table.grid tr {
+        display: grid;
+        grid-template-columns: 34px 1fr auto;
+        grid-template-areas:
+          "sira plaka durum"
+          "sira sofor tel"
+          "sira nums nums";
+        align-items: center;
+        gap: 2px 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid #cbd5e1;
+        background: #fff;
+      }
+      table.grid tr.is-out { background: #dcfce7; }
+      table.grid td { display: block; border: 0; padding: 0; background: transparent !important; text-align: left; white-space: normal; }
+      table.grid td.c-sira { grid-area: sira; color: #64748b; font-size: .8rem; font-weight: 700; align-self: start; padding-top: 3px; }
+      table.grid td.c-plaka { grid-area: plaka; font-size: 1.1rem; line-height: 1.2; }
+      table.grid td.c-plaka b { letter-spacing: .03em; }
+      table.grid td.c-plaka .mark { display: none; }
+      table.grid td.c-durum {
+        grid-area: durum; justify-self: end;
+        font-size: .72rem; font-weight: 800; letter-spacing: .03em;
+        padding: 3px 8px; border-radius: 999px;
+        background: #ffedd5 !important; color: #c2410c;
+      }
+      table.grid td.c-durum.is-out { background: #16a34a !important; color: #fff; }
+      table.grid td.c-durum:empty::before { content: attr(data-fallback); }
+      table.grid td.c-sofor { grid-area: sofor; font-size: .92rem; color: #1e293b; }
+      table.grid td.c-sofor:empty::before { content: "şoför yok"; color: #94a3b8; font-weight: 400; }
+      table.grid td.c-tel { grid-area: tel; justify-self: end; }
+      table.grid td.c-tel a.tel {
+        display: inline-block; padding: 6px 10px; border-radius: 6px;
+        background: #166534; color: #fff; font-weight: 700; font-size: .9rem; white-space: nowrap;
+      }
+      table.grid td.c-tel:empty { display: none; }
+      table.grid td.c-min { display: none; }
+      table.grid td.c-sum { grid-area: nums; display: block; font-size: .74rem; color: #475569; margin-top: 2px; }
+      table.grid td.c-sum:empty { display: none; }
+      table.grid td.c-sum b { color: #64748b; }
+      .rownote { font-size: .78rem; }
+      .rownote input { width: 100%; max-width: 220px; font-size: 16px; }
+      .progress-line, .done-line { font-size: .8rem; padding: 6px 10px; }
+      .tabbar { padding: 4px 6px; overflow-x: auto; white-space: nowrap; }
+      .tab { font-size: .76rem; padding: 6px 10px; }
+      .toast { left: 12px; right: 12px; bottom: 60px; text-align: center; }
+    }
   </style>
 </head>
 <body>
@@ -81,6 +161,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261003-liman10"></script>
+  <script src="liman.js?v=20261003-liman14"></script>
 </body>
 </html>

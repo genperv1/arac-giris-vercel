@@ -240,10 +240,21 @@ test('findExcelByFileName rejects path traversal names', async () => {
   assert.equal(found, '');
 });
 
-test('client refresh is manual only — no timer / watch', () => {
-  assert.doesNotMatch(clientCode, /setInterval\s*\(/);
+test('client refresh: manual button + silent 10 dk auto refresh (kantar only), no fs watch', () => {
+  assert.match(clientCode, /AUTO_REFRESH_MS = 10 \* 60 \* 1000/);
+  assert.match(clientCode, /setInterval\s*\(/);
   assert.doesNotMatch(clientCode, /setTimeout\s*\(/);
   assert.doesNotMatch(clientCode, /fs\.watch/);
+  // Otomatik tur: izin penceresi / dosya seçici / uyarı açmaz, amir oturumunda çalışmaz
+  const autoFn = clientCode.slice(
+    clientCode.indexOf('async function autoRefreshTick'),
+    clientCode.indexOf('function startAutoRefresh')
+  );
+  assert.match(autoFn, /isKantarSessionActive\(\)/);
+  assert.match(autoFn, /refreshFromStored\(null, null, null, \{ silent: true \}\)/);
+  assert.doesNotMatch(autoFn, /showOpenFilePicker|requestPermission|warn\(|showToast/);
+  assert.match(clientCode, /if \(_silentRun\) return \{ __missing: true \};/);
+  assert.match(clientCode, /isAmirUser\(\)\) return false/);
   assert.doesNotMatch(clientCode, /watchFile/);
   assert.match(clientCode, /Önce İhracat Excel dosyasını seçmelisiniz/);
   assert.match(clientCode, /İhracat Excel dosyası bulunamadı\. Lütfen dosyayı tekrar seçin/);

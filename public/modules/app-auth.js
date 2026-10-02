@@ -238,6 +238,7 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
 
             // Nakliye bekleyenleri (plaka verilecek BBT özeti)
             document.getElementById('limanMenuButton')?.addEventListener('click', async () => {
+                if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
                 document.querySelectorAll('details.app-split-nav__details').forEach((el) => { el.open = false; });
                 if (typeof closeAppToolsMenu === 'function') closeAppToolsMenu();
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {

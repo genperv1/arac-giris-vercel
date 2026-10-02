@@ -3040,7 +3040,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             };
             const _totalVehicleCount = (state.vehicles || []).length;
             const _statusMeta = _appStatusMeta();
-            const countChip = document.querySelector('#quickStatusRow .status-chip:nth-child(4) b');
+            const countChip = document.getElementById('chipDriverCountValue');
             if (countChip) countChip.textContent = String(_totalVehicleCount);
             const ihrChip = document.getElementById('chipIhracat');
             const ihrText = document.getElementById('chipIhracatText');
@@ -3060,8 +3060,10 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                 piyChip.title = _piyasaCnt > 0 ? ('PİYASA Excel: ' + _excelStatusInfo.piyLine) : 'PİYASA Excel yüklü değil';
             }
             if (piyText) piyText.textContent = _buildPiyasaChipText(_excelStatusInfo);
-            const userChip = document.querySelector('#quickStatusRow .status-chip:nth-child(2) b');
+            const userChip = document.getElementById('chipUserLabelValue');
             if (userChip) userChip.textContent = _statusMeta.userLabel;
+            const userChipWrap = document.getElementById('chipUserLabel');
+            if (userChipWrap) userChipWrap.title = _statusMeta.userTitle;
             try { syncConnectionChip(); } catch (_) {}
         }
 
@@ -3219,17 +3221,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             </div>
           </details>
         </div>
-        <div class="app-split-nav" title="Nakliye Bekleyenleri">
-          <button type="button" id="nakliyeBekleyenButton" class="app-nav-btn app-nav-btn--warn app-split-nav__main" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
-          <details class="app-tools-menu app-split-nav__details app-tools-menu--nested">
-            <summary class="app-nav-btn app-nav-btn--warn app-split-nav__arrow list-none select-none" title="Nakliye Bekleyenleri alt menü" aria-label="Nakliye Bekleyenleri alt menü">
-              <span class="app-nav-chevron" aria-hidden="true">▾</span>
-            </summary>
-            <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
-              <button type="button" id="limanMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Liman — birleşik ihracat listesi">Liman</button>
-            </div>
-          </details>
-        </div>
+        <button type="button" id="nakliyeBekleyenButton" class="app-nav-btn app-nav-btn--warn" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
         <a href="plaka.html" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
         <details class="app-tools-menu app-tools-menu--nested relative">
           <summary class="app-nav-btn list-none select-none">
@@ -3295,12 +3287,12 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
         <div class="status-stack">
           <div class="status-stack__row">
-            <span class="status-chip" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b>${_statusMeta.userLabel}</b></span>
+            <span class="status-chip" id="chipUserLabel" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b id="chipUserLabelValue">${_statusMeta.userLabel}</b></span>
             <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
           </div>
           <span class="status-chip presence-chip" id="chipPresence" title="Kim çevrimiçi">${(window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') ? SessionManager.presenceChipHtml(SessionManager.getPresence()) : ''}</span>
         </div>
-        <span class="status-chip">Tanımlı şoför: <b>${_totalVehicleCount}</b></span>
+        <span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
           <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${(!_amirPiyasa && _excelCnt>0)?'':'hidden'}" title="${(typeof listIhracatExcelSources === 'function' && listIhracatExcelSources().length > 1) ? 'Yüklü Excel dosyalarından hangilerinin güncelleneceğini seç' : 'Yüklü İhracat Excel dosyasını yeniden oku'}">

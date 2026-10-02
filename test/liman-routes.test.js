@@ -25,9 +25,9 @@ function harness(user) {
     getClientIp: (req) => req.headers['x-forwarded-for'],
     normalizeClientIp: (ip) => ip,
   });
-  const call = async (key, ip, body) => {
+  const call = async (key, ip, body, params) => {
     let out;
-    await routes[key]({ user, body, headers: { 'x-forwarded-for': ip } }, {
+    await routes[key]({ user, body, params: params || {}, headers: { 'x-forwarded-for': ip } }, {
       json: (d) => { out = d; return d; },
       status() { return this; },
       setHeader() {},
@@ -58,6 +58,58 @@ test('kantar kullanıcı adı IP\'den önce gelir', async () => {
   const { call } = harness({ username: 'AVDAN', role: 'admin' });
   const put = await call('put /liman/snapshot', '195.175.103.150', { site: '1.OSB', blocks: [block('YD47 / LOT NO 26 08 32 / SAFİPORT', '1.OSB')] });
   assert.equal(put.site, 'AVDAN');
+});
+
+test('amir günü kapatınca liman o günü görmez; sonraki gün kalır, yeniden açılabilir', async () => {
+  const kantar = { username: 'AVDAN', role: 'admin' };
+  const amir = { username: 'xxr', role: 'amir' };
+  const h = harness(kantar);
+  const nextBlock = Object.assign({}, block('YD2 / LOT NO 2 / EVYAP', 'AVDAN'), { fileName: '04.10.2026.xlsx' });
+  await h.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '03.10.2026.xlsx',
+    blocks: [block('YD1 / LOT NO 1 / SAFİPORT', 'AVDAN'), nextBlock],
+  });
+  let view = await h.call('get /liman', '1.1.1.1');
+  assert.deepEqual(view.days.map((d) => d.dateKey), ['2026-10-04', '2026-10-03']);
+  assert.deepEqual(view.closedDays, []);
+
+  // Amir aynı depo üzerinden kapatır (ayrı harness, aynı kv_store)
+  const a = harness(amir);
+  Object.assign(a.store, h.store);
+  const closed = await a.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.deepEqual(closed.days.map((d) => d.dateKey), ['2026-10-04']);
+  assert.equal(closed.closedDays.length, 1);
+  assert.equal(closed.closedDays[0].label, '03.10.2026');
+  assert.equal(closed.closedDays[0].by, 'xxr');
+
+  // Kantar aynı dosyayı yeniden gönderse de gün kapalı kalır; kantar kapalı listeyi görmez
+  const k2 = harness(kantar);
+  Object.assign(k2.store, a.store);
+  await k2.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '03.10.2026.xlsx',
+    blocks: [block('YD1 / LOT NO 1 / SAFİPORT', 'AVDAN'), nextBlock, block('YD9 / LOT NO 9 / EVYAP', 'AVDAN')],
+  });
+  view = await k2.call('get /liman', '1.1.1.1');
+  assert.deepEqual(view.days.map((d) => d.dateKey), ['2026-10-04']);
+  assert.deepEqual(view.closedDays.map((c) => c.label), ['03.10.2026']);
+
+  // Son gün de kapatılınca liste boş
+  const a2 = harness(amir);
+  Object.assign(a2.store, k2.store);
+  const allClosed = await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-04' });
+  assert.deepEqual(allClosed.days, []);
+  assert.equal(allClosed.closedDays.length, 2);
+
+  // Yeniden aç
+  const reopened = await a2.call('delete /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.deepEqual(reopened.days.map((d) => d.dateKey), ['2026-10-03']);
+  assert.deepEqual(reopened.closedDays.map((c) => c.dateKey), ['2026-10-04']);
+
+  // Olmayan gün / bozuk anahtar reddedilir
+  const bad = await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-12-31' });
+  assert.equal(bad.ok, false);
+  const badKey = await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: 'x' });
+  assert.equal(badKey.ok, false);
 });
 
 test('amir gönderimi yok sayılır', async () => {

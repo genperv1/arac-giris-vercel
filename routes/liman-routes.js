@@ -5,6 +5,9 @@ const { daysFromSheetState, siteHasBlocks, sanitizeBlocks } = require('../lib/li
 
 const STATE_KEY = 'liman_state_v1';
 const MAX_ROWS = 2000;
+// Amirin kapattığı günler bu kadar süre sonra kendiliğinden listeden düşer (kv_store şişmesin).
+const CLOSED_DAY_TTL_MS = 45 * 24 * 60 * 60 * 1000;
+const DAY_KEY_RE = /^(\d{4}-\d{2}-\d{2}|tarihsiz)$/;
 const DEFAULT_SITE_IPS = {
   AVDAN: ['95.3.27.82'],
   '1.OSB': ['195.175.103.150'],
@@ -59,6 +62,7 @@ function registerLimanRoutes(api, ctx) {
         if (parsed.sites && parsed.sites[site]) base.sites[site] = parsed.sites[site];
       });
       if (parsed.notes && typeof parsed.notes === 'object') base.notes = parsed.notes;
+      base.closedDays = pruneClosedDays(parsed.closedDays);
       (Array.isArray(parsed.pending) ? parsed.pending : []).forEach((p) => {
         const site = ipSite(p && p.ip) || normalizeSite(p && p.guess);
         if (!site || !p.snapshot) return;
@@ -87,6 +91,44 @@ function registerLimanRoutes(api, ctx) {
     const role = String((req.user && req.user.role) || '').toLowerCase();
     const username = String((req.user && req.user.username) || '').toLowerCase();
     return role === 'amir' || username === 'xxr';
+  }
+
+  /** Kapalı gün kaydı: { 'YYYY-MM-DD': { at, by } } — süresi dolanlar ve bozuk anahtarlar atılır. */
+  function pruneClosedDays(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    const now = Date.now();
+    Object.keys(raw).forEach((key) => {
+      if (!DAY_KEY_RE.test(key)) return;
+      const entry = raw[key] && typeof raw[key] === 'object' ? raw[key] : {};
+      const at = Date.parse(entry.at || '') || 0;
+      if (at && now - at > CLOSED_DAY_TTL_MS) return;
+      out[key] = { at: entry.at || '', by: String(entry.by || '').slice(0, 40) };
+    });
+    return out;
+  }
+
+  function closedDays(state) {
+    return state && state.closedDays && typeof state.closedDays === 'object' ? state.closedDays : {};
+  }
+
+  /** Liman görevlisinin gördüğü günler: amirin kapattıkları çıkarılır. */
+  function openDays(state) {
+    const closed = closedDays(state);
+    return daysFromSheetState(state).filter((day) => !closed[day.dateKey]);
+  }
+
+  function closedDayList(state) {
+    const closed = closedDays(state);
+    return daysFromSheetState(state)
+      .filter((day) => closed[day.dateKey])
+      .map((day) => ({
+        dateKey: day.dateKey,
+        label: day.label,
+        rowCount: day.blocks.reduce((sum, block) => sum + ((block.rows && block.rows.length) || 0), 0),
+        at: closed[day.dateKey].at || '',
+        by: closed[day.dateKey].by || '',
+      }));
   }
 
   /** Kantarın bildirdiği yer; yoksa listedeki yükleme yerlerinin çoğunluğu. */
@@ -128,13 +170,21 @@ function registerLimanRoutes(api, ctx) {
   }
 
   function viewFor(req, state) {
+    const amir = isAmirUser(req);
     return {
       ok: true,
       version,
-      canEdit: isAmirUser(req),
+      canEdit: amir,
       sites: publicSites(state),
-      days: daysFromSheetState(state),
+      days: openDays(state),
+      // Kapatılan günler: amir yeniden açabilsin, liman görevlisi "sevkiyat bitti" diye anlasın
+      closedDays: closedDayList(state),
     };
+  }
+
+  function dayKeyParam(req) {
+    const key = String((req.params && req.params.dateKey) || '').trim();
+    return DAY_KEY_RE.test(key) ? key : '';
   }
 
   api.get('/liman', requireValidSession, async (req, res) => {
@@ -218,9 +268,45 @@ function registerLimanRoutes(api, ctx) {
       if (note) state.notes[key] = note;
       else delete state.notes[key];
       await writeState(state);
-      return res.json({ ok: true, days: daysFromSheetState(state) });
+      return res.json({ ok: true, days: openDays(state) });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_NOTE_FAILED');
+    }
+  });
+
+  // Amir: sevkiyat bitince günün listesini kapatır. Liman tarafında o gün görünmez;
+  // sonraki günün listesi yüklüyse o kalır, yoksa liste boş olur. Kantar aynı dosyayı
+  // yeniden gönderse de gün kapalı kalır (tarih dosya adından geldiği için).
+  api.put('/liman/day/:dateKey/close', requireAmir, async (req, res) => {
+    try {
+      const key = dayKeyParam(req);
+      if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const state = await readState();
+      if (!daysFromSheetState(state).some((day) => day.dateKey === key)) {
+        return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
+      }
+      state.closedDays = Object.assign({}, closedDays(state), {
+        [key]: { at: new Date().toISOString(), by: sanitizeString((req.user && req.user.username) || '', 40) },
+      });
+      await writeState(state);
+      return res.json(viewFor(req, state));
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_DAY_CLOSE_FAILED');
+    }
+  });
+
+  api.delete('/liman/day/:dateKey/close', requireAmir, async (req, res) => {
+    try {
+      const key = dayKeyParam(req);
+      if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const state = await readState();
+      const next = Object.assign({}, closedDays(state));
+      delete next[key];
+      state.closedDays = next;
+      await writeState(state);
+      return res.json(viewFor(req, state));
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_DAY_REOPEN_FAILED');
     }
   });
 }

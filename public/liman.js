@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var state = { days: [], canEdit: false, day: '', port: '', plate: '', reports: null };
+  var state = { days: [], closedDays: [], canEdit: false, day: '', port: '', plate: '', reports: null };
   var toastTimer = 0;
 
   function $(id) { return document.getElementById(id); }
@@ -35,6 +35,7 @@
     state.version = data.version || '';
     state.canEdit = !!data.canEdit;
     state.sites = data.sites || {};
+    state.closedDays = Array.isArray(data.closedDays) ? data.closedDays : [];
     if (!state.days.some(function (d) { return d.dateKey === state.day; })) {
       state.day = state.days[0] ? state.days[0].dateKey : '';
     }
@@ -59,7 +60,64 @@
       var when = info.updatedAt ? new Date(info.updatedAt).toLocaleString('tr-TR') : '';
       return '<span><b>' + esc(site) + ':</b> ' + esc(info.fileName || '') + ' · ' + info.rowCount + ' satır · ' + esc(when) + '</span>';
     });
-    box.innerHTML = '<div class="known">Son gönderim → ' + parts.join(' &nbsp; ') + '</div>';
+    var html = '<div class="known">Son gönderim → ' + parts.join(' &nbsp; ') + '</div>';
+
+    // Sevkiyat bitince amir günün listesini kapatır; liman tarafı o günü görmez.
+    var day = activeDay();
+    var closeRow = '';
+    if (day) {
+      closeRow = '<span class="close-day-text">Sevkiyat bitti mi? Liman görevlisi bu listeyi artık görmesin:</span>' +
+        '<button type="button" class="btn btn-close-day" data-close-day="' + esc(day.dateKey) + '">' + esc(day.label) + ' listesini kapat</button>';
+    }
+    var closedRow = '';
+    if (state.closedDays.length) {
+      closedRow = '<span class="closed-label">Kapalı listeler:</span> ' + state.closedDays.map(function (c) {
+        var when = c.at ? new Date(c.at).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        return '<span class="closed-item"><b>' + esc(c.label) + '</b> · ' + (c.rowCount || 0) + ' satır' +
+          (when ? ' · ' + esc(when) : '') + (c.by ? ' · ' + esc(c.by) : '') +
+          ' <button type="button" class="chip chip-reopen" data-reopen-day="' + esc(c.dateKey) + '">Yeniden aç</button></span>';
+      }).join(' ');
+    }
+    if (closeRow || closedRow) {
+      html += '<div class="known admin-days">' +
+        (closeRow ? '<div class="close-day-row">' + closeRow + '</div>' : '') +
+        (closedRow ? '<div class="closed-days-row">' + closedRow + '</div>' : '') +
+        '</div>';
+    }
+    box.innerHTML = html;
+  }
+
+  function todayLabel() {
+    var d = new Date();
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear();
+  }
+
+  async function closeDay(dateKey, btn) {
+    var day = state.days.filter(function (d) { return d.dateKey === dateKey; })[0];
+    var label = day ? day.label : dateKey;
+    if (!window.confirm(label + ' listesi kapatılsın mı?\n\nLiman görevlisi bu listeyi artık görmeyecek. Sonraki günün listesi yüklüyse o gösterilir, yoksa liste boş kalır.')) return;
+    if (btn) btn.disabled = true;
+    try {
+      applyView(await api('/api/liman/day/' + encodeURIComponent(dateKey) + '/close', { method: 'PUT' }));
+      toast(label + ' listesi kapatıldı');
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      toast(err.message || 'Liste kapatılamadı');
+    }
+  }
+
+  async function reopenDay(dateKey, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      applyView(await api('/api/liman/day/' + encodeURIComponent(dateKey) + '/close', { method: 'DELETE' }));
+      state.day = dateKey;
+      render();
+      toast('Liste yeniden açıldı');
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      toast(err.message || 'Liste açılamadı');
+    }
   }
 
   function activeDay() {
@@ -96,6 +154,22 @@
       if (n >= 1000) return n.toLocaleString('tr-TR');
     }
     return s;
+  }
+
+  function telHref(raw) {
+    var digits = String(raw || '').replace(/[^\d+]/g, '');
+    if (digits.length < 7) return '';
+    // Excel'de başındaki 0 düşmüş cep numarası (5XX XXX XX XX) → aramada 0 ekle
+    if (/^5\d{9}$/.test(digits)) digits = '0' + digits;
+    return 'tel:' + digits;
+  }
+
+  function telCell(raw) {
+    var text = String(raw || '').trim();
+    if (!text) return '';
+    var href = telHref(text);
+    if (!href) return esc(text);
+    return '<a class="tel" href="' + esc(href) + '">' + esc(text) + '</a>';
   }
 
   function visibleBlocks() {
@@ -136,7 +210,12 @@
   function renderList() {
     var blocks = visibleBlocks();
     if (!state.days.length) {
-      $('list').innerHTML = '<p class="empty">03.10.2026 listesi henüz yok.</p>';
+      var today = todayLabel();
+      var closedToday = state.closedDays.some(function (c) { return c.label === today; });
+      var msg = closedToday
+        ? today + ' sevkiyatı tamamlandı, liste kapatıldı. Yeni günün listesi kantardan gelince burada görünecek.'
+        : 'Açık sevkiyat listesi yok. ' + today + ' listesi kantardan henüz gelmedi.';
+      $('list').innerHTML = '<p class="empty">' + esc(msg) + '</p>';
       return;
     }
     if (!blocks.length) {
@@ -153,20 +232,32 @@
         if (state.canEdit && row.irsaliyeNo) {
           editor = '<span class="rownote"><input data-note="' + esc(row.irsaliyeNo) + '" value="' + esc(row.note || '') + '" placeholder="Not" /></span>';
         }
-        return '<tr class="' + (rowDeparted(row) ? 'is-out' : '') + '">' +
-          '<td>' + esc(row.sira || '') + '</td>' +
-          '<td class="left">' + plateHtml + note + editor + '</td>' +
-          '<td>' + esc(numCell(row.bbt)) + '</td>' +
-          '<td>' + esc(numCell(row.cuval)) + '</td>' +
-          '<td>' + esc(numCell(row.palet)) + '</td>' +
-          '<td>' + esc(numCell(row.bosBbt)) + '</td>' +
-          '<td>' + esc(numCell(row.bosCuval)) + '</td>' +
-          '<td>' + esc(numCell(row.net)) + '</td>' +
-          '<td>' + esc(numCell(row.giden || row.gidenTonaj)) + '</td>' +
-          '<td class="durum">' + esc(row.durum || '') + '</td>' +
-          '<td>' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
-          '<td class="left">' + esc(row.sofor || '') + '</td>' +
-          '<td>' + esc(row.telefon || '') + '</td>' +
+        var out = rowDeparted(row);
+        var durum = String(row.durum || '').trim();
+        // Telefon görünümü için kısa özet (masaüstünde gizli)
+        var sum = [
+          ['BBT', numCell(row.bbt)],
+          ['NET', numCell(row.net)],
+          ['GİDEN', numCell(row.giden || row.gidenTonaj)],
+          ['YÜKLEME', String(row.yukleme || row.yuklemeYeri || '').trim()],
+        ].filter(function (p) { return p[1]; }).map(function (p) {
+          return '<b>' + p[0] + ':</b> ' + esc(p[1]);
+        }).join(' · ');
+        return '<tr class="' + (out ? 'is-out' : '') + '">' +
+          '<td class="c-sira">' + esc(row.sira || '') + '</td>' +
+          '<td class="left c-plaka">' + plateHtml + note + editor + '</td>' +
+          '<td class="c-min">' + esc(numCell(row.bbt)) + '</td>' +
+          '<td class="c-min">' + esc(numCell(row.cuval)) + '</td>' +
+          '<td class="c-min">' + esc(numCell(row.palet)) + '</td>' +
+          '<td class="c-min">' + esc(numCell(row.bosBbt)) + '</td>' +
+          '<td class="c-min">' + esc(numCell(row.bosCuval)) + '</td>' +
+          '<td class="c-min">' + esc(numCell(row.net)) + '</td>' +
+          '<td class="c-min">' + esc(numCell(row.giden || row.gidenTonaj)) + '</td>' +
+          '<td class="durum c-durum' + (out ? ' is-out' : '') + '" data-fallback="' + (out ? 'SARILMIŞ' : 'BEKLİYOR') + '">' + esc(durum) + '</td>' +
+          '<td class="c-min">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
+          '<td class="left c-sofor">' + esc(row.sofor || '') + '</td>' +
+          '<td class="c-tel">' + telCell(row.telefon) + '</td>' +
+          '<td class="c-sum">' + sum + '</td>' +
           '</tr>';
       }).join('');
       var noteLine = block.note ? '<p class="note-line">' + esc(block.note) + '</p>' : '';
@@ -241,12 +332,15 @@
     });
   }
 
-  async function guncelle() {
+  async function guncelle(opts) {
+    var silent = !!(opts && opts.silent);
     var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
-    var res = await fetch('/api/reports?since=' + since, { credentials: 'same-origin' });
+    var res = await fetch('/api/reports?since=' + since, { credentials: 'same-origin', cache: 'no-store' });
     state.reports = res.ok ? await res.json() : (state.reports || []);
     await load();
-    toast('Liste ve sarılmış durum güncellendi');
+    lastCheck = Date.now();
+    lastFull = Date.now();
+    if (!silent) toast('Liste ve sarılmış durum güncellendi');
   }
 
   function applyMarks() {
@@ -282,6 +376,16 @@
   });
 
   document.body.addEventListener('click', function (ev) {
+    var closeBtn = ev.target.closest('[data-close-day]');
+    if (closeBtn) {
+      closeDay(closeBtn.getAttribute('data-close-day') || '', closeBtn);
+      return;
+    }
+    var reopenBtn = ev.target.closest('[data-reopen-day]');
+    if (reopenBtn) {
+      reopenDay(reopenBtn.getAttribute('data-reopen-day') || '', reopenBtn);
+      return;
+    }
     var dayBtn = ev.target.closest('[data-day]');
     if (dayBtn) {
       state.day = dayBtn.getAttribute('data-day') || '';
@@ -316,6 +420,8 @@
   });
 
   async function init() {
+    // Not: sayfa adresi bilinçli olarak kilitlenmez — liman görevlisi telefondan
+    // kantar hesabıyla girip /liman adresini doğrudan açabilsin. Yalnızca kantar menüsünde gizlidir.
     if (window.SessionManager && typeof SessionManager.requireValidSession === 'function') {
       var ok = await SessionManager.requireValidSession();
       if (!ok) {
@@ -324,26 +430,42 @@
       }
     }
     try {
-      await load();
+      await guncelle({ silent: true });
     } catch (err) {
-      $('list').innerHTML = '<p class="empty">' + esc(err.message || 'Liste açılamadı') + '</p>';
+      try { await load(); } catch (err2) {
+        $('list').innerHTML = '<p class="empty">' + esc(err2.message || 'Liste açılamadı') + '</p>';
+      }
     }
-    setInterval(checkForChange, 180000);
+    // Liman görevlisi telefondan bakıyor: Güncelle'ye basmadan liste kendi tazelenir.
+    setInterval(checkForChange, CHECK_MS);
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) checkForChange();
+      if (!document.hidden) checkForChange(true);
     });
   }
 
+  var CHECK_MS = 60 * 1000;          // kantar yeni liste gönderdi mi (hafif istek)
+  var FULL_MS = 5 * 60 * 1000;       // çıkış (sarılmış) durumu için raporları yeniden çek
   var lastCheck = 0;
-  async function checkForChange() {
-    if (document.hidden || Date.now() - lastCheck < 60000) return;
+  var lastFull = 0;
+  var checking = false;
+  async function checkForChange(force) {
+    if (checking || document.hidden) return;
+    if (!force && Date.now() - lastCheck < 30000) return;
     var active = document.activeElement;
     if (active && active.matches && active.matches('[data-note]')) return;
+    checking = true;
     lastCheck = Date.now();
     try {
+      if (force || Date.now() - lastFull >= FULL_MS) {
+        await guncelle({ silent: true });
+        return;
+      }
       var info = await api('/api/liman/version');
       if (info && info.v && info.v !== state.version) await load();
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      checking = false;
+    }
   }
 
   init();
