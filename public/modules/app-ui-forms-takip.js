@@ -3207,14 +3207,14 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             </div>
           </details>
         </div>
-        <div class="app-split-nav" title="Liman">
-          <button type="button" id="limanMenuButton" class="app-nav-btn app-nav-btn--warn app-split-nav__main" title="Liman — birleşik ihracat listesi">Liman</button>
+        <div class="app-split-nav" title="Nakliye Bekleyenleri">
+          <button type="button" id="nakliyeBekleyenButton" class="app-nav-btn app-nav-btn--warn app-split-nav__main" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
           <details class="app-tools-menu app-split-nav__details app-tools-menu--nested">
-            <summary class="app-nav-btn app-nav-btn--warn app-split-nav__arrow list-none select-none" title="Liman alt menü" aria-label="Liman alt menü">
+            <summary class="app-nav-btn app-nav-btn--warn app-split-nav__arrow list-none select-none" title="Nakliye Bekleyenleri alt menü" aria-label="Nakliye Bekleyenleri alt menü">
               <span class="app-nav-chevron" aria-hidden="true">▾</span>
             </summary>
             <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
-              <button type="button" id="nakliyeBekleyenButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
+              <button type="button" id="limanMenuButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Liman — birleşik ihracat listesi">Liman</button>
             </div>
           </details>
         </div>
