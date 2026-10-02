@@ -217,6 +217,20 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             });
 
             // Nakliye bekleyenleri (plaka verilecek BBT özeti)
+            document.getElementById('limanMenuButton')?.addEventListener('click', async () => {
+                document.querySelectorAll('details.app-split-nav__details').forEach((el) => { el.open = false; });
+                if (typeof closeAppToolsMenu === 'function') closeAppToolsMenu();
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('/liman');
+                } else {
+                    location.href = '/liman';
+                }
+            });
+
             document.getElementById('nakliyeBekleyenButton')?.addEventListener('click', async () => {
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();

@@ -82,6 +82,29 @@ test('formatMusteri uses ÜRETİCİ when AKTARIM empty (Madencilik / Genleştiri
   assert.equal(api.aktarimTag('GENLEŞME'), '(G)');
 });
 
+test('fixTurkishText repairs Netsis ı/İ/ş loss without touching real y', () => {
+  assert.equal(api.fixTurkishText('PERLITE ORE 0,15-0,40MM YBARESY'), 'PERLITE ORE 0,15-0,40MM İBARESİ');
+  assert.equal(
+    api.fixTurkishText('1150 kg KD Ceratech Baskyly Big Bagler. Mü?terinin özel etiketi eklenmelidir'),
+    '1150 kg KD Ceratech Baskılı Big Bagler. Müşterinin özel etiketi eklenmelidir'
+  );
+  assert.equal(api.fixTurkishText('ibaresi yer almalydyr'), 'ibaresi yer almalıdır');
+  assert.equal(api.fixTurkishText('Etikette ÝBARESÝ, Müþteri'), 'Etikette İBARESİ, Müşteri');
+  assert.equal(api.fixTurkishText('MAYIS KAYIT YER BOYUT'), 'MAYIS KAYIT YER BOYUT');
+  assert.equal(api.fixTurkishText('Müşterinin kayıt yer'), 'Müşterinin kayıt yer');
+});
+
+test('ETIKET_NOT merges into one AÇIKLAMA cell at the end', () => {
+  const merged = api.mergeAciklama('', 'PERLITE ORE YBARESY\n1150 kg Baskyly Big Bagler');
+  assert.equal(merged, 'PERLITE ORE İBARESİ / 1150 kg Baskılı Big Bagler');
+  assert.equal(api.mergeAciklama('Depo notu', 'Etiket notu'), 'Depo notu / Etiket notu');
+  assert.equal(api.mergeAciklama('Etiket notu', 'etiket notu'), 'Etiket notu');
+  const row = api.mapSourceRow({ musteriRaw: 'YD1', etiketNot: 'SATIR 1\nSATIR 2' });
+  const cells = api.rowToCells(row);
+  assert.equal(cells[16], 'SATIR 1 / SATIR 2');
+  assert.ok(!cells.join('\t').includes('\n'));
+});
+
 test('F357 ICNAK1 + URETICI maps AKYÜZ and (G)/(M)', () => {
   const sample = 'C:/Users/Engoo/Downloads/F357.A01-20260913-173014.xlsx';
   if (!fs.existsSync(sample)) {
@@ -290,8 +313,9 @@ test('solveGrid reports a clear error when headers are missing', () => {
 
 test('Araçlar menu opens İhracat Takip hub; Liste kopyala lives on hub', () => {
   const menu = fs.readFileSync(path.join(__dirname, '../public/modules/app-ui-forms-takip.js'), 'utf8');
-  const ayarlarAt = menu.indexOf('id="ayarlarMenuButton"');
-  const hubAt = menu.indexOf('id="ihracatTakipMenuButton"');
+  const dropdown = menu.slice(menu.indexOf('app-dropdown--excel'));
+  const ayarlarAt = dropdown.indexOf('id="ayarlarMenuButton"');
+  const hubAt = dropdown.indexOf('id="ihracatTakipMenuButton"');
   assert.ok(ayarlarAt >= 0, 'Ayarlar button missing');
   assert.ok(hubAt > ayarlarAt, 'İhracat Takip must sit under Ayarlar');
   assert.match(menu, /iht-radar/);

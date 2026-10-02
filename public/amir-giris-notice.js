@@ -10,6 +10,7 @@
   let pulling = false;
   let audioCtx = null;
   let chimeCursor = 0;
+  const chimeNodes = [];
   let titleBase = '';
   let titleShown = 0;
   let titleTimer = 0;
@@ -75,33 +76,17 @@
     return name || code;
   }
 
-  function rowWhen(ts) {
-    const when = Number(ts);
-    if (!Number.isFinite(when)) return '';
+  function malzemeFromPending(pending) {
+    const snap = (pending && pending.snapshot) || {};
+    const payload = (pending && pending.printPayload) || {};
+    let kod = String(snap.malzeme || snap.malzemeSelect || payload.malzeme || '').trim();
     try {
-      const fmt = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Europe/Istanbul',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hourCycle: 'h23',
-      });
-      const parts = (value) => {
-        const map = {};
-        fmt.formatToParts(new Date(value)).forEach((part) => { map[part.type] = part.value; });
-        return map;
-      };
-      const at = parts(when);
-      const today = parts(Date.now());
-      if (!at.hour || !at.minute) return '';
-      const hm = at.hour + ':' + at.minute;
-      if (at.year === today.year && at.month === today.month && at.day === today.day) return hm;
-      return at.day + '.' + at.month + '.' + at.year + ' ' + hm;
-    } catch (e) {
-      return '';
-    }
+      if (!kod && window.piyasa && typeof window.piyasa.getOrderByIdx === 'function' && pending && pending.piyasaOrderIdx != null) {
+        const order = window.piyasa.getOrderByIdx(pending.piyasaOrderIdx);
+        if (order) kod = String(order.malzeme || '').trim();
+      }
+    } catch (e) {}
+    return kod;
   }
 
   function unreadCount() {
@@ -163,7 +148,6 @@
     if (showing) {
       openItems = openItems.concat(fresh);
       renderOpen();
-      playNoticeChimes(fresh.length);
       syncTabCount();
       return;
     }
@@ -187,11 +171,19 @@
     }
   }
 
+  function stopChimes() {
+    chimeCursor = 0;
+    while (chimeNodes.length) {
+      const node = chimeNodes.pop();
+      try { node.stop(); } catch (e) {}
+      try { node.disconnect(); } catch (e) {}
+    }
+  }
+
   function scheduleChime(ctx) {
     const now = ctx.currentTime;
-    if (chimeCursor < now + 0.02) chimeCursor = now + 0.02;
-    const t = chimeCursor;
-    chimeCursor += 0.52;
+    const t = now + 0.02;
+    chimeCursor = t;
     [523.25, 659.25].forEach((freq, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -205,17 +197,38 @@
       gain.connect(ctx.destination);
       osc.start(when);
       osc.stop(when + 0.46);
+      chimeNodes.push(osc);
     });
   }
 
-  function playNoticeChimes(count) {
-    const n = Math.max(0, Number(count) || 0);
-    if (!n) return;
+  function playArrivalChime() {
+    try {
+      const ctx = noticeAudio();
+      if (!ctx) return;
+      const start = () => scheduleChime(ctx);
+      if (ctx.state === 'suspended') ctx.resume().then(start).catch(() => {});
+      else start();
+    } catch (e) {}
+  }
+
+  function playCloseChime() {
     try {
       const ctx = noticeAudio();
       if (!ctx) return;
       const start = () => {
-        for (let i = 0; i < n; i++) scheduleChime(ctx);
+        const t = ctx.currentTime + 0.02;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(494, t);
+        osc.frequency.exponentialRampToValueAtTime(262, t + 0.16);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.05, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.22);
       };
       if (ctx.state === 'suspended') ctx.resume().then(start).catch(() => {});
       else start();
@@ -247,13 +260,13 @@
 
   function noticeLine(item) {
     const plate = showPlate(item.plate);
+    const kod = String(item.malzeme || '').trim();
     const firma = String(item.firma || '').trim();
-    const when = rowWhen(item.ts);
-    const meta = [firma, when].filter(Boolean).join(' · ');
+    const head = [plate, kod].filter(Boolean).join(' / ');
     return ''
       + '<div class="agn-line">'
-      + '<div class="agn-plate">' + escapeText(plate || 'Araç girişi') + '</div>'
-      + (meta ? '<div class="agn-meta">' + escapeText(meta) + '</div>' : '')
+      + '<div class="agn-plate">' + escapeText(head || 'Araç girişi') + '</div>'
+      + (firma ? '<div class="agn-meta">' + escapeText(firma) + '</div>' : '')
       + '</div>';
   }
 
@@ -267,6 +280,8 @@
       body.innerHTML = openItems.map(noticeLine).join('');
       body.scrollTop = body.scrollHeight;
     }
+    const ok = root.querySelector('#amirGirisNoticeOk');
+    if (ok && !ok.disabled) ok.textContent = openItems.length > 1 ? ('Tamam (' + openItems.length + ')') : 'Tamam';
   }
 
   function bellMarkup() {
@@ -298,37 +313,44 @@
       + '</div>';
     document.body.appendChild(overlay);
     renderOpen();
-    playNoticeChimes(openItems.length);
+    playArrivalChime();
     const ok = overlay.querySelector('#amirGirisNoticeOk');
-    const closeOne = async () => {
+    const closeAll = async () => {
       if (closing || !openItems.length) return;
       closing = true;
       if (ok) ok.disabled = true;
-      const item = openItems.shift();
-      if (openItems.length) renderOpen();
+      stopChimes();
+      playCloseChime();
+      const batch = openItems.slice();
+      openItems = [];
       syncTabCount();
-      let acked = false;
-      try {
-        const res = await fetch('/api/amir-notices/' + encodeURIComponent(item.id) + '/ack', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client: noticeClientId() }),
-        });
-        acked = res.ok;
-      } catch (e) {}
-      if (!acked && item) seen.delete(item.id);
+      await Promise.all(batch.map(async (item) => {
+        let acked = false;
+        try {
+          const res = await fetch('/api/amir-notices/' + encodeURIComponent(item.id) + '/ack', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client: noticeClientId() }),
+          });
+          acked = res.ok;
+        } catch (e) {}
+        if (!acked) seen.delete(item.id);
+      }));
       if (openItems.length) {
         closing = false;
         if (ok) ok.disabled = false;
+        renderOpen();
+        syncTabCount();
         return;
       }
       try { overlay.remove(); } catch (e) {}
       showing = false;
       closing = false;
+      syncTabCount();
       pump();
     };
-    if (ok) ok.onclick = closeOne;
+    if (ok) ok.onclick = closeAll;
   }
 
   function escapeText(value) {
@@ -361,12 +383,13 @@
     const plate = showPlate(pending && (pending.plaka || (pending.snapshot && pending.snapshot.plaka)));
     if (!plate) return;
     const firma = firmaFromPending(pending);
+    const malzeme = malzemeFromPending(pending);
     try {
       const res = await fetch('/api/amir-notices', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plate, firma }),
+        body: JSON.stringify({ plate, firma, malzeme }),
       });
       if (!res.ok) return;
       const data = await res.json();

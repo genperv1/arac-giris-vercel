@@ -122,8 +122,9 @@ test('İş Merkezi page menu and session wiring exist', () => {
   assert.match(page, /modules\/is-merkezi\.js/);
   assert.match(page, /sarı GPM/);
   const menu = fs.readFileSync(path.join(__dirname, '../public/modules/app-ui-forms-takip.js'), 'utf8');
-  const ayarlarAt = menu.indexOf('id="ayarlarMenuButton"');
-  const hubAt = menu.indexOf('id="ihracatTakipMenuButton"');
+  const dropdown = menu.slice(menu.indexOf('app-dropdown--excel'));
+  const ayarlarAt = dropdown.indexOf('id="ayarlarMenuButton"');
+  const hubAt = dropdown.indexOf('id="ihracatTakipMenuButton"');
   assert.ok(ayarlarAt >= 0);
   assert.ok(hubAt > ayarlarAt, 'İhracat Takip under Ayarlar');
   assert.doesNotMatch(menu, /isMerkeziMenuButton/);

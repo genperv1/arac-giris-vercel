@@ -44,6 +44,7 @@ const { registerProblemRoutes } = require('./routes/problems-routes');
 const { registerDailyRoutes } = require('./routes/daily-routes');
 const { registerIhracatExcelRoutes } = require('./routes/ihracat-excel-routes');
 const { registerReportsRoutes } = require('./routes/reports-routes');
+const { registerLimanRoutes, STATE_KEY: LIMAN_STATE_KEY } = require('./routes/liman-routes');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
@@ -1077,6 +1078,11 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "GIRIS.html"));
 });
 
+app.get("/liman", (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, "public", "liman.html"));
+});
+
 // âœ… STATIC FILES: Serve only public directory (short cache for hashed-free assets)
 app.use(
   express.static(path.join(__dirname, 'public'), {
@@ -1318,6 +1324,7 @@ registerPiyasaRoutes(api, routeCtx);
 registerAmirNoticeRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
+registerLimanRoutes(api, routeCtx);
 
 
 
@@ -1359,7 +1366,7 @@ api.get("/export/db", requireValidSession, async (req, res) => {
 api.get("/kv/:key", async (req, res) => {
   try {
     const key = sanitizeString(req.params.key, 100);
-    if (isBlockedKvKey(key) || key === 'piyasa_expected_v1') return res.json(null);
+    if (isBlockedKvKey(key) || key === 'piyasa_expected_v1' || key === LIMAN_STATE_KEY) return res.json(null);
     const r = await q("SELECT value FROM kv_store WHERE key = $1", [key]);
     if (!r.rows[0]) return res.json(null);
     try { return res.json(JSON.parse(r.rows[0].value)); } catch { return res.json(r.rows[0].value); }
@@ -1434,7 +1441,7 @@ api.post('/header-note', requireAmir, async (req, res) => {
 api.post("/kv/:key", auth.verifyToken, async (req, res) => {
   try {
     const key = sanitizeString(req.params.key, 100);
-    if (key === HEADER_NOTE_KEY || key === 'piyasa_expected_v1') {
+    if (key === HEADER_NOTE_KEY || key === 'piyasa_expected_v1' || key === LIMAN_STATE_KEY) {
       return res.status(403).json({
         ok: false,
         code: 'AMIR_REQUIRED',

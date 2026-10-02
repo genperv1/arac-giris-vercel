@@ -243,7 +243,7 @@
   }
 
   function formatUrun(stokAdi) {
-    var s = trimStr(stokAdi);
+    var s = trimStr(fixTurkishText(stokAdi));
     if (!s) return '';
     var hp = s.match(/HAM\s*PERLIT\s*([\d.,]+)\s*-\s*([\d.,]+)/i);
     if (hp) {
@@ -258,8 +258,8 @@
   }
 
   function formatAmbalaj(adi, paket) {
-    var name = trimStr(adi);
-    var pack = trimStr(paket);
+    var name = trimStr(fixTurkishText(adi));
+    var pack = trimStr(fixTurkishText(paket));
     var kg = pack.match(/(\d+(?:[.,]\d+)?)\s*KG/i);
     if (kg && name) return trimStr('NET ' + kg[1].replace('.', ',') + ' KG ' + name);
     if (name && pack) return name + ' / ' + pack;
@@ -306,8 +306,81 @@
     return raw;
   }
 
+  var TR_VOWELS = 'aeıioöuüAEIİOÖUÜâîûÂÎÛ';
+
+  function isTrVowel(ch) {
+    return !!ch && TR_VOWELS.indexOf(ch) >= 0;
+  }
+
+  /**
+   * Netsis çıktısında bozulan Türkçe harfleri onarır.
+   * 1254 baytları 1252 okununca: Ý→İ, ý→ı, þ→ş, Þ→Ş, ð→ğ, Ð→Ğ.
+   * ASCII'ye düşmüşse (İ→Y, ı→y, ş→?): iki yanı ünsüz olan y/Y → ı/İ, harf arasındaki ? → ş.
+   * Metinde zaten doğru Türkçe harf varsa yalnızca 1252 eşlemesi uygulanır.
+   */
+  function fixTurkishText(value) {
+    var s = String(value == null ? '' : value);
+    if (!s) return '';
+    s = s
+      .replace(/Ý/g, 'İ').replace(/ý/g, 'ı')
+      .replace(/Þ/g, 'Ş').replace(/þ/g, 'ş')
+      .replace(/Ð/g, 'Ğ').replace(/ð/g, 'ğ');
+    return s.split(/(\s+)/).map(fixTurkishWord).join('');
+  }
+
+  function fixTurkishWord(s) {
+    if (!s || /^\s+$/.test(s) || /[ıİşŞğĞ]/.test(s)) return s;
+    s = s.replace(/([A-Za-zÇÖÜçöü])\?(?=[A-Za-zÇÖÜçöü])/g, function (_m, prev) {
+      return prev + (prev === prev.toUpperCase() && prev !== prev.toLowerCase() ? 'Ş' : 'ş');
+    });
+    var out = '';
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i];
+      if (ch === 'y' || ch === 'Y') {
+        var prev = s[i - 1] || '';
+        var next = s[i + 1] || '';
+        var prevLetter = /[A-Za-zÇÖÜçöüşŞ]/.test(prev);
+        var nextLetter = /[A-Za-zÇÖÜçöüşŞ]/.test(next);
+        var prevOk = !prevLetter || !isTrVowel(prev);
+        var nextOk = !nextLetter || !isTrVowel(next);
+        if ((prevLetter || nextLetter) && prevOk && nextOk) {
+          out += ch === 'Y' ? 'İ' : 'ı';
+          continue;
+        }
+      }
+      out += ch;
+    }
+    return out;
+  }
+
+  /** Çok satırlı notu tek satıra indirir (Excel'de tek hücre kalsın) */
+  function joinNoteLines(value) {
+    var s = String(value == null ? '' : value).replace(/\r\n/g, '\n');
+    var parts = s.split('\n').map(function (line) {
+      return trimStr(line).replace(/^[\s,;./-]+|[\s,;/-]+$/g, '').trim();
+    }).filter(Boolean);
+    return parts.join(' / ');
+  }
+
+  function cleanEtiketNot(value) {
+    var s = fixTurkishText(value).replace(/\r\n/g, '\n').trim();
+    if (!s) return '';
+    s = s.replace(/(?:[ÖOöo]ZEL\s*ET[İIıi]KET\s*:\s*)+/gi, 'ÖZEL ETİKET: ');
+    s = s.replace(/[ \t]+/g, ' ');
+    return joinNoteLines(s);
+  }
+
+  function mergeAciklama(base, etiket) {
+    var a = cleanEtiketNot(base);
+    var b = cleanEtiketNot(etiket);
+    if (!a) return b;
+    if (!b) return a;
+    if (foldTr(a).indexOf(foldTr(b)) >= 0) return a;
+    return a + ' / ' + b;
+  }
+
   function cleanNote(value) {
-    var s = String(value == null ? '' : value).replace(/\r\n/g, '\n').trim();
+    var s = fixTurkishText(value).replace(/\r\n/g, '\n').trim();
     if (!s) return '';
     s = s.replace(/(OZEL\s*ETIKET:\s*)+/gi, '');
     return s.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
@@ -321,7 +394,7 @@
     if (!s) return '';
     var folded = foldTr(s).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (folded === 'medlog depo') return '';
-    return s;
+    return joinNoteLines(s);
   }
 
   function cellLooksLikeDate(value) {
@@ -472,6 +545,7 @@
       sipTarih: get('SIP_TARIH'),
       limanDolum: get('LIMAN_DOL_TARIH'),
       cikisTarih: cikis,
+      aciklamaRaw: readFirst(row, colMap, ['ACIKLAMA', 'SIP_ACIKLAMA', 'ACIKLAMA_TR']),
       etiketNot: get('ETIKET_NOT'),
       uretimNot1: get('URETIM_NOT1_TR'),
       groupYear: '',
@@ -512,8 +586,8 @@
       palet: formatPalet(src.paletTr),
       adet: packs.adet,
       liman: shortenLiman(src.limanRaw),
-      aciklama: cleanAciklama(src.etiketNot),
-      spek: cleanNote(src.uretimNot1),
+      aciklama: mergeAciklama(src.aciklamaRaw, src.etiketNot),
+      spek: joinNoteLines(cleanNote(src.uretimNot1)),
       sektor: '',
       bookingNo: isEmptyish(src.bookingNo) ? '' : trimStr(src.bookingNo),
       gemi: trimStr(src.gemi),
@@ -956,6 +1030,8 @@
     shortenLiman: shortenLiman,
     cleanNote: cleanNote,
     cleanAciklama: cleanAciklama,
+    fixTurkishText: fixTurkishText,
+    mergeAciklama: mergeAciklama,
     parseGroupBanner: parseGroupBanner,
     parseSourceGrid: parseSourceGrid,
     mapSourceRow: mapSourceRow,

@@ -215,7 +215,13 @@
     }
     
     // Login sayfasına yönlendir
+    function isLimanViewerPage() {
+        const p = String(window.location.pathname || '').toLowerCase();
+        return p === '/liman' || p.endsWith('/liman.html');
+    }
+
     function redirectToLogin() {
+        if (isLimanViewerPage()) return;
         // Mevcut sayfayı kaydet
         const currentPath = window.location.pathname + window.location.search;
         localStorage.setItem('redirectAfterLogin', currentPath);
@@ -231,6 +237,7 @@
         'rapor.html': 'gpm_page_rapor',
         'vardiya-notlari.html': 'gpm_page_vardiya',
         'nakliye-bekleyen.html': 'gpm_page_nakliye',
+        'liman.html': 'gpm_page_liman',
         'piyasa-cikanlar.html': 'gpm_page_piyasa_cikanlar',
         'sorunlar.html': 'gpm_page_sorunlar',
         'ayarlar.html': 'gpm_page_ayarlar',
@@ -513,7 +520,7 @@
             const shouldNotify = shouldPromptSessionExpired();
             invalidateSession();
             try { localStorage.removeItem('isLoggedIn'); } catch (e) { /* ignore */ }
-            if (shouldNotify) {
+            if (shouldNotify && !isLimanViewerPage()) {
                 showSessionExpiredModal();
             }
             return false;

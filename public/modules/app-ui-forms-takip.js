@@ -3179,6 +3179,10 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           <span class="iht-radar iht-radar--menu" aria-hidden="true"><span class="iht-radar__sweep"></span><span class="iht-radar__ring"></span><span class="iht-radar__ring iht-radar__ring--2"></span><span class="iht-radar__core"><i class="fas fa-ship"></i></span></span>
           <span class="amir-nav-btn__copy"><b>İhracat Takip</b><small>İhracat Excel ve Operasyon Formülleri</small></span>
         </button>
+        <button type="button" id="limanMenuButton" class="amir-nav-btn amir-nav-btn--liman" title="Liman — birleşik ihracat listesi">
+          <span class="amir-nav-btn__icon amir-nav-btn__icon--liman" aria-hidden="true"><i class="fas fa-anchor"></i></span>
+          <span class="amir-nav-btn__copy"><b>Liman</b><small>Birleşik liste</small></span>
+        </button>
         <button type="button" id="ayarlarMenuButton" class="amir-nav-btn amir-nav-btn--settings" title="Ayarlar">
           <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-cog ayarlar-gear"></i></span>
           <span class="amir-nav-btn__copy"><b>Ayarlar</b></span>
@@ -3203,7 +3207,17 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             </div>
           </details>
         </div>
-        <button id="nakliyeBekleyenButton" class="app-nav-btn app-nav-btn--warn" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
+        <div class="app-split-nav" title="Liman">
+          <button type="button" id="limanMenuButton" class="app-nav-btn app-nav-btn--warn app-split-nav__main" title="Liman — birleşik ihracat listesi">Liman</button>
+          <details class="app-tools-menu app-split-nav__details app-tools-menu--nested">
+            <summary class="app-nav-btn app-nav-btn--warn app-split-nav__arrow list-none select-none" title="Liman alt menü" aria-label="Liman alt menü">
+              <span class="app-nav-chevron" aria-hidden="true">▾</span>
+            </summary>
+            <div class="app-dropdown app-dropdown--nested absolute left-0 mt-2 w-56 z-50">
+              <button type="button" id="nakliyeBekleyenButton" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 text-sm" title="Plaka verilecek BBT özeti — nakliye listesi">Nakliye Bekleyenleri</button>
+            </div>
+          </details>
+        </div>
         <a href="plaka.html" class="app-nav-btn" title="Plaka ayırma">Plaka Ayırma</a>
         <details class="app-tools-menu app-tools-menu--nested relative">
           <summary class="app-nav-btn list-none select-none">
@@ -3280,10 +3294,18 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         </div>
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">🧾 PİYASA: <b id="chipPiyasaText">${_piyChipText}</b></button>
+          ${_amirPiyasa ? `<button type="button" id="piyasaExcelUploadButtonTop" class="status-chip app-header-ihracat-excel__refresh" title="PİYASA Excel yükle">
+            <i class="fas fa-file-import" aria-hidden="true"></i>
+            <span>Yükle</span>
+          </button>` : ''}
           <button type="button" id="excelPiyasaRefreshButtonChip" class="status-chip app-header-ihracat-excel__refresh ${(_amirPiyasa && _piyasaCnt>0)?'':'hidden'}" title="Yüklü Piyasa Excel dosyasını yeniden oku">
             <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
             <span>Güncelle</span>
           </button>
+          ${(_amirPiyasa && _piyasaCnt>0) ? `<button type="button" id="piyasaExcelClearButtonTop" class="status-chip app-header-piyasa-clear" title="PİYASA Excel sil">
+            <i class="fas fa-trash-alt" aria-hidden="true"></i>
+            <span>Sil</span>
+          </button>` : ''}
         </div>
       </div>
     </div>

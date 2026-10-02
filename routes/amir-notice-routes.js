@@ -61,6 +61,7 @@ function registerAmirNoticeRoutes(api, ctx) {
       const body = req.body || {};
       const plate = sanitizeString(body.plate || '', 40);
       const firma = sanitizeString(body.firma || '', 160);
+      const malzeme = sanitizeString(body.malzeme || '', 160);
       if (!plate) {
         return res.status(400).json({ ok: false, error: 'Plaka gerekli' });
       }
@@ -70,6 +71,7 @@ function registerAmirNoticeRoutes(api, ctx) {
           id: crypto.randomUUID(),
           plate,
           firma,
+          malzeme,
         }, Date.now());
         if (!next.notice) return null;
         await writeItems(next.items);
@@ -80,6 +82,7 @@ function registerAmirNoticeRoutes(api, ctx) {
         id: saved.id,
         plate: saved.plate,
         firma: saved.firma,
+        malzeme: saved.malzeme,
         ts: saved.ts,
         text: girisNoticeText(saved),
       };

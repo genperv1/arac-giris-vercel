@@ -1240,6 +1240,239 @@ function slimIhracatRowsForStorage(rows) {
   });
 }
 
+function limanPublishSite(rows) {
+  try {
+    const picked = String(localStorage.getItem('liman_site_v1') || '').trim();
+    if (picked === 'AVDAN' || picked === '1.OSB') return picked;
+    const client = String(localStorage.getItem('currentClientSite') || '');
+    if (/1\s*\.?\s*OSB/i.test(client)) return '1.OSB';
+    if (/AVDAN/i.test(client)) return 'AVDAN';
+    if (typeof loadSavedBasimYeri === 'function') {
+      const basim = String(loadSavedBasimYeri() || '');
+      if (/1\s*\.?\s*OSB/i.test(basim)) return '1.OSB';
+      if (/AVDAN/i.test(basim)) return 'AVDAN';
+    }
+  } catch (e) {}
+  const places = new Set();
+  (rows || []).forEach((row) => {
+    const place = String(row && row.yuklemeYeri || '').toUpperCase();
+    if (place.indexOf('OSB') >= 0) places.add('1.OSB');
+    else if (place.indexOf('AVDAN') >= 0) places.add('AVDAN');
+  });
+  if (places.size === 1) return Array.from(places)[0];
+  return '';
+}
+
+function limanBlankRowsFor(rows, meta) {
+  let bag = {};
+  try { bag = JSON.parse(localStorage.getItem('liman_blank_rows_v1') || '{}'); } catch (e) { bag = {}; }
+  if (!bag || typeof bag !== 'object') return [];
+  const names = new Set();
+  const addName = (raw) => {
+    String(raw || '').split(/\s*\+\s*/).forEach((part) => {
+      const name = part.trim();
+      if (name) names.add(name);
+    });
+  };
+  (rows || []).forEach((row) => addName(row && row.fileName));
+  if (meta) {
+    addName(meta.fileName);
+    (Array.isArray(meta.files) ? meta.files : []).forEach(addName);
+  }
+  const out = [];
+  names.forEach((name) => {
+    (Array.isArray(bag[name]) ? bag[name] : []).forEach((row) => out.push(row));
+  });
+  return out;
+}
+
+function rememberLimanBlankRows(fileName, rows) {
+  const key = String(fileName || '').trim();
+  if (!key) return;
+  let bag = {};
+  try { bag = JSON.parse(localStorage.getItem('liman_blank_rows_v1') || '{}'); } catch (e) { bag = {}; }
+  if (!bag || typeof bag !== 'object') bag = {};
+  bag[key] = Array.isArray(rows) ? rows : [];
+  try { localStorage.setItem('liman_blank_rows_v1', JSON.stringify(bag)); } catch (e) {}
+}
+
+function limanFileNames(rows, meta) {
+  const names = new Set();
+  const addName = (raw) => {
+    String(raw || '').split(/\s*\+\s*/).forEach((part) => {
+      const name = part.trim();
+      if (name) names.add(name);
+    });
+  };
+  (rows || []).forEach((row) => addName(row && row.fileName));
+  if (meta) {
+    addName(meta.fileName);
+    (Array.isArray(meta.files) ? meta.files : []).forEach(addName);
+  }
+  return names;
+}
+
+function limanSheetBlocksFor(rows, meta) {
+  let bag = {};
+  try { bag = JSON.parse(localStorage.getItem('liman_sheet_v1') || '{}'); } catch (e) { bag = {}; }
+  if (!bag || typeof bag !== 'object') return [];
+  const out = [];
+  limanFileNames(rows, meta).forEach((name) => {
+    (Array.isArray(bag[name]) ? bag[name] : []).forEach((block) => out.push(block));
+  });
+  return out;
+}
+
+function rememberLimanSheet(fileName, blocks) {
+  const key = String(fileName || '').trim();
+  if (!key) return;
+  let bag = {};
+  try { bag = JSON.parse(localStorage.getItem('liman_sheet_v1') || '{}'); } catch (e) { bag = {}; }
+  if (!bag || typeof bag !== 'object') bag = {};
+  bag[key] = Array.isArray(blocks) ? blocks : [];
+  const names = Object.keys(bag);
+  while (names.length > 6) delete bag[names.shift()];
+  try { localStorage.setItem('liman_sheet_v1', JSON.stringify(bag)); } catch (e) {}
+}
+
+function _limanNormHead(value) {
+  return String(value == null ? '' : value)
+    .toUpperCase()
+    .replace(/İ/g, 'I').replace(/Ş/g, 'S').replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U').replace(/Ö/g, 'O').replace(/Ç/g, 'C')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _limanHeaderCol(headerRow, re) {
+  const row = headerRow || [];
+  for (let c = 0; c < row.length; c++) {
+    if (re.test(_limanNormHead(row[c]))) return c;
+  }
+  return undefined;
+}
+
+function _limanBlockSideInfo(grid, headerRowIdx, headerText) {
+  const out = { gemi: '', booking: '', sevk: '' };
+  const labels = { 'GEMI DETAYI': 'gemi', BOOKING: 'booking', 'SEVK.TARIHI': 'sevk', 'SEVK TARIHI': 'sevk' };
+  const from = Math.max(0, headerRowIdx - 8);
+  const to = Math.min(grid.length - 1, headerRowIdx + 40);
+  for (let rr = from; rr <= to; rr++) {
+    if (rr > headerRowIdx + 1 && isIhracatBlockHeaderRow(grid[rr] || [])) break;
+    const row = grid[rr] || [];
+    for (let c = 0; c < row.length; c++) {
+      const field = labels[_limanNormHead(row[c])];
+      if (!field || out[field]) continue;
+      for (let k = c + 1; k < Math.min(row.length, c + 4); k++) {
+        const val = String(row[k] == null ? '' : row[k]).trim();
+        if (val) { out[field] = val; break; }
+      }
+    }
+  }
+  const text = String(headerText || '');
+  if (!out.booking) {
+    const m = text.match(/BOOKING\s*NO\s*:?\s*([^/]+)/i);
+    if (m) out.booking = m[1].trim();
+  }
+  if (!out.gemi) {
+    const m = text.match(/GEM[İI]\s*DETAYI\s*:?\s*([^/]+)/i);
+    if (m) out.gemi = m[1].trim();
+  }
+  return out;
+}
+
+function _limanSheetRow(d, parseCols, blockCols, yuklemeCol, soforCol, telefonCol) {
+  const cell = (idx) => (idx === undefined || idx === null || d[idx] == null ? '' : String(d[idx]).trim());
+  const sira = cell(blockCols.sirano);
+  const plaka = cell(blockCols.plaka);
+  const irsaliye = String(resolveIrsaliyeFromRow(d, parseCols) || '').trim();
+  if (!sira && !plaka && !irsaliye) return null;
+  if (/^(SIRA|SIRANO|PLAKA)$/i.test(_limanNormHead(plaka))) return null;
+  return {
+    sira,
+    plaka: plaka ? normPlate(plaka) || plaka : '',
+    bbt: _nz(d[blockCols.bbt]),
+    cuval: _nz(d[blockCols.cuval]),
+    palet: _nz(d[blockCols.palet]),
+    bosBbt: _nz(d[blockCols.bosBbt]),
+    bosCuval: _nz(d[blockCols.bosCuval]),
+    net: _nz(d[blockCols.netTonaj]),
+    giden: _nz(d[blockCols.gidenTonaj]),
+    yukleme: yuklemeCol !== undefined ? (_normalizeYuklemeYeri(d[yuklemeCol]) || cell(yuklemeCol)) : '',
+    sofor: cell(soforCol),
+    telefon: cell(telefonCol),
+    irsaliye,
+    durum: _rowHasInsideNote(d) ? 'İÇERİDE' : (_rowHasOutsideNote(d) ? 'DIŞARIDA' : ''),
+  };
+}
+
+function _limanHash(text) {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+function publishLimanSnapshot(rows, meta) {
+  try {
+    const site = limanPublishSite(rows);
+    const blocks = limanSheetBlocksFor(rows, meta);
+    const blanks = limanBlankRowsFor(rows, meta);
+    const list = (Array.isArray(rows) ? rows : []).concat(blanks).slice(0, 2000).map((row) => ({
+      irsaliyeNo: row && row.irsaliyeNo,
+      sira: row && row.sira,
+      plaka: row && row.plaka,
+      bbt: row && row.bbt,
+      gidenTonaj: row && row.gidenTonaj,
+      netTonaj: row && row.netTonaj,
+      tonajKg: row && row.tonajKg,
+      yuklemeYeri: row && row.yuklemeYeri,
+      ydKey: row && row.ydKey,
+      headerText: row && row.headerText,
+      malzeme: row && row.malzeme,
+      fileName: row && row.fileName,
+      firma: row && row.firma,
+      iceride: !!(row && row.iceride),
+      disarida: !!(row && row.disarida),
+    }));
+    const fileName = (meta && (meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : ''))) || '';
+    const body = JSON.stringify({ site, fileName, rows: list, blocks });
+    let sentBefore = '';
+    try { sentBefore = localStorage.getItem('liman_last_sent_v1') || ''; } catch (e) {}
+    const stamp = String(body.length) + ':' + _limanHash(body);
+    const sentAt = Number(sentBefore.split('|')[1] || 0);
+    if (sentBefore.split('|')[0] === stamp && Date.now() - sentAt < 6 * 60 * 60 * 1000) return;
+    fetch('/api/liman/snapshot', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).then((res) => {
+      if (res.ok) {
+        try { localStorage.setItem('liman_last_sent_v1', stamp + '|' + Date.now()); } catch (e) {}
+      }
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+function publishLimanFromStore() {
+  try {
+    if (!window.DailyStore || typeof DailyStore.getRows !== 'function') return;
+    const ready = typeof DailyStore.ensureReady === 'function' ? DailyStore.ensureReady() : Promise.resolve();
+    Promise.resolve(ready).then(() => {
+      const rows = DailyStore.getRows() || [];
+      if (!rows.length) return;
+      const meta = typeof DailyStore.getMeta === 'function' ? (DailyStore.getMeta() || {}) : {};
+      publishLimanSnapshot(rows, meta);
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+try { window.publishLimanFromStore = publishLimanFromStore; } catch (e) {}
+
+if (typeof window !== 'undefined' && !/\/liman(\.html)?$/i.test(String(location.pathname || ''))) {
+  setTimeout(publishLimanFromStore, 5000);
+}
+
 async function saveDailyShipments(rows, meta) {
   try {
     const deduped = (typeof _ihracatDedupeShipmentRows === 'function')
@@ -1279,6 +1512,7 @@ async function saveDailyShipments(rows, meta) {
       DailyStore.set(payload, metaObj);
     }
     notifyIhracatExcelChanged();
+    publishLimanSnapshot(payload, metaObj);
     return true;
   } catch (e) {
     return false;
@@ -1566,6 +1800,9 @@ async function clearDailyShipments() {
     }
     if (ok) {
       notifyIhracatExcelChanged();
+      try { localStorage.removeItem('liman_blank_rows_v1'); } catch (e) {}
+      try { localStorage.removeItem('liman_sheet_v1'); } catch (e) {}
+      publishLimanSnapshot([], {});
       try {
         if (window.IhracatExcelSource && typeof window.IhracatExcelSource.clearStoredBinding === 'function') {
           window.IhracatExcelSource.clearStoredBinding();
@@ -3733,6 +3970,8 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
   if (irsaliyeCol !== undefined) cols.irsaliyeNo = irsaliyeCol;
 
   const rowsOut = [];
+  const limanBlankRows = [];
+  const limanSheetBlocks = [];
 
   for (let r = 0; r < grid.length; r++) {
     const row = grid[r] || [];
@@ -3760,6 +3999,7 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     const ydFromHeader = ((headerText || '').match(/\b(YD\d{1,4})\b/i) || [])[1]?.toUpperCase() || '';
     const blockMalzeme = (typeof _extractMalzeme === 'function' ? _extractMalzeme(headerText) : '') || '';
     const blockRows = [];
+    const blockBlankRows = [];
     const blockPendingPlakaNotes = [];
     const blockIrsCol = detectIrsaliyeColumnIndex(grid, r, { ...cols, ...blockCols });
     const parseCols = { ...cols, ...blockCols };
@@ -3768,6 +4008,17 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
 
     const insideColIdxs = [blockCols.gidenTonaj, noteColumnIndex, parseCols.aciklama]
       .filter((i, idx, arr) => i !== undefined && i !== null && i >= 0 && arr.indexOf(i) === idx);
+
+    const limanSoforCol = _limanHeaderCol(row, /^(SOFOR|SURUCU)/);
+    const limanTelefonCol = _limanHeaderCol(row, /^TELEFON|^TEL\b/);
+    const limanSheetBlock = Object.assign({
+      title: headerText,
+      liman: sevkYeri,
+      note: '',
+      fileName: String(fileLabel || '').trim(),
+      rows: [],
+    }, _limanBlockSideInfo(grid, r, headerText));
+    limanSheetBlocks.push(limanSheetBlock);
 
     for (let rr = r+1; rr < grid.length; rr++) {
       const d = grid[rr] || [];
@@ -3795,7 +4046,35 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         if (!_isExcelInsideNoteText(maybeNote)) blockYuklemeNotu = maybeNote;
         continue;
       }
-      if (!plakaRaw) continue;
+      const limanRow = _limanSheetRow(d, parseCols, blockCols, yuklemeCol, limanSoforCol, limanTelefonCol);
+      if (limanRow) limanSheetBlock.rows.push(limanRow);
+      if (!plakaRaw) {
+        const blankIrs = resolveIrsaliyeFromRow(d, parseCols);
+        const blankSira = blockCols.sirano !== undefined ? (d[blockCols.sirano] != null ? String(d[blockCols.sirano]).trim() : '') : '';
+        const blankIrsCompact = String(blankIrs || '').replace(/\s+/g, '');
+        if (/^R\d{2,}/i.test(blankIrsCompact)) {
+          blockBlankRows.push({
+            id: blankIrs || blankSira,
+            sira: blankSira,
+            plaka: '',
+            ydKey: ydFromHeader,
+            headerText,
+            blockKey: `BLK_${r}`,
+            blockHeaderRow: r,
+            fileName: String(fileLabel || '').trim(),
+            firma: ydFromHeader,
+            irsaliyeNo: blankIrs,
+            malzeme: blockMalzeme,
+            bbt: blockCols.bbt !== undefined ? _nz(d[blockCols.bbt]) : '',
+            gidenTonaj: '',
+            netTonaj: '',
+            tonajKg: '',
+            yuklemeYeri: (yuklemeCol !== undefined ? _normalizeYuklemeYeri(d[yuklemeCol]) : '') || '',
+            sevkYeri,
+          });
+        }
+        continue;
+      }
 
       if (isIhracatPendingPlakaCell(plakaRaw)) {
         blockPendingPlakaNotes.push({
@@ -3900,6 +4179,11 @@ firma: (firma || '').slice(0, 40),
       if (br.blockMeta && typeof br.blockMeta === 'object') br.blockMeta.tasiyiciNames = tasiyiciNames.slice();
     });
     if (yuklemeYeri && blockMeta) blockMeta.yuklemeYeri = yuklemeYeri;
+    limanSheetBlock.note = blockYuklemeNotu || '';
+    blockBlankRows.forEach((br) => {
+      if (!br.yuklemeYeri && yuklemeYeri && !String(yuklemeYeri).includes('/')) br.yuklemeYeri = yuklemeYeri;
+      limanBlankRows.push(br);
+    });
 
     if (!blockRows.length) {
       rowsOut.push({
@@ -3966,6 +4250,9 @@ firma: (firma || '').slice(0, 40),
   const dupPlateRows = eu.findDuplicatePlateRows ? eu.findDuplicatePlateRows(plateRows) : [];
   const dupPlates = dupPlateRows.length;
   const collisions = eu.findIrsaliyeCollisions ? eu.findIrsaliyeCollisions(plateRows) : [];
+
+  rememberLimanBlankRows(fileLabel, limanBlankRows);
+  rememberLimanSheet(fileLabel, limanSheetBlocks);
 
   return {
     ok: true,

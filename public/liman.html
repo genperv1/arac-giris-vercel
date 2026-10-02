@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liman — İhracat Takip Listesi</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <script src="session-manager.js?v=20261003-liman3"></script>
+  <style>
+    body { margin: 0; background: #d9e2d4; color: #1a1a1a; font-family: Calibri, "Segoe UI", sans-serif; }
+    .top { position: sticky; top: 0; z-index: 5; background: #1f4e2a; color: #fff; box-shadow: 0 1px 0 #16381e; }
+    .top-inner { padding: 10px 16px 12px; }
+    .top h1 { margin: 0; font-size: 1.05rem; font-weight: 700; letter-spacing: .02em; }
+    .ports { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+    .chip, .btn { border: 0; border-radius: 4px; padding: 8px 14px; cursor: pointer; font: inherit; font-weight: 700; }
+    .chip { background: #e8f5e9; color: #1b3a22; }
+    .chip.is-on { background: #fff; color: #14532d; box-shadow: inset 0 -3px 0 #16a34a; }
+    .btn { background: #166534; color: #fff; }
+    .search { border: 0; border-radius: 4px; padding: 8px 10px; min-width: 160px; font: inherit; }
+    .wrap { padding: 14px 12px 48px; }
+    .sheet { min-width: 980px; }
+    .blok { background: #fff; border: 1px solid #8fa888; box-shadow: 0 2px 6px rgba(0,0,0,.12); margin-bottom: 34px; }
+    .blok:last-child { margin-bottom: 0; }
+    #adminBox:empty { display: none; }
+    #adminBox { margin-bottom: 14px; font-size: .85rem; }
+    .pending { background: #fff7ed; border: 2px solid #f97316; padding: 10px 12px; margin-bottom: 8px; }
+    .pending-actions { display: inline-flex; gap: 6px; margin-left: 10px; flex-wrap: wrap; }
+    .btn-ok, .btn-no { border: 0; padding: 6px 10px; font: inherit; font-weight: 700; cursor: pointer; }
+    .btn-ok { background: #166534; color: #fff; }
+    .btn-no { background: #e5e7eb; color: #111827; }
+    .known { background: #fff; border: 1px solid #cbd5e1; padding: 8px 12px; color: #334155; }
+    .known .x { border: 0; background: none; color: #b91c1c; cursor: pointer; font-weight: 700; }
+    .blok-head { display: grid; grid-template-columns: 1.4fr .9fr; gap: 0; border-bottom: 1px solid #9ccc9c; }
+    .blok-title { margin: 0; padding: 8px 10px; background: #e2efda; font-size: .92rem; line-height: 1.35; font-weight: 700; }
+    .meta { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    .meta th, .meta td { border: 1px solid #b7d7b0; padding: 4px 6px; text-align: left; }
+    .meta th { width: 92px; background: #c6e0b4; }
+    .note-line { margin: 0; padding: 4px 10px; background: #fff7ed; color: #9a3412; font-size: .8rem; font-weight: 700; }
+    table.grid { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    table.grid th, table.grid td { border: 1px solid #b0b0b0; padding: 4px 6px; white-space: nowrap; }
+    table.grid th { background: #1f4e2a; color: #fff; font-weight: 700; text-align: center; font-size: .75rem; }
+    table.grid td { text-align: center; background: #fff; }
+    table.grid td.left { text-align: left; }
+    table.grid tr.is-out td { background: #dcfce7; }
+    .noplate { color: #b45309; font-weight: 700; }
+    .mark { color: #166534; font-weight: 700; font-size: .75rem; }
+    .empty { padding: 28px 12px; color: #3f6212; }
+    .tabbar { position: fixed; left: 0; right: 0; bottom: 0; background: #e5e7eb; border-top: 1px solid #9ca3af; padding: 4px 8px; }
+    .tab { display: inline-block; background: #f3f4f6; border: 1px solid #9ca3af; border-top: 0; padding: 4px 12px; font: inherit; font-size: .8rem; font-weight: 700; color: #374151; cursor: pointer; margin-right: 2px; }
+    .tab.is-on { background: #fff; color: #14532d; box-shadow: inset 0 -3px 0 #16a34a; }
+    table.grid td.durum { color: #c2410c; font-weight: 700; }
+    .progress-line { margin: 0; padding: 4px 10px; background: #f8fafc; color: #475569; font-size: .8rem; font-weight: 700; border-bottom: 1px solid #e2e8f0; }
+    .done-line { margin: 0; padding: 8px 10px; background: #16a34a; color: #fff; font-size: .95rem; font-weight: 800; letter-spacing: .04em; }
+    .blok.is-done .blok-title { background: #bbf7d0; }
+    .blok.is-done table.grid td { background: #f0fdf4; }
+    .rownote { display: block; color: #9f1239; font-size: .72rem; font-weight: 700; white-space: normal; }
+    .rownote input { width: 140px; border: 1px solid #fecdd3; font: inherit; font-size: .72rem; }
+    .toast { position: fixed; bottom: 36px; right: 16px; background: #14532d; color: #fff; padding: 10px 14px; display: none; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <h1>İhracat Takip Listesi</h1>
+      <div class="ports">
+        <div id="ports"></div>
+        <input id="plate" class="search" type="search" placeholder="Plaka ara" />
+        <button type="button" class="btn" id="refreshBtn">Güncelle</button>
+      </div>
+    </div>
+  </header>
+  <div class="wrap">
+    <div id="adminBox"></div>
+    <div id="list"></div>
+  </div>
+  <div class="tabbar" id="sheetTabs"></div>
+  <div class="toast" id="toast"></div>
+  <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
+  <script src="liman.js?v=20261003-liman8"></script>
+</body>
+</html>

@@ -26,10 +26,13 @@ test('okunmamış bildirim girişte durur, Tamam deyince o kullanıcıda biter',
     id: 'notice-m24-01',
     plate: '30 ABE 500',
     firma: 'ŞEMES GIDA',
+    malzeme: 'HP120',
   }, now);
   assert.equal(saved.notice.plate, '30 ABE 500');
+  assert.equal(saved.notice.malzeme, 'HP120');
   const pending = unreadGirisNotices(saved.items, 'xxr', now);
   assert.equal(pending.length, 1);
+  assert.equal(pending[0].malzeme, 'HP120');
   assert.equal(pending[0].text, '30 ABE 500 plakalı araç giriş yaptı. Firma: ŞEMES GIDA. 12:00');
   const acked = ackGirisNotice(saved.items, pending[0].id, 'XXR', now + 1000);
   assert.equal(acked.ok, true);

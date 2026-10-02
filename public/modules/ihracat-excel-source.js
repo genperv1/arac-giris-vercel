@@ -1099,6 +1099,9 @@
         return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames };
       }
       setNeedPath(false);
+      try {
+        if (typeof window.publishLimanFromStore === 'function') setTimeout(window.publishLimanFromStore, 800);
+      } catch (e) {}
 
       var summary;
       if (multi) {
