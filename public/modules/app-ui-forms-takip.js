@@ -2442,6 +2442,7 @@ try {
                               cekiciPlaka: printedPlate || cur.cekiciPlaka,
                               printCount: nextCount,
                               lastPrintSnapshot: snap,
+                              listBumpTs: Date.now(),
                             };
                             try { window.storage?.save('vehicle_' + updated.id, updated); } catch(e) {}
                             state.vehicles = (state.vehicles || []).map(v => String(v.id) === String(updated.id) ? updated : v);
@@ -2479,6 +2480,7 @@ try {
                                 } catch(e) { console.warn('Print history save failed:', e); }
                               } catch(e) { }
                             } catch(e) {}
+                            try { promoteOperatedVehicle(updated); } catch (e) {}
                         }
                     } else {
                         try {

@@ -1457,6 +1457,7 @@ let sonuc = {
                     : new Date().toLocaleString('tr-TR'),
                 printCount: prevVehicle?.printCount,
                 lastPrintSnapshot: prevVehicle?.lastPrintSnapshot ?? null,
+                listBumpTs: Date.now(),
             };
 
             const saved = await saveVehicleToDatabase(vehicleData);
@@ -1469,15 +1470,10 @@ let sonuc = {
 
             storage.save(`vehicle_${vehicleData.id}`, vehicleData);
             try { if (typeof storage.touchBootCache === 'function') storage.touchBootCache(); } catch (e) {}
-            
-            // Yeni veya düzenlenen kayıt her zaman listenin en üstüne gelsin
-            // Önce aynı ID'li kaydı listeden çıkar, sonra başa ekle
-            state.vehicles = (state.vehicles || []).filter(v => v.id !== vehicleData.id);
-            state.vehicles.unshift(vehicleData);
-            try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
 
-            // Filtre cache'ini temizle ki yeni sıralama hemen yansısın
-            try { window.__filterCache = { term: null, ver: 0, out: null }; } catch (_) {}
+            // Yeni veya düzenlenen kayıt her zaman listenin en üstüne gelsin
+            promoteOperatedVehicle(vehicleData);
+            try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
 
             // Yeni kayıttan sonra arama ve sayfalama durumunu sıfırla ki
             // eklenen/düzenlenen araç listenin en üstünde net olarak görünsün
@@ -1595,6 +1591,7 @@ let sonuc = {
                     iletisim: keepIfEmpty(existing?.iletisim, driver.iletisim),
                     tcKimlik: keepIfEmpty(existing?.tcKimlik, driver.tcKimlik),
                     kayitTarihi: existing?.kayitTarihi || new Date().toLocaleString('tr-TR'),
+                    listBumpTs: Date.now(),
                 };
 
                 // Yeni kayıt değilse mevcut varsayılanları / 2. şoför / yazdırma sayacını koru
@@ -1612,9 +1609,8 @@ let sonuc = {
                     vehicleData.printCount = prevV.printCount;
                     vehicleData.lastPrintSnapshot = prevV.lastPrintSnapshot ?? null;
                 }
-                state.vehicles = (state.vehicles || []).filter(v => String(v.id) !== String(vehicleData.id));
-                state.vehicles.unshift(vehicleData);
                 storage.save(`vehicle_${vehicleData.id}`, vehicleData);
+                promoteOperatedVehicle(vehicleData);
                 if (!window.__afterTakipPrintRequested) {
                     try { _ihracatRefreshOpenModalStatuses(); } catch (_) {}
                     try { typeof updateVehicleList === 'function' && updateVehicleList(); } catch (_) {}
@@ -1646,6 +1642,30 @@ let sonuc = {
         }
 
         // Arama
+        function promoteOperatedVehicle(vehicle) {
+          if (!vehicle || vehicle.id == null) return vehicle;
+          const bump = Number(vehicle.listBumpTs);
+          if (!Number.isFinite(bump) || bump <= 0) vehicle.listBumpTs = Date.now();
+          const id = String(vehicle.id);
+          try {
+            if (typeof state !== 'undefined' && Array.isArray(state.vehicles)) {
+              const rest = state.vehicles.filter((v) => String(v.id) !== id);
+              state.vehicles = [vehicle].concat(rest);
+            }
+          } catch (e) {}
+          try {
+            window.__filterCache = { term: null, incomplete: null, issues: null, recent: null, ozmal: null, ver: 0, out: null, head: '' };
+          } catch (e) {}
+          try {
+            if (window.storage && typeof window.storage.loadAll === 'function') {
+              const cur = window.storage.loadAll() || [];
+              window.storage._cache = [vehicle].concat(cur.filter((v) => String(v && v.id) !== id));
+            }
+          } catch (e) {}
+          return vehicle;
+        }
+        window.promoteOperatedVehicle = promoteOperatedVehicle;
+
         function sortOzmalBassoforFirst(list) {
           if (!Array.isArray(list) || list.length < 2) return list;
           const isBassofor = (v) => {
@@ -1662,14 +1682,17 @@ let sonuc = {
 
         function filterVehicles() {
   // ✅ Görünmez performans: basit cache
-  window.__filterCache = window.__filterCache || { term: null, incomplete: null, issues: null, recent: null, ozmal: null, ver: 0, out: null };
+  window.__filterCache = window.__filterCache || { term: null, incomplete: null, issues: null, recent: null, ozmal: null, ver: 0, out: null, head: '' };
   const currentVer = (state.vehicles && state.vehicles.length) ? state.vehicles.length : 0;
+  const head = (state.vehicles && state.vehicles[0]) || null;
+  const headSig = head ? (String(head.id || '') + ':' + String(head.listBumpTs || 0)) : '';
   if (window.__filterCache.term === state.searchTerm
       && window.__filterCache.incomplete === !!state.incompleteFilter
       && window.__filterCache.issues === !!state.issuesFilter
       && window.__filterCache.recent === !!state.recentFilter
       && window.__filterCache.ozmal === !!state.ozmalFilter
       && window.__filterCache.ver === currentVer
+      && window.__filterCache.head === headSig
       && window.__filterCache.out) {
     return window.__filterCache.out;
   }
@@ -1709,6 +1732,7 @@ let sonuc = {
       recent: !!state.recentFilter,
       ozmal: !!state.ozmalFilter,
       ver: currentVer,
+      head: headSig,
       out,
     };
     return out;
@@ -1781,6 +1805,7 @@ let sonuc = {
     recent: !!state.recentFilter,
     ozmal: !!state.ozmalFilter,
     ver: currentVer,
+    head: headSig,
     out: sorted,
   };
   return sorted;

@@ -10,8 +10,12 @@
   let pulling = false;
   let audioCtx = null;
   let chimeCursor = 0;
+  let titleBase = '';
+  let titleShown = 0;
+  let titleTimer = 0;
   const CLIENT_KEY = 'amirNoticeClientId';
   const POLL_MS = 5000;
+  const TITLE_STEP_MS = 420;
 
   function noticeClientId() {
     try {
@@ -100,6 +104,53 @@
     }
   }
 
+  function unreadCount() {
+    return openItems.length + queue.length;
+  }
+
+  function titleBaseText() {
+    if (!titleBase) {
+      titleBase = String(document.title || 'Araç Plaka Takip Sistemi').replace(/^\(\d+\)\s*/, '') || 'Araç Plaka Takip Sistemi';
+    }
+    return titleBase;
+  }
+
+  function paintTitleCount(count) {
+    const n = Math.max(0, Number(count) || 0);
+    titleShown = n;
+    document.title = n > 0 ? '(' + n + ') ' + titleBaseText() : titleBaseText();
+  }
+
+  function stopTitleTick() {
+    if (!titleTimer) return;
+    clearInterval(titleTimer);
+    titleTimer = 0;
+  }
+
+  function syncTabCount() {
+    if (!isAmir()) {
+      stopTitleTick();
+      if (titleShown) paintTitleCount(0);
+      return;
+    }
+    const target = unreadCount();
+    if (target >= titleShown || titleShown - target <= 1) {
+      stopTitleTick();
+      paintTitleCount(target);
+      return;
+    }
+    if (titleTimer) return;
+    titleTimer = setInterval(() => {
+      const live = isAmir() ? unreadCount() : 0;
+      if (titleShown <= live) {
+        paintTitleCount(live);
+        stopTitleTick();
+        return;
+      }
+      paintTitleCount(titleShown - 1);
+    }, TITLE_STEP_MS);
+  }
+
   function enqueue(items) {
     if (!isAmir()) return;
     const fresh = [];
@@ -109,13 +160,15 @@
       fresh.push(item);
     });
     if (!fresh.length) return;
-    if (showing && !closing) {
+    if (showing) {
       openItems = openItems.concat(fresh);
       renderOpen();
       playNoticeChimes(fresh.length);
+      syncTabCount();
       return;
     }
     fresh.forEach((item) => queue.push(item));
+    syncTabCount();
     pump();
   }
 
@@ -247,31 +300,35 @@
     renderOpen();
     playNoticeChimes(openItems.length);
     const ok = overlay.querySelector('#amirGirisNoticeOk');
-    const close = async () => {
-      if (closing) return;
+    const closeOne = async () => {
+      if (closing || !openItems.length) return;
       closing = true;
       if (ok) ok.disabled = true;
-      const batch = openItems.slice();
-      openItems = [];
-      await Promise.all(batch.map(async (item) => {
-        let acked = false;
-        try {
-          const res = await fetch('/api/amir-notices/' + encodeURIComponent(item.id) + '/ack', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client: noticeClientId() }),
-          });
-          acked = res.ok;
-        } catch (e) {}
-        if (!acked) seen.delete(item.id);
-      }));
+      const item = openItems.shift();
+      if (openItems.length) renderOpen();
+      syncTabCount();
+      let acked = false;
+      try {
+        const res = await fetch('/api/amir-notices/' + encodeURIComponent(item.id) + '/ack', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client: noticeClientId() }),
+        });
+        acked = res.ok;
+      } catch (e) {}
+      if (!acked && item) seen.delete(item.id);
+      if (openItems.length) {
+        closing = false;
+        if (ok) ok.disabled = false;
+        return;
+      }
       try { overlay.remove(); } catch (e) {}
       showing = false;
       closing = false;
       pump();
     };
-    if (ok) ok.onclick = close;
+    if (ok) ok.onclick = closeOne;
   }
 
   function escapeText(value) {
@@ -282,7 +339,11 @@
   }
 
   async function pull() {
-    if (!isAmir() || pulling) return;
+    if (!isAmir()) {
+      syncTabCount();
+      return;
+    }
+    if (pulling) return;
     pulling = true;
     try {
       const res = await fetch('/api/amir-notices?client=' + encodeURIComponent(noticeClientId()), {
