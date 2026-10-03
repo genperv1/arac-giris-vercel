@@ -1147,6 +1147,7 @@ const createAuth = require('./user');
 const JWT_SECRET = resolveSecret('JWT_SECRET', {
   fallback: 'dev_secret_change_me',
   forbidden: ['dev_secret_change_me'],
+  deriveFrom: process.env.DATABASE_URL,
 });
 /** Oturum sÃ¼resi (saat). .env: AUTH_SESSION_HOURS=6 */
 const AUTH_SESSION_HOURS = envNumber('AUTH_SESSION_HOURS', 6, { min: 1, max: 168 });
