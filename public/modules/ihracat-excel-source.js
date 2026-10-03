@@ -1137,6 +1137,11 @@
             } else {
               limanNote = 'Liman listesi güncellendi (' + (pub.site || '') + ').';
             }
+            try {
+              if (pub.ok && typeof window.sendLimanHeartbeat === 'function') {
+                window.sendLimanHeartbeat({ excelLoaded: true });
+              }
+            } catch (eHb) { /* nabız ayrı; liste gittiysa sorun değil */ }
           } else if (pub && pub.reason === 'empty') {
             limanNote = 'Liman listesine gönderilecek satır yok.';
           }

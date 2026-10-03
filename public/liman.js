@@ -64,17 +64,21 @@
       var received = fmt(info.receivedAt || info.updatedAt);
       var staleMs = info.receivedAt ? Date.now() - new Date(info.receivedAt).getTime() : 0;
       var staleCls = staleMs > 3 * 60 * 60 * 1000 ? ' is-stale' : '';
-      // Kantar PC nabzı: 10 dk'da bir gelir; 30 dk gelmezse PC kapalı / oturum düşmüş demektir
+      // Kantar PC nabzı: 10 dk'da bir gelir. Güncelle de liste gönderir; taze gönderim varsa PC bağlı sayılır.
       var hbHtml = '';
-      if (info.heartbeatAt) {
-        var hbAge = Date.now() - new Date(info.heartbeatAt).getTime();
-        var hbCls = hbAge > 30 * 60 * 1000 ? 'hb-dead' : 'hb-ok';
-        var hbText = hbAge > 30 * 60 * 1000
-          ? 'kantar bağlı değil · son nabız ' + fmt(info.heartbeatAt)
-          : 'kantar bağlı · son kontrol ' + hm(info.heartbeatAt) + (info.heartbeatExcel === false ? ' · Excel yüklü değil!' : '');
-        hbHtml = ' · <span class="hb ' + hbCls + '" title="Kantar PC\'nin 10 dk\'lık otomatik döngüsünden gelen son sinyal">' + esc(hbText) + '</span>';
+      var hbAt = info.heartbeatAt || '';
+      var recvAt = info.receivedAt || info.updatedAt || '';
+      var hbAge = hbAt ? Date.now() - new Date(hbAt).getTime() : Infinity;
+      var recvAge = recvAt ? Date.now() - new Date(recvAt).getTime() : Infinity;
+      if (hbAge < 30 * 60 * 1000) {
+        hbHtml = ' · <span class="hb hb-ok" title="Kantar PC\'nin son bağlıyım sinyali">kantar bağlı · son kontrol ' +
+          esc(hm(hbAt)) + (info.heartbeatExcel === false ? ' · Excel yüklü değil!' : '') + '</span>';
+      } else if (recvAge < 30 * 60 * 1000) {
+        hbHtml = ' · <span class="hb hb-ok" title="Az önce liste geldi; PC bağlı">kantar bağlı · az önce gönderdi</span>';
+      } else if (hbAt) {
+        hbHtml = ' · <span class="hb hb-dead" title="30 dakikadır nabız yok">kantar bağlı değil · son nabız ' + esc(fmt(hbAt)) + '</span>';
       } else {
-        hbHtml = ' · <span class="hb hb-none" title="Kantar PC yeni sürümle henüz nabız göndermedi">nabız yok</span>';
+        hbHtml = ' · <span class="hb hb-none" title="Bu kantar henüz bağlıyım sinyali göndermedi">nabız yok</span>';
       }
       var listHtml = info.hasList === false
         ? '<i>liste yok</i>'

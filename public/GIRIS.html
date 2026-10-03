@@ -37,7 +37,7 @@
         <link rel="manifest" href="manifest.webmanifest">
         <title>Araç Plaka Takip Sistemi</title>
         <link rel="stylesheet" href="tailwind-built.css">
-        <link rel="stylesheet" href="styles.css?v=1.0.64-20261003-login-users">
+        <link rel="stylesheet" href="styles.css?v=1.0.68-20261003-baret-zoom">
         <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
     </head>
     <body class="min-h-screen text-gray-700">
@@ -83,9 +83,18 @@
                             <div class="login-field">
                                 <span class="login-field__label" id="loginUserLabel">Kullanıcı</span>
                                 <div class="login-users" role="group" aria-labelledby="loginUserLabel">
-                                    <button type="button" class="login-user" data-user="AVDAN" aria-pressed="false">AVDAN</button>
-                                    <button type="button" class="login-user" data-user="1.OSB" aria-pressed="false">1.OSB</button>
-                                    <button type="button" class="login-user" data-user="xxr" aria-pressed="false">AMİR</button>
+                                    <button type="button" class="login-user" data-user="AVDAN" aria-pressed="false">
+                                        <img class="login-user__baret" src="login-baret-avdan.png?v=20261003c" alt="" width="120" height="136" decoding="async">
+                                        <span class="login-user__name">AVDAN<small>KANTAR</small></span>
+                                    </button>
+                                    <button type="button" class="login-user" data-user="1.OSB" aria-pressed="false">
+                                        <img class="login-user__baret" src="login-baret-osb.png?v=20261003c" alt="" width="120" height="136" decoding="async">
+                                        <span class="login-user__name">1.OSB<small>KANTAR</small></span>
+                                    </button>
+                                    <button type="button" class="login-user" data-user="xxr" aria-pressed="false">
+                                        <img class="login-user__baret" src="login-baret-amir.png?v=20261003c" alt="" width="120" height="136" decoding="async">
+                                        <span>AMİR</span>
+                                    </button>
                                 </div>
                                 <input type="hidden" id="loginId" name="username" value="">
                             </div>
@@ -222,7 +231,7 @@
         <script defer src="modules/app-core.js?v=1.0.1-20260718"></script>
         <script defer src="modules/app-ui-utils.js?v=1.0.4-20260913-split"></script>
         <script defer src="nakliye-bekleyen-core.js?v=1.0.14-20260909-akyuz-colA"></script>
-        <script defer src="modules/ihracat-excel-source.js?v=1.0.25-20261003-renew"></script>
+        <script defer src="modules/ihracat-excel-source.js?v=1.0.26-20261004-nabiz"></script>
         <script defer src="modules/app-excel-ihracat.js?v=1.0.55-20261003-renew"></script>
         <script defer src="modules/app-shipment-ui.js?v=1.0.5-20261002-kart-ust"></script>
         <script defer src="modules/app-signatures-prefs.js?v=1.0.4-20261003-basim-kilit"></script>

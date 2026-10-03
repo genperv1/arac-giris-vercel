@@ -99,15 +99,17 @@ function registerLimanRoutes(api, ctx, publicApp) {
     return typeof normalizeClientIp === 'function' ? normalizeClientIp(raw) : String(raw || '');
   }
 
-  // Tek Railway örneği: durum bellekte tutulur, DB yalnız açılışta okunur ve yazmada güncellenir.
+  // Bellekte tutulur; okumada DB de bakılır (localhost + canlı aynı veritabanını kullanınca eski liste kalmasın).
   let cachedRaw = null;
   let version = '';
 
   async function loadRaw() {
-    if (cachedRaw !== null) return cachedRaw;
     const r = await q('SELECT value FROM kv_store WHERE key = $1', [STATE_KEY]);
-    cachedRaw = (r.rows[0] && r.rows[0].value) || '';
-    version = String(Date.now());
+    const raw = (r.rows[0] && r.rows[0].value) || '';
+    if (cachedRaw === null || raw !== cachedRaw) {
+      cachedRaw = raw;
+      version = String(Date.now());
+    }
     return cachedRaw;
   }
 
