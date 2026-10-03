@@ -1414,6 +1414,11 @@ function _limanHash(text) {
   return (h >>> 0).toString(36);
 }
 
+/**
+ * Kantar listesini liman sayfasına gönderir.
+ * Döner: { sent:false, reason } | { sent:true, ok, status, unchanged, site, error }
+ * Güncelle sonrası kantar bunun sonucunu görür; sessiz yutulmaz.
+ */
 function publishLimanSnapshot(rows, meta, opts) {
   try {
     const site = limanPublishSite(rows);
@@ -1443,31 +1448,50 @@ function publishLimanSnapshot(rows, meta, opts) {
     const stamp = String(body.length) + ':' + _limanHash(body);
     const sentAt = Number(sentBefore.split('|')[1] || 0);
     const force = !!(opts && opts.force);
-    if (!force && sentBefore.split('|')[0] === stamp && Date.now() - sentAt < 6 * 60 * 60 * 1000) return;
-    fetch('/api/liman/snapshot', {
+    if (!force && sentBefore.split('|')[0] === stamp && Date.now() - sentAt < 6 * 60 * 60 * 1000) {
+      return Promise.resolve({ sent: false, reason: 'same' });
+    }
+    return fetch('/api/liman/snapshot', {
       method: 'PUT',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body,
-    }).then((res) => {
+    }).then(async (res) => {
+      let data = {};
+      try { data = await res.json(); } catch (e) { data = {}; }
       if (res.ok) {
         try { localStorage.setItem('liman_last_sent_v1', stamp + '|' + Date.now()); } catch (e) {}
       }
-    }).catch(() => {});
-  } catch (e) {}
+      return {
+        sent: true,
+        ok: !!res.ok,
+        status: res.status,
+        unchanged: !!(data && data.unchanged),
+        skipped: !!(data && data.skipped),
+        site: (data && data.site) || site,
+        error: res.ok ? '' : String((data && (data.error || data.message)) || ('HTTP ' + res.status)),
+      };
+    }).catch((err) => ({ sent: true, ok: false, status: 0, error: (err && err.message) || 'Bağlantı yok' }));
+  } catch (e) {
+    return Promise.resolve({ sent: false, reason: 'error', error: e && e.message });
+  }
 }
 
 function publishLimanFromStore(force) {
   try {
-    if (!window.DailyStore || typeof DailyStore.getRows !== 'function') return;
+    if (!window.DailyStore || typeof DailyStore.getRows !== 'function') {
+      return Promise.resolve({ sent: false, reason: 'no-store' });
+    }
     const ready = typeof DailyStore.ensureReady === 'function' ? DailyStore.ensureReady() : Promise.resolve();
-    Promise.resolve(ready).then(() => {
+    return Promise.resolve(ready).then(() => {
       const rows = DailyStore.getRows() || [];
-      if (!rows.length) return;
+      if (!rows.length) return { sent: false, reason: 'empty' };
       const meta = typeof DailyStore.getMeta === 'function' ? (DailyStore.getMeta() || {}) : {};
-      publishLimanSnapshot(rows, meta, { force: force === true });
-    }).catch(() => {});
-  } catch (e) {}
+      return publishLimanSnapshot(rows, meta, { force: force === true });
+    }).catch((err) => ({ sent: false, reason: 'error', error: err && err.message }));
+  } catch (e) {
+    return Promise.resolve({ sent: false, reason: 'error', error: e && e.message });
+  }
 }
 
 try { window.publishLimanFromStore = publishLimanFromStore; } catch (e) {}

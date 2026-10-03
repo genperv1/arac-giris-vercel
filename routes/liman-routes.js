@@ -1,7 +1,15 @@
 'use strict';
 
+const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
 const { daysFromSheetState, siteHasBlocks, sanitizeBlocks } = require('../lib/liman-sheet');
+const { extractAuthTokenFromRequest } = require('../lib/auth-session');
+const { printHistoryListColumns, printHistoryKantarSelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
+
+// Liman görevlisi / gözetmen oturum açmadan bakar: okuma uçları herkese açık,
+// çıkış akışı en fazla bu kadar geriye gider.
+const DEPARTED_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const DEPARTED_MAX_ROWS = 3000;
 
 const STATE_KEY = 'liman_state_v1';
 const MAX_ROWS = 2000;
@@ -24,9 +32,26 @@ function loadSiteIps() {
   return out;
 }
 
-function registerLimanRoutes(api, ctx) {
-  const { q, sendApiError, requireValidSession, requireAmir, sanitizeString, getClientIp, normalizeClientIp } = ctx;
+/**
+ * api: JWT korumalı router (kantar gönderimi, amir işlemleri).
+ * publicApp: opsiyonel; verilirse GET uçları buraya oturumsuz bağlanır
+ * (ana express app, '/api' router'ından önce) — liman görevlisi giriş yapmadan bakar.
+ */
+function registerLimanRoutes(api, ctx, publicApp) {
+  const { q, sendApiError, requireValidSession, requireAmir, sanitizeString, getClientIp, normalizeClientIp, formatReportInstant } = ctx;
   const siteIps = loadSiteIps();
+  const jwtSecret = ctx.JWT_SECRET || ctx.jwtSecret || process.env.JWT_SECRET || '';
+
+  /** Oturum varsa req.user'ı doldurur; yoksa anonim devam eder (hata vermez). */
+  function attachOptionalUser(req, _res, next) {
+    if (!req.user && jwtSecret) {
+      try {
+        const token = extractAuthTokenFromRequest(req, ctx.AUTH_COOKIE_NAME || 'auth_token');
+        if (token) req.user = jwt.verify(token, jwtSecret);
+      } catch (_) { /* anonim */ }
+    }
+    next();
+  }
 
   function ipSite(ip) {
     for (let i = 0; i < SITES.length; i++) {
@@ -162,6 +187,7 @@ function registerLimanRoutes(api, ctx) {
       out[site] = snap ? {
         fileName: snap.fileName || '',
         updatedAt: snap.updatedAt || '',
+        receivedAt: snap.receivedAt || snap.updatedAt || '',
         user: snap.user || '',
         rowCount: snapshotRowCount(snap),
       } : null;
@@ -187,21 +213,80 @@ function registerLimanRoutes(api, ctx) {
     return DAY_KEY_RE.test(key) ? key : '';
   }
 
-  api.get('/liman', requireValidSession, async (req, res) => {
+  // --- Okuma uçları (oturumsuz) ---
+  const reader = publicApp || api;
+  const readPrefix = publicApp ? '/api' : '';
+
+  reader.get(readPrefix + '/liman', attachOptionalUser, async (req, res) => {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       return res.json(viewFor(req, await readState()));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_READ_FAILED');
     }
   });
 
-  api.get('/liman/version', requireValidSession, async (req, res) => {
+  reader.get(readPrefix + '/liman/version', async (req, res) => {
     try {
       await loadRaw();
       res.setHeader('Cache-Control', 'no-store');
       return res.json({ v: version });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_VERSION_FAILED');
+    }
+  });
+
+  /**
+   * Sarılmış (çıkış yapmış) işareti için kantar baskılarının küçültülmüş akışı.
+   * /api/reports oturum ister; burada yalnız plaka eşlemesi ve şoför/telefon için gereken alanlar döner.
+   */
+  reader.get(readPrefix + '/liman/departed', async (req, res) => {
+    try {
+      const now = Date.now();
+      let since = Number(req.query && req.query.since);
+      if (!Number.isFinite(since) || since <= 0 || now - since > DEPARTED_MAX_WINDOW_MS) since = now - 3 * 24 * 60 * 60 * 1000;
+      const r = await q(
+        'SELECT ' + printHistoryListColumns(true) + ', ' + printHistoryKantarSelect() +
+        ' FROM print_history WHERE tarih >= $1 ORDER BY tarih DESC LIMIT $2',
+        [since, DEPARTED_MAX_ROWS]
+      );
+      const out = [];
+      (r.rows || []).forEach((row) => {
+        try {
+          const m = mapPrintHistoryRowToReport(row, { slim: true });
+          const d = m.data || {};
+          const inst = typeof formatReportInstant === 'function' ? formatReportInstant(m.ts) : { tarih: '', saat: '' };
+          out.push({
+            type: 'PRINT',
+            ts: m.ts,
+            tarih: inst.tarih,
+            saat: inst.saat,
+            plaka: d.plaka || '',
+            firma: m.firma || '',
+            data: {
+              plaka: d.plaka || '',
+              cekiciPlaka: d.cekiciPlaka || '',
+              dorsePlaka: d.dorsePlaka || '',
+              firma: d.firma || '',
+              malzeme: d.malzeme || '',
+              ydKey: d.ydKey || '',
+              headerText: d.headerText || '',
+              lotNo: d.lotNo || '',
+              yuklemeNotu: d.yuklemeNotu || '',
+              excelFileName: d.excelFileName || '',
+              basimYeri: d.basimYeri || '',
+              sofor: d.sofor || '',
+              iletisim: d.iletisim || '',
+              tarih: inst.tarih,
+              saat: inst.saat,
+            },
+          });
+        } catch (_) { /* bozuk satır atlanır */ }
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json(out);
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_DEPARTED_FAILED');
     }
   });
 
@@ -235,7 +320,14 @@ function registerLimanRoutes(api, ctx) {
       const sameContent = prev && prev.fileName === snapshot.fileName
         && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
         && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
-      if (sameContent) return res.json({ ok: true, site, unchanged: true });
+      if (sameContent) {
+        // İçerik aynı: updatedAt korunur ama "kantar gönderdi" bilgisi (receivedAt) kaydedilir;
+        // amir "liste eski mi, kantar mı göndermedi?" sorusunu buradan ayırt eder.
+        state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
+        await writeState(state);
+        return res.json({ ok: true, site, unchanged: true });
+      }
+      snapshot.receivedAt = snapshot.updatedAt;
       state.sites[site] = snapshot;
       await writeState(state);
       return res.json({ ok: true, site });

@@ -18,13 +18,23 @@
     .btn { background: #166534; color: #fff; }
     .search { border: 0; border-radius: 4px; padding: 8px 10px; min-width: 160px; font: inherit; }
     .wrap { padding: 14px 12px 48px; }
-    .sheet { min-width: 980px; }
+    /* Bilgisayar: sayfa ortalanır; küçük sayı sütunları (çuval, palet, boş bbt/çuval ≤ 2 hane, yükleme yeri ≤ 5 karakter) dar tutulur */
+    .sheet { min-width: 980px; max-width: 1360px; margin: 0 auto; }
+    table.grid th.c-sira, table.grid td.c-sira { width: 30px; }
+    table.grid th.c-nar, table.grid td.c-nar { width: 44px; padding-left: 2px; padding-right: 2px; }
+    table.grid th.c-bbt, table.grid td.c-bbt { width: 46px; }
+    table.grid th.c-ton, table.grid td.c-ton { width: 66px; }
+    table.grid th.c-yer, table.grid td.c-yer { width: 60px; padding-left: 3px; padding-right: 3px; }
+    table.grid th.c-durum, table.grid td.c-durum { width: 78px; }
+    table.grid th.c-nar, table.grid th.c-yer { line-height: 1.1; }
     .blok { background: #fff; border: 1px solid #8fa888; box-shadow: 0 2px 6px rgba(0,0,0,.12); margin-bottom: 34px; }
     .blok:last-child { margin-bottom: 0; }
     #adminBox:empty { display: none; }
     #adminBox { margin-bottom: 14px; font-size: .85rem; }
     .known { background: #fff; border: 1px solid #cbd5e1; padding: 8px 12px; color: #334155; }
     .known + .known { margin-top: 6px; }
+    .site-info.is-stale { color: #b91c1c; }
+    .site-info.is-stale b { color: #b91c1c; }
     .admin-days { display: flex; flex-direction: column; gap: 8px; }
     .close-day-row, .closed-days-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .btn-close-day { background: #b91c1c; padding: 6px 12px; font-size: .8rem; }
@@ -51,6 +61,7 @@
     .tab { display: inline-block; background: #f3f4f6; border: 1px solid #9ca3af; border-top: 0; padding: 4px 12px; font: inherit; font-size: .8rem; font-weight: 700; color: #374151; cursor: pointer; margin-right: 2px; }
     .tab.is-on { background: #fff; color: #14532d; box-shadow: inset 0 -3px 0 #16a34a; }
     table.grid td.durum { color: #c2410c; font-weight: 700; }
+    table.grid td.durum.is-out { color: #166534; }
     .progress-line { margin: 0; padding: 4px 10px; background: #f8fafc; color: #475569; font-size: .8rem; font-weight: 700; border-bottom: 1px solid #e2e8f0; }
     .done-line { margin: 0; padding: 8px 10px; background: #16a34a; color: #fff; font-size: .95rem; font-weight: 800; letter-spacing: .04em; }
     .blok.is-done .blok-title { background: #bbf7d0; }
@@ -106,7 +117,7 @@
         background: #fff;
       }
       table.grid tr.is-out { background: #dcfce7; }
-      table.grid td { display: block; border: 0; padding: 0; background: transparent !important; text-align: left; white-space: normal; }
+      table.grid td { display: block; border: 0; padding: 0; background: transparent !important; text-align: left; white-space: normal; width: auto; }
       table.grid td.c-sira { grid-area: sira; color: #64748b; font-size: .8rem; font-weight: 700; align-self: start; padding-top: 3px; }
       table.grid td.c-plaka { grid-area: plaka; font-size: 1.1rem; line-height: 1.2; }
       table.grid td.c-plaka b { letter-spacing: .03em; }
@@ -161,6 +172,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261003-liman14"></script>
+  <script src="liman.js?v=20261003-liman17"></script>
 </body>
 </html>

@@ -1112,11 +1112,35 @@
         return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames };
       }
       setNeedPath(false);
+      // Liman listesine gönder; sonucu kantar görsün (eskiden hata sessizce yutuluyordu)
+      var limanNote = '';
       try {
         if (typeof window.publishLimanFromStore === 'function') {
-          Promise.resolve().then(function () { return window.publishLimanFromStore(true); }).catch(function () {});
+          var pub = await Promise.resolve(window.publishLimanFromStore(true));
+          if (pub && pub.sent) {
+            if (!pub.ok) {
+              limanNote = pub.status === 401
+                ? 'Liman listesine GÖNDERİLEMEDİ: oturum süresi dolmuş, çıkış yapıp tekrar giriş yapın.'
+                : 'Liman listesine GÖNDERİLEMEDİ: ' + (pub.error || 'sunucu hatası') + '.';
+            } else if (pub.skipped) {
+              limanNote = '';
+            } else if (pub.unchanged) {
+              limanNote = 'Liman listesi aynı (Excel içeriği değişmemiş).';
+            } else {
+              limanNote = 'Liman listesi güncellendi (' + (pub.site || '') + ').';
+            }
+          } else if (pub && pub.reason === 'empty') {
+            limanNote = 'Liman listesine gönderilecek satır yok.';
+          }
         }
       } catch (e) {}
+      if (limanNote && !silent && typeof window.showToast === 'function') {
+        var limanBad = /GÖNDERİLEMEDİ/.test(limanNote);
+        window.showToast(limanNote, limanBad ? 'error' : (/aynı|yok/.test(limanNote) ? 'warn' : 'success'), limanBad ? 9000 : 3200);
+      }
+      if (/GÖNDERİLEMEDİ/.test(limanNote)) {
+        try { console.warn('[Liman] ' + limanNote); } catch (e) {}
+      }
 
       var summary;
       if (multi) {

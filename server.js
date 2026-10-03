@@ -1329,7 +1329,8 @@ registerPiyasaRoutes(api, routeCtx);
 registerAmirNoticeRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
-registerLimanRoutes(api, routeCtx);
+// Liman okuma uçları (GET /api/liman, /version, /departed) oturumsuz: app'e bağlanır, '/api' router'ından önce eşleşir.
+registerLimanRoutes(api, routeCtx, app);
 
 api.get('/presence', requireValidSession, (req, res) => {
   presence.touch(req.user);

@@ -57,10 +57,17 @@
     var parts = Object.keys(state.sites || {}).map(function (site) {
       var info = state.sites[site];
       if (!info) return '<span><b>' + esc(site) + ':</b> <i>liste yok</i></span>';
-      var when = info.updatedAt ? new Date(info.updatedAt).toLocaleString('tr-TR') : '';
-      return '<span><b>' + esc(site) + ':</b> ' + esc(info.fileName || '') + ' · ' + info.rowCount + ' satır · ' + esc(when) + '</span>';
+      var fmt = function (iso) { return iso ? new Date(iso).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; };
+      var changed = fmt(info.updatedAt);
+      var received = fmt(info.receivedAt || info.updatedAt);
+      var staleMs = info.receivedAt ? Date.now() - new Date(info.receivedAt).getTime() : 0;
+      var staleCls = staleMs > 3 * 60 * 60 * 1000 ? ' is-stale' : '';
+      return '<span class="site-info' + staleCls + '"><b>' + esc(site) + ':</b> ' + esc(info.fileName || '') + ' · ' + info.rowCount + ' satır' +
+        ' · <span title="Kantarın en son Güncelle ile gönderdiği an (içerik aynı olsa da)">son gönderim ' + esc(received) + '</span>' +
+        (received !== changed ? ' · <span title="Liste içeriğinin en son değiştiği an">son değişiklik ' + esc(changed) + '</span>' : '') +
+        '</span>';
     });
-    var html = '<div class="known">Son gönderim → ' + parts.join(' &nbsp; ') + '</div>';
+    var html = '<div class="known">' + parts.join(' &nbsp; ') + '</div>';
 
     // Sevkiyat bitince amir günün listesini kapatır; liman tarafı o günü görmez.
     var day = activeDay();
@@ -233,7 +240,8 @@
           editor = '<span class="rownote"><input data-note="' + esc(row.irsaliyeNo) + '" value="' + esc(row.note || '') + '" placeholder="Not" /></span>';
         }
         var out = rowDeparted(row);
-        var durum = String(row.durum || '').trim();
+        // Çıkmış araçta Excel'in eski "İÇERİDE / DIŞARIDA" notu gösterilmez; durum tek: SARILMIŞ
+        var durum = out ? 'SARILMIŞ' : String(row.durum || '').trim();
         // Telefon görünümü için kısa özet (masaüstünde gizli)
         var sum = [
           ['BBT', numCell(row.bbt)],
@@ -246,15 +254,15 @@
         return '<tr class="' + (out ? 'is-out' : '') + '">' +
           '<td class="c-sira">' + esc(row.sira || '') + '</td>' +
           '<td class="left c-plaka">' + plateHtml + note + editor + '</td>' +
-          '<td class="c-min">' + esc(numCell(row.bbt)) + '</td>' +
-          '<td class="c-min">' + esc(numCell(row.cuval)) + '</td>' +
-          '<td class="c-min">' + esc(numCell(row.palet)) + '</td>' +
-          '<td class="c-min">' + esc(numCell(row.bosBbt)) + '</td>' +
-          '<td class="c-min">' + esc(numCell(row.bosCuval)) + '</td>' +
-          '<td class="c-min">' + esc(numCell(row.net)) + '</td>' +
-          '<td class="c-min">' + esc(numCell(row.giden || row.gidenTonaj)) + '</td>' +
+          '<td class="c-min c-bbt">' + esc(numCell(row.bbt)) + '</td>' +
+          '<td class="c-min c-nar">' + esc(numCell(row.cuval)) + '</td>' +
+          '<td class="c-min c-nar">' + esc(numCell(row.palet)) + '</td>' +
+          '<td class="c-min c-nar">' + esc(numCell(row.bosBbt)) + '</td>' +
+          '<td class="c-min c-nar">' + esc(numCell(row.bosCuval)) + '</td>' +
+          '<td class="c-min c-ton">' + esc(numCell(row.net)) + '</td>' +
+          '<td class="c-min c-ton">' + esc(numCell(row.giden || row.gidenTonaj)) + '</td>' +
           '<td class="durum c-durum' + (out ? ' is-out' : '') + '" data-fallback="' + (out ? 'SARILMIŞ' : 'BEKLİYOR') + '">' + esc(durum) + '</td>' +
-          '<td class="c-min">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
+          '<td class="c-min c-yer">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
           '<td class="left c-sofor">' + esc(row.sofor || '') + '</td>' +
           '<td class="c-tel">' + telCell(row.telefon) + '</td>' +
           '<td class="c-sum">' + sum + '</td>' +
@@ -278,7 +286,10 @@
         statusLine +
         noteLine +
         '<table class="grid"><thead><tr>' +
-          '<th></th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ BBT</th><th>BOŞ ÇUVAL</th><th>NET</th><th>GİDEN</th><th>DURUM</th><th>YÜKLEME YERİ</th><th>ŞOFÖR</th><th>TELEFON</th>' +
+          '<th class="c-sira"></th><th class="c-plaka">PLAKA</th><th class="c-bbt">BBT</th>' +
+          '<th class="c-nar">ÇUVAL</th><th class="c-nar">PALET</th><th class="c-nar">BOŞ<br>BBT</th><th class="c-nar">BOŞ<br>ÇUVAL</th>' +
+          '<th class="c-ton">NET</th><th class="c-ton">GİDEN</th><th class="c-durum">DURUM</th><th class="c-yer">YÜKLEME<br>YERİ</th>' +
+          '<th class="c-sofor">ŞOFÖR</th><th class="c-tel">TELEFON</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></section>';
     }).join('') + '</div>';
   }
@@ -335,7 +346,8 @@
   async function guncelle(opts) {
     var silent = !!(opts && opts.silent);
     var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
-    var res = await fetch('/api/reports?since=' + since, { credentials: 'same-origin', cache: 'no-store' });
+    // Oturumsuz çıkış akışı (liman görevlisi giriş yapmaz)
+    var res = await fetch('/api/liman/departed?since=' + since, { credentials: 'same-origin', cache: 'no-store' });
     state.reports = res.ok ? await res.json() : (state.reports || []);
     await load();
     lastCheck = Date.now();
@@ -420,14 +432,10 @@
   });
 
   async function init() {
-    // Not: sayfa adresi bilinçli olarak kilitlenmez — liman görevlisi telefondan
-    // kantar hesabıyla girip /liman adresini doğrudan açabilsin. Yalnızca kantar menüsünde gizlidir.
+    // Bu sayfa oturum istemez: gözetmen ve liman görevlisi adresi açıp bakar.
+    // Oturum varsa (amir) yalnız yetki/presence için kullanılır; yoksa salt okunur devam eder.
     if (window.SessionManager && typeof SessionManager.requireValidSession === 'function') {
-      var ok = await SessionManager.requireValidSession();
-      if (!ok) {
-        $('list').innerHTML = '<p class="empty">Oturum doğrulanamadı.</p>';
-        return;
-      }
+      try { await SessionManager.requireValidSession(); } catch (e) { /* oturumsuz görünüm */ }
     }
     try {
       await guncelle({ silent: true });

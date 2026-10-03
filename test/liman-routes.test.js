@@ -112,6 +112,72 @@ test('amir günü kapatınca liman o günü görmez; sonraki gün kalır, yenide
   assert.equal(badKey.ok, false);
 });
 
+test('liman okuma uçları oturumsuz çalışır (canEdit false, kapalı günler görünür)', async () => {
+  const k = harness({ username: 'AVDAN', role: 'admin' });
+  await k.call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [block('YD1 / LOT NO 1 / EVYAP', 'AVDAN')] });
+  const anon = harness(undefined);
+  Object.assign(anon.store, k.store);
+  const view = await anon.call('get /liman', '5.5.5.5');
+  assert.equal(view.ok, true);
+  assert.equal(view.canEdit, false);
+  assert.equal(view.days.length, 1);
+  const ver = await anon.call('get /liman/version', '5.5.5.5');
+  assert.ok(ver.v);
+});
+
+test('publicApp verilince GET uçları /api öneki ile app\'e, yazma uçları router\'a bağlanır', () => {
+  const appRoutes = [];
+  const apiRoutes = [];
+  const mk = (list) => {
+    const r = {};
+    ['get', 'put', 'post', 'delete'].forEach((m) => { r[m] = (p) => list.push(m + ' ' + p); });
+    return r;
+  };
+  registerLimanRoutes(mk(apiRoutes), {
+    q: async () => ({ rows: [] }), sendApiError() {}, requireValidSession: (q, s, n) => n(), requireAmir: (q, s, n) => n(),
+    sanitizeString: (v) => String(v || ''),
+  }, mk(appRoutes));
+  assert.deepEqual(appRoutes, ['get /api/liman', 'get /api/liman/version', 'get /api/liman/departed']);
+  assert.ok(apiRoutes.includes('put /liman/snapshot'));
+  assert.ok(apiRoutes.includes('put /liman/day/:dateKey/close'));
+  assert.ok(!apiRoutes.some((r) => r.startsWith('get ')));
+});
+
+test('diğer kantarın eski İÇERİDE notu çıkmış aracı kirletmez; aynı içerik receivedAt günceller', async () => {
+  const mk = (durum, giden) => ({
+    title: 'YD172(G) / LOT NO 26 09 24 / YILPORT', liman: 'YILPORT', fileName: '03.10.2026.xlsx',
+    rows: [{ sira: '2', plaka: '43ADT546', yukleme: 'AVDAN', durum, giden, bbt: '20' }],
+  });
+  // 1.OSB eski liste: araç içeride
+  const osb = harness({ username: '1.OSB', role: 'admin' });
+  await osb.call('put /liman/snapshot', '1.1.1.1', { site: '1.OSB', fileName: '03.10.2026.xlsx', blocks: [mk('İÇERİDE', '')] });
+  // AVDAN yeni liste: araç çıkmış, not silinmiş
+  const avdan = harness({ username: 'AVDAN', role: 'admin' });
+  Object.assign(avdan.store, osb.store);
+  const first = await avdan.call('put /liman/snapshot', '1.1.1.1', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('', '26000')] });
+  assert.equal(first.unchanged, undefined);
+  let view = await avdan.call('get /liman', '1.1.1.1');
+  const row = view.days[0].blocks[0].rows[0];
+  assert.equal(row.durum, '');
+  assert.equal(row.gidenTonaj, '26000');
+  const firstUpdated = view.sites.AVDAN.updatedAt;
+  assert.equal(view.sites.AVDAN.receivedAt, firstUpdated);
+
+  // Aynı içerik tekrar gönderilince: updatedAt sabit, receivedAt ilerler
+  await new Promise((r) => setTimeout(r, 5));
+  const again = await avdan.call('put /liman/snapshot', '1.1.1.1', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('', '26000')] });
+  assert.equal(again.unchanged, true);
+  view = await avdan.call('get /liman', '1.1.1.1');
+  assert.equal(view.sites.AVDAN.updatedAt, firstUpdated);
+  assert.ok(view.sites.AVDAN.receivedAt > firstUpdated);
+
+  // Tek kantar, giden girilmiş ama not unutulmuş → durum temizlenir
+  const solo = harness({ username: 'AVDAN', role: 'admin' });
+  await solo.call('put /liman/snapshot', '1.1.1.1', { site: 'AVDAN', fileName: '04.10.2026.xlsx', blocks: [Object.assign(mk('İÇERİDE', '26000'), { fileName: '04.10.2026.xlsx' })] });
+  const v2 = await solo.call('get /liman', '1.1.1.1');
+  assert.equal(v2.days[0].blocks[0].rows[0].durum, '');
+});
+
 test('amir gönderimi yok sayılır', async () => {
   const { call, store } = harness({ username: 'xxr', role: 'amir' });
   const put = await call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', blocks: [block('YD1 / LOT NO 1 / EVYAP', 'AVDAN')] });
