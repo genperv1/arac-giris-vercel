@@ -32,3 +32,16 @@ test(
     assert.ok(typeof res.body === 'object');
   }
 );
+
+test(
+  'GET /health Railway alias',
+  { skip: !hasDb },
+  async () => {
+    const request = require('supertest');
+    const app = require('../server.js');
+    const res = await request(app).get('/health');
+    assert.ok(res.status === 200 || res.status === 503);
+    assert.ok(typeof res.body === 'object');
+    assert.ok(res.body.status);
+  }
+);

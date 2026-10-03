@@ -15,7 +15,7 @@ const { Pool } = require("pg");
 const cron = require('node-cron');
 const crypto = require('crypto');
 const { validatePlateFormat, compactPlate, compactRecordPlates } = require('./lib/plate-format');
-const { envNumber } = require('./lib/env');
+const { envNumber, resolveSecret, warnIfDefaultSecret } = require('./lib/env');
 const { applySupabaseSecurity } = require('./lib/supabase-security');
 const { createAuthSessionMiddleware } = require('./lib/auth-session');
 const { createClientSiteResolver } = require('./lib/client-site');
@@ -45,11 +45,15 @@ const { registerDailyRoutes } = require('./routes/daily-routes');
 const { registerIhracatExcelRoutes } = require('./routes/ihracat-excel-routes');
 const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerLimanRoutes, STATE_KEY: LIMAN_STATE_KEY } = require('./routes/liman-routes');
+const { registerHealthRoutes } = require('./routes/health-routes');
+const { registerAdminBanRoutes } = require('./routes/admin-ban-routes');
+const { registerBackupRoutes } = require('./routes/backup-routes');
 const bcrypt = require('bcryptjs');
 const { createPresence } = require('./lib/presence');
 const { createDeviceTokenStore } = require('./lib/device-tokens');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
+const { registerKantarNudgeRoutes } = require('./routes/kantar-nudge-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
 const { registerPrintFormBgImageRoute, registerPrintFormBgRoutes } = require('./routes/print-form-bg-routes');
@@ -290,6 +294,17 @@ async function prepareSchema() {
     CREATE TABLE IF NOT EXISTS kv_store(
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users(
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT,
+      meta JSONB,
+      created_at BIGINT
     );
   `);
 
@@ -900,6 +915,7 @@ function isBanExemptApiPath(req) {
     p === '/api/settings/verify-access'
     || p.startsWith('/api/settings/bans')
     || p === '/api/health'
+    || p === '/health'
   ) {
     return true;
   }
@@ -914,6 +930,7 @@ function isBanExemptApiPath(req) {
 const SETTINGS_ACCESS_PASSWORD = String(
   process.env.SETTINGS_ACCESS_PASSWORD || '543723'
 );
+warnIfDefaultSecret('SETTINGS_ACCESS_PASSWORD', SETTINGS_ACCESS_PASSWORD, '543723');
 
 const SETTINGS_TOKEN_TTL_MS = 30 * 60 * 1000;
 const settingsAccessTokens = new Map();
@@ -1118,9 +1135,19 @@ const loginEndpointLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
+const sessionRenewLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: envNumber('SESSION_RENEW_BURST_MAX', 30, { min: 5, max: 200 }),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Auth initialization (JWT). Uses user.js helper which expects `q`.
 const createAuth = require('./user');
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
+const JWT_SECRET = resolveSecret('JWT_SECRET', {
+  fallback: 'dev_secret_change_me',
+  forbidden: ['dev_secret_change_me'],
+});
 /** Oturum sÃ¼resi (saat). .env: AUTH_SESSION_HOURS=6 */
 const AUTH_SESSION_HOURS = envNumber('AUTH_SESSION_HOURS', 6, { min: 1, max: 168 });
 const AUTH_SESSION_EXPIRES = `${AUTH_SESSION_HOURS}h`;
@@ -1156,8 +1183,8 @@ const piyasaServer = createPiyasaServerApi({
 
 const presence = createPresence();
 
-/** Kantar PC "hatırlanan cihaz" anahtarı (gün). .env: DEVICE_TOKEN_DAYS=90 */
-const DEVICE_TOKEN_DAYS = envNumber('DEVICE_TOKEN_DAYS', 90, { min: 1, max: 365 });
+/** Kantar PC "hatırlanan cihaz" anahtarı (gün). .env: DEVICE_TOKEN_DAYS=30 */
+const DEVICE_TOKEN_DAYS = envNumber('DEVICE_TOKEN_DAYS', 30, { min: 1, max: 365 });
 const deviceTokens = createDeviceTokenStore(q, { days: DEVICE_TOKEN_DAYS });
 
 const routeCtx = {
@@ -1202,6 +1229,7 @@ const routeCtx = {
   JWT_SECRET,
   AUTH_SESSION_EXPIRES,
   requireSettingsAccess,
+  sessionRenewLimiter,
 };
 
 registerAuthRoutes(api, routeCtx);
@@ -1219,38 +1247,7 @@ registerPrintFormBgImageRoute(api, routeCtx);
 registerPrintLayoutReadRoute(api, routeCtx);
 registerPrintLayoutSettingsRoutes(api, routeCtx);
 
-// Public health check (Railway/monitoring â€” auth gerekmez)
-api.get("/health", async (req, res) => {
-  try {
-    const poolInfo = {
-      totalCount: pool.totalCount,
-      idleCount: pool.idleCount,
-      waitingCount: pool.waitingCount,
-    };
-    const healthy = await checkPoolHealth();
-    if (healthy) {
-      return res.json({
-        ok: true,
-        status: 'healthy',
-        pool: poolInfo,
-        timestamp: new Date().toISOString()
-      });
-    }
-    return res.status(503).json({
-      ok: false,
-      status: 'unhealthy',
-      pool: poolInfo,
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    return res.status(503).json({
-      ok: false,
-      status: 'error',
-      error: err.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
+registerHealthRoutes(app, api, { pool, checkPoolHealth });
 
 // Yazıcı kuyruğu: oturumdan bağımsız. Amir ve Kantar aynı bakışı kullanır.
 function printSpoolSeenNow(token, rawSeq) {
@@ -1333,6 +1330,7 @@ registerDailyRoutes(api, routeCtx);
 registerIhracatExcelRoutes(api, routeCtx);
 registerPiyasaRoutes(api, routeCtx);
 registerAmirNoticeRoutes(api, routeCtx);
+registerKantarNudgeRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
 // Liman okuma uçları (GET /api/liman, /version, /departed) oturumsuz: app'e bağlanır, '/api' router'ından önce eşleşir.
@@ -1346,36 +1344,7 @@ api.get('/presence', requireValidSession, (req, res) => {
 
 
 
-// Export DB (Postgres'te .sqlite dosyasÄ± yok; JSON yedek indiriyoruz)
-api.get("/export/db", requireValidSession, async (req, res) => {
-  try {
-    const [vehicles, daily_rows, problems, kv_store, report, events] = await Promise.all([
-      q("SELECT * FROM vehicles"),
-      q("SELECT * FROM daily_rows"),
-      q("SELECT * FROM problems"),
-      q("SELECT key, CASE WHEN key = $1 THEN '{}'::text ELSE value END AS value FROM kv_store", [PRINT_FORM_BG_KEY]),
-      q("SELECT * FROM report"),
-      q("SELECT * FROM events"),
-    ]);
-
-    const backup = {
-      ts: Date.now(),
-      vehicles: vehicles.rows,
-      daily_rows: daily_rows.rows,
-      problems: problems.rows,
-      kv_store: kv_store.rows,
-      report: report.rows,
-      events: events.rows,
-    };
-
-    const filename = "arac_giris_backup.json";
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.send(JSON.stringify(backup));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+registerBackupRoutes(api, { q, requireAmir, PRINT_FORM_BG_KEY });
 
 
 
@@ -1492,6 +1461,7 @@ api.post("/kv/:key", auth.verifyToken, async (req, res) => {
 
 
 const SHIFT_NOTES_DELETE_PASSWORD = String(process.env.SHIFT_NOTES_DELETE_PASSWORD || '543723');
+warnIfDefaultSecret('SHIFT_NOTES_DELETE_PASSWORD', SHIFT_NOTES_DELETE_PASSWORD, '543723');
 
 function parseOperationNoteRules(raw) {
   try {
@@ -1651,7 +1621,7 @@ api.delete('/operation-notes/:id', async (req, res) => {
 
 
 // Restore full JSON backup into Postgres
-api.post("/restore-full", auth.verifyToken, async (req, res) => {
+api.post("/restore-full", requireAmir, async (req, res) => {
   const allData = req.body || {};
   const hasStorageDump = allData && allData.storageDump && typeof allData.storageDump === "object";
   const hasVehiclesArray = Array.isArray(allData.vehicles);
@@ -1826,61 +1796,6 @@ api.post("/restore-full", auth.verifyToken, async (req, res) => {
     sendApiError(res, err, 500, 'RESTORE_FULL_FAILED');
   } finally {
     client.release();
-  }
-});
-
-// Admin: List banned IPs (JWT ile; ayarlar UI aynÄ± zamanda /settings/bans kullanÄ±r)
-api.get("/admin/banned-ips", auth.verifyToken, async (req, res) => {
-  try {
-    const payload = listBannedIpsPayload();
-    res.json({ ok: true, ...payload });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Admin: Unban an IP
-api.post("/admin/unban-ip", auth.verifyToken, async (req, res) => {
-  try {
-    const ip = String(req.body.ip || '').trim();
-    if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli' });
-    const removed = unbanIp(ip);
-    res.json({ ok: true, removed, message: removed ? `IP ${ip} engeli kaldÄ±rÄ±ldÄ±` : 'Bu IP listede yoktu' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Admin: Ban an IP manually
-api.post("/admin/ban-ip", auth.verifyToken, async (req, res) => {
-  try {
-    const ip = String(req.body.ip || '').trim();
-    const reason = String(req.body.reason || 'Manuel engel (yÃ¶netici)');
-    if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli' });
-    banIp(ip, reason);
-    res.json({ ok: true, message: `IP ${normalizeClientIp(ip)} engellendi` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Admin: Get rate limit status for an IP
-api.get("/admin/ip-status/:ip", auth.verifyToken, async (req, res) => {
-  try {
-    const ip = String(req.params.ip || '').trim();
-    const ipData = ipRequestCount.get(ip);
-    const banned = isIpBanned(ip);
-    
-    res.json({
-      ok: true,
-      ip,
-      banned,
-      requests: ipData ? ipData.count : 0,
-      failedLogins: ipData ? ipData.failedLogins : 0,
-      resetTime: ipData ? new Date(ipData.resetTime).toISOString() : null
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
@@ -2087,7 +2002,16 @@ registerPlakaStatsRoutes(api, routeCtx);
 registerSignaturesRoutes(api, routeCtx);
 registerPrintFormBgRoutes(api, routeCtx);
 
-registerSseRoutes(app);
+registerSseRoutes(app, { jwtSecret: JWT_SECRET });
+registerAdminBanRoutes(api, {
+  requireAmir,
+  listBannedIpsPayload,
+  unbanIp,
+  banIp,
+  normalizeClientIp,
+  isIpBanned,
+  ipRequestCount,
+});
 
 // Ayarlar / ban API â€” JWT router dÄ±ÅŸÄ±nda (api.use(verifyToken) tÃ¼m isteklere uygulanÄ±yordu)
 app.post('/api/settings/amir-access', requireAmir, (req, res) => {

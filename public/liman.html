@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liman — İhracat Takip Listesi</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <script src="session-manager.js?v=20261003-renew1"></script>
+  <script src="session-manager.js?v=20261004-nudge1"></script>
   <style>
     body { margin: 0; background: #d9e2d4; color: #1a1a1a; font-family: Calibri, "Segoe UI", sans-serif; }
     .top { position: sticky; top: 0; z-index: 5; background: #1f4e2a; color: #fff; box-shadow: 0 1px 0 #16381e; }
@@ -87,6 +87,9 @@
     .presence-item.is-on i { background: #4ade80; box-shadow: 0 0 0 2px rgba(74,222,128,.3); }
     .presence-item small { font-weight: 600; }
     .presence-item.is-on small { color: #bbf7d0; }
+    .presence-item.is-nudge { cursor: pointer; }
+    .presence-item.is-nudge:hover { background: rgba(255,255,255,.08); border-radius: 8px; }
+    .presence-item.is-nudge-off { cursor: not-allowed; }
     .toast { position: fixed; bottom: 36px; right: 16px; background: #14532d; color: #fff; padding: 10px 14px; display: none; }
     a.tel { color: inherit; text-decoration: none; }
     table.grid td.c-sum { display: none; }
@@ -183,6 +186,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261004-liman19"></script>
+  <script src="liman.js?v=20261004-liman20"></script>
 </body>
 </html>

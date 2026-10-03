@@ -1101,8 +1101,22 @@ html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
   color: #16a34a;
 }
 
+.presence-item.is-nudge {
+  cursor: pointer;
+  user-select: none;
+}
+
+.presence-item.is-nudge:hover {
+  filter: brightness(1.12);
+}
+
 body.session-amir .presence-item.is-on small {
   color: #86efac;
+}
+
+body.session-amir .presence-item.is-nudge:hover {
+  background: rgba(255, 237, 213, 0.08);
+  border-radius: 8px;
 }
 
 .app-header-status button.status-chip {

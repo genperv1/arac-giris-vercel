@@ -654,6 +654,7 @@
         }
 
         startPresence();
+        startNudge();
         return true;
     }
 
@@ -803,6 +804,7 @@
         };
         startSessionKeepAlive();
         startPresence();
+        startNudge();
     }
 
     // Public API
@@ -820,10 +822,12 @@
         return 'GENPER · AMİR';
     }
 
-    // Kim çevrimiçi: 2 dk'da bir küçük istek; aynı bilgisayardaki sekmeler sonucu localStorage üzerinden paylaşır.
+    // Kim çevrimiçi: 2 dk'da bir küçük istek. Liste/nabız zaten hemen online yazar; sık yoklama gerekmez.
     const PRESENCE_KEY = 'gpm_presence_v1';
     const PRESENCE_INTERVAL_MS = 2 * 60 * 1000;
+    const PRESENCE_FETCH_MIN_MS = 20 * 1000;
     let presenceTimer = null;
+    let lastPresenceFetchAt = 0;
 
     function readPresenceCache() {
         try {
@@ -841,12 +845,11 @@
     }
 
     async function pollPresence() {
-        if (document.hidden || !isLikelyLoggedIn()) return;
+        if (!isLikelyLoggedIn()) return;
         const cached = readPresenceCache();
-        if (cached && Date.now() - cached.at < PRESENCE_INTERVAL_MS - 10000) {
-            emitPresence(cached.list);
-            return;
-        }
+        if (cached) emitPresence(cached.list);
+        if (Date.now() - lastPresenceFetchAt < PRESENCE_FETCH_MIN_MS) return;
+        lastPresenceFetchAt = Date.now();
         try {
             const res = await fetch('/api/presence', { credentials: 'include', cache: 'no-store' });
             if (!res.ok) return;
@@ -874,17 +877,314 @@
         return cached ? cached.list : [];
     }
 
-    /** Tek chip: "AVDAN ● · 1.OSB ○ · AMİR ●" */
+    function presenceSiteKey(value) {
+        const raw = String(value || '').trim();
+        const upper = raw.toLocaleUpperCase('tr-TR').replace(/\s+/g, '');
+        if (upper === 'AVDAN') return 'AVDAN';
+        if (upper === '1.OSB' || upper === '1OSB' || upper === 'OSB') return '1.OSB';
+        if (upper === 'AMIR' || raw === 'AMİR') return 'AMIR';
+        return '';
+    }
+
+    function currentKantarSite() {
+        try {
+            return presenceSiteKey(localStorage.getItem('currentUserId'));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    /** Tek chip: "AVDAN ● · 1.OSB ○ · AMİR ●" — amir online tesise basınca titre */
     function presenceChipHtml(list) {
+        const amir = isAmirUser();
         const items = (list || []).map((p) => {
-            const cls = p.online ? 'presence-item is-on' : 'presence-item';
-            const title = p.online ? 'çevrimiçi' : (p.lastSeen ? 'son görülme ' + new Date(p.lastSeen).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'çevrimdışı');
-            return '<span class="' + cls + '" title="' + p.label + ' — ' + title + '"><i aria-hidden="true"></i>' + p.label + ' <small>' + (p.online ? 'online' : 'offline') + '</small></span>';
+            const key = presenceSiteKey(p && (p.key || p.label));
+            const online = !!(p && p.online);
+            const label = (p && p.label) || key;
+            let cls = online ? 'presence-item is-on' : 'presence-item';
+            let title = online ? 'çevrimiçi' : (p.lastSeen ? 'son görülme ' + new Date(p.lastSeen).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'çevrimdışı');
+            let extra = '';
+            if (amir && (key === 'AVDAN' || key === '1.OSB')) {
+                if (online) {
+                    cls += ' is-nudge';
+                    title = label + ' kantarını titre';
+                    extra = ' role="button" tabindex="0"';
+                } else {
+                    cls += ' is-nudge-off';
+                    title = label + ' çevrimdışı';
+                }
+            }
+            return '<span class="' + cls + '" data-presence-key="' + key + '" data-online="' + (online ? '1' : '0') + '" title="' + title + '"' + extra + '><i aria-hidden="true"></i>' + label + ' <small>' + (online ? 'online' : 'offline') + '</small></span>';
         }).join('');
         if (items) return items;
-        return ['AVDAN', '1.OSB', 'AMİR'].map((label) =>
-            '<span class="presence-item"><i aria-hidden="true"></i>' + label + ' <small>…</small></span>'
+        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['AMİR', 'AMIR']].map((pair) =>
+            '<span class="presence-item" data-presence-key="' + pair[1] + '"><i aria-hidden="true"></i>' + pair[0] + ' <small>…</small></span>'
         ).join('');
+    }
+
+    const NUDGE_COOLDOWN_MS = 8 * 1000;
+    const NUDGE_POLL_MS = 2000;
+    const nudgeSeen = new Set();
+    const nudgeLastSend = Object.create(null);
+    let nudgeTimer = 0;
+    let nudgeSince = Date.now();
+    let nudgePulling = false;
+    let nudgeSseBound = false;
+    let nudgeAudioCtx = null;
+    let nudgeTitleBase = '';
+    let nudgeTitleTimer = 0;
+
+    function ensureNudgeStyle() {
+        if (document.getElementById('gpmNudgeStyle')) return;
+        const style = document.createElement('style');
+        style.id = 'gpmNudgeStyle';
+        style.textContent = ''
+            + '.presence-item.is-nudge{cursor:pointer;user-select:none}'
+            + '.presence-item.is-nudge:hover{filter:brightness(1.18)}'
+            + '.presence-item.is-nudge:focus{outline:2px solid rgba(134,239,172,.7);outline-offset:2px}'
+            + '.presence-item.is-nudge-off{cursor:not-allowed}'
+            + '.presence-item.is-sending{animation:gpm-nudge-pulse .45s ease}'
+            + '.presence-item.is-called{animation:gpm-nudge-called .85s ease}'
+            + '@keyframes gpm-nudge-pulse{0%,100%{transform:scale(1)}40%{transform:scale(1.08)}}'
+            + '@keyframes gpm-nudge-called{0%,100%{filter:none}25%,70%{color:#fdba74;filter:drop-shadow(0 0 6px rgba(251,146,60,.55))}}'
+            + '@keyframes gpm-nudge-shake{0%,100%{transform:translateX(0)}16%{transform:translateX(-7px)}32%{transform:translateX(7px)}48%{transform:translateX(-5px)}64%{transform:translateX(5px)}80%{transform:translateX(-2px)}}'
+            + '@keyframes gpm-nudge-flash{0%,100%{filter:none}30%,70%{filter:brightness(1.12)}}'
+            + 'html.gpm-nudge-shake body{animation:gpm-nudge-shake .7s ease}'
+            + 'html.gpm-nudge-flash body{animation:gpm-nudge-flash .7s ease}'
+            + '@media (prefers-reduced-motion:reduce){html.gpm-nudge-shake body{animation:gpm-nudge-flash .7s ease}}'
+            + '#gpmNudgeToast{position:fixed;right:16px;bottom:20px;z-index:2147483601;background:#7c2d12;color:#fff7ed;padding:10px 14px;border-radius:10px;font:700 14px/1.35 "Segoe UI",Tahoma,sans-serif;box-shadow:0 10px 28px rgba(124,45,18,.35)}';
+        document.head.appendChild(style);
+    }
+
+    function nudgeToast(message) {
+        const text = String(message || '').trim();
+        if (!text) return;
+        if (typeof window.showToast === 'function') {
+            try { window.showToast(text, 'info', 2400); return; } catch (e) { /* fallback */ }
+        }
+        ensureNudgeStyle();
+        let el = document.getElementById('gpmNudgeToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'gpmNudgeToast';
+            el.setAttribute('role', 'status');
+            document.body.appendChild(el);
+        }
+        el.textContent = text;
+        el.style.display = 'block';
+        clearTimeout(nudgeToast.hideTimer);
+        nudgeToast.hideTimer = setTimeout(() => {
+            try { el.style.display = 'none'; } catch (err) { /* ignore */ }
+        }, 2400);
+    }
+
+    function nudgeAudio() {
+        if (nudgeAudioCtx) return nudgeAudioCtx;
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        try { nudgeAudioCtx = new AC(); } catch (e) { return null; }
+        return nudgeAudioCtx;
+    }
+
+    function unlockNudgeAudio() {
+        const ctx = nudgeAudio();
+        if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+    }
+
+    function playNudgeBeep() {
+        try {
+            const ctx = nudgeAudio();
+            if (!ctx) return;
+            const start = () => {
+                const t = ctx.currentTime + 0.02;
+                [880, 1174].forEach((freq, i) => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    const when = t + i * 0.12;
+                    gain.gain.setValueAtTime(0.0001, when);
+                    gain.gain.exponentialRampToValueAtTime(0.07, when + 0.015);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.16);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(when);
+                    osc.stop(when + 0.18);
+                });
+            };
+            if (ctx.state === 'suspended') ctx.resume().then(start).catch(() => {});
+            else start();
+        } catch (e) { /* ignore */ }
+    }
+
+    function flashAmirPresence() {
+        document.querySelectorAll('[data-presence-key="AMIR"]').forEach((el) => {
+            el.classList.remove('is-called');
+            void el.offsetWidth;
+            el.classList.add('is-called');
+            setTimeout(() => { try { el.classList.remove('is-called'); } catch (e) { /* ignore */ } }, 900);
+        });
+    }
+
+    function blinkNudgeTitle() {
+        if (!nudgeTitleBase) nudgeTitleBase = String(document.title || '').replace(/^AMİR çağırıyor\s*[·•-]\s*/, '') || document.title;
+        const base = nudgeTitleBase;
+        let ticks = 0;
+        if (nudgeTitleTimer) clearInterval(nudgeTitleTimer);
+        document.title = 'AMİR çağırıyor · ' + base;
+        nudgeTitleTimer = setInterval(() => {
+            ticks += 1;
+            const hidden = document.hidden;
+            if (!hidden && ticks > 4) {
+                document.title = base;
+                clearInterval(nudgeTitleTimer);
+                nudgeTitleTimer = 0;
+                return;
+            }
+            if (ticks > 16) {
+                document.title = base;
+                clearInterval(nudgeTitleTimer);
+                nudgeTitleTimer = 0;
+                return;
+            }
+            document.title = ticks % 2 ? base : ('AMİR çağırıyor · ' + base);
+        }, 500);
+    }
+
+    function playIncomingNudge(nudge) {
+        if (!nudge || !nudge.id || nudgeSeen.has(nudge.id)) return;
+        const mine = currentKantarSite();
+        if (!mine || presenceSiteKey(nudge.target) !== mine) return;
+        nudgeSeen.add(nudge.id);
+        if (nudge.ts) nudgeSince = Math.max(nudgeSince, Number(nudge.ts) || 0);
+        ensureNudgeStyle();
+        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        document.documentElement.classList.remove('gpm-nudge-shake', 'gpm-nudge-flash');
+        void document.documentElement.offsetWidth;
+        document.documentElement.classList.add(reduce ? 'gpm-nudge-flash' : 'gpm-nudge-shake');
+        setTimeout(() => {
+            document.documentElement.classList.remove('gpm-nudge-shake', 'gpm-nudge-flash');
+        }, 800);
+        flashAmirPresence();
+        playNudgeBeep();
+        nudgeToast('AMİR çağırıyor');
+        blinkNudgeTitle();
+    }
+
+    function markPresenceSending(key, on) {
+        document.querySelectorAll('[data-presence-key="' + key + '"]').forEach((el) => {
+            el.classList.toggle('is-sending', !!on);
+        });
+    }
+
+    async function sendNudge(target) {
+        const key = presenceSiteKey(target);
+        if (!isAmirUser() || (key !== 'AVDAN' && key !== '1.OSB')) return;
+        const now = Date.now();
+        if (nudgeLastSend[key] && now - nudgeLastSend[key] < NUDGE_COOLDOWN_MS) {
+            nudgeToast('Biraz bekleyin');
+            return;
+        }
+        markPresenceSending(key, true);
+        try {
+            const res = await fetch('/api/nudge', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: key }),
+            });
+            let data = {};
+            try { data = await res.json(); } catch (e) { data = {}; }
+            if (res.status === 409) {
+                nudgeToast(key + ' çevrimdışı');
+                return;
+            }
+            if (res.status === 429) {
+                nudgeToast('Biraz bekleyin');
+                return;
+            }
+            if (!res.ok) {
+                nudgeToast('Çağrı gönderilemedi');
+                return;
+            }
+            nudgeLastSend[key] = Date.now();
+            nudgeToast(key + ' çağrıldı');
+            void data;
+        } catch (e) {
+            nudgeToast('Çağrı gönderilemedi');
+        } finally {
+            setTimeout(() => markPresenceSending(key, false), 400);
+        }
+    }
+
+    function onPresenceNudgeActivate(el) {
+        if (!el || !isAmirUser()) return;
+        const key = presenceSiteKey(el.getAttribute('data-presence-key'));
+        if (key !== 'AVDAN' && key !== '1.OSB') return;
+        if (el.classList.contains('is-nudge-off') || el.getAttribute('data-online') !== '1') {
+            nudgeToast(key + ' çevrimdışı');
+            return;
+        }
+        sendNudge(key);
+    }
+
+    function bindNudgeControls() {
+        if (bindNudgeControls.bound) return;
+        bindNudgeControls.bound = true;
+        document.addEventListener('pointerdown', unlockNudgeAudio, true);
+        document.addEventListener('click', (ev) => {
+            const el = ev.target && ev.target.closest && ev.target.closest('.presence-item[data-presence-key]');
+            if (!el) return;
+            onPresenceNudgeActivate(el);
+        });
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key !== 'Enter' && ev.key !== ' ') return;
+            const el = ev.target && ev.target.closest && ev.target.closest('.presence-item.is-nudge');
+            if (!el) return;
+            ev.preventDefault();
+            onPresenceNudgeActivate(el);
+        });
+    }
+
+    async function pullNudge() {
+        if (!isLikelyLoggedIn() || !currentKantarSite() || nudgePulling) return;
+        nudgePulling = true;
+        try {
+            const res = await fetch('/api/nudge?since=' + encodeURIComponent(String(nudgeSince)), {
+                credentials: 'include',
+                cache: 'no-store',
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data && data.nudge) playIncomingNudge(data.nudge);
+        } catch (e) { /* ignore */ }
+        finally { nudgePulling = false; }
+    }
+
+    function bindNudgeSse() {
+        if (nudgeSseBound) return;
+        if (!window.SyncManager || typeof window.SyncManager.on !== 'function') return;
+        nudgeSseBound = true;
+        window.SyncManager.on('kantar_nudge', (data) => playIncomingNudge(data));
+    }
+
+    function startNudge() {
+        ensureNudgeStyle();
+        bindNudgeControls();
+        bindNudgeSse();
+        if (nudgeTimer) return;
+        if (!isLikelyLoggedIn() || !currentKantarSite()) return;
+        pullNudge();
+        nudgeTimer = setInterval(() => {
+            bindNudgeSse();
+            if (document.hidden) return;
+            pullNudge();
+        }, NUDGE_POLL_MS);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) pullNudge();
+        });
+        window.addEventListener('focus', () => pullNudge());
+        window.addEventListener('online', () => pullNudge());
     }
 
     // PC uykudan dönünce / ağ gelince / sekme öne gelince beklemeden kontrol et.
@@ -917,6 +1217,7 @@
 
     window.SessionManager = {
         startPresence,
+        startNudge,
         getPresence,
         presenceChipHtml,
         markSessionValid,
@@ -953,6 +1254,8 @@
         claimHomeWindow();
         bindHomeNavigation();
         bindAppPageNavigation();
+        bindNudgeControls();
+        if (isLikelyLoggedIn()) startNudge();
     }
 
     if (document.readyState === 'loading') {

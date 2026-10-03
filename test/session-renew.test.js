@@ -147,6 +147,29 @@ test('amir girişinde cihaz çerezi verilmez; forget çerezi ve anahtarı düş�
   assert.equal(renew.status, 401);
 });
 
+test('DEVICE_BIND_IP=true iken farklı IP renew 401 verir', async () => {
+  const prev = process.env.DEVICE_BIND_IP;
+  process.env.DEVICE_BIND_IP = 'true';
+  try {
+    const h = harness();
+    const login = await h.call('post /login', {
+      body: { username: 'AVDAN', password: 'a' },
+      headers: { 'x-forwarded-for': '95.3.27.82', 'user-agent': 'Chrome' },
+    });
+    const raw = login.cookies[DEVICE_COOKIE_NAME].value;
+    const listed = await h.deviceTokens.list();
+    await h.deviceTokens.touch(listed[0].id, { ip: '95.3.27.82' });
+    const renew = await h.call('post /session/renew', {
+      headers: { cookie: cookieHeader({ [DEVICE_COOKIE_NAME]: raw }), 'x-forwarded-for': '1.2.3.4' },
+    });
+    assert.equal(renew.status, 401);
+    assert.equal(renew.out.code, 'DEVICE_IP_MISMATCH');
+  } finally {
+    if (prev === undefined) delete process.env.DEVICE_BIND_IP;
+    else process.env.DEVICE_BIND_IP = prev;
+  }
+});
+
 test('istemci: kantar hesabında hareketsizlik çıkışı yok; 401\'de cihazla yenileme; nabız ve oturum garantisi bağlı', () => {
   const read = (p) => fs.readFileSync(path.join(__dirname, '..', 'public', p), 'utf8');
   const auth = read('modules/app-auth.js');
@@ -173,11 +196,11 @@ test('istemci: kantar hesabında hareketsizlik çıkışı yok; 401\'de cihazla 
   assert.match(src, /async function autoRefreshTick\(\)[\s\S]*sm\.ensureSession\(\)[\s\S]*heartbeat\(true\)/);
 
   const giris = read('GIRIS.html');
-  assert.match(giris, /session-manager\.js\?v=20261003-renew1/);
+  assert.match(giris, /session-manager\.js\?v=20261004-nudge1/);
   assert.match(giris, /app-auth\.js\?v=1\.0\.28-20261003-renew/);
   assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.55-20261003-renew/);
   assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.26-20261004-nabiz/);
-  assert.match(read('liman.html'), /liman\.js\?v=20261004-liman19/);
+  assert.match(read('liman.html'), /liman\.js\?v=20261004-liman20/);
   assert.match(read('ayarlar.html'), /ayarlar\.js\?v=20261003-cihazlar/);
   assert.match(read('ayarlar.html'), /id="section-cihazlar"/);
   assert.match(read('ayarlar.js'), /'\/api\/session\/devices'/);

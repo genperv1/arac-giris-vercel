@@ -45,6 +45,7 @@ function registerAuthRoutes(api, ctx) {
     presence,
     deviceTokens,
     requireAmir,
+    sessionRenewLimiter,
   } = ctx;
   const REMOVED_USERS = new Set(['GENPER']);
 
@@ -139,7 +140,11 @@ function registerAuthRoutes(api, ctx) {
    * Oturum çerezi düştüğünde şifresiz yenileme (kantar PC).
    * Cihaz çerezi yok/iptal/süresi dolmuş → 401 ve istemci şifre ekranına döner.
    */
-  api.post('/session/renew', async (req, res) => {
+  const renewGuard = typeof sessionRenewLimiter === 'function'
+    ? sessionRenewLimiter
+    : function passRenew(_req, _res, next) { next(); };
+
+  api.post('/session/renew', renewGuard, async (req, res) => {
     try {
       res.setHeader('Cache-Control', 'no-store');
       if (!deviceTokens) return res.status(401).json({ ok: false, code: 'DEVICE_DISABLED', error: 'Cihaz hatırlama kapalı.' });
@@ -161,6 +166,15 @@ function registerAuthRoutes(api, ctx) {
       }
       const user = { id: userRow.id, username: userRow.username, role: userRow.role || null };
       const ip = normalizeClientIp(getClientIp(req));
+      if (process.env.DEVICE_BIND_IP === 'true' && dev.lastIp && ip && dev.lastIp !== ip) {
+        try { await deviceTokens.revoke(dev.id); } catch (e) { /* ignore */ }
+        clearDeviceCookie(res);
+        return res.status(401).json({
+          ok: false,
+          code: 'DEVICE_IP_MISMATCH',
+          error: 'Cihaz IP değişti; şifreyle giriş yapın.',
+        });
+      }
       try { await deviceTokens.touch(dev.id, { ip, userAgent: String(req.headers['user-agent'] || '') }); } catch (e) { /* ignore */ }
       try { res.cookie(AUTH_COOKIE_NAME, signSession(user), AUTH_COOKIE_OPTIONS); } catch (e) { /* ignore */ }
       const { clientIp, clientSite } = resolveClientSite(ip, user.role);

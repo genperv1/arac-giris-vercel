@@ -32,7 +32,6 @@ module.exports = function createAuth(q, opts) {
   // Register a new user (returns { ok: true, id } or throws)
   async function registerUser(username, password, extra) {
     if (!username || !password) throw new Error('username and password required');
-    await ensureUsersTable();
     const id = String(Date.now()) + Math.random().toString(16).slice(2);
     const hash = await bcrypt.hash(password, 10);
     const meta = extra && typeof extra === 'object' ? extra : {};
@@ -52,7 +51,6 @@ module.exports = function createAuth(q, opts) {
   async function authenticateUser(username, password) {
     console.log('🔐 Authentication attempt for username:', username);
     if (!username || !password) return { ok: false, error: 'username and password required' };
-    await ensureUsersTable();
     const r = await q('SELECT id, username, password_hash, role, meta FROM users WHERE username = $1', [username]);
     console.log('🔍 User query result rows:', r.rows?.length || 0);
     const row = (r.rows && r.rows[0]) ? r.rows[0] : null;

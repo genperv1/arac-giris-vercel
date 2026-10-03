@@ -41,6 +41,10 @@
       state.day = state.days[0] ? state.days[0].dateKey : '';
     }
     if (state.reports) applyMarks();
+    if (Array.isArray(data.presence) && window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') {
+      var chip = $('chipPresence');
+      if (chip) chip.innerHTML = SessionManager.presenceChipHtml(data.presence);
+    }
     render();
   }
 

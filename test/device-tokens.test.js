@@ -13,6 +13,12 @@ function mkStore(opts) {
   return { db, store, clock };
 }
 
+test('varsayılan cihaz süresi 30 gündür', () => {
+  const { createDeviceTokenStore } = require('../lib/device-tokens');
+  const store = createDeviceTokenStore(async () => ({ rows: [] }));
+  assert.equal(store.days, 30);
+});
+
 test('issue → verify: ham anahtar doğrulanır, DB\'de yalnız hash durur', async () => {
   const { db, store } = mkStore();
   const issued = await store.issue('AVDAN', { ip: '95.3.27.82', userAgent: 'Chrome', label: 'AVDAN kantar PC' });

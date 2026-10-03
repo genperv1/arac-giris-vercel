@@ -2,28 +2,43 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { registerLimanRoutes } = require('../routes/liman-routes');
+const { registerLimanRoutes, departedDataFields } = require('../routes/liman-routes');
+
+function kvQ(store) {
+  return async (sql, params) => {
+    if (/print_history/i.test(sql)) return { rows: [] };
+    if (/^SELECT/i.test(sql)) return { rows: store[params[0]] ? [{ value: store[params[0]] }] : [] };
+    const current = store[params[0]];
+    const expected = params[2];
+    if (expected !== undefined && current != null && current !== expected) {
+      return { rows: [], rowCount: 0 };
+    }
+    store[params[0]] = params[1];
+    return { rows: [{ key: params[0] }], rowCount: 1 };
+  };
+}
 
 function harness(user) {
   const store = {};
   const routes = {};
   const api = {};
+  const touched = [];
   ['get', 'put', 'post', 'delete'].forEach((m) => {
     api[m] = (path, ...handlers) => { routes[m + ' ' + path] = handlers[handlers.length - 1]; };
   });
   const pass = (req, res, next) => next();
   registerLimanRoutes(api, {
-    q: async (sql, params) => {
-      if (/^SELECT/i.test(sql)) return { rows: store[params[0]] ? [{ value: store[params[0]] }] : [] };
-      store[params[0]] = params[1];
-      return { rows: [] };
-    },
+    q: kvQ(store),
     sendApiError: (res, err) => { throw err; },
     requireValidSession: pass,
     requireAmir: pass,
     sanitizeString: (v, n) => String(v || '').slice(0, n),
     getClientIp: (req) => req.headers['x-forwarded-for'],
     normalizeClientIp: (ip) => ip,
+    presence: {
+      touch: (u) => { touched.push(u && u.username); },
+      snapshot: () => [{ key: '1.OSB', label: '1.OSB', online: touched.includes('1.OSB'), lastSeen: Date.now() }],
+    },
   });
   const call = async (key, ip, body, params) => {
     let out;
@@ -34,7 +49,7 @@ function harness(user) {
     });
     return out;
   };
-  return { call, store };
+  return { call, store, touched };
 }
 
 const block = (title, yukleme) => ({ title, liman: 'SAFİPORT', fileName: '03.10.2026.xlsx', rows: [{ sira: '1', plaka: '43RY761', yukleme }] });
@@ -157,11 +172,7 @@ test('publicApp modunda oturumsuz kantar gönderimi 401 + günlükte "denied"; n
     return r;
   };
   registerLimanRoutes(mk(), {
-    q: async (sql, params) => {
-      if (/^SELECT/i.test(sql)) return { rows: store[params[0]] ? [{ value: store[params[0]] }] : [] };
-      store[params[0]] = params[1];
-      return { rows: [] };
-    },
+    q: kvQ(store),
     sendApiError: (res, err) => { throw err; },
     requireValidSession: (q, s, n) => n(),
     requireAmir: (q, s, n) => n(),
@@ -249,9 +260,60 @@ test('diğer kantarın eski İÇERİDE notu çıkmış aracı kirletmez; aynı i
   assert.equal(v2.days[0].blocks[0].rows[0].durum, '');
 });
 
+test('kantar liste gönderince presence online olur', async () => {
+  const { call, touched } = harness({ username: '1.OSB', role: 'admin' });
+  await call('put /liman/snapshot', '1.1.1.1', { site: '1.OSB', fileName: '04.10.2026.xlsx', blocks: [block('YD1 / LOT NO 1 / EVYAP', '1.OSB')] });
+  assert.deepEqual(touched, ['1.OSB']);
+});
+
 test('amir gönderimi yok sayılır', async () => {
   const { call, store } = harness({ username: 'xxr', role: 'amir' });
   const put = await call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', blocks: [block('YD1 / LOT NO 1 / EVYAP', 'AVDAN')] });
   assert.equal(put.skipped, true);
   assert.deepEqual(store, {});
+});
+
+test('anonim departed PII kırpar; oturumlu bırakır', () => {
+  const d = { plaka: '43RY761', sofor: 'Ali', iletisim: '555', firma: 'X', malzeme: 'P1' };
+  const inst = { tarih: '03.10.2026', saat: '10:00' };
+  const anon = departedDataFields(d, inst, false);
+  assert.equal(anon.plaka, '43RY761');
+  assert.equal(anon.sofor, '');
+  assert.equal(anon.iletisim, '');
+  const authed = departedDataFields(d, inst, true);
+  assert.equal(authed.sofor, 'Ali');
+  assert.equal(authed.iletisim, '555');
+});
+
+test('çakışan liman yazımı 409 döner', async () => {
+  const store = { liman_state_v1: JSON.stringify({ sites: { AVDAN: { fileName: 'stale.xlsx', updatedAt: '1', rows: [], blocks: [] } } }) };
+  const routes = {};
+  const api = {};
+  ['get', 'put', 'post', 'delete'].forEach((m) => {
+    api[m] = (path, ...handlers) => { routes[m + ' ' + path] = handlers[handlers.length - 1]; };
+  });
+  let writes = 0;
+  registerLimanRoutes(api, {
+    q: async (sql, params) => {
+      if (/^SELECT/i.test(sql)) return { rows: [{ value: store[params[0]] }] };
+      writes += 1;
+      return { rows: [], rowCount: 0 };
+    },
+    sendApiError: (res, err) => { throw err; },
+    requireValidSession: (q, s, n) => n(),
+    requireAmir: (q, s, n) => n(),
+    sanitizeString: (v, n) => String(v || '').slice(0, n),
+    getClientIp: () => '95.3.27.82',
+    normalizeClientIp: (ip) => ip,
+  });
+  let out; let status = 200;
+  const res = { json: (d) => { out = d; return d; }, status(c) { status = c; return this; }, setHeader() {} };
+  await routes['put /liman/heartbeat']({
+    user: { username: 'AVDAN', role: 'admin' },
+    body: { excelLoaded: true },
+    headers: { 'x-forwarded-for': '95.3.27.82' },
+  }, res);
+  assert.equal(status, 409);
+  assert.equal(out.ok, false);
+  assert.ok(writes >= 3);
 });

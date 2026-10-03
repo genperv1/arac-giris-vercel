@@ -1,7 +1,7 @@
 # Modül Rehberi — Araç Giriş Sistemi
 
 Bu dosya, projedeki modüllerin **ne işe yaradığını** ve **sorun çıktığında nereye bakılacağını** özetler.  
-Son güncelleme: modülerleştirme tamamlandıktan sonra (Haziran 2026).
+Son güncelleme: Ekim 2026 (oturum yenileme, liman, güvenlik sertleştirme).
 
 ---
 
@@ -51,29 +51,31 @@ Ana Express uygulaması. Hâlâ burada kalan başlıca parçalar:
 | Pool / `q()` | PostgreSQL bağlantı havuzu ve sorgu sarmalayıcı |
 | Middleware | CORS, helmet, compression, rate limit, JWT (`user.js`) |
 | `routeCtx` | Tüm route modüllerine paylaşılan bağımlılık objesi |
-| `/api/health`, `/api/heartbeat` | Sağlık kontrolü |
+| `/api/health` + `GET /health` | Sağlık kontrolü (Railway alias) |
 | `/api/kv/:key` | Genel anahtar-değer deposu |
 | `/api/operation-notes` | Vardiya / operasyon notları |
 | `/api/print_history` | Yazdırma geçmişi (print_history tablosu) |
-| `/api/restore-full` | Tam JSON yedek geri yükleme |
-| `/api/admin/*` | IP ban / unban |
+| `/api/restore-full` | Tam JSON yedek geri yükleme (**yalnız amir**) |
 | `/api/search` | Genel arama |
-| `/api/export/db` | DB JSON export |
 | `/api/settings/*` | Ayarlar parolası, ban API (JWT router dışı) |
 | Statik dosyalar | `public/` servisi |
 
 **Modüler route kayıtları** (sıra önemli değil, hepsi `api` router'a bağlanır):
 
 ```text
-registerAuthRoutes
+registerAuthRoutes          ← login, /me, /session/renew, cihaz iptali
 registerVehicleRoutes
 registerDailyRoutes
 registerPiyasaRoutes
 registerProblemRoutes
 registerReportsRoutes
+registerLimanRoutes(api, ctx, app)  ← GET oturumsuz, yazma kantar oturumu
 registerPlakaStatsRoutes
 registerSignaturesRoutes
-registerSseRoutes(app)   ← SSE app seviyesinde
+registerHealthRoutes(app, api)
+registerBackupRoutes        ← GET /export/db (amir)
+registerAdminBanRoutes      ← /admin/ban-ip (amir)
+registerSseRoutes(app, { jwtSecret })   ← events-stream oturum ister
 ```
 
 ---
@@ -82,7 +84,11 @@ registerSseRoutes(app)   ← SSE app seviyesinde
 
 | Dosya | Endpoint örnekleri | Ne işe yarar |
 |-------|-------------------|--------------|
-| `auth-routes.js` | `POST /login`, `GET /me`, `POST /logout` | Kullanıcı girişi, oturum bilgisi |
+| `auth-routes.js` | `POST /login`, `GET /me`, `POST /session/renew`, `POST /logout` | Giriş, cihazla yenileme, oturum |
+| `liman-routes.js` | `GET /liman`, `/departed`, `PUT /snapshot` | Liman tahtası; anonim okuma, PII kırpılır |
+| `health-routes.js` | `GET /health`, `GET /api/health` | Railway + izleme |
+| `backup-routes.js` | `GET /export/db` | JSON yedek (amir) |
+| `admin-ban-routes.js` | `/admin/ban-ip`, `/unban-ip` | IP ban (amir) |
 | `vehicles-routes.js` | `GET/POST/PUT/DELETE /vehicles`, `lookup`, `reject` | Araç CRUD, plaka arama, red kayıtları |
 | `daily-routes.js` | `GET/POST/DELETE /daily_rows` | Günlük Excel satırları (ihracat listesi) |
 | `piyasa-routes.js` | `GET/POST /piyasa`, `/piyasa/durum-status`, `/piyasa/customers` | Piyasa state (kv_store), DURUM sayacı, müşteri listesi |
@@ -97,9 +103,10 @@ registerSseRoutes(app)   ← SSE app seviyesinde
 
 | Dosya | Ne işe yarar |
 |-------|--------------|
-| `auth-session.js` | `requireValidSession`, `requireAdmin`, `requireMutatingSession` middleware |
+| `auth-session.js` | `requireValidSession`, `requireAdmin`, `requireAmir`, `requireMutatingSession` |
+| `device-tokens.js` | Kantar PC hatırlanan cihaz (hash, 30 gün, max 3) |
 | `sanitize.js` | `sanitizeString`, TC/telefon/e-posta doğrulama, tarih parse |
-| `env.js` | `envNumber` — ortam değişkeni sayı okuma |
+| `env.js` | `envNumber`, `resolveSecret` (production JWT zorunlu), `warnIfDefaultSecret` |
 | `plate-format.js` | TR / yabancı plaka format doğrulama (sunucu + test) |
 | `plate-norm-sql.js` | Plaka normalizasyon SQL ifadeleri (`PLATE_NORM_SQL`) |
 | `vehicle-helpers.js` | Araç sıralama, plaka norm, upsert, edit log |

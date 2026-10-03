@@ -21,6 +21,26 @@ const DEFAULT_SITE_IPS = {
   '1.OSB': ['195.175.103.150'],
 };
 
+function departedDataFields(d, inst, includePii) {
+  return {
+    plaka: d.plaka || '',
+    cekiciPlaka: d.cekiciPlaka || '',
+    dorsePlaka: d.dorsePlaka || '',
+    firma: d.firma || '',
+    malzeme: d.malzeme || '',
+    ydKey: d.ydKey || '',
+    headerText: d.headerText || '',
+    lotNo: d.lotNo || '',
+    yuklemeNotu: d.yuklemeNotu || '',
+    excelFileName: d.excelFileName || '',
+    basimYeri: d.basimYeri || '',
+    sofor: includePii ? (d.sofor || '') : '',
+    iletisim: includePii ? (d.iletisim || '') : '',
+    tarih: (inst && inst.tarih) || '',
+    saat: (inst && inst.saat) || '',
+  };
+}
+
 function loadSiteIps() {
   const out = { AVDAN: DEFAULT_SITE_IPS.AVDAN.slice(), '1.OSB': DEFAULT_SITE_IPS['1.OSB'].slice() };
   try {
@@ -38,7 +58,11 @@ function loadSiteIps() {
  * (ana express app, '/api' router'ından önce) — liman görevlisi giriş yapmadan bakar.
  */
 function registerLimanRoutes(api, ctx, publicApp) {
-  const { q, sendApiError, requireValidSession, requireAmir, sanitizeString, getClientIp, normalizeClientIp, formatReportInstant } = ctx;
+  const { q, sendApiError, requireValidSession, requireAmir, sanitizeString, getClientIp, normalizeClientIp, formatReportInstant, presence } = ctx;
+
+  function notePresence(req) {
+    try { if (presence && req && req.user) presence.touch(req.user); } catch (_) { /* ignore */ }
+  }
   const siteIps = loadSiteIps();
   const jwtSecret = ctx.JWT_SECRET || ctx.jwtSecret || process.env.JWT_SECRET || '';
 
@@ -140,14 +164,39 @@ function registerLimanRoutes(api, ctx, publicApp) {
   /** opts.silent: liste içeriği değişmedi (nabız / alındı damgası) → liman sayfaları yeniden yüklemesin. */
   async function writeState(state, opts) {
     const raw = JSON.stringify(state);
-    if (raw === cachedRaw) return;
-    await q(
+    if (raw === cachedRaw) return { ok: true, unchanged: true };
+    const expected = opts && Object.prototype.hasOwnProperty.call(opts, 'expectedRaw')
+      ? opts.expectedRaw
+      : cachedRaw;
+    const r = await q(
       `INSERT INTO kv_store(key, value) VALUES($1, $2)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [STATE_KEY, raw]
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+       WHERE kv_store.value IS NOT DISTINCT FROM $3
+       RETURNING key`,
+      [STATE_KEY, raw, expected == null ? '' : expected]
     );
+    const applied = !!(r && ((r.rowCount > 0) || (r.rows && r.rows.length)));
+    if (!applied) {
+      cachedRaw = null;
+      return { ok: false, conflict: true };
+    }
     cachedRaw = raw;
     if (!(opts && opts.silent)) version = String(Date.now());
+    return { ok: true };
+  }
+
+  async function commitState(mutator, opts) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const state = await readState();
+      const expectedRaw = cachedRaw;
+      const extra = (await mutator(state)) || {};
+      if (extra.shortCircuit) return extra;
+      const writeOpts = Object.assign({}, opts, { expectedRaw });
+      if (extra.silent) writeOpts.silent = true;
+      const wrote = await writeState(state, writeOpts);
+      if (wrote.ok) return Object.assign({ ok: true, state }, extra, wrote);
+    }
+    return { ok: false, conflict: true, error: 'Liste aynı anda güncellendi, tekrar deneyin.' };
   }
 
   function isAmirUser(req) {
@@ -256,6 +305,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       closedDays: closedDayList(state),
       // Yalnız amir: gönderim günlüğü (kabul / aynı / nabız / red)
       events: amir ? events.slice(0, EVENT_MAX) : undefined,
+      presence: amir && presence && typeof presence.snapshot === 'function' ? presence.snapshot() : undefined,
     };
   }
 
@@ -291,7 +341,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
    * Sarılmış (çıkış yapmış) işareti için kantar baskılarının küçültülmüş akışı.
    * /api/reports oturum ister; burada yalnız plaka eşlemesi ve şoför/telefon için gereken alanlar döner.
    */
-  reader.get(readPrefix + '/liman/departed', async (req, res) => {
+  reader.get(readPrefix + '/liman/departed', attachOptionalUser, async (req, res) => {
     try {
       const now = Date.now();
       let since = Number(req.query && req.query.since);
@@ -301,6 +351,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         ' FROM print_history WHERE tarih >= $1 ORDER BY tarih DESC LIMIT $2',
         [since, DEPARTED_MAX_ROWS]
       );
+      const includePii = !!(req.user && (isAmirUser(req) || req.user.username));
       const out = [];
       (r.rows || []).forEach((row) => {
         try {
@@ -314,23 +365,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
             saat: inst.saat,
             plaka: d.plaka || '',
             firma: m.firma || '',
-            data: {
-              plaka: d.plaka || '',
-              cekiciPlaka: d.cekiciPlaka || '',
-              dorsePlaka: d.dorsePlaka || '',
-              firma: d.firma || '',
-              malzeme: d.malzeme || '',
-              ydKey: d.ydKey || '',
-              headerText: d.headerText || '',
-              lotNo: d.lotNo || '',
-              yuklemeNotu: d.yuklemeNotu || '',
-              excelFileName: d.excelFileName || '',
-              basimYeri: d.basimYeri || '',
-              sofor: d.sofor || '',
-              iletisim: d.iletisim || '',
-              tarih: inst.tarih,
-              saat: inst.saat,
-            },
+            data: departedDataFields(d, inst, includePii),
           });
         } catch (_) { /* bozuk satır atlanır */ }
       });
@@ -350,23 +385,26 @@ function registerLimanRoutes(api, ctx, publicApp) {
   writer.put(writePrefix + '/liman/heartbeat', kantarAuth, async (req, res) => {
     try {
       if (isAmirUser(req)) return res.json({ ok: true, skipped: true });
+      notePresence(req);
       const body = req.body || {};
       const site = normalizeSite(req.user && req.user.username) || ipSite(requestIp(req)) || normalizeSite(body.site);
       if (!site) return res.status(400).json({ ok: false, error: 'Kantar anlaşılamadı.' });
-      const state = await readState();
-      const hb = Object.assign({}, heartbeats(state));
-      hb[site] = {
-        at: new Date().toISOString(),
-        user: sanitizeString((req.user && req.user.username) || '', 40),
-        ip: requestIp(req),
-        excel: !!body.excelLoaded,
-        fileName: sanitizeString(body.fileName || '', 180),
-      };
-      state.heartbeats = hb;
-      await writeState(state, { silent: true });
+      const committed = await commitState((state) => {
+        const hb = Object.assign({}, heartbeats(state));
+        hb[site] = {
+          at: new Date().toISOString(),
+          user: sanitizeString((req.user && req.user.username) || '', 40),
+          ip: requestIp(req),
+          excel: !!body.excelLoaded,
+          fileName: sanitizeString(body.fileName || '', 180),
+        };
+        state.heartbeats = hb;
+        return { site, at: hb[site].at };
+      }, { silent: true });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
       logEvent('heartbeat', req, { site, excel: !!body.excelLoaded });
       res.setHeader('Cache-Control', 'no-store');
-      return res.json({ ok: true, site, at: hb[site].at });
+      return res.json({ ok: true, site, at: committed.at });
     } catch (err) {
       logEvent('error', req, { path: 'heartbeat', error: String(err && err.message || err) });
       return sendApiError(res, err, 500, 'LIMAN_HEARTBEAT_FAILED');
@@ -379,6 +417,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       if (isAmirUser(req)) {
         return res.json({ ok: true, skipped: true });
       }
+      notePresence(req);
       const fileName = sanitizeString(body.fileName || '', 180);
       const incoming = Array.isArray(body.rows) ? body.rows.slice(0, MAX_ROWS) : [];
       const blocks = sanitizeBlocks(body.blocks);
@@ -392,8 +431,6 @@ function registerLimanRoutes(api, ctx, publicApp) {
       const rows = incoming.map((row) => slimRow(row, site, fileName)).filter((row) => {
         return row.irsaliyeNo || row.plaka || row.headerText;
       });
-      const state = await readState();
-      const prev = state.sites[site];
       const snapshot = {
         fileName,
         updatedAt: new Date().toISOString(),
@@ -401,20 +438,24 @@ function registerLimanRoutes(api, ctx, publicApp) {
         rows: blocks.length ? [] : rows,
         blocks,
       };
-      const sameContent = prev && prev.fileName === snapshot.fileName
-        && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
-        && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
-      if (sameContent) {
-        // İçerik aynı: updatedAt korunur ama "kantar gönderdi" bilgisi (receivedAt) kaydedilir;
-        // amir "liste eski mi, kantar mı göndermedi?" sorusunu buradan ayırt eder.
-        state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
-        await writeState(state, { silent: true });
+      const committed = await commitState((state) => {
+        const prev = state.sites[site];
+        const sameContent = prev && prev.fileName === snapshot.fileName
+          && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
+          && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
+        if (sameContent) {
+          state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
+          return { unchanged: true, silent: true };
+        }
+        snapshot.receivedAt = snapshot.updatedAt;
+        state.sites[site] = snapshot;
+        return { unchanged: false };
+      }, { silent: false });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      if (committed.unchanged) {
         logEvent('unchanged', req, { site, fileName, rows: snapshotRowCount(snapshot) });
         return res.json({ ok: true, site, unchanged: true });
       }
-      snapshot.receivedAt = snapshot.updatedAt;
-      state.sites[site] = snapshot;
-      await writeState(state);
       logEvent('changed', req, { site, fileName, rows: snapshotRowCount(snapshot) });
       return res.json({ ok: true, site });
     } catch (err) {
@@ -427,10 +468,11 @@ function registerLimanRoutes(api, ctx, publicApp) {
     try {
       const site = normalizeSite(req.params.site);
       if (!site) return res.status(400).json({ ok: false, error: 'Geçersiz yükleme yeri.' });
-      const state = await readState();
-      state.sites[site] = null;
-      await writeState(state);
-      return res.json(viewFor(req, state));
+      const committed = await commitState((state) => {
+        state.sites[site] = null;
+      });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      return res.json(viewFor(req, committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_SNAPSHOT_DELETE_FAILED');
     }
@@ -442,12 +484,13 @@ function registerLimanRoutes(api, ctx, publicApp) {
       const key = irsaliyeKey({ irsaliyeNo: body.irsaliye });
       if (!key) return res.status(400).json({ ok: false, error: 'İrsaliye gerekli.' });
       const note = sanitizeString(body.note || '', 240);
-      const state = await readState();
-      if (!state.notes || typeof state.notes !== 'object') state.notes = {};
-      if (note) state.notes[key] = note;
-      else delete state.notes[key];
-      await writeState(state);
-      return res.json({ ok: true, days: openDays(state) });
+      const committed = await commitState((state) => {
+        if (!state.notes || typeof state.notes !== 'object') state.notes = {};
+        if (note) state.notes[key] = note;
+        else delete state.notes[key];
+      });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      return res.json({ ok: true, days: openDays(committed.state) });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_NOTE_FAILED');
     }
@@ -460,15 +503,17 @@ function registerLimanRoutes(api, ctx, publicApp) {
     try {
       const key = dayKeyParam(req);
       if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
-      const state = await readState();
-      if (!daysFromSheetState(state).some((day) => day.dateKey === key)) {
-        return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
-      }
-      state.closedDays = Object.assign({}, closedDays(state), {
-        [key]: { at: new Date().toISOString(), by: sanitizeString((req.user && req.user.username) || '', 40) },
+      const committed = await commitState((state) => {
+        if (!daysFromSheetState(state).some((day) => day.dateKey === key)) {
+          return { shortCircuit: true, missing: true };
+        }
+        state.closedDays = Object.assign({}, closedDays(state), {
+          [key]: { at: new Date().toISOString(), by: sanitizeString((req.user && req.user.username) || '', 40) },
+        });
       });
-      await writeState(state);
-      return res.json(viewFor(req, state));
+      if (committed.missing) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      return res.json(viewFor(req, committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DAY_CLOSE_FAILED');
     }
@@ -478,16 +523,17 @@ function registerLimanRoutes(api, ctx, publicApp) {
     try {
       const key = dayKeyParam(req);
       if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
-      const state = await readState();
-      const next = Object.assign({}, closedDays(state));
-      delete next[key];
-      state.closedDays = next;
-      await writeState(state);
-      return res.json(viewFor(req, state));
+      const committed = await commitState((state) => {
+        const next = Object.assign({}, closedDays(state));
+        delete next[key];
+        state.closedDays = next;
+      });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      return res.json(viewFor(req, committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DAY_REOPEN_FAILED');
     }
   });
 }
 
-module.exports = { registerLimanRoutes, STATE_KEY };
+module.exports = { registerLimanRoutes, STATE_KEY, departedDataFields };
