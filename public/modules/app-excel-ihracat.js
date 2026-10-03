@@ -2602,8 +2602,28 @@ function _headerNoteLines(list) {
     .slice(0, HEADER_NOTE_LIMIT);
 }
 
+function _tuneHeaderNoteMarquee() {
+  const nodes = document.querySelectorAll('#excelDateWarnContainer .header-note__marquee .header-note__text');
+  if (!nodes.length) return;
+  requestAnimationFrame(() => {
+    nodes.forEach((el) => {
+      const travel = el.scrollWidth;
+      if (travel < 40) return;
+      const prev = Number(el.dataset.travel || 0);
+      if (prev && Math.abs(prev - travel) < 48) return;
+      el.dataset.travel = String(travel);
+      const seconds = Math.max(12, Math.min(50, Math.round(travel / 45)));
+      // Wall-clock phase keeps the loop continuous when the banner is re-rendered.
+      const phase = (Date.now() / 1000) % seconds;
+      el.style.setProperty('--note-dur', seconds + 's');
+      el.style.setProperty('--note-delay', (-phase).toFixed(2) + 's');
+    });
+  });
+}
+
 function _headerNoteBanner(text) {
-  return `<div class="header-note" role="note"><span class="header-note__icon" aria-hidden="true"><i class="fas fa-exclamation"></i></span><span class="header-note__text">${_escapeHeaderNote(text)}</span></div>`;
+  const safe = _escapeHeaderNote(text);
+  return `<div class="header-note" role="note"><span class="header-note__icon" aria-hidden="true"><i class="fas fa-exclamation"></i></span><span class="header-note__marquee"><span class="header-note__text" title="${safe}">${safe}</span></span></div>`;
 }
 
 function _headerNoteHtml() {
@@ -2639,7 +2659,10 @@ function _paintHeaderNote(force) {
   if (!container) return;
   if (!force && container.querySelector('.header-note__input')) return;
   const html = _headerNoteHtml();
-  if (container.innerHTML !== html) container.innerHTML = html;
+  if (container.__headerNoteHtml === html && container.innerHTML) return;
+  container.__headerNoteHtml = html;
+  container.innerHTML = html;
+  _tuneHeaderNoteMarquee();
 }
 
 async function _loadHeaderNote(force) {
@@ -2748,6 +2771,11 @@ function _ensureHeaderNoteUi() {
   });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) _refreshExcelDateWarnBanner(true);
+  });
+  let noteResizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(noteResizeTimer);
+    noteResizeTimer = setTimeout(_tuneHeaderNoteMarquee, 180);
   });
   setInterval(() => {
     if (document.hidden) return;
