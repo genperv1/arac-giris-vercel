@@ -1120,8 +1120,16 @@
           if (pub && pub.sent) {
             if (!pub.ok) {
               limanNote = pub.status === 401
-                ? 'Liman listesine GÖNDERİLEMEDİ: oturum süresi dolmuş, çıkış yapıp tekrar giriş yapın.'
+                ? 'Liman listesine GÖNDERİLEMEDİ: oturum düştü ve yenilenemedi, şifreyle tekrar giriş yapın.'
                 : 'Liman listesine GÖNDERİLEMEDİ: ' + (pub.error || 'sunucu hatası') + '.';
+              try {
+                if (pub.status === 401 && window.SessionManager && typeof window.SessionManager.showSessionBanner === 'function') {
+                  window.SessionManager.showSessionBanner('Liman listesi gönderilemiyor: oturum yenilenemedi. Şifreyle tekrar giriş yapın.', {
+                    actionLabel: 'Giriş ekranı',
+                    onAction: function () { try { localStorage.removeItem('isLoggedIn'); } catch (e) {} window.location.href = '/GIRIS.html'; },
+                  });
+                }
+              } catch (eB) { /* ignore */ }
             } else if (pub.skipped) {
               limanNote = '';
             } else if (pub.unchanged) {
@@ -1191,23 +1199,40 @@
    * 10 dk'da bir sessiz güncelleme: kullanıcı Güncelle'ye basmasa da
    * Excel diskten okunur ve liman listesine gönderilir. İzin / dosya yoksa sessizce atlanır.
    */
+  /** Kantar nabzı (Excel olmasa da): amir "kantar PC bağlı mı?" sorusunu buradan görür. */
+  function heartbeat(excelLoaded) {
+    try {
+      if (typeof window.sendLimanHeartbeat !== 'function') return Promise.resolve(null);
+      return Promise.resolve(window.sendLimanHeartbeat({ excelLoaded: !!excelLoaded })).catch(function () { return null; });
+    } catch (e) { return Promise.resolve(null); }
+  }
+
   async function autoRefreshTick() {
     if (_busy || _picking) return;
     if (typeof window.applyIhracatExcelReread !== 'function') return; // bu sayfa Excel'i işleyemez
     if (!isKantarSessionActive()) return;
     if (!navigator.onLine) return;
+    // Önce oturumu garanti et: düşmüşse cihaz anahtarıyla sessizce yenilenir (insana bağımlı olmasın)
+    try {
+      var sm = window.SessionManager;
+      if (sm && typeof sm.ensureSession === 'function') {
+        var alive = await sm.ensureSession();
+        if (!alive) { try { console.info('[İhracat Excel] oturum yenilenemedi, otomatik gönderim atlandı'); } catch (e0) {} return; }
+      }
+    } catch (e) { /* kontrol edilemedi, yine de dene */ }
     try { await loadHandle(); } catch (e) {}
     adoptLoadedExcelAsSource();
-    if (!hasLoadedExcel()) return;
+    if (!hasLoadedExcel()) { heartbeat(false); return; }
     var sources = [];
     try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
-    if (!sources.length) return;
+    if (!sources.length) { heartbeat(false); return; }
     try {
       var r = await refreshFromStored(null, null, null, { silent: true });
       if (r && r.ok) {
         try { console.info('[İhracat Excel] otomatik güncellendi:', (r.okNames || []).join(', ')); } catch (e2) {}
       }
     } catch (e) { /* sessiz */ }
+    heartbeat(true);
   }
 
   function startAutoRefresh() {

@@ -73,6 +73,15 @@ module.exports = function createAuth(q, opts) {
     return { ok: true, token, user: payload };
   }
 
+  /** Kullanıcıyı şifresiz bul (cihaz anahtarıyla oturum yenileme için). */
+  async function findUser(username) {
+    const name = String(username || '').trim();
+    if (!name) return null;
+    const r = await q('SELECT id, username, role FROM users WHERE username = $1', [name]);
+    const row = (r.rows && r.rows[0]) ? r.rows[0] : null;
+    return row ? { id: row.id, username: row.username, role: row.role || null } : null;
+  }
+
   function extractTokenFromRequest(req) {
     const auth = req.headers && (req.headers.authorization || req.headers.Authorization);
     if (auth && typeof auth === 'string') {
@@ -120,6 +129,7 @@ module.exports = function createAuth(q, opts) {
   return {
     registerUser,
     authenticateUser,
+    findUser,
     verifyToken,
     ensureUsersTable
   };

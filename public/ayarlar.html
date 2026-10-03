@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
@@ -6,13 +6,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <link rel="apple-touch-icon" href="logo.png" />
   <meta name="theme-color" content="#4f46e5" />
-  <title>Ayarlar — Yönetim Paneli</title>
+  <title>Ayarlar â€” YÃ¶netim Paneli</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
   <script src="core-dom.js"></script>
-  <script src="session-manager.js?v=20260605-fixes-v1"></script>
+  <script src="session-manager.js?v=20261003-renew1"></script>
   <style>
     :root {
       --rp-bg: #eef2ff;
@@ -663,7 +663,7 @@
     }
     .ple-report-pick select { flex: 1; min-width: 220px; max-width: 100%; }
 
-    /* Yazdırma: form üstte tam genişlik, ayarlar altta — kaydırma yok, metinler sığar */
+    /* YazdÄ±rma: form Ã¼stte tam geniÅŸlik, ayarlar altta â€” kaydÄ±rma yok, metinler sÄ±ÄŸar */
     #section-yazdir .ple-root,
     #section-yazdir .ple-toolbar,
     #section-yazdir .ple-controls {
@@ -863,8 +863,8 @@
       <div class="flex items-center gap-3">
         <div class="rp-logo-box">AT</div>
         <div>
-          <div class="rp-header-title">Araç Takip</div>
-          <div class="rp-header-sub">Yönetim Paneli</div>
+          <div class="rp-header-title">AraÃ§ Takip</div>
+          <div class="rp-header-sub">YÃ¶netim Paneli</div>
         </div>
       </div>
       <button type="button" id="backBtn" class="rp-btn-header">Ana Sayfa</button>
@@ -873,12 +873,12 @@
 
   <main class="max-w-7xl mx-auto px-4 py-6 ay-app">
     <div class="ay-app__frame">
-      <aside class="ay-sidebar" aria-label="Ayarlar menüsü">
+      <aside class="ay-sidebar" aria-label="Ayarlar menÃ¼sÃ¼">
         <div class="ay-sidebar__brand">
           <span class="ay-sidebar__brand-icon" aria-hidden="true"><i class="fas fa-sliders-h"></i></span>
           <div>
-            <strong>Yönetim paneli</strong>
-            <span>Araç Takip</span>
+            <strong>YÃ¶netim paneli</strong>
+            <span>AraÃ§ Takip</span>
           </div>
         </div>
         <div class="ay-sidebar__group">
@@ -887,28 +887,31 @@
             <i class="fas fa-chart-line" aria-hidden="true"></i> Plaka istatistikleri
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-pasif">
-            <i class="fas fa-user-clock" aria-hidden="true"></i> Pasif şoförler
+            <i class="fas fa-user-clock" aria-hidden="true"></i> Pasif ÅŸofÃ¶rler
           </button>
         </div>
         <div class="ay-sidebar__group">
-          <span class="ay-sidebar__label">Kayıtlar</span>
+          <span class="ay-sidebar__label">KayÄ±tlar</span>
           <button type="button" class="ay-nav-btn" data-goto="section-eksik">
-            <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Eksik kayıtlar
+            <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Eksik kayÄ±tlar
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-ozmal">
-            <i class="fas fa-truck-moving" aria-hidden="true"></i> Özmal araçlar
+            <i class="fas fa-truck-moving" aria-hidden="true"></i> Ã–zmal araÃ§lar
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-imza">
-            <i class="fas fa-pen-nib" aria-hidden="true"></i> İmza ayarları
+            <i class="fas fa-pen-nib" aria-hidden="true"></i> Ä°mza ayarlarÄ±
           </button>
         </div>
         <div class="ay-sidebar__group">
           <span class="ay-sidebar__label">Sistem</span>
           <button type="button" class="ay-nav-btn" data-goto="section-yazdir">
-            <i class="fas fa-print" aria-hidden="true"></i> Yazdırma
+            <i class="fas fa-print" aria-hidden="true"></i> YazdÄ±rma
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-ban">
             <i class="fas fa-ban" aria-hidden="true"></i> IP engelleri
+          </button>
+          <button type="button" class="ay-nav-btn" data-goto="section-cihazlar">
+            <i class="fas fa-desktop" aria-hidden="true"></i> Kantar cihazlarÄ±
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-yedek">
             <i class="fas fa-database" aria-hidden="true"></i> Yedekleme
@@ -918,42 +921,42 @@
 
       <div class="ay-main">
         <div class="ay-main__head">
-          <h2 id="ayActiveSectionTitle">Plaka geliş istatistikleri</h2>
-          <p id="ayActiveSectionDesc">Sayımlar yalnızca takip formu yazdırıldığında yapılır.</p>
+          <h2 id="ayActiveSectionTitle">Plaka geliÅŸ istatistikleri</h2>
+          <p id="ayActiveSectionDesc">SayÄ±mlar yalnÄ±zca takip formu yazdÄ±rÄ±ldÄ±ÄŸÄ±nda yapÄ±lÄ±r.</p>
         </div>
 
     <section id="section-plaka" class="ay-panel ay-section" tabindex="-1" aria-labelledby="plakaStatsTitle">
       <div class="ay-panel__head">
         <div>
-          <h2 id="plakaStatsTitle">Plaka geliş istatistikleri</h2>
-          <p>Sayımlar yalnızca takip formu yazdırıldığında yapılır. Piyasa Excel’den seçilen firma / ürün yazdırma geçmişine yansır.</p>
+          <h2 id="plakaStatsTitle">Plaka geliÅŸ istatistikleri</h2>
+          <p>SayÄ±mlar yalnÄ±zca takip formu yazdÄ±rÄ±ldÄ±ÄŸÄ±nda yapÄ±lÄ±r. Piyasa Excelâ€™den seÃ§ilen firma / Ã¼rÃ¼n yazdÄ±rma geÃ§miÅŸine yansÄ±r.</p>
         </div>
       </div>
 
-      <div class="ay-kpi-grid ay-stats" role="group" aria-label="Özet">
-        <button type="button" class="ay-stat" data-goto-tab="products" title="Plaka ve ürün eşleşmeleri">
-          <span>Plaka × ürün</span><b id="sumProductPairs">—</b>
+      <div class="ay-kpi-grid ay-stats" role="group" aria-label="Ã–zet">
+        <button type="button" class="ay-stat" data-goto-tab="products" title="Plaka ve Ã¼rÃ¼n eÅŸleÅŸmeleri">
+          <span>Plaka Ã— Ã¼rÃ¼n</span><b id="sumProductPairs">â€”</b>
         </button>
-        <button type="button" class="ay-stat" data-goto-tab="top" title="En çok gelen listesine git">
-          <span>Benzersiz plaka</span><b id="sumUnique">—</b>
+        <button type="button" class="ay-stat" data-goto-tab="top" title="En Ã§ok gelen listesine git">
+          <span>Benzersiz plaka</span><b id="sumUnique">â€”</b>
         </button>
-        <button type="button" class="ay-stat" data-goto-tab="top" title="Listeyi göster">
-          <span>Toplam yazdırma</span><b id="sumTotalPrints">—</b>
+        <button type="button" class="ay-stat" data-goto-tab="top" title="Listeyi gÃ¶ster">
+          <span>Toplam yazdÄ±rma</span><b id="sumTotalPrints">â€”</b>
         </button>
-        <button type="button" class="ay-stat" data-goto-tab="edits" title="Şoför kartı düzenlemeleri">
-          <span>Şoför düzenleme</span><b id="sumEditLog">—</b>
+        <button type="button" class="ay-stat" data-goto-tab="edits" title="ÅofÃ¶r kartÄ± dÃ¼zenlemeleri">
+          <span>ÅofÃ¶r dÃ¼zenleme</span><b id="sumEditLog">â€”</b>
         </button>
       </div>
 
       <div class="ay-segment" role="tablist">
-        <button type="button" class="ay-tab is-active" data-plaka-tab="products" role="tab">Plaka × Ürün</button>
-        <button type="button" class="ay-tab" data-plaka-tab="top" role="tab">En çok gelen</button>
+        <button type="button" class="ay-tab is-active" data-plaka-tab="products" role="tab">Plaka Ã— ÃœrÃ¼n</button>
+        <button type="button" class="ay-tab" data-plaka-tab="top" role="tab">En Ã§ok gelen</button>
         <button type="button" class="ay-tab" data-plaka-tab="edits" role="tab">Bilgi</button>
       </div>
 
       <div class="ay-toolbar">
-        <p id="tabHint" class="ay-hint">En çok yazdırılan plakalar. Satıra tıklayın — detay pencerede açılır.</p>
-        <input type="search" id="plakaSearch" class="ay-search" placeholder="Plaka / firma / ürün ara…" autocomplete="off" data-lpignore="true" data-1p-ignore tabindex="-1">
+        <p id="tabHint" class="ay-hint">En Ã§ok yazdÄ±rÄ±lan plakalar. SatÄ±ra tÄ±klayÄ±n â€” detay pencerede aÃ§Ä±lÄ±r.</p>
+        <input type="search" id="plakaSearch" class="ay-search" placeholder="Plaka / firma / Ã¼rÃ¼n araâ€¦" autocomplete="off" data-lpignore="true" data-1p-ignore tabindex="-1">
       </div>
 
       <div class="ay-table-card">
@@ -964,21 +967,21 @@
                 <th>#</th>
                 <th>Plaka</th>
                 <th>Firma</th>
-                <th>Ürün (malzeme)</th>
+                <th>ÃœrÃ¼n (malzeme)</th>
                 <th class="col-num">Adet</th>
-                <th>Son basım</th>
+                <th>Son basÄ±m</th>
               </tr>
             </thead>
             <tbody id="plakaTbody">
-              <tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>
+              <tr><td colspan="6" class="ay-empty">YÃ¼kleniyorâ€¦</td></tr>
             </tbody>
           </table>
         </div>
         <div class="ay-pager" id="plakaPager" aria-label="Sayfalama">
-          <span id="plakaPagerInfo">—</span>
+          <span id="plakaPagerInfo">â€”</span>
           <div class="ay-pager-nav">
-            <button type="button" class="ay-pager-btn" id="plakaPrev" disabled aria-label="Önceki sayfa">‹</button>
-            <button type="button" class="ay-pager-btn" id="plakaNext" disabled aria-label="Sonraki sayfa">›</button>
+            <button type="button" class="ay-pager-btn" id="plakaPrev" disabled aria-label="Ã–nceki sayfa">â€¹</button>
+            <button type="button" class="ay-pager-btn" id="plakaNext" disabled aria-label="Sonraki sayfa">â€º</button>
           </div>
         </div>
       </div>
@@ -987,46 +990,46 @@
     <section id="section-pasif" class="ay-panel ay-pasif-panel ay-section" tabindex="-1" aria-labelledby="pasifTitle" hidden>
       <div class="ay-panel__head">
         <div>
-          <h2 id="pasifTitle">Uzun süredir pasif şoförler</h2>
-          <p>Sistemde kayıtlı olup seçilen süredir hiç takip formu yazdırmamış şoför kartları. Temizlemek için seçip silebilirsiniz.</p>
+          <h2 id="pasifTitle">Uzun sÃ¼redir pasif ÅŸofÃ¶rler</h2>
+          <p>Sistemde kayÄ±tlÄ± olup seÃ§ilen sÃ¼redir hiÃ§ takip formu yazdÄ±rmamÄ±ÅŸ ÅŸofÃ¶r kartlarÄ±. Temizlemek iÃ§in seÃ§ip silebilirsiniz.</p>
         </div>
       </div>
 
       <div class="ay-pasif-hero">
         <div class="ay-pasif-stat">
-          <b id="sumIdleDrivers">—</b>
-          <span>pasif kayıt</span>
+          <b id="sumIdleDrivers">â€”</b>
+          <span>pasif kayÄ±t</span>
         </div>
         <div class="ay-pasif-days">
-          <label for="pasifIdleDays">Son yazdırma yok, en az</label>
-          <select id="pasifIdleDays" aria-label="Pasif gün eşiği">
+          <label for="pasifIdleDays">Son yazdÄ±rma yok, en az</label>
+          <select id="pasifIdleDays" aria-label="Pasif gÃ¼n eÅŸiÄŸi">
             <option value="60">60</option>
             <option value="90">90</option>
             <option value="180" selected>180</option>
             <option value="365">365</option>
           </select>
-          <span>gündür</span>
+          <span>gÃ¼ndÃ¼r</span>
         </div>
       </div>
 
       <div id="pasifToolbar" class="ay-inactive-bar">
         <div class="ay-inactive-bar__meta">
-          <span id="pasifSelectedInfo">0 seçili</span> · <span id="pasifTotalInfo">—</span>
+          <span id="pasifSelectedInfo">0 seÃ§ili</span> Â· <span id="pasifTotalInfo">â€”</span>
         </div>
         <label class="ay-check-col" style="display:inline-flex;align-items:center;gap:.35rem;font-size:.75rem;font-weight:600;color:var(--rp-muted);cursor:pointer;">
-          <input type="checkbox" id="pasifSelectPage" aria-label="Sayfadaki tümünü seç"> Sayfa
+          <input type="checkbox" id="pasifSelectPage" aria-label="Sayfadaki tÃ¼mÃ¼nÃ¼ seÃ§"> Sayfa
         </label>
-        <button type="button" class="ay-btn" id="pasifClearSelBtn">Seçimi temizle</button>
-        <button type="button" class="ay-btn ay-btn--danger" id="pasifDeleteSelBtn"><i class="fas fa-trash-alt" aria-hidden="true"></i> Seçilenleri sil</button>
+        <button type="button" class="ay-btn" id="pasifClearSelBtn">SeÃ§imi temizle</button>
+        <button type="button" class="ay-btn ay-btn--danger" id="pasifDeleteSelBtn"><i class="fas fa-trash-alt" aria-hidden="true"></i> SeÃ§ilenleri sil</button>
         <button type="button" class="ay-btn ay-btn--danger" id="pasifDeletePageBtn">Sayfadakileri sil</button>
       </div>
 
       <div class="ay-toolbar">
-        <p class="ay-hint">Kayıt tarihi eski ve hiç yazdırma yapılmamış şoför kartları listelenir.</p>
-        <input type="search" id="pasifSearch" class="ay-search" placeholder="Plaka / şoför / telefon ara…" autocomplete="off" data-lpignore="true" data-1p-ignore tabindex="-1">
+        <p class="ay-hint">KayÄ±t tarihi eski ve hiÃ§ yazdÄ±rma yapÄ±lmamÄ±ÅŸ ÅŸofÃ¶r kartlarÄ± listelenir.</p>
+        <input type="search" id="pasifSearch" class="ay-search" placeholder="Plaka / ÅŸofÃ¶r / telefon araâ€¦" autocomplete="off" data-lpignore="true" data-1p-ignore tabindex="-1">
         <button type="button" class="ay-btn ay-btn--primary" id="pasifRefreshBtn"><i class="fas fa-sync" aria-hidden="true"></i> Yenile</button>
-        <button type="button" class="ay-btn" id="pasifExcelBtn" title="Bu listedeki pasif şoförleri Excel olarak indir (İsim · Soyisim · Telefon · Plaka)"><i class="fas fa-file-excel" aria-hidden="true"></i> Pasif liste Excel</button>
-        <button type="button" class="ay-btn" id="allDriversExcelBtn" title="Sistemdeki tüm şoför kartlarını Excel olarak indir (İsim · Soyisim · Telefon · Plaka)"><i class="fas fa-file-excel" aria-hidden="true"></i> Tüm şoförler Excel</button>
+        <button type="button" class="ay-btn" id="pasifExcelBtn" title="Bu listedeki pasif ÅŸofÃ¶rleri Excel olarak indir (Ä°sim Â· Soyisim Â· Telefon Â· Plaka)"><i class="fas fa-file-excel" aria-hidden="true"></i> Pasif liste Excel</button>
+        <button type="button" class="ay-btn" id="allDriversExcelBtn" title="Sistemdeki tÃ¼m ÅŸofÃ¶r kartlarÄ±nÄ± Excel olarak indir (Ä°sim Â· Soyisim Â· Telefon Â· Plaka)"><i class="fas fa-file-excel" aria-hidden="true"></i> TÃ¼m ÅŸofÃ¶rler Excel</button>
       </div>
 
       <div class="ay-table-card">
@@ -1034,25 +1037,25 @@
           <table class="ay-table">
             <thead>
               <tr>
-                <th class="ay-check-col"><input type="checkbox" id="pasifSelectAllHead" aria-label="Sayfadaki tümünü seç"></th>
+                <th class="ay-check-col"><input type="checkbox" id="pasifSelectAllHead" aria-label="Sayfadaki tÃ¼mÃ¼nÃ¼ seÃ§"></th>
                 <th>#</th>
                 <th>Plaka</th>
-                <th>Şoför</th>
+                <th>ÅofÃ¶r</th>
                 <th>Telefon</th>
-                <th>Kayıt</th>
+                <th>KayÄ±t</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="pasifTbody">
-              <tr><td colspan="7" class="ay-empty">Bölüme geçince liste yüklenir…</td></tr>
+              <tr><td colspan="7" class="ay-empty">BÃ¶lÃ¼me geÃ§ince liste yÃ¼klenirâ€¦</td></tr>
             </tbody>
           </table>
         </div>
         <div class="ay-pager" id="pasifPager" aria-label="Sayfalama">
-          <span id="pasifPagerInfo">—</span>
+          <span id="pasifPagerInfo">â€”</span>
           <div class="ay-pager-nav">
-            <button type="button" class="ay-pager-btn" id="pasifPrev" disabled aria-label="Önceki sayfa">‹</button>
-            <button type="button" class="ay-pager-btn" id="pasifNext" disabled aria-label="Sonraki sayfa">›</button>
+            <button type="button" class="ay-pager-btn" id="pasifPrev" disabled aria-label="Ã–nceki sayfa">â€¹</button>
+            <button type="button" class="ay-pager-btn" id="pasifNext" disabled aria-label="Sonraki sayfa">â€º</button>
           </div>
         </div>
       </div>
@@ -1061,8 +1064,8 @@
     <section id="section-eksik" class="ay-panel ay-section" tabindex="-1" aria-labelledby="eksikTitle" hidden>
       <div class="ay-panel__head">
         <div>
-          <h2 id="eksikTitle">Eksik şoför bilgileri</h2>
-          <p>TC kimlik veya iletişim numarası eksik olan araç kayıtları. Düzenle ile ana sayfada kayıt formu açılır.</p>
+          <h2 id="eksikTitle">Eksik ÅŸofÃ¶r bilgileri</h2>
+          <p>TC kimlik veya iletiÅŸim numarasÄ± eksik olan araÃ§ kayÄ±tlarÄ±. DÃ¼zenle ile ana sayfada kayÄ±t formu aÃ§Ä±lÄ±r.</p>
         </div>
       </div>
 
@@ -1077,7 +1080,7 @@
             <thead>
               <tr>
                 <th>Plaka</th>
-                <th>Şoför</th>
+                <th>ÅofÃ¶r</th>
                 <th>Telefon</th>
                 <th>TC</th>
                 <th>Eksikler</th>
@@ -1085,7 +1088,7 @@
               </tr>
             </thead>
             <tbody id="eksikTbody">
-              <tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>
+              <tr><td colspan="6" class="ay-empty">YÃ¼kleniyorâ€¦</td></tr>
             </tbody>
           </table>
         </div>
@@ -1096,29 +1099,29 @@
       <div class="ay-panel__head">
         <div>
           <h2 id="banTitle">IP engelleri (Ban)</h2>
-          <p>Hatalı giriş veya aşırı istek sonucu engellenen IP adreslerini görün, kaldırın veya manuel ekleyin.</p>
+          <p>HatalÄ± giriÅŸ veya aÅŸÄ±rÄ± istek sonucu engellenen IP adreslerini gÃ¶rÃ¼n, kaldÄ±rÄ±n veya manuel ekleyin.</p>
         </div>
       </div>
 
       <div class="ay-ban-alert" id="banHelpText">
-        Bu bilgisayarın IP adresi: <span class="ay-ip-mono" id="banMyIp">—</span>
-        <span id="banMySiteWrap" hidden> — Konum: <strong id="banMySite">—</strong></span>.
-        Kendinizi yanlışlıkla engellediyseniz listeden kaldırın veya tüm engelleri temizleyin.
-        IP banlıyken acil kurtarma: <a href="ayarlar.html#ban">ayarlar.html#ban</a> (giriş yapmadan, yalnızca ayarlar parolası).
+        Bu bilgisayarÄ±n IP adresi: <span class="ay-ip-mono" id="banMyIp">â€”</span>
+        <span id="banMySiteWrap" hidden> â€” Konum: <strong id="banMySite">â€”</strong></span>.
+        Kendinizi yanlÄ±ÅŸlÄ±kla engellediyseniz listeden kaldÄ±rÄ±n veya tÃ¼m engelleri temizleyin.
+        IP banlÄ±yken acil kurtarma: <a href="ayarlar.html#ban">ayarlar.html#ban</a> (giriÅŸ yapmadan, yalnÄ±zca ayarlar parolasÄ±).
       </div>
 
       <div class="ay-ban-actions">
         <button type="button" class="ay-btn" id="banRefreshBtn"><i class="fas fa-sync" aria-hidden="true"></i> Listeyi yenile</button>
-        <button type="button" class="ay-btn ay-btn--danger" id="banClearAllBtn">Tüm engelleri kaldır</button>
+        <button type="button" class="ay-btn ay-btn--danger" id="banClearAllBtn">TÃ¼m engelleri kaldÄ±r</button>
       </div>
 
       <form id="banAddForm" class="ay-ban-form">
         <div>
           <label for="banAddIp">IP engelle</label>
-          <input id="banAddIp" type="text" class="ay-search" style="max-width:none" placeholder="Örn. 192.168.1.25" autocomplete="off">
+          <input id="banAddIp" type="text" class="ay-search" style="max-width:none" placeholder="Ã–rn. 192.168.1.25" autocomplete="off">
         </div>
         <div>
-          <label for="banAddReason">Sebep (isteğe bağlı)</label>
+          <label for="banAddReason">Sebep (isteÄŸe baÄŸlÄ±)</label>
           <input id="banAddReason" type="text" class="ay-search" style="max-width:none" placeholder="Manuel engel" autocomplete="off">
         </div>
         <button type="submit" class="ay-btn ay-btn--primary">Engelle</button>
@@ -1131,14 +1134,52 @@
               <tr>
                 <th>IP</th>
                 <th>Sebep</th>
-                <th>Engel başlangıcı</th>
-                <th>Bitiş</th>
+                <th>Engel baÅŸlangÄ±cÄ±</th>
+                <th>BitiÅŸ</th>
                 <th>Kalan</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="banTbody">
-              <tr><td colspan="6" class="ay-empty">Yükleniyor…</td></tr>
+              <tr><td colspan="6" class="ay-empty">YÃ¼kleniyorâ€¦</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="section-cihazlar" class="ay-panel ay-section" tabindex="-1" aria-labelledby="cihazTitle" hidden>
+      <div class="ay-panel__head">
+        <div>
+          <h2 id="cihazTitle">Kantar cihazlarÄ± (hatÄ±rlanan oturumlar)</h2>
+          <p>Kantar hesabÄ±yla (AVDAN / 1.OSB) giriÅŸ yapÄ±lan bilgisayarlar. Oturum dÃ¼ÅŸse bile bu cihazlar ÅŸifre sormadan kendiliÄŸinden yenilenir; liman listesi gÃ¶nderimi kesilmez. ÅÃ¼pheli bir cihazÄ± buradan dÃ¼ÅŸÃ¼rÃ¼n â€” o PC bir sonraki yenilemede giriÅŸ ekranÄ±na dÃ¶ner.</p>
+        </div>
+      </div>
+
+      <div class="ay-ban-alert" id="cihazHelpText">
+        Cihaz anahtarÄ± yalnÄ±z giriÅŸ yapÄ±lan tarayÄ±cÄ±da saklanÄ±r, <span id="cihazDays">90</span> gÃ¼n geÃ§erlidir; her hesapta en fazla 3 cihaz tutulur (eskisi dÃ¼ÅŸer). Amir hesaplarÄ±na cihaz anahtarÄ± verilmez.
+      </div>
+
+      <div class="ay-ban-actions">
+        <button type="button" class="ay-btn" id="cihazRefreshBtn"><i class="fas fa-sync" aria-hidden="true"></i> Listeyi yenile</button>
+      </div>
+
+      <div class="ay-table-card">
+        <div class="ay-table-scroll">
+          <table class="ay-table">
+            <thead>
+              <tr>
+                <th>Hesap</th>
+                <th>Cihaz / IP</th>
+                <th>GiriÅŸ</th>
+                <th>Son kullanÄ±m</th>
+                <th>BitiÅŸ</th>
+                <th>Durum</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="cihazTbody">
+              <tr><td colspan="7" class="ay-empty">YÃ¼kleniyorâ€¦</td></tr>
             </tbody>
           </table>
         </div>
@@ -1149,24 +1190,24 @@
       <div class="ay-panel__head">
         <div>
           <h2 id="yedekTitle">Veri yedekleme</h2>
-          <p>Tüm kayıtlar, ayarlar ve arşivleri JSON dosyası olarak indirin veya daha önce alınmış bir yedeği geri yükleyin.</p>
+          <p>TÃ¼m kayÄ±tlar, ayarlar ve arÅŸivleri JSON dosyasÄ± olarak indirin veya daha Ã¶nce alÄ±nmÄ±ÅŸ bir yedeÄŸi geri yÃ¼kleyin.</p>
         </div>
       </div>
 
       <div class="ay-ban-actions">
         <button type="button" class="ay-btn ay-btn--primary" id="backupExportBtn"><i class="fas fa-download" aria-hidden="true"></i> Yedek Al</button>
-        <button type="button" class="ay-btn" id="backupImportBtn"><i class="fas fa-upload" aria-hidden="true"></i> Yedek Yükle</button>
+        <button type="button" class="ay-btn" id="backupImportBtn"><i class="fas fa-upload" aria-hidden="true"></i> Yedek YÃ¼kle</button>
       </div>
       <p class="ay-hint" style="margin-top:.75rem;">
-        Tam yedek, tarayıcıdaki tüm sistem verilerini içerir. Geri yükleme sunucuya yazılır; işlem sonrası ana sayfayı yenilemeniz gerekir.
+        Tam yedek, tarayÄ±cÄ±daki tÃ¼m sistem verilerini iÃ§erir. Geri yÃ¼kleme sunucuya yazÄ±lÄ±r; iÅŸlem sonrasÄ± ana sayfayÄ± yenilemeniz gerekir.
       </p>
     </section>
 
     <section id="section-yazdir" class="ay-panel ay-section" tabindex="-1" aria-labelledby="yazdirTitle" hidden>
       <div class="ay-panel__head">
         <div>
-          <h2 id="yazdirTitle">Yazdırma düzenleyici</h2>
-          <p>Burada gördüğünüz konum, punto ve satır ayarları <strong>Kaydet</strong> dediğinizde takip formu yazdırmaya birebir uygulanır. Metne <strong>iki kez tıklayıp Enter</strong> ile satır kırabilirsiniz — şablonda da önizlemede de aynı görünür.</p>
+          <h2 id="yazdirTitle">YazdÄ±rma dÃ¼zenleyici</h2>
+          <p>Burada gÃ¶rdÃ¼ÄŸÃ¼nÃ¼z konum, punto ve satÄ±r ayarlarÄ± <strong>Kaydet</strong> dediÄŸinizde takip formu yazdÄ±rmaya birebir uygulanÄ±r. Metne <strong>iki kez tÄ±klayÄ±p Enter</strong> ile satÄ±r kÄ±rabilirsiniz â€” ÅŸablonda da Ã¶nizlemede de aynÄ± gÃ¶rÃ¼nÃ¼r.</p>
         </div>
       </div>
 
@@ -1177,21 +1218,21 @@
             <select id="pleFieldSelect"></select>
           </div>
           <div class="ple-selected">
-            Seçili: <strong id="pleSelectedLabel">—</strong>
+            SeÃ§ili: <strong id="pleSelectedLabel">â€”</strong>
           </div>
         </div>
         <div class="ple-workspace">
-          <div id="pleStage" class="ple-stage" aria-label="Form önizleme">
-            <img id="pleBg" class="ple-bg" alt="Form şablonu">
+          <div id="pleStage" class="ple-stage" aria-label="Form Ã¶nizleme">
+            <img id="pleBg" class="ple-bg" alt="Form ÅŸablonu">
             <div id="pleFields"></div>
           </div>
 
           <aside id="pleStylePanel" class="ple-sidepanel">
-            <h4 class="ple-sidepanel__title">Metin &amp; satır ayarları</h4>
+            <h4 class="ple-sidepanel__title">Metin &amp; satÄ±r ayarlarÄ±</h4>
 
             <div class="ple-side-block ple-side-block--wide" data-for="text note">
-              <label for="pleSampleText">Örnek metin <span class="ple-hint">— alana iki kez tıklayın veya buradan Enter ile satır kırın</span></label>
-              <textarea id="pleSampleText" rows="4" placeholder="Metni yazın… Enter = yeni satır"></textarea>
+              <label for="pleSampleText">Ã–rnek metin <span class="ple-hint">â€” alana iki kez tÄ±klayÄ±n veya buradan Enter ile satÄ±r kÄ±rÄ±n</span></label>
+              <textarea id="pleSampleText" rows="4" placeholder="Metni yazÄ±nâ€¦ Enter = yeni satÄ±r"></textarea>
             </div>
 
             <div class="ple-side-block" data-for="text">
@@ -1199,23 +1240,23 @@
               <input id="pleFontPt" type="range" min="5" max="16" step="0.5" value="10">
             </div>
             <div class="ple-side-block" data-for="text">
-              <label for="pleLineHeight">Satır aralığı <span id="pleLhVal">1.05</span></label>
+              <label for="pleLineHeight">SatÄ±r aralÄ±ÄŸÄ± <span id="pleLhVal">1.05</span></label>
               <input id="pleLineHeight" type="range" min="0.9" max="1.6" step="0.02" value="1.05">
             </div>
             <div class="ple-side-block" data-for="text">
-              <label for="pleWrapMode">Uzun metin davranışı</label>
+              <label for="pleWrapMode">Uzun metin davranÄ±ÅŸÄ±</label>
               <select id="pleWrapMode">
-                <option value="pre-line">Enter ile satır + kutuya sığdır</option>
-                <option value="wrap">Sadece kutuya sığdır</option>
-                <option value="nowrap">Tek satır (taşanı kes)</option>
+                <option value="pre-line">Enter ile satÄ±r + kutuya sÄ±ÄŸdÄ±r</option>
+                <option value="wrap">Sadece kutuya sÄ±ÄŸdÄ±r</option>
+                <option value="nowrap">Tek satÄ±r (taÅŸanÄ± kes)</option>
               </select>
             </div>
             <div class="ple-side-block" data-for="text">
-              <label>Yazı stili</label>
-              <div class="ple-format-bar" role="group" aria-label="Yazı stili">
-                <button type="button" id="pleFmtBold" class="ple-fmt-btn" title="Kalın" aria-pressed="false">B</button>
-                <button type="button" id="pleFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="İtalik" aria-pressed="false">I</button>
-                <button type="button" id="pleFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="Altı çizili" aria-pressed="false">U</button>
+              <label>YazÄ± stili</label>
+              <div class="ple-format-bar" role="group" aria-label="YazÄ± stili">
+                <button type="button" id="pleFmtBold" class="ple-fmt-btn" title="KalÄ±n" aria-pressed="false">B</button>
+                <button type="button" id="pleFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="Ä°talik" aria-pressed="false">I</button>
+                <button type="button" id="pleFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="AltÄ± Ã§izili" aria-pressed="false">U</button>
               </div>
             </div>
             <div class="ple-side-block" data-for="text">
@@ -1223,73 +1264,73 @@
               <select id="pleTextAlign">
                 <option value="left">Sola</option>
                 <option value="center">Ortala</option>
-                <option value="right">Sağa</option>
+                <option value="right">SaÄŸa</option>
               </select>
             </div>
             <div class="ple-side-block" data-for="text">
               <label for="pleValign">Dikey hiza</label>
               <select id="pleValign">
-                <option value="flex-start">Üst</option>
+                <option value="flex-start">Ãœst</option>
                 <option value="center">Orta</option>
                 <option value="flex-end">Alt</option>
               </select>
             </div>
             <div class="ple-side-block" data-for="text">
-              <label for="plePadMm">İç boşluk (mm)</label>
+              <label for="plePadMm">Ä°Ã§ boÅŸluk (mm)</label>
               <input id="plePadMm" type="range" min="0" max="3" step="0.1" value="0.35">
             </div>
 
             <div class="ple-side-block ple-side-block--wide" data-for="note">
-              <label for="pleBreakPhrases">Otomatik satır kırma <span class="ple-hint">— bu kelime geçince alt satıra iner (her satıra bir kelime)</span></label>
-              <textarea id="pleBreakPhrases" rows="3" placeholder="SEVK EDİLECEK&#10;ÖZEL ETİKET"></textarea>
+              <label for="pleBreakPhrases">Otomatik satÄ±r kÄ±rma <span class="ple-hint">â€” bu kelime geÃ§ince alt satÄ±ra iner (her satÄ±ra bir kelime)</span></label>
+              <textarea id="pleBreakPhrases" rows="3" placeholder="SEVK EDÄ°LECEK&#10;Ã–ZEL ETÄ°KET"></textarea>
             </div>
             <div class="ple-side-block" data-for="note">
-              <label>İrsaliye satırı stili</label>
-              <div class="ple-format-bar" role="group" aria-label="İrsaliye satırı stili">
-                <button type="button" id="pleHeadFmtBold" class="ple-fmt-btn" title="Kalın" aria-pressed="false">B</button>
-                <button type="button" id="pleHeadFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="İtalik" aria-pressed="false">I</button>
-                <button type="button" id="pleHeadFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="Altı çizili" aria-pressed="false">U</button>
+              <label>Ä°rsaliye satÄ±rÄ± stili</label>
+              <div class="ple-format-bar" role="group" aria-label="Ä°rsaliye satÄ±rÄ± stili">
+                <button type="button" id="pleHeadFmtBold" class="ple-fmt-btn" title="KalÄ±n" aria-pressed="false">B</button>
+                <button type="button" id="pleHeadFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="Ä°talik" aria-pressed="false">I</button>
+                <button type="button" id="pleHeadFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="AltÄ± Ã§izili" aria-pressed="false">U</button>
               </div>
             </div>
             <div class="ple-side-block" data-for="note">
-              <label for="pleHeadPt">İrsaliye punto <span id="pleHeadPtVal">10.75 pt</span></label>
+              <label for="pleHeadPt">Ä°rsaliye punto <span id="pleHeadPtVal">10.75 pt</span></label>
               <input id="pleHeadPt" type="range" min="6" max="14" step="0.25" value="10.75">
             </div>
             <div class="ple-side-block" data-for="note">
-              <label>Açıklama satırı stili</label>
-              <div class="ple-format-bar" role="group" aria-label="Açıklama satırı stili">
-                <button type="button" id="pleDescFmtBold" class="ple-fmt-btn" title="Kalın" aria-pressed="false">B</button>
-                <button type="button" id="pleDescFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="İtalik" aria-pressed="false">I</button>
-                <button type="button" id="pleDescFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="Altı çizili" aria-pressed="false">U</button>
+              <label>AÃ§Ä±klama satÄ±rÄ± stili</label>
+              <div class="ple-format-bar" role="group" aria-label="AÃ§Ä±klama satÄ±rÄ± stili">
+                <button type="button" id="pleDescFmtBold" class="ple-fmt-btn" title="KalÄ±n" aria-pressed="false">B</button>
+                <button type="button" id="pleDescFmtItalic" class="ple-fmt-btn ple-fmt-btn--i" title="Ä°talik" aria-pressed="false">I</button>
+                <button type="button" id="pleDescFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="AltÄ± Ã§izili" aria-pressed="false">U</button>
               </div>
             </div>
             <div class="ple-side-block" data-for="note">
-              <label for="pleDescPt">Açıklama punto <span id="pleDescPtVal">9 pt</span></label>
+              <label for="pleDescPt">AÃ§Ä±klama punto <span id="pleDescPtVal">9 pt</span></label>
               <input id="pleDescPt" type="range" min="5" max="14" step="0.25" value="9">
             </div>
             <div class="ple-side-block" data-for="note">
-              <label for="pleHeadGap">İrsaliye–açıklama arası (mm)</label>
+              <label for="pleHeadGap">Ä°rsaliyeâ€“aÃ§Ä±klama arasÄ± (mm)</label>
               <input id="pleHeadGap" type="range" min="0" max="6" step="0.1" value="1.1">
             </div>
             <div class="ple-side-block" data-for="note">
-              <label for="pleMaxLines">En fazla satır</label>
+              <label for="pleMaxLines">En fazla satÄ±r</label>
               <input id="pleMaxLines" type="range" min="1" max="6" step="1" value="3">
             </div>
             <div class="ple-side-block" data-for="note">
-              <label for="pleNoteLh">Satır aralığı</label>
+              <label for="pleNoteLh">SatÄ±r aralÄ±ÄŸÄ±</label>
               <input id="pleNoteLh" type="range" min="0.9" max="1.6" step="0.02" value="1.1">
             </div>
 
             <div class="ple-side-block" data-for="sig">
-              <label for="pleImgMax">İmza yüksekliği <span id="pleImgMaxVal">12 mm</span></label>
+              <label for="pleImgMax">Ä°mza yÃ¼ksekliÄŸi <span id="pleImgMaxVal">12 mm</span></label>
               <input id="pleImgMax" type="range" min="6" max="22" step="0.5" value="12">
             </div>
             <div class="ple-side-block" data-for="sig">
-              <label for="pleNamePt">İsim punto <span id="pleNamePtVal">10 pt</span></label>
+              <label for="pleNamePt">Ä°sim punto <span id="pleNamePtVal">10 pt</span></label>
               <input id="pleNamePt" type="range" min="7" max="14" step="0.5" value="10">
             </div>
             <div class="ple-side-block" data-for="sig">
-              <label for="pleNameGap">İmza–isim arası (mm)</label>
+              <label for="pleNameGap">Ä°mzaâ€“isim arasÄ± (mm)</label>
               <input id="pleNameGap" type="range" min="0" max="3" step="0.1" value="0.3">
             </div>
             <div class="ple-side-block" data-for="sig">
@@ -1305,42 +1346,42 @@
         <div class="ple-controls">
           <div class="ple-report-pick" id="pleReportPick">
             <div class="ple-report-pick__row">
-              <label for="pleReportDate">Günlük baskıdan getir</label>
+              <label for="pleReportDate">GÃ¼nlÃ¼k baskÄ±dan getir</label>
               <input type="date" id="pleReportDate" title="Rapor tarihi">
               <button type="button" class="ay-btn" id="pleReportFetchBtn">Getir</button>
             </div>
             <div class="ple-report-pick__row">
               <select id="pleReportSelect" disabled>
-                <option value="">Önce Getir’e basın…</option>
+                <option value="">Ã–nce Getirâ€™e basÄ±nâ€¦</option>
               </select>
-              <button type="button" class="ay-btn ay-btn--primary" id="pleReportApplyBtn" disabled>Örneğe yükle</button>
+              <button type="button" class="ay-btn ay-btn--primary" id="pleReportApplyBtn" disabled>Ã–rneÄŸe yÃ¼kle</button>
             </div>
-            <p class="ay-hint" id="pleReportHint" style="margin:0;">Sorunlu bir yazdırmayı seç → düzenle → Kaydet. Düzen sunucuya yazılır; canlı site aynı anda kullanır.</p>
+            <p class="ay-hint" id="pleReportHint" style="margin:0;">Sorunlu bir yazdÄ±rmayÄ± seÃ§ â†’ dÃ¼zenle â†’ Kaydet. DÃ¼zen sunucuya yazÄ±lÄ±r; canlÄ± site aynÄ± anda kullanÄ±r.</p>
           </div>
           <div class="ay-ban-actions">
-            <button type="button" class="ay-btn ay-btn--primary" id="pleLivePreviewBtn"><i class="fas fa-print" aria-hidden="true"></i> Canlı baskı önizleme</button>
-            <button type="button" class="ay-btn ay-btn--primary" id="pleSaveBtn">Kaydet — canlı siteye uygula</button>
-            <button type="button" class="ay-btn" id="pleReloadBtn">Kayıtlıyı yükle</button>
-            <button type="button" class="ay-btn" id="pleResetBtn">Varsayılana dön</button>
+            <button type="button" class="ay-btn ay-btn--primary" id="pleLivePreviewBtn"><i class="fas fa-print" aria-hidden="true"></i> CanlÄ± baskÄ± Ã¶nizleme</button>
+            <button type="button" class="ay-btn ay-btn--primary" id="pleSaveBtn">Kaydet â€” canlÄ± siteye uygula</button>
+            <button type="button" class="ay-btn" id="pleReloadBtn">KayÄ±tlÄ±yÄ± yÃ¼kle</button>
+            <button type="button" class="ay-btn" id="pleResetBtn">VarsayÄ±lana dÃ¶n</button>
           </div>
-          <p class="ay-hint" style="margin-top:.65rem;">Kaydet düzeni <strong>veritabanına</strong> yazar — localhost ve canlı site aynı kaydı kullanır. Kod/şablon değişiklikleri için canlı sunucuya deploy gerekir.</p>
+          <p class="ay-hint" style="margin-top:.65rem;">Kaydet dÃ¼zeni <strong>veritabanÄ±na</strong> yazar â€” localhost ve canlÄ± site aynÄ± kaydÄ± kullanÄ±r. Kod/ÅŸablon deÄŸiÅŸiklikleri iÃ§in canlÄ± sunucuya deploy gerekir.</p>
         </div>
       </div>
 
       <details class="ple-template-details" style="margin-top:1.25rem;">
-        <summary style="cursor:pointer;font-weight:700;color:#0f172a;font-size:.9375rem;">Form şablonu (arka plan JPG / PNG)</summary>
-        <p class="ay-hint" style="margin:.65rem 0 .5rem;">Arka plan görseli sunucu veritabanında saklanır. Proje köküne <strong>AA.jpg</strong> koyup sunucuyu yeniden başlatın veya buradan yükleyin (önerilen 1492×1054).</p>
+        <summary style="cursor:pointer;font-weight:700;color:#0f172a;font-size:.9375rem;">Form ÅŸablonu (arka plan JPG / PNG)</summary>
+        <p class="ay-hint" style="margin:.65rem 0 .5rem;">Arka plan gÃ¶rseli sunucu veritabanÄ±nda saklanÄ±r. Proje kÃ¶kÃ¼ne <strong>AA.jpg</strong> koyup sunucuyu yeniden baÅŸlatÄ±n veya buradan yÃ¼kleyin (Ã¶nerilen 1492Ã—1054).</p>
         <form id="printFormBgForm" class="ay-form" style="max-width:720px;grid-template-columns:1fr auto;">
           <div>
-            <label for="printFormBgFile">JPG / PNG şablon</label>
+            <label for="printFormBgFile">JPG / PNG ÅŸablon</label>
             <input id="printFormBgFile" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
-            <div id="printFormBgPreview" style="margin-top:.5rem;max-width:320px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;min-height:80px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:.75rem;">Önizleme</div>
+            <div id="printFormBgPreview" style="margin-top:.5rem;max-width:320px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#f8fafc;min-height:80px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:.75rem;">Ã–nizleme</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:.5rem;align-self:end;">
             <button type="submit" class="ay-btn ay-btn--primary">Sunucuya kaydet</button>
-            <button type="button" class="ay-btn" id="printFormBgImportLegacyBtn">İnternetten otomatik aktar</button>
-            <button type="button" class="ay-btn" id="printFormBgOpenLegacyBtn">Şablonu aç (Hızlı Resim)</button>
-            <button type="button" class="ay-btn" id="printFormBgRefreshBtn">Önbelleği yenile</button>
+            <button type="button" class="ay-btn" id="printFormBgImportLegacyBtn">Ä°nternetten otomatik aktar</button>
+            <button type="button" class="ay-btn" id="printFormBgOpenLegacyBtn">Åablonu aÃ§ (HÄ±zlÄ± Resim)</button>
+            <button type="button" class="ay-btn" id="printFormBgRefreshBtn">Ã–nbelleÄŸi yenile</button>
           </div>
         </form>
         <p class="ay-hint" style="margin-top:.5rem;">CLI: <code>node scripts/seed-print-form-bg.js --force</code></p>
@@ -1350,12 +1391,12 @@
       <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--rp-border);">
 
       <div style="margin-bottom:.75rem;">
-        <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0;">Yazdırma geçmişi</h3>
-        <p class="ay-hint" style="margin-top:.35rem;">Rapor sayfasındaki tüm yazdırma kayıtlarını temizler. Araç kayıtları silinmez.</p>
+        <h3 style="font-size:1rem;font-weight:700;color:#0f172a;margin:0;">YazdÄ±rma geÃ§miÅŸi</h3>
+        <p class="ay-hint" style="margin-top:.35rem;">Rapor sayfasÄ±ndaki tÃ¼m yazdÄ±rma kayÄ±tlarÄ±nÄ± temizler. AraÃ§ kayÄ±tlarÄ± silinmez.</p>
       </div>
       <div class="ay-ban-actions">
         <button type="button" class="ay-btn ay-btn--danger" id="clearReportsBtn">
-          <i class="fas fa-broom" aria-hidden="true"></i> Tümünü Temizle
+          <i class="fas fa-broom" aria-hidden="true"></i> TÃ¼mÃ¼nÃ¼ Temizle
         </button>
       </div>
     </section>
@@ -1363,8 +1404,8 @@
     <section id="section-ozmal" class="ay-panel ay-section" tabindex="-1" aria-labelledby="ozmalTitle" hidden>
       <div class="ay-panel__head">
         <div>
-          <h2 id="ozmalTitle">Özmal araçlar &amp; şoförler</h2>
-          <p>Şirket araç plakalarını ve şoförlerini buradan yönetin. Eklenen plakalar ana sayfada özmal filtresinde görünür; şoförler giriş ekranında listelenir.</p>
+          <h2 id="ozmalTitle">Ã–zmal araÃ§lar &amp; ÅŸofÃ¶rler</h2>
+          <p>Åirket araÃ§ plakalarÄ±nÄ± ve ÅŸofÃ¶rlerini buradan yÃ¶netin. Eklenen plakalar ana sayfada Ã¶zmal filtresinde gÃ¶rÃ¼nÃ¼r; ÅŸofÃ¶rler giriÅŸ ekranÄ±nda listelenir.</p>
         </div>
       </div>
 
@@ -1374,12 +1415,12 @@
           <input id="ozmalPlateInput" type="text" placeholder="43 ADS 408" autocomplete="off" required>
         </div>
         <div>
-          <label for="ozmalDriverInput">Şoför adı soyadı</label>
+          <label for="ozmalDriverInput">ÅofÃ¶r adÄ± soyadÄ±</label>
           <input id="ozmalDriverInput" type="text" placeholder="MEHMET YILMAZ" autocomplete="off">
         </div>
         <button type="submit" class="ay-btn ay-btn--primary">Kaydet</button>
       </form>
-      <p class="ay-hint" style="margin:0 0 1rem;">Yeni plaka için plaka yeterli. Plaka zaten varsa şoför adı yazıp kaydedin — aynı plakaya ikinci şoför eklenir.</p>
+      <p class="ay-hint" style="margin:0 0 1rem;">Yeni plaka iÃ§in plaka yeterli. Plaka zaten varsa ÅŸofÃ¶r adÄ± yazÄ±p kaydedin â€” aynÄ± plakaya ikinci ÅŸofÃ¶r eklenir.</p>
 
       <div class="ay-ban-actions">
         <button type="button" class="ay-btn" id="ozmalRefreshBtn"><i class="fas fa-sync" aria-hidden="true"></i> Listeyi yenile</button>
@@ -1392,12 +1433,12 @@
               <tr>
                 <th>#</th>
                 <th>Plaka</th>
-                <th>Şoförler</th>
+                <th>ÅofÃ¶rler</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="ozmalTbody">
-              <tr><td colspan="4" class="ay-empty">Yükleniyor…</td></tr>
+              <tr><td colspan="4" class="ay-empty">YÃ¼kleniyorâ€¦</td></tr>
             </tbody>
           </table>
         </div>
@@ -1407,15 +1448,15 @@
     <section id="section-imza" class="ay-panel ay-section" tabindex="-1" aria-labelledby="sigTitle" hidden>
       <div class="ay-panel__head">
         <div>
-          <h2 id="sigTitle">İmza ayarları</h2>
-          <p>PNG yükleyin; takip formunda Kantar ve Sevkiyat saha alanında otomatik görünür.</p>
+          <h2 id="sigTitle">Ä°mza ayarlarÄ±</h2>
+          <p>PNG yÃ¼kleyin; takip formunda Kantar ve Sevkiyat saha alanÄ±nda otomatik gÃ¶rÃ¼nÃ¼r.</p>
         </div>
       </div>
 
       <form id="sigForm" class="ay-form">
         <div>
           <label for="sigName">Ad soyad</label>
-          <input id="sigName" type="text" placeholder="Örn. ALİ YILMAZ" required autocomplete="off" style="text-transform:uppercase">
+          <input id="sigName" type="text" placeholder="Ã–rn. ALÄ° YILMAZ" required autocomplete="off" style="text-transform:uppercase">
         </div>
         <div>
           <label for="sigRole">Alan</label>
@@ -1451,7 +1492,7 @@
     <div class="ay-modal">
       <div class="ay-modal__head">
         <div id="plakaModalTitle" class="ay-modal__title">Plaka</div>
-        <button type="button" class="ay-modal__close" id="plakaModalClose" aria-label="Kapat">×</button>
+        <button type="button" class="ay-modal__close" id="plakaModalClose" aria-label="Kapat">Ã—</button>
       </div>
       <div id="plakaModalBody" class="ay-modal__body"></div>
     </div>
@@ -1467,6 +1508,6 @@
   <script src="print-layout-settings.js?v=20260902-frameprint"></script>
   <script src="print-layout-editor.js?v=20260827-printfast"></script>
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
-  <script src="ayarlar.js?v=20261003-sofor-excel"></script>
+  <script src="ayarlar.js?v=20261003-cihazlar"></script>
 </body>
 </html>

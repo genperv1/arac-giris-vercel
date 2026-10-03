@@ -48,9 +48,43 @@ function registerLimanRoutes(api, ctx, publicApp) {
       try {
         const token = extractAuthTokenFromRequest(req, ctx.AUTH_COOKIE_NAME || 'auth_token');
         if (token) req.user = jwt.verify(token, jwtSecret);
-      } catch (_) { /* anonim */ }
+        else req.authError = 'no-token';
+      } catch (err) {
+        req.authError = (err && err.name === 'TokenExpiredError') ? 'expired' : 'invalid';
+      }
     }
     next();
+  }
+
+  // --- Gönderim günlüğü (bellekte, son 40 olay): amir "kantar gönderdi mi, neden reddedildi?" görür ---
+  const EVENT_MAX = 40;
+  const events = [];
+  function logEvent(kind, req, extra) {
+    const entry = Object.assign({
+      at: new Date().toISOString(),
+      kind,
+      user: String((req && req.user && req.user.username) || ''),
+      ip: req ? requestIp(req) : '',
+    }, extra || {});
+    events.unshift(entry);
+    if (events.length > EVENT_MAX) events.length = EVENT_MAX;
+    if (kind === 'denied' || kind === 'error') {
+      console.warn('[liman] ' + kind + ' ' + JSON.stringify(entry));
+    }
+  }
+
+  /** Kantar yazma uçları: oturum zorunlu; red sebebi günlüğe düşer (401 sessizce kaybolmasın). */
+  function requireKantarSession(req, res, next) {
+    attachOptionalUser(req, res, () => {
+      if (req.user) return next();
+      const reason = req.authError || 'no-token';
+      logEvent('denied', req, { reason, path: req.path || req.originalUrl || '' });
+      return res.status(401).json({
+        ok: false,
+        code: reason === 'expired' ? 'SESSION_EXPIRED' : 'SESSION_MISSING',
+        error: reason === 'expired' ? 'Oturum süresi dolmuş.' : 'Oturum yok.',
+      });
+    });
   }
 
   function ipSite(ip) {
@@ -88,6 +122,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       });
       if (parsed.notes && typeof parsed.notes === 'object') base.notes = parsed.notes;
       base.closedDays = pruneClosedDays(parsed.closedDays);
+      if (parsed.heartbeats && typeof parsed.heartbeats === 'object') base.heartbeats = parsed.heartbeats;
       (Array.isArray(parsed.pending) ? parsed.pending : []).forEach((p) => {
         const site = ipSite(p && p.ip) || normalizeSite(p && p.guess);
         if (!site || !p.snapshot) return;
@@ -100,7 +135,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
     }
   }
 
-  async function writeState(state) {
+  /** opts.silent: liste içeriği değişmedi (nabız / alındı damgası) → liman sayfaları yeniden yüklemesin. */
+  async function writeState(state, opts) {
     const raw = JSON.stringify(state);
     if (raw === cachedRaw) return;
     await q(
@@ -109,7 +145,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       [STATE_KEY, raw]
     );
     cachedRaw = raw;
-    version = String(Date.now());
+    if (!(opts && opts.silent)) version = String(Date.now());
   }
 
   function isAmirUser(req) {
@@ -180,16 +216,27 @@ function registerLimanRoutes(api, ctx, publicApp) {
     return Array.isArray(snap.rows) ? snap.rows.length : 0;
   }
 
+  function heartbeats(state) {
+    return state && state.heartbeats && typeof state.heartbeats === 'object' ? state.heartbeats : {};
+  }
+
   function publicSites(state) {
     const out = {};
+    const hb = heartbeats(state);
     SITES.forEach((site) => {
       const snap = state.sites[site];
-      out[site] = snap ? {
-        fileName: snap.fileName || '',
-        updatedAt: snap.updatedAt || '',
-        receivedAt: snap.receivedAt || snap.updatedAt || '',
-        user: snap.user || '',
+      const beat = hb[site] || null;
+      out[site] = (snap || beat) ? {
+        fileName: (snap && snap.fileName) || '',
+        updatedAt: (snap && snap.updatedAt) || '',
+        receivedAt: (snap && (snap.receivedAt || snap.updatedAt)) || '',
+        user: (snap && snap.user) || (beat && beat.user) || '',
         rowCount: snapshotRowCount(snap),
+        hasList: !!snap,
+        // Kantar PC'nin son nabzı (10 dk otomatik döngü): bağlı mı, Excel yüklü mü, oturum kimde
+        heartbeatAt: (beat && beat.at) || '',
+        heartbeatExcel: beat ? !!beat.excel : null,
+        heartbeatFile: (beat && beat.fileName) || '',
       } : null;
     });
     return out;
@@ -205,6 +252,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
       days: openDays(state),
       // Kapatılan günler: amir yeniden açabilsin, liman görevlisi "sevkiyat bitti" diye anlasın
       closedDays: closedDayList(state),
+      // Yalnız amir: gönderim günlüğü (kabul / aynı / nabız / red)
+      events: amir ? events.slice(0, EVENT_MAX) : undefined,
     };
   }
 
@@ -290,7 +339,39 @@ function registerLimanRoutes(api, ctx, publicApp) {
     }
   });
 
-  api.put('/liman/snapshot', requireValidSession, async (req, res) => {
+  // --- Kantar yazma uçları: publicApp verildiyse app'e (kendi oturum kontrolü + günlük), yoksa router'a ---
+  const writer = publicApp || api;
+  const writePrefix = publicApp ? '/api' : '';
+  const kantarAuth = publicApp ? requireKantarSession : requireValidSession;
+
+  /** Kantar PC nabzı: 10 dk döngüsünde Excel değişmese de "bağlıyım" der. */
+  writer.put(writePrefix + '/liman/heartbeat', kantarAuth, async (req, res) => {
+    try {
+      if (isAmirUser(req)) return res.json({ ok: true, skipped: true });
+      const body = req.body || {};
+      const site = normalizeSite(req.user && req.user.username) || ipSite(requestIp(req)) || normalizeSite(body.site);
+      if (!site) return res.status(400).json({ ok: false, error: 'Kantar anlaşılamadı.' });
+      const state = await readState();
+      const hb = Object.assign({}, heartbeats(state));
+      hb[site] = {
+        at: new Date().toISOString(),
+        user: sanitizeString((req.user && req.user.username) || '', 40),
+        ip: requestIp(req),
+        excel: !!body.excelLoaded,
+        fileName: sanitizeString(body.fileName || '', 180),
+      };
+      state.heartbeats = hb;
+      await writeState(state, { silent: true });
+      logEvent('heartbeat', req, { site, excel: !!body.excelLoaded });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ok: true, site, at: hb[site].at });
+    } catch (err) {
+      logEvent('error', req, { path: 'heartbeat', error: String(err && err.message || err) });
+      return sendApiError(res, err, 500, 'LIMAN_HEARTBEAT_FAILED');
+    }
+  });
+
+  writer.put(writePrefix + '/liman/snapshot', kantarAuth, async (req, res) => {
     try {
       const body = req.body || {};
       if (isAmirUser(req)) {
@@ -303,6 +384,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         || ipSite(requestIp(req))
         || siteFromPayload(body.site, blocks, incoming);
       if (!site) {
+        logEvent('error', req, { path: 'snapshot', error: 'site-unknown' });
         return res.status(400).json({ ok: false, error: 'Kantar (AVDAN / 1.OSB) anlaşılamadı. Basım yerini seçin.' });
       }
       const rows = incoming.map((row) => slimRow(row, site, fileName)).filter((row) => {
@@ -324,14 +406,17 @@ function registerLimanRoutes(api, ctx, publicApp) {
         // İçerik aynı: updatedAt korunur ama "kantar gönderdi" bilgisi (receivedAt) kaydedilir;
         // amir "liste eski mi, kantar mı göndermedi?" sorusunu buradan ayırt eder.
         state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
-        await writeState(state);
+        await writeState(state, { silent: true });
+        logEvent('unchanged', req, { site, fileName, rows: snapshotRowCount(snapshot) });
         return res.json({ ok: true, site, unchanged: true });
       }
       snapshot.receivedAt = snapshot.updatedAt;
       state.sites[site] = snapshot;
       await writeState(state);
+      logEvent('changed', req, { site, fileName, rows: snapshotRowCount(snapshot) });
       return res.json({ ok: true, site });
     } catch (err) {
+      logEvent('error', req, { path: 'snapshot', error: String(err && err.message || err) });
       return sendApiError(res, err, 500, 'LIMAN_SNAPSHOT_FAILED');
     }
   });

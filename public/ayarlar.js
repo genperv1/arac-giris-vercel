@@ -19,7 +19,7 @@
 
   const AY_SECTIONS = [
     'section-plaka', 'section-pasif', 'section-eksik', 'section-ozmal',
-    'section-imza', 'section-yazdir', 'section-ban', 'section-yedek',
+    'section-imza', 'section-yazdir', 'section-ban', 'section-cihazlar', 'section-yedek',
   ];
 
   const SECTION_META = {
@@ -57,6 +57,11 @@
       title: 'IP engelleri',
       desc: 'Engellenen IP adreslerini görüntüleyin, ekleyin veya kaldırın.',
       hash: 'ban',
+    },
+    'section-cihazlar': {
+      title: 'Kantar cihazları',
+      desc: 'Kantar hesaplarının hatırlanan bilgisayarları — oturum şifresiz yenilenir; şüpheli cihazı düşürün.',
+      hash: 'cihazlar',
     },
     'section-yedek': {
       title: 'Yedekleme',
@@ -209,6 +214,7 @@
 
   function runSectionLoader(id) {
     if (id === 'section-ban') loadBanList();
+    if (id === 'section-cihazlar') loadDeviceList();
     if (id === 'section-ozmal') loadOzmalEntriesFull().then(renderOzmalTable);
     if (id === 'section-pasif') loadPasifDriversTable();
     if (id === 'section-eksik') loadIncompleteVehicles();
@@ -1181,6 +1187,69 @@
     }
   }
 
+  // ---- Kantar cihazları: hatırlanan oturum anahtarları (amir) ----
+  function shortAgent(ua) {
+    const s = String(ua || '');
+    if (!s) return '';
+    const os = /Windows NT 10/.test(s) ? 'Windows' : (/Android/.test(s) ? 'Android' : (/iPhone|iPad/.test(s) ? 'iOS' : (/Mac OS/.test(s) ? 'Mac' : (/Linux/.test(s) ? 'Linux' : ''))));
+    const br = /Edg\//.test(s) ? 'Edge' : (/OPR\//.test(s) ? 'Opera' : (/Chrome\//.test(s) ? 'Chrome' : (/Firefox\//.test(s) ? 'Firefox' : (/Safari\//.test(s) ? 'Safari' : ''))));
+    return [os, br].filter(Boolean).join(' · ');
+  }
+
+  async function loadDeviceList() {
+    const tbody = document.getElementById('cihazTbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="ay-empty">Yükleniyor…</td></tr>';
+    try {
+      const r = await fetch('/api/session/devices', { credentials: 'same-origin', headers: authHeaders(false) });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = data.error || (r.status === 403 ? 'Bu bölüm yalnız amir oturumunda görülür.' : 'Liste yüklenemedi');
+        tbody.innerHTML = '<tr><td colspan="7" class="ay-empty" style="color:#dc2626">' + escapeHtml(msg) + '</td></tr>';
+        return;
+      }
+      const daysEl = document.getElementById('cihazDays');
+      if (daysEl && data.days) daysEl.textContent = String(data.days);
+      const items = data.devices || [];
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="ay-empty">Henüz hatırlanan kantar cihazı yok. Kantar PC\'de bir kez şifreyle giriş yapılınca burada görünür.</td></tr>';
+        return;
+      }
+      const fmt = (ms) => (ms ? escapeHtml(new Date(Number(ms)).toLocaleString('tr-TR', { timeZone: TR_TZ })) : '—');
+      tbody.innerHTML = items.map((d) => `
+        <tr data-device-id="${escapeHtml(d.id)}"${d.active ? '' : ' style="opacity:.55"'}>
+          <td><strong>${escapeHtml(d.username || '')}</strong></td>
+          <td>${escapeHtml(d.label || shortAgent(d.userAgent) || 'Bilinmeyen cihaz')}<br><span class="ay-ip-mono">${escapeHtml(d.lastIp || '')}</span></td>
+          <td>${fmt(d.createdAt)}</td>
+          <td>${fmt(d.lastUsedAt)}</td>
+          <td>${fmt(d.expiresAt)}</td>
+          <td>${d.active ? '<span style="color:#15803d;font-weight:600">Aktif</span>' : '<span style="color:#b91c1c">Düşürüldü ' + fmt(d.revokedAt) + '</span>'}</td>
+          <td>${d.active ? '<button type="button" class="ay-btn ay-btn--danger ay-device-revoke" data-id="' + escapeHtml(d.id) + '" data-user="' + escapeHtml(d.username || '') + '">Düşür</button>' : ''}</td>
+        </tr>`).join('');
+      tbody.querySelectorAll('.ay-device-revoke').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-id');
+          const user = btn.getAttribute('data-user');
+          if (!id || !(await confirm(user + ' hesabının bu cihazı düşürülsün mü?\n\nO bilgisayar bir sonraki oturum yenilemesinde giriş ekranına döner; liman gönderimi şifre girilene kadar durur.'))) return;
+          const ur = await fetch('/api/session/devices/' + encodeURIComponent(id), { method: 'DELETE', credentials: 'same-origin', headers: authHeaders(false) });
+          const ud = await ur.json().catch(() => ({}));
+          if (ur.ok) {
+            toast('Cihaz düşürüldü.');
+            loadDeviceList();
+          } else {
+            toast(ud.error || 'Düşürülemedi.', true);
+          }
+        });
+      });
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="7" class="ay-empty" style="color:#dc2626">Liste yüklenemedi.</td></tr>';
+    }
+  }
+
+  function bindDeviceUi() {
+    document.getElementById('cihazRefreshBtn')?.addEventListener('click', loadDeviceList);
+  }
+
   async function submitBanAdd(ev) {
     ev.preventDefault();
     const ip = (document.getElementById('banAddIp')?.value || '').trim();
@@ -1942,6 +2011,7 @@
     });
 
     bindBanUi();
+    bindDeviceUi();
     bindBackupUi();
     bindPrintFormBgUi();
     try {

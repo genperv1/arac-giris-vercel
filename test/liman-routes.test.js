@@ -125,7 +125,7 @@ test('liman okuma uçları oturumsuz çalışır (canEdit false, kapalı günler
   assert.ok(ver.v);
 });
 
-test('publicApp verilince GET uçları /api öneki ile app\'e, yazma uçları router\'a bağlanır', () => {
+test('publicApp verilince GET + kantar yazma uçları /api öneki ile app\'e, amir uçları router\'a bağlanır', () => {
   const appRoutes = [];
   const apiRoutes = [];
   const mk = (list) => {
@@ -137,10 +137,81 @@ test('publicApp verilince GET uçları /api öneki ile app\'e, yazma uçları ro
     q: async () => ({ rows: [] }), sendApiError() {}, requireValidSession: (q, s, n) => n(), requireAmir: (q, s, n) => n(),
     sanitizeString: (v) => String(v || ''),
   }, mk(appRoutes));
-  assert.deepEqual(appRoutes, ['get /api/liman', 'get /api/liman/version', 'get /api/liman/departed']);
-  assert.ok(apiRoutes.includes('put /liman/snapshot'));
+  assert.deepEqual(appRoutes.filter((r) => r.startsWith('get ')), ['get /api/liman', 'get /api/liman/version', 'get /api/liman/departed']);
+  // Kantar yazma uçları app'te: kendi oturum kontrolü + red günlüğü (401 sessiz kaybolmasın)
+  assert.ok(appRoutes.includes('put /api/liman/snapshot'));
+  assert.ok(appRoutes.includes('put /api/liman/heartbeat'));
   assert.ok(apiRoutes.includes('put /liman/day/:dateKey/close'));
   assert.ok(!apiRoutes.some((r) => r.startsWith('get ')));
+  assert.ok(!apiRoutes.includes('put /liman/snapshot'));
+});
+
+test('publicApp modunda oturumsuz kantar gönderimi 401 + günlükte "denied"; nabız amire görünür', async () => {
+  const store = {};
+  const routes = {};
+  const mk = () => {
+    const r = {};
+    ['get', 'put', 'post', 'delete'].forEach((m) => {
+      r[m] = (path, ...handlers) => { routes[m + ' ' + path] = handlers; };
+    });
+    return r;
+  };
+  registerLimanRoutes(mk(), {
+    q: async (sql, params) => {
+      if (/^SELECT/i.test(sql)) return { rows: store[params[0]] ? [{ value: store[params[0]] }] : [] };
+      store[params[0]] = params[1];
+      return { rows: [] };
+    },
+    sendApiError: (res, err) => { throw err; },
+    requireValidSession: (q, s, n) => n(),
+    requireAmir: (q, s, n) => n(),
+    sanitizeString: (v, n) => String(v || '').slice(0, n),
+    getClientIp: (req) => req.headers['x-forwarded-for'],
+    normalizeClientIp: (ip) => ip,
+    JWT_SECRET: 'test-secret',
+  }, mk());
+  const run = async (key, req) => {
+    const chain = routes[key];
+    let out; let statusCode = 200;
+    const res = { json: (d) => { out = d; return d; }, status(c) { statusCode = c; return this; }, setHeader() {} };
+    const r = Object.assign({ body: {}, params: {}, headers: {}, cookies: {} }, req);
+    for (let i = 0; i < chain.length; i++) {
+      let nextCalled = false;
+      await chain[i](r, res, () => { nextCalled = true; });
+      if (!nextCalled) break;
+    }
+    return { out, statusCode };
+  };
+  // Oturumsuz gönderim: 401 SESSION_MISSING
+  const denied = await run('put /api/liman/snapshot', { headers: { 'x-forwarded-for': '9.9.9.9' }, body: { site: 'AVDAN', blocks: [block('YD1 / LOT NO 1 / EVYAP', 'AVDAN')] } });
+  assert.equal(denied.statusCode, 401);
+  assert.equal(denied.out.code, 'SESSION_MISSING');
+  // Süresi dolmuş JWT: 401 SESSION_EXPIRED
+  const jwt = require('jsonwebtoken');
+  const expired = jwt.sign({ username: 'AVDAN', role: 'admin' }, 'test-secret', { expiresIn: -10 });
+  const exp = await run('put /api/liman/snapshot', { headers: { 'x-forwarded-for': '9.9.9.9', cookie: 'auth_token=' + expired }, cookies: { auth_token: expired }, body: { site: 'AVDAN', blocks: [] } });
+  assert.equal(exp.statusCode, 401);
+  assert.equal(exp.out.code, 'SESSION_EXPIRED');
+  // Geçerli JWT: nabız kabul edilir, sürüm değişmez (liman sayfası yeniden yüklenmez)
+  const good = jwt.sign({ username: 'AVDAN', role: 'admin' }, 'test-secret', { expiresIn: '1h' });
+  const before = (await run('get /api/liman/version', { headers: {} })).out.v;
+  const hb = await run('put /api/liman/heartbeat', { headers: { 'x-forwarded-for': '9.9.9.9', cookie: 'auth_token=' + good }, cookies: { auth_token: good }, body: { excelLoaded: false } });
+  assert.equal(hb.statusCode, 200);
+  assert.equal(hb.out.site, 'AVDAN');
+  const after = (await run('get /api/liman/version', { headers: {} })).out.v;
+  assert.equal(before, after);
+  // Anonim görünüm: nabız görünür, günlük görünmez
+  const anon = (await run('get /api/liman', { headers: {} })).out;
+  assert.equal(anon.sites.AVDAN.hasList, false);
+  assert.ok(anon.sites.AVDAN.heartbeatAt);
+  assert.equal(anon.sites.AVDAN.heartbeatExcel, false);
+  assert.equal(anon.events, undefined);
+  // Amir görünümü: günlükte 2 red + 1 nabız
+  const amirTok = jwt.sign({ username: 'xxr', role: 'amir' }, 'test-secret', { expiresIn: '1h' });
+  const amir = (await run('get /api/liman', { headers: { cookie: 'auth_token=' + amirTok }, cookies: { auth_token: amirTok }, user: { username: 'xxr', role: 'amir' } })).out;
+  assert.deepEqual(amir.events.map((e) => e.kind), ['heartbeat', 'denied', 'denied']);
+  assert.equal(amir.events[1].reason, 'expired');
+  assert.equal(amir.events[2].reason, 'no-token');
 });
 
 test('diğer kantarın eski İÇERİDE notu çıkmış aracı kirletmez; aynı içerik receivedAt günceller', async () => {

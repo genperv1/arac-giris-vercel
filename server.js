@@ -47,6 +47,7 @@ const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerLimanRoutes, STATE_KEY: LIMAN_STATE_KEY } = require('./routes/liman-routes');
 const bcrypt = require('bcryptjs');
 const { createPresence } = require('./lib/presence');
+const { createDeviceTokenStore } = require('./lib/device-tokens');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
@@ -1155,9 +1156,14 @@ const piyasaServer = createPiyasaServerApi({
 
 const presence = createPresence();
 
+/** Kantar PC "hatırlanan cihaz" anahtarı (gün). .env: DEVICE_TOKEN_DAYS=90 */
+const DEVICE_TOKEN_DAYS = envNumber('DEVICE_TOKEN_DAYS', 90, { min: 1, max: 365 });
+const deviceTokens = createDeviceTokenStore(q, { days: DEVICE_TOKEN_DAYS });
+
 const routeCtx = {
   q,
   presence,
+  deviceTokens,
   pool,
   auth,
   parsePagination,
@@ -2229,6 +2235,11 @@ async function initializeApp() {
       }
 
       // Kantar kullanıcıları: her kantarın kendi hesabı (liman listesi kullanıcı adından eşlenir)
+      try {
+        await deviceTokens.ensureTable();
+      } catch (e) {
+        console.error('device_tokens tablosu oluşturulamadı:', e && e.message ? e.message : e);
+      }
       try {
         await auth.ensureUsersTable();
         const kantarUsers = { AVDAN: 'GEN20AVDAN', '1.OSB': 'GEN201.OSB' };

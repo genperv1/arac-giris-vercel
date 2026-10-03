@@ -1451,7 +1451,11 @@ function publishLimanSnapshot(rows, meta, opts) {
     if (!force && sentBefore.split('|')[0] === stamp && Date.now() - sentAt < 6 * 60 * 60 * 1000) {
       return Promise.resolve({ sent: false, reason: 'same' });
     }
-    return fetch('/api/liman/snapshot', {
+    // 401 gelirse SessionManager cihaz anahtarıyla oturumu yeniler ve isteği bir kez tekrarlar
+    const doFetch = (window.SessionManager && typeof window.SessionManager.fetchWithSession === 'function')
+      ? window.SessionManager.fetchWithSession.bind(window.SessionManager)
+      : fetch;
+    return doFetch('/api/liman/snapshot', {
       method: 'PUT',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -1494,10 +1498,54 @@ function publishLimanFromStore(force) {
   }
 }
 
+/**
+ * Kantar nabzı: Excel değişmese de "bu PC bağlı, oturum açık" bilgisini limana iletir.
+ * Amir Liman sayfasında "bağlı · son kontrol HH:MM" görür; 30 dk gelmezse kırmızı.
+ */
+function sendLimanHeartbeat(info) {
+  try {
+    if (window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser()) {
+      return Promise.resolve({ sent: false, reason: 'amir' });
+    }
+    const meta = (window.DailyStore && typeof DailyStore.getMeta === 'function') ? (DailyStore.getMeta() || {}) : {};
+    const rows = (window.DailyStore && typeof DailyStore.getRows === 'function') ? (DailyStore.getRows() || []) : [];
+    const body = JSON.stringify({
+      site: limanPublishSite(rows),
+      excelLoaded: !!(info && info.excelLoaded !== undefined ? info.excelLoaded : rows.length),
+      fileName: (info && info.fileName) || meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : '') || '',
+    });
+    const doFetch = (window.SessionManager && typeof window.SessionManager.fetchWithSession === 'function')
+      ? window.SessionManager.fetchWithSession.bind(window.SessionManager)
+      : fetch;
+    return doFetch('/api/liman/heartbeat', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).then(async (res) => {
+      let data = {};
+      try { data = await res.json(); } catch (e) { data = {}; }
+      if (!res.ok) console.warn('[Liman nabız] gönderilemedi:', res.status, data && data.error);
+      return { sent: true, ok: !!res.ok, status: res.status, at: data && data.at };
+    }).catch((err) => ({ sent: true, ok: false, status: 0, error: (err && err.message) || 'Bağlantı yok' }));
+  } catch (e) {
+    return Promise.resolve({ sent: false, reason: 'error', error: e && e.message });
+  }
+}
+
 try { window.publishLimanFromStore = publishLimanFromStore; } catch (e) {}
+try { window.sendLimanHeartbeat = sendLimanHeartbeat; } catch (e) {}
 
 if (typeof window !== 'undefined' && typeof location !== 'undefined' && !/\/liman(\.html)?$/i.test(String(location.pathname || ''))) {
-  setTimeout(publishLimanFromStore, 5000);
+  // Açılıştan kısa süre sonra: liste gönderimi + ilk nabız (amir 10 dk beklemeden "kantar bağlı" görsün)
+  setTimeout(() => {
+    try {
+      const loggedIn = (typeof window.isAppLoggedIn === 'function') ? window.isAppLoggedIn() : (localStorage.getItem('isLoggedIn') === 'true');
+      if (!loggedIn) return;
+    } catch (e) { return; }
+    Promise.resolve(publishLimanFromStore()).catch(() => {});
+    Promise.resolve(sendLimanHeartbeat()).catch(() => {});
+  }, 5000);
 }
 
 async function saveDailyShipments(rows, meta) {

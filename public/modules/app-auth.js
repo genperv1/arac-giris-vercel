@@ -1336,10 +1336,17 @@ async function login() {
 }
 
 // Validate stored token with server; if invalid, clear auth and show login
-async function validateToken() {
+async function validateToken(_afterRenew) {
   // Validate server-side session via /api/me (cookie based)
   try {
     const resp = await fetch('/api/me', { method: 'GET', credentials: 'include' });
+    // Oturum düşmüş: kantar PC'de cihaz anahtarıyla sessizce yenile, sonra tekrar doğrula (tek deneme)
+    if ((resp.status === 401 || resp.status === 403) && !_afterRenew
+        && window.SessionManager && typeof window.SessionManager.renewSession === 'function') {
+      let renewed = false;
+      try { renewed = await window.SessionManager.renewSession({ force: true }); } catch (e) { renewed = false; }
+      if (renewed) return validateToken(true);
+    }
     if (resp.ok) {
       const j = await resp.json().catch(()=>null);
       syncLoginFlag(true);
@@ -1427,6 +1434,22 @@ let activityListeners = []; // Track listeners for cleanup
 const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes (increased from 30)
 const ACTIVITY_CHECK_INTERVAL_MS = 30 * 1000; // Check every 30 seconds (reduced from 5 minutes)
 
+/**
+ * Hareketsizlik çıkışı yalnız amir hesabında. Kantar PC'si (AVDAN / 1.OSB) 7/24 açık kalır:
+ * liman listesi 10 dk'da bir otomatik gönderilir; hareketsiz diye çıkış yapılırsa veri akışı kesilir.
+ */
+function inactivityLogoutEnabled() {
+  try {
+    if (window.SessionManager && typeof window.SessionManager.isAmirUser === 'function') {
+      return !!window.SessionManager.isAmirUser();
+    }
+    const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+    return role === 'amir';
+  } catch (e) {
+    return false;
+  }
+}
+
 function startSessionMonitoring() {
   console.log('startSessionMonitoring() çağrıldı');
   
@@ -1492,8 +1515,8 @@ function startSessionMonitoring() {
       }
     }
 
-    // Check if user has been inactive
-    if (timeSinceActivity > INACTIVITY_TIMEOUT_MS) {
+    // Check if user has been inactive (yalnız amir; kantar PC'de hareketsizlik çıkışı yok)
+    if (timeSinceActivity > INACTIVITY_TIMEOUT_MS && inactivityLogoutEnabled()) {
       // IMMEDIATELY STOP THE INTERVAL
       if (sessionCheckInterval) {
         clearInterval(sessionCheckInterval);
@@ -1631,6 +1654,8 @@ function stopSessionMonitoring() {
           }
           
           // 4. Tell server to clear cookie (fire and forget)
+          // Bilerek çıkış: hatırlanan cihaz anahtarı da düşer; yoksa sayfa yenilenince kendiliğinden geri girerdi.
+          try { fetch('/api/session/forget', { method: 'POST', credentials: 'include' }).catch(()=>{}); } catch(e){}
           try { fetch('/api/logout', { method: 'POST' }).catch(()=>{}); } catch(e){}
           console.log('Server logout isteği gönderildi');
           

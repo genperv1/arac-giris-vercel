@@ -64,6 +64,131 @@
         throw lastError || new Error('session check failed');
     }
 
+    // ---- Hatırlanan cihaz: oturum düşünce şifresiz yenileme (kantar PC) ----
+    const RENEW_ENDPOINT = '/api/session/renew';
+    const RENEW_RETRY_COOLDOWN_MS = 20 * 1000; // başarısız renew sonrası sunucuyu dövme
+    let renewInFlight = null;
+    let lastRenewFailAt = 0;
+    let lastRenewFailCode = '';
+
+    function applyRenewedUser(data) {
+        try {
+            const u = data && data.user;
+            if (u && u.username) localStorage.setItem('currentUserId', String(u.username).trim());
+            if (u) localStorage.setItem('currentUserRole', String(u.role || '').trim().toLowerCase());
+            if (data && data.clientSite) { localStorage.setItem('currentClientSite', String(data.clientSite)); window.__clientSite = String(data.clientSite); }
+            if (data && data.clientIp) { localStorage.setItem('currentClientIp', String(data.clientIp)); window.__clientIp = String(data.clientIp); }
+            localStorage.setItem('isLoggedIn', 'true');
+        } catch (e) { /* ignore */ }
+        try { document.documentElement.classList.add('logged-in'); } catch (e) { /* ignore */ }
+        try { window.dispatchEvent(new CustomEvent('gpm-session-renewed', { detail: data || {} })); } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * Cihaz çereziyle yeni oturum ister. true → oturum tazelendi.
+     * Aynı anda tek istek; başarısızlıkta 20 sn bekler (401 fırtınası olmasın).
+     */
+    async function renewSession(opts) {
+        const force = !!(opts && opts.force);
+        if (renewInFlight) return renewInFlight;
+        if (!force && lastRenewFailAt && Date.now() - lastRenewFailAt < RENEW_RETRY_COOLDOWN_MS) return false;
+        renewInFlight = (async () => {
+            try {
+                const res = await fetch(RENEW_ENDPOINT, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Cache-Control': 'no-cache', 'Content-Type': 'application/json' },
+                    body: '{}',
+                });
+                let data = {};
+                try { data = await res.json(); } catch (e) { data = {}; }
+                if (res.ok && data && data.ok) {
+                    lastRenewFailAt = 0;
+                    lastRenewFailCode = '';
+                    applyRenewedUser(data);
+                    markSessionValid();
+                    hideSessionBanner();
+                    console.info('[SessionManager] Oturum cihaz anahtarıyla yenilendi');
+                    return true;
+                }
+                lastRenewFailAt = Date.now();
+                lastRenewFailCode = (data && data.code) || ('HTTP ' + res.status);
+                if (isTransientStatus(res.status)) {
+                    // Sunucu/ağ sorunu: cihaz anahtarı geçersiz değil, sonra tekrar denenecek
+                    return false;
+                }
+                return false;
+            } catch (e) {
+                lastRenewFailAt = Date.now();
+                lastRenewFailCode = 'network';
+                return false;
+            } finally {
+                renewInFlight = null;
+            }
+        })();
+        return renewInFlight;
+    }
+
+    /** Son renew denemesi cihaz anahtarı yüzünden mi düştü (şifre gerekli)? */
+    function renewNeedsPassword() {
+        return /^DEVICE_|^USER_/.test(String(lastRenewFailCode || ''));
+    }
+
+    // ---- Kalıcı uyarı bandı: kantar ekranında oturum yenilenemediğinde ----
+    const BANNER_ID = 'gpmSessionBanner';
+    function showSessionBanner(text, opts) {
+        if (isLimanViewerPage()) return;
+        let el = document.getElementById(BANNER_ID);
+        if (!el) {
+            el = document.createElement('div');
+            el.id = BANNER_ID;
+            el.setAttribute('role', 'alert');
+            el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:100000;background:#b91c1c;color:#fff;font:700 15px/1.3 system-ui,Segoe UI,sans-serif;padding:12px 16px;display:flex;gap:12px;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+            document.body.appendChild(el);
+        }
+        const action = opts && opts.actionLabel
+            ? '<button type="button" id="' + BANNER_ID + 'Btn" style="background:#fff;color:#7f1d1d;border:0;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer">' + opts.actionLabel + '</button>'
+            : '';
+        el.innerHTML = '<span>' + String(text || '') + '</span>' + action;
+        const btn = document.getElementById(BANNER_ID + 'Btn');
+        if (btn && opts && typeof opts.onAction === 'function') btn.addEventListener('click', opts.onAction);
+        el.style.display = 'flex';
+    }
+
+    function hideSessionBanner() {
+        const el = document.getElementById(BANNER_ID);
+        if (el) el.style.display = 'none';
+    }
+
+    /**
+     * Oturumu garanti et: önbelleği atlayıp /api/me sorar, düşmüşse cihaz anahtarıyla yeniler.
+     * Liman gönderimi / 10 dk otomatik yenileme öncesi çağrılır.
+     */
+    async function ensureSession() {
+        sessionCache.lastCheck = 0;
+        const ok = await checkSessionValidity();
+        if (!ok && renewNeedsPassword()) {
+            showSessionBanner('Oturum yenilenemedi — kantar listesi gönderilemiyor. Şifreyle tekrar giriş yapın.', {
+                actionLabel: 'Giriş ekranı',
+                onAction: () => { try { localStorage.removeItem('isLoggedIn'); } catch (e) {} window.location.href = '/GIRIS.html'; },
+            });
+        }
+        return ok;
+    }
+
+    /**
+     * fetch sarmalayıcı: 401 gelirse bir kez oturumu yeniler ve isteği tekrarlar.
+     * Body string/JSON olmalı (tekrar gönderilebilir).
+     */
+    async function fetchWithSession(url, options) {
+        const opts = Object.assign({ credentials: 'same-origin' }, options || {});
+        let res = await fetch(url, opts);
+        if (res.status !== 401) return res;
+        const renewed = await renewSession();
+        if (!renewed) return res;
+        return fetch(url, opts);
+    }
+
     // Server'a oturum durumunu kontrol et
     async function checkSessionValidity() {
         const now = Date.now();
@@ -78,6 +203,8 @@
             
             if (!response.ok) {
                 if (isAuthFailureStatus(response.status)) {
+                    // Oturum düşmüş: önce cihaz anahtarıyla sessizce yenilemeyi dene
+                    if (await renewSession()) return true;
                     sessionCache = { isValid: false, lastCheck: now, checkInterval: 0 };
                     return false;
                 }
@@ -760,6 +887,34 @@
         ).join('');
     }
 
+    // PC uykudan dönünce / ağ gelince / sekme öne gelince beklemeden kontrol et.
+    // Süre dolmuşsa cihaz anahtarıyla yenilenir; keep-alive zamanlayıcısı uykuda durmuş olabilir.
+    let lastWakeCheck = 0;
+    function wakeCheck(reason) {
+        if (!isLikelyLoggedIn()) return;
+        if (Date.now() - lastWakeCheck < 10 * 1000) return;
+        lastWakeCheck = Date.now();
+        sessionCache.lastCheck = 0;
+        checkSessionValidity().then((ok) => {
+            if (ok) {
+                hideSessionBanner();
+                if (!keepAliveInterval) startSessionKeepAlive();
+            } else if (renewNeedsPassword()) {
+                showSessionBanner('Oturum düştü ve bu cihaz hatırlanmıyor. Şifreyle tekrar giriş yapın.', {
+                    actionLabel: 'Giriş ekranı',
+                    onAction: () => { try { localStorage.removeItem('isLoggedIn'); } catch (e) {} window.location.href = '/GIRIS.html'; },
+                });
+            }
+        }).catch(() => {});
+        void reason;
+    }
+    try {
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeCheck('visible'); });
+        window.addEventListener('online', () => wakeCheck('online'));
+        window.addEventListener('focus', () => wakeCheck('focus'));
+        window.addEventListener('pageshow', () => wakeCheck('pageshow'));
+    } catch (e) { /* ignore */ }
+
     window.SessionManager = {
         startPresence,
         getPresence,
@@ -767,6 +922,12 @@
         markSessionValid,
         invalidateSession,
         checkSessionValidity,
+        renewSession,
+        renewNeedsPassword,
+        ensureSession,
+        fetchWithSession,
+        showSessionBanner,
+        hideSessionBanner,
         requireValidSession,
         isAmirUser,
         amirDisplayLabel,

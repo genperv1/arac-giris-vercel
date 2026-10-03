@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liman — İhracat Takip Listesi</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <script src="session-manager.js?v=20261003-presence2"></script>
+  <script src="session-manager.js?v=20261003-renew1"></script>
   <style>
     body { margin: 0; background: #d9e2d4; color: #1a1a1a; font-family: Calibri, "Segoe UI", sans-serif; }
     .top { position: sticky; top: 0; z-index: 5; background: #1f4e2a; color: #fff; box-shadow: 0 1px 0 #16381e; }
@@ -35,6 +35,17 @@
     .known + .known { margin-top: 6px; }
     .site-info.is-stale { color: #b91c1c; }
     .site-info.is-stale b { color: #b91c1c; }
+    .known .site-info { display: block; margin: 2px 0; }
+    .hb { font-weight: 600; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+    .hb-ok { background: #dcfce7; color: #166534; }
+    .hb-dead { background: #fee2e2; color: #991b1b; }
+    .hb-none { background: #e5e7eb; color: #4b5563; font-weight: 500; }
+    .liman-log summary { cursor: pointer; font-weight: 600; color: #1f2937; }
+    .liman-log .log-denied { color: #b91c1c; }
+    .liman-log ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.5; max-height: 220px; overflow: auto; }
+    .liman-log li.log-denied, .liman-log li.log-error { color: #b91c1c; }
+    .liman-log li.log-changed { color: #166534; }
+    .liman-log li.log-heartbeat { color: #6b7280; }
     .admin-days { display: flex; flex-direction: column; gap: 8px; }
     .close-day-row, .closed-days-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .btn-close-day { background: #b91c1c; padding: 6px 12px; font-size: .8rem; }
@@ -172,6 +183,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261003-liman17"></script>
+  <script src="liman.js?v=20261003-liman18"></script>
 </body>
 </html>

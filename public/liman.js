@@ -36,6 +36,7 @@
     state.canEdit = !!data.canEdit;
     state.sites = data.sites || {};
     state.closedDays = Array.isArray(data.closedDays) ? data.closedDays : [];
+    state.events = Array.isArray(data.events) ? data.events : [];
     if (!state.days.some(function (d) { return d.dateKey === state.day; })) {
       state.day = state.days[0] ? state.days[0].dateKey : '';
     }
@@ -54,20 +55,57 @@
       box.innerHTML = '';
       return;
     }
+    var fmt = function (iso) { return iso ? new Date(iso).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; };
+    var hm = function (iso) { return iso ? new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : ''; };
     var parts = Object.keys(state.sites || {}).map(function (site) {
       var info = state.sites[site];
-      if (!info) return '<span><b>' + esc(site) + ':</b> <i>liste yok</i></span>';
-      var fmt = function (iso) { return iso ? new Date(iso).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; };
+      if (!info) return '<span class="site-info"><b>' + esc(site) + ':</b> <i>liste yok</i> · <span class="hb hb-none">kantar hiç bağlanmadı</span></span>';
       var changed = fmt(info.updatedAt);
       var received = fmt(info.receivedAt || info.updatedAt);
       var staleMs = info.receivedAt ? Date.now() - new Date(info.receivedAt).getTime() : 0;
       var staleCls = staleMs > 3 * 60 * 60 * 1000 ? ' is-stale' : '';
-      return '<span class="site-info' + staleCls + '"><b>' + esc(site) + ':</b> ' + esc(info.fileName || '') + ' · ' + info.rowCount + ' satır' +
-        ' · <span title="Kantarın en son Güncelle ile gönderdiği an (içerik aynı olsa da)">son gönderim ' + esc(received) + '</span>' +
-        (received !== changed ? ' · <span title="Liste içeriğinin en son değiştiği an">son değişiklik ' + esc(changed) + '</span>' : '') +
-        '</span>';
+      // Kantar PC nabzı: 10 dk'da bir gelir; 30 dk gelmezse PC kapalı / oturum düşmüş demektir
+      var hbHtml = '';
+      if (info.heartbeatAt) {
+        var hbAge = Date.now() - new Date(info.heartbeatAt).getTime();
+        var hbCls = hbAge > 30 * 60 * 1000 ? 'hb-dead' : 'hb-ok';
+        var hbText = hbAge > 30 * 60 * 1000
+          ? 'kantar bağlı değil · son nabız ' + fmt(info.heartbeatAt)
+          : 'kantar bağlı · son kontrol ' + hm(info.heartbeatAt) + (info.heartbeatExcel === false ? ' · Excel yüklü değil!' : '');
+        hbHtml = ' · <span class="hb ' + hbCls + '" title="Kantar PC\'nin 10 dk\'lık otomatik döngüsünden gelen son sinyal">' + esc(hbText) + '</span>';
+      } else {
+        hbHtml = ' · <span class="hb hb-none" title="Kantar PC yeni sürümle henüz nabız göndermedi">nabız yok</span>';
+      }
+      var listHtml = info.hasList === false
+        ? '<i>liste yok</i>'
+        : esc(info.fileName || '') + ' · ' + info.rowCount + ' satır' +
+          ' · <span title="Kantarın en son Güncelle ile gönderdiği an (içerik aynı olsa da)">son gönderim ' + esc(received) + '</span>' +
+          (received !== changed ? ' · <span title="Liste içeriğinin en son değiştiği an">son değişiklik ' + esc(changed) + '</span>' : '');
+      return '<span class="site-info' + staleCls + '"><b>' + esc(site) + ':</b> ' + listHtml + hbHtml + '</span>';
     });
     var html = '<div class="known">' + parts.join(' &nbsp; ') + '</div>';
+
+    // Gönderim günlüğü: kantar gönderdi mi, aynı mıydı, reddedildi mi (oturum) — amir buradan anlar
+    var ev = state.events || [];
+    if (ev.length) {
+      var denied = ev.filter(function (e) { return e.kind === 'denied' || e.kind === 'error'; }).length;
+      var kindLabel = { changed: 'liste güncellendi', unchanged: 'aynı içerik', heartbeat: 'nabız', denied: 'REDDEDİLDİ (oturum)', error: 'HATA' };
+      html += '<details class="known liman-log"' + (denied ? ' open' : '') + '><summary>Gönderim günlüğü (son ' + ev.length + ')' +
+        (denied ? ' · <b class="log-denied">' + denied + ' red/hata</b>' : '') + '</summary><ul>' +
+        ev.slice(0, 20).map(function (e) {
+          var extra = [];
+          if (e.site) extra.push(e.site);
+          if (e.user) extra.push(e.user);
+          if (e.fileName) extra.push(e.fileName);
+          if (typeof e.rows === 'number') extra.push(e.rows + ' satır');
+          if (e.kind === 'heartbeat' && e.excel === false) extra.push('Excel yok');
+          if (e.reason) extra.push({ expired: 'süre dolmuş', 'no-token': 'oturum yok', invalid: 'geçersiz oturum' }[e.reason] || e.reason);
+          if (e.error) extra.push(e.error);
+          if (e.ip) extra.push(e.ip);
+          return '<li class="log-' + esc(e.kind) + '">' + esc(fmt(e.at)) + ' — <b>' + esc(kindLabel[e.kind] || e.kind) + '</b>' +
+            (extra.length ? ' · ' + esc(extra.join(' · ')) : '') + '</li>';
+        }).join('') + '</ul></details>';
+    }
 
     // Sevkiyat bitince amir günün listesini kapatır; liman tarafı o günü görmez.
     var day = activeDay();
