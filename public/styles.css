@@ -6227,6 +6227,19 @@ body.im-page {
   color: #334155;
 }
 .sk-file input { font-size: 0.78rem; font-weight: 600; }
+.sk-right-col { display: flex; flex-direction: column; gap: 0.45rem; }
+.sk-archive select {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+.sk-archive[hidden] { display: none; }
+.sk-archive em.is-warn { color: #b45309; }
+.sk-archive em.is-ok { color: #15803d; }
+.sk-archive em.is-bad { color: #b91c1c; }
 .sk-file em { font-style: normal; color: #64748b; font-weight: 600; font-size: 0.72rem; }
 .sk-run {
   border: none;

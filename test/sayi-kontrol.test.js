@@ -408,3 +408,51 @@ test('Sayı kontrol page and menu wiring', () => {
   const session = fs.readFileSync(path.join(__dirname, '../public/session-manager.js'), 'utf8');
   assert.match(session, /sayi-kontrol\.html/);
 });
+
+test('liman arşivi (kapanmış gün) Excel yerine sevkiyat bloğu olur ve Netsis ile eşleşir', () => {
+  const day = {
+    dateKey: '2026-10-03',
+    label: '03.10.2026',
+    blocks: [{
+      title: 'YD15 / LOT NO 26 07 30 / 20 BBT / SAFİPORT',
+      liman: 'SAFİPORT',
+      booking: 'EBKG123456',
+      sip: 'M20202600000550',
+      tasiyici: 'GPM-AKYÜZ',
+      toplam: { bbt: '40', netTonaj: '54' },
+      rows: [
+        { sira: '1', plaka: '43 ADR 754', bbt: '20', cuval: '', bosCuval: '1080', net: '27', giden: '27540', sofor: 'ÖMER KAYA - 0537 403 10 74', telefon: '', irsaliye: 'R01 2026003577', tasiyici: 'AKYÜZ' },
+        { sira: '2', plaka: '43AB111', bbt: '20', net: '27000', giden: '', sofor: 'GELMEDİ', irsaliye: 'R012026003578', tasiyici: '' },
+        { sira: '3', plaka: '', bbt: '', irsaliye: '' },
+      ],
+    }],
+  };
+  const parsed = api.blocksFromLimanArchive(day);
+  assert.equal(parsed.ok, true);
+  const b = parsed.blocks[0];
+  assert.equal(b.sip, 'M20202600000550');
+  assert.equal(b.tarih, '03.10.2026');
+  assert.equal(b.key, '03.10.2026|S:M20202600000550');
+  assert.equal(b.bbt, 40);
+  assert.equal(b.kg, 54000);
+  assert.equal(b.lines.length, 2);
+  assert.deepEqual(
+    { plaka: b.lines[0].plaka, ob1: b.lines[0].ob1, kantar: b.lines[0].kantar, cuval: b.lines[0].cuval, sofor: b.lines[0].sofor, gsm: b.lines[0].gsm, tasiyici: b.lines[0].tasiyici, cari: b.lines[0].teslimCari },
+    { plaka: '43ADR754', ob1: 27000, kantar: 27540, cuval: 1080, sofor: 'ÖMER KAYA', gsm: '5374031074', tasiyici: 'AKYÜZ', cari: 'SAFİPORT' }
+  );
+  // Ortak blokta satırda nakliyeci yoksa boş kalır (tek taraf boş = fark sayılmaz)
+  assert.equal(b.lines[1].tasiyici, '');
+  assert.equal(b.lines[1].sofor, '');
+
+  const netsis = [{
+    source: 'netsis', sip: 'M20202600000550', tarih: '03.10.2026', key: '03.10.2026|S:M20202600000550',
+    lines: [
+      { irsaliye: 'R01202600003577', plaka: '43ADR754', tasiyici: 'AKYÜZ', teslimCari: 'Safiport Liman', ob1: 27000, kantar: 27540, sofor: 'ÖMER KAYA', gsm: '5374031074', bbt: 20, cuval: 1080 },
+      { irsaliye: 'R01202600003578', plaka: '43AB111', tasiyici: 'GPM', teslimCari: 'Safiport Liman', ob1: 27000, kantar: 26900, sofor: 'ALİ', gsm: '', bbt: 20, cuval: 0 },
+    ],
+  }];
+  const diff = api.diffReports(netsis, parsed.blocks);
+  assert.equal(diff.mode, 'sip-blocks');
+  assert.equal(diff.summary.lineOk, 2);
+  assert.equal(diff.summary.matchedOk, 1);
+});

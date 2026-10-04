@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
 const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici } = require('../lib/liman-sheet');
@@ -16,6 +17,11 @@ const MAX_ROWS = 2000;
 // Amirin kapattığı günler bu kadar süre sonra kendiliğinden listeden düşer (kv_store şişmesin).
 const CLOSED_DAY_TTL_MS = 45 * 24 * 60 * 60 * 1000;
 const DAY_KEY_RE = /^(\d{4}-\d{2}-\d{2}|tarihsiz)$/;
+// Kapatılan günün mühürlü kopyası: kantar yeni dosyaya geçince canlı liste silinse de sayı kontrol bunu kullanır.
+const ARCHIVE_PREFIX = 'liman_archive_v1:';
+const ARCHIVE_INDEX_KEY = 'liman_archive_index_v1';
+const ARCHIVE_ROW_FIELDS = ['sira', 'plaka', 'bbt', 'cuval', 'palet', 'bosBbt', 'bosCuval', 'net', 'giden', 'yukleme', 'sofor', 'telefon', 'irsaliye', 'tasiyici', 'note'];
+const CHECK_SUMMARY_FIELDS = ['matchedOk', 'matchedBad', 'onlyLeft', 'onlyRight', 'total', 'lineOk', 'lineBad', 'lineOnlyLeft', 'lineOnlyRight'];
 const DEFAULT_SITE_IPS = {
   AVDAN: ['95.3.27.82'],
   '1.OSB': ['195.175.103.150'],
@@ -242,6 +248,105 @@ function registerLimanRoutes(api, ctx, publicApp) {
         at: closed[day.dateKey].at || '',
         by: closed[day.dateKey].by || '',
       }));
+  }
+
+  async function readKvJson(key) {
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [key]);
+    const raw = (r.rows[0] && r.rows[0].value) || '';
+    let value = null;
+    try { value = raw ? JSON.parse(raw) : null; } catch (_) { value = null; }
+    return { raw, value };
+  }
+
+  /** mutator(eski) → yeni değer; undefined dönerse yazılmaz. Aynı anda yazımda 3 kez dener. */
+  async function updateKvJson(key, mutator) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const cur = await readKvJson(key);
+      const next = mutator(cur.value);
+      if (next === undefined) return { ok: true, skipped: true, value: cur.value };
+      const r = await q(
+        `INSERT INTO kv_store(key, value) VALUES($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+         WHERE kv_store.value IS NOT DISTINCT FROM $3
+         RETURNING key`,
+        [key, JSON.stringify(next), cur.raw]
+      );
+      if (r && ((r.rowCount > 0) || (r.rows && r.rows.length))) return { ok: true, value: next };
+    }
+    const err = new Error('Arşiv aynı anda güncellendi, tekrar deneyin.');
+    err.status = 409;
+    err.code = 'LIMAN_ARCHIVE_CONFLICT';
+    throw err;
+  }
+
+  /** Arşiv ile canlı listenin aynı olup olmadığını anlamak için (anlık durum / not hariç). */
+  function dayFingerprint(day) {
+    const shape = (day.blocks || []).map((block) => [
+      block.title, block.sip || '',
+      (block.rows || []).map((row) => [row.irsaliye, row.plaka, row.bbt, row.cuval, row.bosCuval, row.net, row.giden, row.sofor, row.telefon, row.tasiyici]),
+    ]);
+    return crypto.createHash('sha1').update(JSON.stringify(shape)).digest('hex').slice(0, 16);
+  }
+
+  function archiveBlocks(day) {
+    return (day.blocks || []).map((block) => ({
+      title: block.title || '',
+      liman: block.liman || '',
+      gemi: block.gemi || '',
+      booking: block.booking || '',
+      sevk: block.sevk || '',
+      sip: block.sip || '',
+      tasiyici: block.tasiyici || '',
+      yd: block.yd || '',
+      lot: block.lot || '',
+      toplam: block.toplam || null,
+      kalan: block.kalan || null,
+      rows: (block.rows || []).map((row) => {
+        const out = {};
+        ARCHIVE_ROW_FIELDS.forEach((field) => { out[field] = row[field] == null ? '' : row[field]; });
+        return out;
+      }),
+    }));
+  }
+
+  function archiveSummary(rec) {
+    const blocks = Array.isArray(rec.blocks) ? rec.blocks : [];
+    return {
+      dateKey: rec.dateKey,
+      label: rec.label,
+      closedAt: rec.closedAt || '',
+      closedBy: rec.closedBy || '',
+      fp: rec.fp || '',
+      blockCount: blocks.length,
+      rowCount: blocks.reduce((sum, block) => sum + ((block.rows && block.rows.length) || 0), 0),
+      check: rec.check || null,
+    };
+  }
+
+  async function writeArchiveIndex(rec) {
+    await updateKvJson(ARCHIVE_INDEX_KEY, (idx) => {
+      const next = idx && typeof idx === 'object' ? idx : {};
+      next[rec.dateKey] = archiveSummary(rec);
+      return next;
+    });
+  }
+
+  /** Günün iki kantardan birleşmiş son halini mühürler. İçerik aynıysa önceki kontrol sonucu korunur. */
+  async function archiveDay(state, key, by) {
+    const day = daysFromSheetState(state).find((d) => d.dateKey === key);
+    if (!day) return null;
+    const fp = dayFingerprint(day);
+    const saved = await updateKvJson(ARCHIVE_PREFIX + key, (prev) => ({
+      dateKey: key,
+      label: day.label,
+      closedAt: new Date().toISOString(),
+      closedBy: by,
+      fp,
+      blocks: archiveBlocks(day),
+      check: prev && prev.fp === fp ? (prev.check || null) : null,
+    }));
+    await writeArchiveIndex(saved.value);
+    return saved.value;
   }
 
   /** Kantarın bildirdiği yer; yoksa listedeki yükleme yerlerinin çoğunluğu. */
@@ -539,16 +644,20 @@ function registerLimanRoutes(api, ctx, publicApp) {
   // Amir: sevkiyat bitince günün listesini kapatır. Liman tarafında o gün görünmez;
   // sonraki günün listesi yüklüyse o kalır, yoksa liste boş olur. Kantar aynı dosyayı
   // yeniden gönderse de gün kapalı kalır (tarih dosya adından geldiği için).
+  // Kapatmadan önce günün son hali arşive mühürlenir (sayı kontrol bunu kullanır).
   api.put('/liman/day/:dateKey/close', requireAmir, async (req, res) => {
     try {
       const key = dayKeyParam(req);
       if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const by = sanitizeString((req.user && req.user.username) || '', 40);
+      const archived = await archiveDay(await readState(), key, by);
+      if (!archived) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
       const committed = await commitState((state) => {
         if (!daysFromSheetState(state).some((day) => day.dateKey === key)) {
           return { shortCircuit: true, missing: true };
         }
         state.closedDays = Object.assign({}, closedDays(state), {
-          [key]: { at: new Date().toISOString(), by: sanitizeString((req.user && req.user.username) || '', 40) },
+          [key]: { at: new Date().toISOString(), by },
         });
       });
       if (committed.missing) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
@@ -572,6 +681,67 @@ function registerLimanRoutes(api, ctx, publicApp) {
       return res.json(viewFor(req, committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DAY_REOPEN_FAILED');
+    }
+  });
+
+  // --- Arşiv (yalnız amir): sayı kontrol kapanmış sevkiyatı Excel yerine buradan alır ---
+  api.get('/liman/archive', requireAmir, async (req, res) => {
+    try {
+      const idx = (await readKvJson(ARCHIVE_INDEX_KEY)).value || {};
+      const live = Object.create(null);
+      daysFromSheetState(await readState()).forEach((day) => { live[day.dateKey] = dayFingerprint(day); });
+      const days = Object.keys(idx).filter((key) => DAY_KEY_RE.test(key)).sort().reverse().map((key) => {
+        const s = idx[key] || {};
+        return Object.assign({}, s, {
+          // Kapandıktan sonra kantardan farklı liste geldi: arşiv eski kalmış olabilir
+          changedSinceClose: !!(live[key] && s.fp && live[key] !== s.fp),
+        });
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ok: true, days });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_LIST_FAILED');
+    }
+  });
+
+  api.get('/liman/archive/:dateKey', requireAmir, async (req, res) => {
+    try {
+      const key = dayKeyParam(req);
+      if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const rec = (await readKvJson(ARCHIVE_PREFIX + key)).value;
+      if (!rec) return res.status(404).json({ ok: false, error: 'Bu gün arşivde yok.' });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ok: true, day: rec });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_READ_FAILED');
+    }
+  });
+
+  api.put('/liman/archive/:dateKey/check', requireAmir, async (req, res) => {
+    try {
+      const key = dayKeyParam(req);
+      if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const body = req.body || {};
+      const status = body.status === 'ok' ? 'ok' : (body.status === 'bad' ? 'bad' : '');
+      if (!status) return res.status(400).json({ ok: false, error: 'Geçersiz sonuç.' });
+      const summary = {};
+      CHECK_SUMMARY_FIELDS.forEach((field) => {
+        const n = Number(body.summary && body.summary[field]);
+        summary[field] = Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
+      });
+      const check = {
+        status,
+        at: new Date().toISOString(),
+        by: sanitizeString((req.user && req.user.username) || '', 40),
+        netsisFile: sanitizeString(body.netsisFile || '', 180),
+        summary,
+      };
+      const saved = await updateKvJson(ARCHIVE_PREFIX + key, (rec) => (rec ? Object.assign({}, rec, { check }) : undefined));
+      if (!saved.value) return res.status(404).json({ ok: false, error: 'Bu gün arşivde yok.' });
+      await writeArchiveIndex(saved.value);
+      return res.json({ ok: true, check });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_CHECK_FAILED');
     }
   });
 }

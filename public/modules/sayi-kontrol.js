@@ -506,6 +506,93 @@
     };
   }
 
+  function limanKg(value) {
+    var n = parseNum(value);
+    if (!Number.isFinite(n)) return 0;
+    return n > 0 && n < 500 ? n * 1000 : n;
+  }
+
+  /**
+   * Liman arşivindeki kapanmış gün (kantar Excel’inin mühürlü hali) → sevkiyat blokları.
+   * Excel’deki parseSevkiyatGrid ile aynı satır biçimi; tarih günün etiketinden gelir.
+   */
+  function blocksFromLimanArchive(day) {
+    var tarih = normalizeDate(day && day.label) || '';
+    var blocks = [];
+    ((day && day.blocks) || []).forEach(function (b, bi) {
+      var title = trimStr(b && b.title);
+      var blockTas = trimStr(b && b.tasiyici);
+      var blockTasFold = foldTr(blockTas);
+      var sharedTas = blockTasFold.indexOf('gpm') >= 0 && blockTasFold.indexOf('akyuz') >= 0;
+      var blockTasClass = sharedTas ? '' : classifyTasiyici(blockTas);
+      var liman = trimStr(b && b.liman);
+      var lines = [];
+      ((b && b.rows) || []).forEach(function (row) {
+        var plaka = normalizePlaka(row.plaka);
+        var irs = displayIrsaliye(row.irsaliye);
+        if (!plaka && !irs) return;
+        if (plaka && !looksLikePlaka(plaka) && !irs) return;
+        var sofor = trimStr(row.sofor);
+        var telefon = normalizeGsm(row.telefon);
+        if (foldTr(sofor) === 'gelmedi') {
+          sofor = '';
+        } else if (!telefon && /[-–]/.test(sofor)) {
+          var sp = sofor.split(/[-–]/);
+          sofor = trimStr(sp[0]);
+          telefon = normalizeGsm(sp[1]);
+        }
+        var cuval = Math.round(parseNum(row.cuval) || 0);
+        var bosCuval = Math.round(parseNum(row.bosCuval) || 0);
+        if (!cuval && bosCuval > 0) cuval = bosCuval;
+        var tasiRaw = trimStr(row.tasiyici);
+        lines.push({
+          irsaliye: irs,
+          plaka: plaka,
+          tasiyici: classifyTasiyici(tasiRaw) || blockTasClass,
+          tasiyiciRaw: tasiRaw || blockTas,
+          sofor: sofor,
+          gsm: telefon,
+          soforFull: sofor + (telefon ? (' ' + telefon) : ''),
+          teslimCari: liman,
+          ob1: limanKg(row.net),
+          kantar: limanKg(row.giden),
+          bbt: Math.round(parseNum(row.bbt) || 0),
+          cuval: cuval
+        });
+      });
+      var sip = normalizeSip((b && b.sip) || '') || extractNetsisSip(title);
+      var toplam = (b && b.toplam) || {};
+      var planBbt = Math.round(parseNum(toplam.bbt) || 0) || extractPlanBbtFromText(title);
+      var netKgTot = limanKg(toplam.netTonaj);
+      var headerTon = extractHeaderTon(title);
+      var booking = normalizeBooking((b && b.booking) || '') || normalizeBooking(title) || trimStr(b && b.booking);
+      blocks.push({
+        source: 'liman',
+        headerRow: bi,
+        headerText: title,
+        yd: normalizeYd((b && b.yd) || title),
+        lot: normalizeLot(title),
+        booking: booking,
+        sip: sip,
+        tarih: tarih,
+        teslimCari: liman,
+        bbt: planBbt,
+        ton: netKgTot > 0 ? netKgTot / 1000 : headerTon,
+        kg: netKgTot || (headerTon > 0 ? headerTon * 1000 : 0),
+        lines: lines,
+        sheetName: tarih ? ('Liman ' + tarih) : 'Liman',
+        key: blockKey(tarih, sip) || matchKey({ yd: normalizeYd(title), booking: booking, sip: sip }),
+        label: (sip || normalizeYd(title) || 'Blok') + (tarih ? (' · ' + tarih) : '')
+      });
+    });
+    return {
+      ok: blocks.length > 0,
+      blocks: blocks,
+      items: blocks,
+      error: blocks.length ? '' : 'Arşivde sevkiyat bloğu yok.'
+    };
+  }
+
   function mapNetsisCols(headerRow) {
     var map = {};
     (headerRow || []).forEach(function (cell, i) {
@@ -1675,7 +1762,8 @@
     opts = opts || {};
     var toast = typeof opts.toast === 'function' ? opts.toast : function () {};
     var mode = 'rapor'; // rapor | guncel
-    var state = { left: null, right: null, diff: null, leftFileName: '', rightFileName: '' };
+    var state = { left: null, right: null, diff: null, leftFileName: '', rightFileName: '', rightArchiveKey: '' };
+    var archiveDays = [];
 
     var tabs = document.getElementById('skTabs');
     var leftFile = document.getElementById('skLeftFile');
@@ -1689,11 +1777,126 @@
     var tableEl = document.getElementById('skTable');
     var runBtn = document.getElementById('skRunBtn');
     var homeBtn = document.getElementById('skHomeBtn');
+    var archiveWrap = document.getElementById('skArchiveWrap');
+    var archiveSel = document.getElementById('skRightArchive');
+    var archiveInfo = document.getElementById('skArchiveInfo');
 
     function setStatus(msg, isErr) {
       if (!statusEl) return;
       statusEl.textContent = msg || '';
       statusEl.className = 'sk-status' + (isErr ? ' is-err' : '');
+    }
+
+    function apiJson(url, init) {
+      var sm = root.SessionManager;
+      var doFetch = sm && typeof sm.fetchWithSession === 'function' ? sm.fetchWithSession.bind(sm) : fetch;
+      return doFetch(url, Object.assign({
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }
+      }, init || {})).then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (!res.ok || (data && data.ok === false)) {
+            var err = data && data.error;
+            throw new Error((err && (err.message || (typeof err === 'string' ? err : ''))) || ('HTTP ' + res.status));
+          }
+          return data;
+        });
+      });
+    }
+
+    function checkLabel(check) {
+      if (!check) return 'kontrol edilmedi';
+      return check.status === 'ok' ? 'tutuyor ✓' : 'fark var';
+    }
+
+    function setArchiveInfo(text, cls) {
+      if (!archiveInfo) return;
+      archiveInfo.textContent = text || '';
+      archiveInfo.className = cls ? ('is-' + cls) : '';
+    }
+
+    function describeArchive(d) {
+      if (!d) return '';
+      var parts = [d.blockCount + ' blok · ' + d.rowCount + ' satır'];
+      if (d.closedBy) parts.push('kapatan: ' + d.closedBy);
+      if (d.check) {
+        var when = d.check.at ? new Date(d.check.at).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        parts.push('son kontrol: ' + checkLabel(d.check) + (when ? ' (' + when + ')' : ''));
+      } else {
+        parts.push('kontrol edilmedi');
+      }
+      if (d.changedSinceClose) parts.push('DİKKAT: kapandıktan sonra kantardan farklı liste geldi — liman sayfasında yeniden açıp kapatın');
+      return parts.join(' · ');
+    }
+
+    function renderArchiveOptions() {
+      if (!archiveSel) return;
+      var current = state.rightArchiveKey;
+      archiveSel.innerHTML = '<option value="">Arşivden seç…</option>' + archiveDays.map(function (d) {
+        var txt = d.label + ' · ' + d.rowCount + ' satır · ' + checkLabel(d.check) + (d.changedSinceClose ? ' · değişti!' : '');
+        return '<option value="' + escapeHtml(d.dateKey) + '"' + (d.dateKey === current ? ' selected' : '') + '>' + escapeHtml(txt) + '</option>';
+      }).join('');
+    }
+
+    function loadArchiveList() {
+      if (!archiveSel) return Promise.resolve();
+      return apiJson('/api/liman/archive').then(function (data) {
+        archiveDays = (data && data.days) || [];
+        renderArchiveOptions();
+        if (!state.rightArchiveKey) {
+          setArchiveInfo(archiveDays.length
+            ? archiveDays.length + ' kapanmış sevkiyat var.'
+            : 'Amir liman sayfasında listeyi kapatınca burada görünür.');
+        }
+      }).catch(function (err) {
+        setArchiveInfo('Arşiv okunamadı: ' + (err.message || 'bağlantı yok'), 'bad');
+      });
+    }
+
+    function clearArchivePick() {
+      state.rightArchiveKey = '';
+      if (archiveSel) archiveSel.value = '';
+    }
+
+    async function loadArchiveDay(dateKey) {
+      if (!dateKey) {
+        if (state.rightArchiveKey) {
+          state.right = null;
+          state.rightArchiveKey = '';
+          if (rightName) rightName.textContent = 'Dosya seçilmedi';
+        }
+        return;
+      }
+      var data = await apiJson('/api/liman/archive/' + encodeURIComponent(dateKey));
+      var parsed = blocksFromLimanArchive(data && data.day);
+      if (!parsed.ok) throw new Error(parsed.error);
+      state.right = parsed;
+      state.rightArchiveKey = dateKey;
+      state.rightFileName = '';
+      if (rightFile) rightFile.value = '';
+      if (rightName) rightName.textContent = 'Liman arşivi kullanılıyor';
+      var meta = archiveDays.filter(function (d) { return d.dateKey === dateKey; })[0];
+      setArchiveInfo(describeArchive(meta), meta && meta.changedSinceClose ? 'warn' : '');
+      var noSip = parsed.blocks.filter(function (b) { return !b.sip; }).length;
+      setStatus((statusEl && statusEl.textContent ? statusEl.textContent + ' · ' : '') +
+        'Sağ: liman arşivi ' + ((data.day && data.day.label) || dateKey) + ' · ' + parsed.blocks.length + ' blok' +
+        (noSip ? (' · ' + noSip + ' blokta Netsis sipariş no yok') : ''));
+    }
+
+    function saveArchiveCheck(diff) {
+      var key = state.rightArchiveKey;
+      if (!key || !diff || !diff.summary) return;
+      var s = diff.summary;
+      var status = (s.matchedBad === 0 && s.onlyLeft === 0 && s.onlyRight === 0) ? 'ok' : 'bad';
+      apiJson('/api/liman/archive/' + encodeURIComponent(key) + '/check', {
+        method: 'PUT',
+        body: JSON.stringify({ status: status, summary: s, netsisFile: state.leftFileName })
+      }).then(function () {
+        setArchiveInfo('Sonuç arşive yazıldı: ' + checkLabel({ status: status }), status === 'ok' ? 'ok' : 'bad');
+        return loadArchiveList();
+      }).catch(function (err) {
+        setArchiveInfo('Sonuç arşive yazılamadı: ' + (err.message || 'bağlantı yok'), 'bad');
+      });
     }
 
     function updateModeLabels() {
@@ -1704,6 +1907,7 @@
         if (leftLabel) leftLabel.textContent = '1) Netsis raporu (RR.xls / .xlsx)';
         if (rightLabel) rightLabel.textContent = '2) Güncel sevkiyat Excel (YD blokları)';
       }
+      if (archiveWrap) archiveWrap.hidden = mode !== 'rapor';
     }
 
     function renderDiff() {
@@ -1776,6 +1980,7 @@
 
     async function loadRight(file) {
       if (!file) return;
+      clearArchivePick();
       state.rightFileName = file.name || '';
       if (rightName) rightName.textContent = file.name;
       var wb = await workbookFromFile(file);
@@ -1821,6 +2026,7 @@
         : state.right.items;
       state.diff = diffReports(leftBlocks, rightBlocks);
       renderDiff();
+      saveArchiveCheck(state.diff);
       var s = state.diff.summary;
       if (s.matchedBad === 0 && s.onlyLeft === 0 && s.onlyRight === 0) {
         setStatus('Tamam — sipariş blokları tutuyor.');
@@ -1842,6 +2048,7 @@
         state.left = null;
         state.right = null;
         state.diff = null;
+        clearArchivePick();
         if (leftName) leftName.textContent = 'Dosya seçilmedi';
         if (rightName) rightName.textContent = 'Dosya seçilmedi';
         if (leftFile) leftFile.value = '';
@@ -1862,6 +2069,15 @@
       rightFile.addEventListener('change', function () {
         loadRight(rightFile.files && rightFile.files[0]).catch(function (err) {
           setStatus(err.message || 'Sağ okunamadı', true);
+        });
+      });
+    }
+    if (archiveSel) {
+      archiveSel.addEventListener('change', function () {
+        loadArchiveDay(archiveSel.value).catch(function (err) {
+          clearArchivePick();
+          state.right = null;
+          setStatus(err.message || 'Arşiv okunamadı', true);
         });
       });
     }
@@ -1913,6 +2129,7 @@
 
     updateModeLabels();
     renderDiff();
+    loadArchiveList();
   }
 
   var api = {
@@ -1930,6 +2147,7 @@
     blockKey: blockKey,
     parseSevkiyatGrid: parseSevkiyatGrid,
     parseSevkiyatWorkbookSheets: parseSevkiyatWorkbookSheets,
+    blocksFromLimanArchive: blocksFromLimanArchive,
     parseNetsisGrid: parseNetsisGrid,
     parseRaporGrid: parseRaporGrid,
     itemsFromGuncel: itemsFromGuncel,

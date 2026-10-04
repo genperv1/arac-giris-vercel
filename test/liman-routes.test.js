@@ -157,7 +157,8 @@ test('publicApp verilince GET + kantar yazma uçları /api öneki ile app\'e, am
   assert.ok(appRoutes.includes('put /api/liman/snapshot'));
   assert.ok(appRoutes.includes('put /api/liman/heartbeat'));
   assert.ok(apiRoutes.includes('put /liman/day/:dateKey/close'));
-  assert.ok(!apiRoutes.some((r) => r.startsWith('get ')));
+  // Router'daki tek GET'ler amire özel arşiv uçları
+  assert.deepEqual(apiRoutes.filter((r) => r.startsWith('get ')), ['get /liman/archive', 'get /liman/archive/:dateKey']);
   assert.ok(!apiRoutes.includes('put /liman/snapshot'));
 });
 
@@ -408,4 +409,91 @@ test('çakışan liman yazımı 409 döner', async () => {
   assert.equal(status, 409);
   assert.equal(out.ok, false);
   assert.ok(writes >= 3);
+});
+
+test('kapatılan gün arşive mühürlenir; kantar yeni dosyaya geçse de arşiv kalır, kontrol sonucu yazılır', async () => {
+  const kantar = { username: 'AVDAN', role: 'admin' };
+  const amir = { username: 'xxr', role: 'amir' };
+  const day3 = (giden) => ({
+    title: 'YD15 / LOT NO 26 07 30 / SAFİPORT', liman: 'SAFİPORT', fileName: '03.10.2026.xlsx', sip: 'm2020 2600000550', tasiyici: 'AKYÜZ',
+    rows: [{ sira: '1', plaka: '43ADR754', bbt: '20', net: '27000', giden, sofor: 'ÖMER', telefon: '5374031074', irsaliye: 'R012026003577', tasiyici: 'AKYÜZ', yukleme: 'AVDAN' }],
+  });
+  const k = harness(kantar);
+  await k.call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [day3('27540')] });
+
+  const a = harness(amir);
+  Object.assign(a.store, k.store);
+  await a.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  let list = await a.call('get /liman/archive', '1.1.1.1');
+  assert.equal(list.days.length, 1);
+  assert.equal(list.days[0].label, '03.10.2026');
+  assert.equal(list.days[0].rowCount, 1);
+  assert.equal(list.days[0].closedBy, 'xxr');
+  assert.equal(list.days[0].check, null);
+  assert.equal(list.days[0].changedSinceClose, false);
+
+  // Kantar ertesi günün dosyasına geçti: canlı listede 03.10 kalmaz, arşiv durur
+  const k2 = harness(kantar);
+  Object.assign(k2.store, a.store);
+  await k2.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '04.10.2026.xlsx',
+    blocks: [Object.assign(block('YD2 / LOT NO 2 / EVYAP', 'AVDAN'), { fileName: '04.10.2026.xlsx' })],
+  });
+  const a2 = harness(amir);
+  Object.assign(a2.store, k2.store);
+  const rec = await a2.call('get /liman/archive/:dateKey', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  const row = rec.day.blocks[0].rows[0];
+  assert.equal(rec.day.blocks[0].sip, 'M20202600000550');
+  assert.equal(rec.day.blocks[0].tasiyici, 'AKYÜZ');
+  assert.equal(row.irsaliye, 'R012026003577');
+  assert.equal(row.giden, '27540');
+  assert.equal(row.telefon, '5374031074');
+  assert.equal('headerText' in row, false);
+
+  // Sayı kontrol sonucu arşive ve listeye yazılır
+  const saved = await a2.call('put /liman/archive/:dateKey/check', '1.1.1.1', { status: 'ok', netsisFile: 'RR.xls', summary: { matchedOk: 1, lineOk: 1, matchedBad: -3 } }, { dateKey: '2026-10-03' });
+  assert.equal(saved.check.status, 'ok');
+  assert.equal(saved.check.by, 'xxr');
+  assert.equal(saved.check.summary.matchedBad, 0);
+  list = await a2.call('get /liman/archive', '1.1.1.1');
+  assert.equal(list.days[0].check.status, 'ok');
+  assert.equal(list.days[0].check.netsisFile, 'RR.xls');
+
+  // Geçersiz sonuç / olmayan gün
+  const bad = await a2.call('put /liman/archive/:dateKey/check', '1.1.1.1', { status: 'x' }, { dateKey: '2026-10-03' });
+  assert.equal(bad.ok, false);
+  const missing = await a2.call('get /liman/archive/:dateKey', '1.1.1.1', {}, { dateKey: '2026-10-09' });
+  assert.equal(missing.ok, false);
+});
+
+test('kapandıktan sonra kantar farklı liste gönderirse arşiv "değişti" görünür; yeniden kapatınca güncellenir', async () => {
+  const kantar = { username: 'AVDAN', role: 'admin' };
+  const amir = { username: 'xxr', role: 'amir' };
+  const mk = (giden) => ({
+    title: 'YD15 / LOT NO 26 07 30 / SAFİPORT', liman: 'SAFİPORT', fileName: '03.10.2026.xlsx',
+    rows: [{ sira: '1', plaka: '43ADR754', bbt: '20', giden, irsaliye: 'R012026003577' }],
+  });
+  const k = harness(kantar);
+  await k.call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('')] });
+  const a = harness(amir);
+  Object.assign(a.store, k.store);
+  await a.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  await a.call('put /liman/archive/:dateKey/check', '1.1.1.1', { status: 'bad' }, { dateKey: '2026-10-03' });
+
+  const k2 = harness(kantar);
+  Object.assign(k2.store, a.store);
+  await k2.call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('27540')] });
+  const a2 = harness(amir);
+  Object.assign(a2.store, k2.store);
+  let list = await a2.call('get /liman/archive', '1.1.1.1');
+  assert.equal(list.days[0].changedSinceClose, true);
+
+  await a2.call('delete /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  list = await a2.call('get /liman/archive', '1.1.1.1');
+  assert.equal(list.days[0].changedSinceClose, false);
+  // İçerik değişti: eski kontrol sonucu geçersiz
+  assert.equal(list.days[0].check, null);
+  const rec = await a2.call('get /liman/archive/:dateKey', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.equal(rec.day.blocks[0].rows[0].giden, '27540');
 });

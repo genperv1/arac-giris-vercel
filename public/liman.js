@@ -239,14 +239,44 @@
     return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear();
   }
 
+  /** Kapatmadan önce amirin görmesi gerekenler: içeride kalan, irsaliyesi boş, gelmeyen araç. */
+  function closeWarnings(day) {
+    var inside = 0;
+    var noIrs = 0;
+    ((day && day.blocks) || []).forEach(function (block) {
+      (block.rows || []).forEach(function (row) {
+        var plaka = String(row.plaka || '').replace(/\s+/g, '');
+        if (!plaka) return;
+        if (row._printedInside || /^İÇERİDE$/i.test(String(row.durum || '').trim())) inside += 1;
+        if (!String(row.irsaliye || row.irsaliyeNo || '').trim()) noIrs += 1;
+      });
+    });
+    var waiting = 0;
+    var remaining = 0;
+    if (day && day.dateKey === state.day) {
+      gelmeyenBlocks().forEach(function (g) { waiting += g.waiting.length; remaining += g.remaining; });
+    }
+    var out = [];
+    if (inside) out.push('• ' + inside + ' araç hâlâ İÇERİDE');
+    if (noIrs) out.push('• ' + noIrs + ' araçta irsaliye no boş');
+    if (waiting) out.push('• ' + waiting + ' araç gelmedi');
+    if (remaining > 0) out.push('• ' + fmtTotal(remaining) + ' BBT için daha plaka verilmedi');
+    return out;
+  }
+
   async function closeDay(dateKey, btn) {
     var day = state.days.filter(function (d) { return d.dateKey === dateKey; })[0];
     var label = day ? day.label : dateKey;
-    if (!window.confirm(label + ' listesi kapatılsın mı?\n\nLiman görevlisi bu listeyi artık görmeyecek. Sonraki günün listesi yüklüyse o gösterilir, yoksa liste boş kalır.')) return;
+    var warnings = closeWarnings(day);
+    var msg = label + ' listesi kapatılsın mı?\n\n' +
+      (warnings.length ? 'DİKKAT:\n' + warnings.join('\n') + '\n\n' : 'Kontrol: içeride / irsaliyesiz / gelmeyen araç yok.\n\n') +
+      'Listenin son hali arşive alınır; sayı kontrolde Excel yerine bu kullanılır.\n' +
+      'Liman görevlisi bu listeyi artık görmeyecek. Sonraki günün listesi yüklüyse o gösterilir, yoksa liste boş kalır.';
+    if (!window.confirm(msg)) return;
     if (btn) btn.disabled = true;
     try {
       applyView(await api('/api/liman/day/' + encodeURIComponent(dateKey) + '/close', { method: 'PUT' }));
-      toast(label + ' listesi kapatıldı');
+      toast(label + ' listesi kapatıldı, arşive alındı');
     } catch (err) {
       if (btn) btn.disabled = false;
       toast(err.message || 'Liste kapatılamadı');

@@ -1120,6 +1120,7 @@
         return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames };
       }
       setNeedPath(false);
+      if (!silent) heartbeat(true, { ok: true });
       // Liman listesine gönder; sonucu kantar görsün (eskiden hata sessizce yutuluyordu)
       var limanNote = '';
       try {
@@ -1145,11 +1146,6 @@
             } else {
               limanNote = 'Liman listesi güncellendi (' + (pub.site || '') + ').';
             }
-            try {
-              if (pub.ok && typeof window.sendLimanHeartbeat === 'function') {
-                window.sendLimanHeartbeat({ excelLoaded: true, readOk: true });
-              }
-            } catch (eHb) { /* nabız ayrı; liste gittiysa sorun değil */ }
           } else if (pub && pub.reason === 'empty') {
             limanNote = 'Liman listesine gönderilecek satır yok.';
           }
@@ -1185,6 +1181,7 @@
       });
     } catch (e) {
       if (okNames && okNames.length) {
+        if (!silent) heartbeat(true, { ok: true });
         if (!silent) await warn(okNames.join(', ') + ' güncellendi. Diğer dosya okunamadı.');
         return { ok: true, okNames: okNames, failNames: failNames || [], msg: MSG_NOT_FOUND };
       }

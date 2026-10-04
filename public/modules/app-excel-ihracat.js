@@ -1380,7 +1380,25 @@ function _limanBlockSideInfo(grid, headerRowIdx, headerText) {
     const m = text.match(/GEM[İI]\s*DETAYI\s*:?\s*([^/]+)/i);
     if (m) out.gemi = m[1].trim();
   }
+  out.sip = _limanBlockSip(grid, headerRowIdx, headerText);
   return out;
+}
+
+/** Sayı kontrol Netsis raporunu bu numarayla eşler; önceki bloğun numarası sızmasın diye yukarı doğru en yakını alınır. */
+function _limanBlockSip(grid, headerRowIdx, headerText) {
+  const labeled = /NETS[İI]S\s*S[İI]PAR[İI][SŞ]\s*NO\s*[:.]?\s*(M\d{10,})/i;
+  const bare = /\b(M\d{14,})\b/i;
+  const fromHeader = String(headerText || '').match(labeled);
+  if (fromHeader) return fromHeader[1].toUpperCase();
+  for (let rr = headerRowIdx - 1; rr >= Math.max(0, headerRowIdx - 14); rr--) {
+    const row = grid[rr] || [];
+    if (isIhracatBlockHeaderRow(row)) break;
+    const text = _rowToText(row);
+    if (/\b(TOPLAM|KALAN)\b/i.test(text) && !/ARA\s+TOPLAM/i.test(text)) break;
+    const m = text.match(labeled) || text.match(bare);
+    if (m) return m[1].toUpperCase();
+  }
+  return '';
 }
 
 const LIMAN_TASIYICI_LABEL_RE = /^(GPM|AKY[UÜ]Z|MEDLOG)(\s*[-\/+]\s*(GPM|AKY[UÜ]Z|MEDLOG))*$/i;
