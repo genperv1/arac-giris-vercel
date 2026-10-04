@@ -82,19 +82,29 @@
       var info = (state.sites || {})[site] || null;
       var at = info && info.heartbeatAt;
       var readOk = info ? info.heartbeatReadOk : null;
+      var okAt = info && info.heartbeatReadOkAt;
+      // Kantar Excel'i elle yükleyince değişen liste gelir ama nabız eski okuma hatasında kalabilir:
+      // hatadan daha yeni değişmiş liste = Excel okunmuş.
+      var listAt = info && info.updatedAt;
+      var ts = function (iso) { return iso ? new Date(iso).getTime() || 0 : 0; };
+      if (listAt && ts(listAt) > ts(at) && ts(listAt) > ts(okAt)) {
+        readOk = true;
+        okAt = listAt;
+      }
+      var seenAt = ts(listAt) > ts(at) ? listAt : at;
       var cls = 'xs-none';
       var text;
-      if (!at || readOk === null || readOk === undefined) {
+      if (!seenAt || readOk === null || readOk === undefined) {
         text = 'Excel okuma bilgisi yok';
-      } else if (Date.now() - new Date(at).getTime() > 25 * 60 * 1000) {
-        text = 'kantar sayfası kapalı · son okuma ' + hm(info.heartbeatReadOkAt || at);
+      } else if (Date.now() - ts(seenAt) > 25 * 60 * 1000) {
+        text = 'kantar sayfası kapalı · son okuma ' + hm(okAt || seenAt);
       } else if (readOk) {
         cls = 'xs-ok';
-        text = 'Excel okundu ' + hm(info.heartbeatReadOkAt || at);
+        text = 'Excel okundu ' + hm(okAt || seenAt);
       } else {
         cls = 'xs-bad';
         text = (READ_REASON[info.heartbeatReadReason] || 'Excel okunamıyor') +
-          (info.heartbeatReadOkAt ? ' · son başarılı ' + hm(info.heartbeatReadOkAt) : '');
+          (okAt ? ' · son başarılı ' + hm(okAt) : '');
       }
       return '<span class="xs-item ' + cls + '"><b>' + esc(site) + ':</b> ' + esc(text) + '</span>';
     }).join('');

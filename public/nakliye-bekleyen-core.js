@@ -1386,6 +1386,29 @@
     return (items || []).filter(hasNakliyeBlockContent);
   }
 
+  function filterPrintReportsBySite(reports, site) {
+    const want = normalizeYuklemeYeri(site);
+    if (!want) return reports || [];
+    return (reports || []).filter((r) => {
+      const d = (r && r.data) || {};
+      return normalizeYuklemeYeri(d.basimYeri || (r && r.basimYeri)) === want;
+    });
+  }
+
+  /**
+   * Excel + kantarın bastığı takip formları: formu basılan plaka o sevkiyattan düşer (çıkmış sayılır, İÇERDE gösterilmez).
+   * site verilirse yalnız o basım yerinin formları sayılır.
+   */
+  function analyzeNakliyePendingWithPrints(rows, reports, meta, site) {
+    const own = filterPrintReportsBySite(reports, site);
+    let working = (rows || []).map((r) => clearLiveDepartedMark(r));
+    working = repairRowSourceFiles(working, meta);
+    if (own.length) {
+      working = applyLiveDepartedMarks(working, meta, own, { forPending: true });
+    }
+    return (analyzeNakliyePending(working, meta) || []).filter(hasNakliyeBlockContent);
+  }
+
   function enrichBalanceItemsWithReports(items, reports, meta) {
     const stats = collectYdReportStats(reports, meta);
     const matchedYds = new Set();
@@ -3368,6 +3391,8 @@
     applyExtraPrintsToPendingItems,
     normalizeNbSourceMode,
     analyzeNakliyePendingFromSource,
+    analyzeNakliyePendingWithPrints,
+    filterPrintReportsBySite,
     isGidenInsideNote,
     isGidenOutsideNote,
     isGidenAllocatedNote,

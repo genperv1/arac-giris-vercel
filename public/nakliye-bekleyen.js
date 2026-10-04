@@ -128,7 +128,71 @@
     const rows = loadRows();
     if (!rows.length || !core) return { rows, reports: [] };
     const cleaned = rows.map((r) => (core.clearLiveDepartedMark ? core.clearLiveDepartedMark(r) : r));
-    return { rows: cleaned, reports: [] };
+    return { rows: cleaned, reports: await loadPrintReports() };
+  }
+
+  const PRINT_TTL_MS = 60000;
+  const PRINT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  let _printCache = { at: 0, reports: [], loading: null };
+  let _printMark = null;
+
+  /** Bu sayfayı açan kantar: formları yalnız buna göre sayılır. Bilinmezse filtre yok. */
+  function currentKantarSite() {
+    try {
+      const pick = (raw) => {
+        const s = String(raw || '').toUpperCase();
+        if (/1\s*\.?\s*OSB/.test(s)) return '1.OSB';
+        if (/AVDAN/.test(s)) return 'AVDAN';
+        return '';
+      };
+      return (
+        pick(localStorage.getItem('currentUserId')) ||
+        pick(localStorage.getItem('liman_site_v1')) ||
+        pick(localStorage.getItem('currentClientSite'))
+      );
+    } catch (e) {
+      return '';
+    }
+  }
+
+  async function loadPrintReports(force) {
+    if (!force && _printCache.at && Date.now() - _printCache.at < PRINT_TTL_MS) return _printCache.reports;
+    if (_printCache.loading) return _printCache.loading;
+    _printCache.loading = (async () => {
+      try {
+        const since = Date.now() - PRINT_WINDOW_MS;
+        const res = await fetch('/api/liman/departed?since=' + since, { credentials: 'same-origin', cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          _printCache.reports = Array.isArray(data) ? data : [];
+          _printCache.at = Date.now();
+        }
+      } catch (e) {
+        console.warn('nakliye-bekleyen: takip formları alınamadı', e);
+      } finally {
+        _printCache.loading = null;
+      }
+      return _printCache.reports;
+    })();
+    return _printCache.loading;
+  }
+
+  /** Yeni form basıldı mı (hafif istek); basıldıysa liste hemen tazelenir. */
+  async function checkNewPrints() {
+    if (document.visibilityState !== 'visible' || isNbEditing()) return;
+    try {
+      const res = await fetch('/api/liman/version', { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) return;
+      const info = await res.json();
+      const p = info && info.p != null ? String(info.p) : null;
+      if (p == null) return;
+      const changed = _printMark != null && p !== _printMark;
+      _printMark = p;
+      if (changed) {
+        await loadPrintReports(true);
+        await renderList();
+      }
+    } catch (e) {}
   }
 
   function loadMeta() {
@@ -1426,6 +1490,7 @@
         _renderQueued = false;
         const loaded = await loadRowsWithLiveDeparted();
         let rows = loaded && loaded.rows ? loaded.rows : loaded || [];
+        const reports = (loaded && loaded.reports) || [];
         rows = await repairRowsTasiyiciIfNeeded(rows);
 
         if (!rows.length) {
@@ -1436,7 +1501,9 @@
         }
         noExcel?.classList.add('hidden');
 
-      if (core && typeof core.analyzeNakliyePendingFromSource === 'function') {
+      if (core && typeof core.analyzeNakliyePendingWithPrints === 'function') {
+        _allItems = core.analyzeNakliyePendingWithPrints(rows, reports, loadMeta(), currentKantarSite());
+      } else if (core && typeof core.analyzeNakliyePendingFromSource === 'function') {
         _allItems = core.analyzeNakliyePendingFromSource(rows, [], loadMeta(), 'excel');
       } else {
         _allItems = core ? core.analyzeNakliyePending(rows, loadMeta()) : [];
@@ -1511,6 +1578,10 @@
       if (isNbEditing()) return;
       void refreshFromStore();
     }, 60000);
+    setInterval(() => {
+      void checkNewPrints();
+    }, 20000);
+    void checkNewPrints();
   }
 
   function bindUiHandlers() {
@@ -1522,7 +1593,8 @@
       }
     });
 
-    document.getElementById('nbRefreshBtn')?.addEventListener('click', () => {
+    document.getElementById('nbRefreshBtn')?.addEventListener('click', async () => {
+      await loadPrintReports(true);
       void refreshFromStore();
     });
 

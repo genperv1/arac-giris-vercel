@@ -4443,6 +4443,8 @@ async function commitIhracatImport(uniq2, meta, file, opts) {
       msg: 'Kaydetme başarısız. Sayfayı yenileyip tekrar deneyin (Ctrl+F5).',
     };
   }
+  // Excel elle seçilip okundu: amir ekranındaki eski "dosya bulunamadı" uyarısı kalksın
+  Promise.resolve(sendLimanHeartbeat({ excelLoaded: true, readOk: true })).catch(() => {});
 
   purgeStrictExcelCaches();
   rebuildListsFromExcelRows(rowsToSave);

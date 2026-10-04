@@ -3259,6 +3259,61 @@ test('Excel kaynak — rapor gelmeyen 4 plakayı kapatmaz, kalan 86 BBT', () => 
   assert.equal(fromSistemArg[0].waitingPlates.length, 4);
 });
 
+test('analyzeNakliyePendingWithPrints — kantarın bastığı form plakayı sevkiyattan düşer, diğer kantarınki sayılmaz', () => {
+  const header = 'YD276(M) / LOT NO 26 07 44 / HP 0,15-0,40 / 400 BBT';
+  const fileName = '21.08.2026.xlsx';
+  const meta = { dateKey: '2026-08-21', fileName };
+  const waiting = [
+    { plaka: '03ACR440', bbt: '28' },
+    { plaka: '03YB448', bbt: '28' },
+    { plaka: '03BK867', bbt: '22' },
+    { plaka: '03AFA819', bbt: '24' },
+  ];
+  const departedBbt = [26, 26, 26, 26, 27, 27, 27, 27];
+  const rows = waiting.map((p, i) => ({
+    blockKey: 'B276',
+    blockHeaderRow: 10,
+    headerText: header,
+    ydKey: 'YD276',
+    fileName,
+    plaka: p.plaka,
+    bbt: p.bbt,
+    gidenTonaj: '',
+    sira: String(i + 1),
+  }));
+  departedBbt.forEach((bbt, i) => {
+    rows.push({
+      blockKey: 'B276',
+      blockHeaderRow: 10,
+      headerText: header,
+      ydKey: 'YD276',
+      fileName,
+      plaka: '03DEP' + String(100 + i),
+      bbt: String(bbt),
+      gidenTonaj: '25000',
+      netTonaj: '25000',
+      tonajKg: '25000',
+      sira: String(i + 6),
+    });
+  });
+  const print = (plaka, basimYeri, i) => ({
+    type: 'PRINT',
+    ts: new Date('2026-08-21T11:00:00+03:00').getTime() + i * 60000,
+    data: { plaka, firma: 'YD276(M) / LOT NO 26 07 44', bbt: '28', basimYeri },
+  });
+  const reports = [print('03ACR440', 'AVDAN', 0), print('03YB448', 'avdan', 1), print('03BK867', '1.OSB', 2)];
+
+  const avdan = core.analyzeNakliyePendingWithPrints(rows, reports, meta, 'AVDAN');
+  assert.equal(avdan.length, 1);
+  assert.deepEqual(avdan[0].waitingPlates.map((p) => p.plaka).sort(), ['03AFA819', '03BK867']);
+  assert.equal(avdan[0].remainingBbt, 86);
+  const sheet = core.buildExcelBlockRows(avdan[0]);
+  assert.equal(sheet.filter((r) => /İÇERDE/i.test(String(r.b || ''))).length, 0);
+
+  const osb = core.analyzeNakliyePendingWithPrints(rows, reports, meta, '1.OSB');
+  assert.deepEqual(osb[0].waitingPlates.map((p) => p.plaka).sort(), ['03ACR440', '03AFA819', '03YB448']);
+});
+
 test('displayTasiyici / isOzmalCarrierName — GPM özmal, diğerleri nakliyeci', () => {
   assert.equal(core.isOzmalCarrierName('GPM'), true);
   assert.equal(core.isOzmalCarrierName('gpm'), true);
