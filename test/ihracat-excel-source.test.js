@@ -240,11 +240,20 @@ test('findExcelByFileName rejects path traversal names', async () => {
   assert.equal(found, '');
 });
 
-test('client refresh: manual button + silent 10 dk auto refresh (kantar only), no fs watch', () => {
+test('client refresh: manual button + silent auto refresh + 30 sn file stamp watch (kantar only)', () => {
   assert.match(clientCode, /AUTO_REFRESH_MS = 10 \* 60 \* 1000/);
+  assert.match(clientCode, /FIRST_REFRESH_MS = 15 \* 1000/);
+  assert.match(clientCode, /WATCH_MS = 30 \* 1000/);
   assert.match(clientCode, /setInterval\s*\(/);
-  assert.doesNotMatch(clientCode, /setTimeout\s*\(/);
+  assert.equal((clientCode.match(/setTimeout\s*\(/g) || []).length, 1);
   assert.doesNotMatch(clientCode, /fs\.watch/);
+  const watchFn = clientCode.slice(
+    clientCode.indexOf('async function grantedStamp'),
+    clientCode.indexOf('function startAutoRefresh')
+  );
+  assert.match(watchFn, /queryPermission\(\{ mode: 'read' \}\)\) !== 'granted'/);
+  assert.match(watchFn, /isKantarSessionActive\(\)/);
+  assert.doesNotMatch(watchFn, /showOpenFilePicker|requestPermission|warn\(|showToast/);
   // Otomatik tur: izin penceresi / dosya seçici / uyarı açmaz, amir oturumunda çalışmaz
   const autoFn = clientCode.slice(
     clientCode.indexOf('async function autoRefreshTick'),

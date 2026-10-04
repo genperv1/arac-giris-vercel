@@ -282,6 +282,85 @@ test('kantar liste gönderince presence online olur', async () => {
   assert.deepEqual(touched, ['1.OSB']);
 });
 
+test('nakliyeci (GPM / AKYÜZ) yalnız amire gider; ortak çekimde iki firma birlikte görünür', async () => {
+  const k = harness({ username: 'AVDAN', role: 'admin' });
+  await k.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '05.10.2026.xlsx',
+    blocks: [{
+      title: 'YD172(G) / LOT NO 26 09 24 / YILPORT', liman: 'YILPORT', fileName: '05.10.2026.xlsx', tasiyici: 'GPM + AKYÜZ',
+      rows: [
+        { sira: '1', plaka: '43AB111', yukleme: 'AVDAN', tasiyici: 'GPM' },
+        { sira: '2', plaka: '43AB222', yukleme: 'AVDAN', tasiyici: 'AKYÜZ' },
+      ],
+    }],
+  });
+  const amir = harness({ username: 'xxr', role: 'amir' });
+  Object.assign(amir.store, k.store);
+  const amirBlock = (await amir.call('get /liman', '1.1.1.1')).days[0].blocks[0];
+  assert.equal(amirBlock.tasiyici, 'GPM + AKYÜZ');
+  assert.deepEqual(amirBlock.rows.map((r) => r.tasiyici), ['GPM', 'AKYÜZ']);
+
+  const anon = harness(undefined);
+  Object.assign(anon.store, k.store);
+  const anonBlock = (await anon.call('get /liman', '5.5.5.5')).days[0].blocks[0];
+  assert.equal('tasiyici' in anonBlock, false);
+  assert.ok(anonBlock.rows.every((r) => !('tasiyici' in r)));
+  assert.equal(anonBlock.rows[0].plaka, '43AB111');
+});
+
+test('eski sürüm kantar nakliyecisiz gönderince kayıtlı AKYÜZ / GPM silinmez', async () => {
+  const title = 'YD172(G) / LOT NO 26 09 24 / HP120280-B23-01 / YILPORT';
+  const k = harness({ username: 'AVDAN', role: 'admin' });
+  await k.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '05.10.2026.xlsx',
+    blocks: [{ title, liman: 'YILPORT', fileName: '05.10.2026.xlsx', tasiyici: 'GPM-AKYÜZ',
+      rows: [{ sira: '1', plaka: '43AB111', tasiyici: 'GPM' }, { sira: '2', plaka: '', tasiyici: 'AKYÜZ' }] }],
+  });
+  // Eski sürüm: aynı blok, giden tonaj girilmiş, nakliyeci alanı yok
+  await k.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '05.10.2026.xlsx',
+    blocks: [{ title, liman: 'YILPORT', fileName: '05.10.2026.xlsx',
+      rows: [{ sira: '1', plaka: '43AB111', giden: '26080' }, { sira: '2', plaka: '43AB222' }] }],
+  });
+  const amir = harness({ username: 'xxr', role: 'amir' });
+  Object.assign(amir.store, k.store);
+  const b = (await amir.call('get /liman', '1.1.1.1')).days[0].blocks[0];
+  assert.equal(b.tasiyici, 'GPM-AKYÜZ');
+  assert.deepEqual(b.rows.map((r) => r.tasiyici), ['GPM', 'AKYÜZ']);
+  assert.equal(b.rows[0].gidenTonaj, '26080');
+  assert.equal(b.rows[1].plaka, '43AB222');
+});
+
+test('sürüm ucu son takip formu baskısını da döner (liman İÇERİDE için)', async () => {
+  const routes = {};
+  const api = {};
+  ['get', 'put', 'post', 'delete'].forEach((m) => {
+    api[m] = (path, ...handlers) => { routes[m + ' ' + path] = handlers[handlers.length - 1]; };
+  });
+  let lastPrint = 1000;
+  registerLimanRoutes(api, {
+    q: async (sql) => {
+      if (/MAX\(tarih\)/i.test(sql)) return { rows: [{ t: lastPrint }] };
+      return { rows: [] };
+    },
+    sendApiError: (res, err) => { throw err; },
+    requireValidSession: (q, s, n) => n(),
+    requireAmir: (q, s, n) => n(),
+    sanitizeString: (v, n) => String(v || '').slice(0, n),
+  });
+  const call = async () => {
+    let out;
+    await routes['get /liman/version']({ headers: {} }, { json: (d) => { out = d; }, setHeader() {}, status() { return this; } });
+    return out;
+  };
+  const a = await call();
+  assert.equal(a.p, '1000');
+  lastPrint = 2000;
+  const b = await call();
+  assert.equal(b.p, '2000');
+  assert.equal(a.v, b.v);
+});
+
 test('amir gönderimi yok sayılır', async () => {
   const { call, store } = harness({ username: 'xxr', role: 'amir' });
   const put = await call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', blocks: [block('YD1 / LOT NO 1 / EVYAP', 'AVDAN')] });
@@ -289,16 +368,13 @@ test('amir gönderimi yok sayılır', async () => {
   assert.deepEqual(store, {});
 });
 
-test('anonim departed PII kırpar; oturumlu bırakır', () => {
+test('departed akışı liman görevlisine şoför adı ve telefonu da verir', () => {
   const d = { plaka: '43RY761', sofor: 'Ali', iletisim: '555', firma: 'X', malzeme: 'P1' };
-  const inst = { tarih: '03.10.2026', saat: '10:00' };
-  const anon = departedDataFields(d, inst, false);
-  assert.equal(anon.plaka, '43RY761');
-  assert.equal(anon.sofor, '');
-  assert.equal(anon.iletisim, '');
-  const authed = departedDataFields(d, inst, true);
-  assert.equal(authed.sofor, 'Ali');
-  assert.equal(authed.iletisim, '555');
+  const out = departedDataFields(d, { tarih: '03.10.2026', saat: '10:00' });
+  assert.equal(out.plaka, '43RY761');
+  assert.equal(out.sofor, 'Ali');
+  assert.equal(out.iletisim, '555');
+  assert.equal(out.saat, '10:00');
 });
 
 test('çakışan liman yazımı 409 döner', async () => {

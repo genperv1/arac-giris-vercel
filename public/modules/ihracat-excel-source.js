@@ -1,7 +1,8 @@
 /**
  * İhracat Excel kaynağı: ilk seçimde dosya konumunu saklar,
  * kullanıcı “Güncelle”ye basınca yeniden okur.
- * Kantar oturumunda ayrıca 10 dakikada bir sessiz otomatik güncelleme dener:
+ * Kantar oturumunda dosya 30 sn'de bir yoklanır, kaydedildiyse hemen okunur;
+ * ayrıca açılıştan 15 sn sonra ve 10 dakikada bir sessiz otomatik güncelleme dener:
  * dosya izni zaten verilmişse (veya sunucu dosyayı görüyorsa) okur, liman listesine gönderir;
  * izin yoksa hiçbir pencere / uyarı açmadan sessizce geçer.
  */
@@ -15,6 +16,8 @@
   var MSG_NOT_FOUND = 'İhracat Excel dosyası bulunamadı. Lütfen dosyayı tekrar seçin.';
   var MSG_CLEARED = 'İhracat Excel silindi. Güncellemek için önce dosyayı tekrar yükleyin.';
   var AUTO_REFRESH_MS = 10 * 60 * 1000;
+  var FIRST_REFRESH_MS = 15 * 1000;
+  var WATCH_MS = 30 * 1000;
   var _busy = false;
   var _silentRun = false;
   var _silentPermMissing = false;
@@ -1259,12 +1262,83 @@
     heartbeat(true, read);
   }
 
+  /** Kaydedilen Excel'i fark etmek için yalnız dosya damgası (tarih + boyut) okunur; izin penceresi açılmaz. */
+  var _watchStamps = Object.create(null);
+  var _watchBusy = false;
+
+  async function grantedStamp(handle) {
+    if (!handle || typeof handle.getFile !== 'function' || typeof handle.queryPermission !== 'function') return '';
+    try {
+      if ((await handle.queryPermission({ mode: 'read' })) !== 'granted') return '';
+      var f = await handle.getFile();
+      return f ? String(f.lastModified) + ':' + String(f.size) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  async function watchTick() {
+    if (_watchBusy || _busy || _picking) return;
+    if (typeof window.applyIhracatExcelReread !== 'function') return;
+    if (!isKantarSessionActive() || !navigator.onLine) return;
+    _watchBusy = true;
+    try {
+      var sources = [];
+      try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
+      var changed = false;
+      for (var i = 0; i < sources.length; i++) {
+        var key = handleKey(sources[i]);
+        var stamp = await grantedStamp(handleForName(sources[i]) || (sources.length === 1 ? _liveHandle : null));
+        if (!stamp) continue;
+        if (_watchStamps[key] && _watchStamps[key] !== stamp) changed = true;
+        _watchStamps[key] = stamp;
+      }
+      if (changed) {
+        try { console.info('[İhracat Excel] dosya kaydedildi, liste yeniden okunuyor'); } catch (e) {}
+        await autoRefreshTick();
+      }
+    } finally {
+      _watchBusy = false;
+    }
+  }
+
+  /**
+   * Sekme uykudan / bilgisayar uykudan uyanınca, sekme yeniden görünür olunca
+   * veya internet geri gelince 10 dk beklemeden hemen güncelle (Edge uyku sekmeleri).
+   */
+  var WAKE_MIN_GAP_MS = 60 * 1000;
+  var _lastWakeTickAt = 0;
+  var _lastTimerAt = Date.now();
+
+  function wakeTick() {
+    var now = Date.now();
+    if (now - _lastWakeTickAt < WAKE_MIN_GAP_MS) return;
+    _lastWakeTickAt = now;
+    _lastTimerAt = now;
+    autoRefreshTick().catch(function () {});
+  }
+
   function startAutoRefresh() {
     if (window.__ihracatExcelAutoRefreshTimer) return;
     if (/\/liman(\.html)?$/i.test(String(location.pathname || ''))) return;
     window.__ihracatExcelAutoRefreshTimer = setInterval(function () {
+      _lastTimerAt = Date.now();
       autoRefreshTick().catch(function () {});
     }, AUTO_REFRESH_MS);
+    setTimeout(function () { autoRefreshTick().catch(function () {}); }, FIRST_REFRESH_MS);
+    setInterval(function () {
+      // Zamanlayıcı uzun süre çalışmadıysa sayfa donmuş/uyumuş demektir: hemen güncelle.
+      if (Date.now() - _lastTimerAt > AUTO_REFRESH_MS + WATCH_MS * 2) wakeTick();
+      watchTick().catch(function () {});
+    }, WATCH_MS);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) wakeTick();
+    });
+    document.addEventListener('resume', wakeTick);
+    window.addEventListener('online', wakeTick);
+    window.addEventListener('pageshow', function (ev) {
+      if (ev && ev.persisted) wakeTick();
+    });
   }
 
   try {

@@ -2,7 +2,7 @@
 
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
-const { daysFromSheetState, siteHasBlocks, sanitizeBlocks } = require('../lib/liman-sheet');
+const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { printHistoryListColumns, printHistoryKantarSelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
 
@@ -21,7 +21,8 @@ const DEFAULT_SITE_IPS = {
   '1.OSB': ['195.175.103.150'],
 };
 
-function departedDataFields(d, inst, includePii) {
+// Liman görevlisi giriş yapmaz ama aracı karşılamak için şoför adı ve telefonu gerekir.
+function departedDataFields(d, inst) {
   return {
     plaka: d.plaka || '',
     cekiciPlaka: d.cekiciPlaka || '',
@@ -34,8 +35,8 @@ function departedDataFields(d, inst, includePii) {
     yuklemeNotu: d.yuklemeNotu || '',
     excelFileName: d.excelFileName || '',
     basimYeri: d.basimYeri || '',
-    sofor: includePii ? (d.sofor || '') : '',
-    iletisim: includePii ? (d.iletisim || '') : '',
+    sofor: d.sofor || '',
+    iletisim: d.iletisim || '',
     tarih: (inst && inst.tarih) || '',
     saat: (inst && inst.saat) || '',
   };
@@ -297,14 +298,30 @@ function registerLimanRoutes(api, ctx, publicApp) {
     return out;
   }
 
+  /** Nakliyeci (GPM / AKYÜZ) iç bilgi: liman görevlisi ve gözetmen görmez. */
+  function withoutTasiyici(days) {
+    return days.map((day) => Object.assign({}, day, {
+      blocks: day.blocks.map((block) => {
+        const { tasiyici, ...rest } = block;
+        return Object.assign(rest, {
+          rows: (block.rows || []).map((row) => {
+            const { tasiyici: _t, ...r } = row;
+            return r;
+          }),
+        });
+      }),
+    }));
+  }
+
   function viewFor(req, state) {
     const amir = isAmirUser(req);
+    const days = openDays(state);
     return {
       ok: true,
       version,
       canEdit: amir,
       sites: publicSites(state),
-      days: openDays(state),
+      days: amir ? days : withoutTasiyici(days),
       // Kapatılan günler: amir yeniden açabilsin, liman görevlisi "sevkiyat bitti" diye anlasın
       closedDays: closedDayList(state),
       // Yalnız amir: gönderim günlüğü (kabul / aynı / nabız / red)
@@ -334,8 +351,14 @@ function registerLimanRoutes(api, ctx, publicApp) {
   reader.get(readPrefix + '/liman/version', async (req, res) => {
     try {
       await loadRaw();
+      // Son takip formu baskısı: değişince liman sayfası aracı hemen İÇERİDE gösterir
+      let lastPrint = null;
+      try {
+        const pr = await q('SELECT MAX(tarih) AS t FROM print_history');
+        lastPrint = (pr.rows[0] && pr.rows[0].t != null) ? String(pr.rows[0].t) : null;
+      } catch (_) { /* baskı bilgisi yoksa yalnız liste sürümü */ }
       res.setHeader('Cache-Control', 'no-store');
-      return res.json({ v: version });
+      return res.json({ v: version, p: lastPrint });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_VERSION_FAILED');
     }
@@ -355,7 +378,6 @@ function registerLimanRoutes(api, ctx, publicApp) {
         ' FROM print_history WHERE tarih >= $1 ORDER BY tarih DESC LIMIT $2',
         [since, DEPARTED_MAX_ROWS]
       );
-      const includePii = !!(req.user && (isAmirUser(req) || req.user.username));
       const out = [];
       (r.rows || []).forEach((row) => {
         try {
@@ -369,7 +391,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
             saat: inst.saat,
             plaka: d.plaka || '',
             firma: m.firma || '',
-            data: departedDataFields(d, inst, includePii),
+            data: departedDataFields(d, inst),
           });
         } catch (_) { /* bozuk satır atlanır */ }
       });
@@ -451,6 +473,13 @@ function registerLimanRoutes(api, ctx, publicApp) {
       };
       const committed = await commitState((state) => {
         const prev = state.sites[site];
+        const prevBlocks = [];
+        if (prev && Array.isArray(prev.blocks)) prevBlocks.push(...prev.blocks);
+        Object.keys(state.sites).forEach((other) => {
+          const snap = state.sites[other];
+          if (other !== site && snap && Array.isArray(snap.blocks)) prevBlocks.push(...snap.blocks);
+        });
+        snapshot.blocks = carryTasiyici(prevBlocks, snapshot.blocks);
         const sameContent = prev && prev.fileName === snapshot.fileName
           && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
           && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);

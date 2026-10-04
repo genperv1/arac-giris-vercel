@@ -1383,6 +1383,17 @@ function _limanBlockSideInfo(grid, headerRowIdx, headerText) {
   return out;
 }
 
+const LIMAN_TASIYICI_LABEL_RE = /^(GPM|AKY[UÜ]Z|MEDLOG)(\s*[-\/+]\s*(GPM|AKY[UÜ]Z|MEDLOG))*$/i;
+
+/** Blok başlığının solundaki A sütunu etiketi (AKYÜZ / GPM-AKYÜZ), Excel'deki yazısıyla. */
+function _limanBlockTasiyiciLabel(grid, headerRowIdx) {
+  for (let rr = headerRowIdx; rr >= Math.max(0, headerRowIdx - 8); rr--) {
+    const v = String(((grid[rr] || [])[0]) == null ? '' : grid[rr][0]).replace(/\s+/g, ' ').trim();
+    if (LIMAN_TASIYICI_LABEL_RE.test(v)) return v.toLocaleUpperCase('tr-TR');
+  }
+  return '';
+}
+
 function _limanSheetRow(d, parseCols, blockCols, yuklemeCol, soforCol, telefonCol) {
   const cell = (idx) => (idx === undefined || idx === null || d[idx] == null ? '' : String(d[idx]).trim());
   const sira = cell(blockCols.sirano);
@@ -4161,7 +4172,10 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         continue;
       }
       const limanRow = _limanSheetRow(d, parseCols, blockCols, yuklemeCol, limanSoforCol, limanTelefonCol);
-      if (limanRow) limanSheetBlock.rows.push(limanRow);
+      if (limanRow) {
+        limanRow.tasiyici = rowTasiyici || '';
+        limanSheetBlock.rows.push(limanRow);
+      }
       if (!plakaRaw) {
         const blankIrs = resolveIrsaliyeFromRow(d, parseCols);
         const blankSira = blockCols.sirano !== undefined ? (d[blockCols.sirano] != null ? String(d[blockCols.sirano]).trim() : '') : '';
@@ -4294,6 +4308,8 @@ firma: (firma || '').slice(0, 40),
     });
     if (yuklemeYeri && blockMeta) blockMeta.yuklemeYeri = yuklemeYeri;
     limanSheetBlock.note = blockYuklemeNotu || '';
+    limanSheetBlock.tasiyici = _limanBlockTasiyiciLabel(grid, r)
+      || Array.from(new Set(limanSheetBlock.rows.map((lr) => lr.tasiyici).filter(Boolean))).join('-');
     blockBlankRows.forEach((br) => {
       if (!br.yuklemeYeri && yuklemeYeri && !String(yuklemeYeri).includes('/')) br.yuklemeYeri = yuklemeYeri;
       limanBlankRows.push(br);

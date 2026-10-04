@@ -26,6 +26,7 @@
     table.grid th.c-ton, table.grid td.c-ton { width: 66px; }
     table.grid th.c-yer, table.grid td.c-yer { width: 60px; padding-left: 3px; padding-right: 3px; }
     table.grid th.c-durum, table.grid td.c-durum { width: 78px; }
+    table.grid td.c-durum.is-inside { color: #1d4ed8; font-weight: 800; }
     table.grid th.c-nar, table.grid th.c-yer { line-height: 1.1; }
     .blok { background: #fff; border: 1px solid #8fa888; box-shadow: 0 2px 6px rgba(0,0,0,.12); margin-bottom: 34px; }
     .blok:last-child { margin-bottom: 0; }
@@ -67,6 +68,30 @@
     table.grid tr.is-out td { background: #dcfce7; }
     .noplate { color: #b45309; font-weight: 700; }
     .mark { color: #166534; font-weight: 700; font-size: .75rem; }
+    .blok-title.has-tasiyici { display: flex; align-items: flex-start; gap: 10px; }
+    .blok-tasiyici { flex: 0 0 auto; padding: 4px 10px; border: 1.5px solid #dc2626; border-radius: 3px; background: #fff; color: #dc2626; font-weight: 800; font-size: .82rem; line-height: 1.3; white-space: nowrap; }
+    table.grid th.c-tas { width: 70px; }
+    table.grid td.c-tas { padding: 2px 4px; }
+    .tas-box { display: block; padding: 2px 6px; border: 1px solid #94a3b8; background: #8eaadb; color: #111; font-size: .72rem; font-weight: 600; text-align: center; }
+    .tas-box.is-gpm { background: #ffff00; }
+    .gelmeyen-wrap { margin-left: auto; margin-right: 12px; position: relative; }
+    .gelmeyen-wrap:empty { display: none; }
+    .gelmeyen-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid rgba(255,255,255,.35); border-radius: 999px; background: rgba(255,255,255,.1); color: #fff; font-size: .8rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .gelmeyen-btn:hover, .gelmeyen-btn.is-open { background: rgba(255,255,255,.2); }
+    .gelmeyen-btn .g-count { background: #f97316; color: #fff; border-radius: 999px; padding: 0 7px; font-size: .75rem; }
+    .gelmeyen-btn .g-count.is-zero { background: #16a34a; }
+    .gelmeyen { position: fixed; z-index: 50; top: 64px; left: 12px; right: 12px; margin-left: auto; max-width: 760px; box-sizing: border-box; max-height: calc(100vh - 90px); overflow: auto; padding: 10px; border-radius: 10px; background: #f8fafc; color: #1e293b; box-shadow: 0 12px 32px rgba(0,0,0,.28); }
+    .gelmeyen .g-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .88rem; }
+    .gelmeyen .g-close { border: 0; background: transparent; font-size: 1.2rem; line-height: 1; cursor: pointer; color: #475569; }
+    .gelmeyen .g-empty { color: #166534; font-size: .85rem; margin-top: 6px; }
+    .gelmeyen .g-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 8px; }
+    .gelmeyen .g-blok { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; background: #fff; }
+    .gelmeyen .g-head { font-size: .78rem; font-weight: 700; color: #334155; margin-bottom: 4px; }
+    .gelmeyen .g-plates { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+    .gelmeyen .g-plates li { font-size: .85rem; display: flex; align-items: center; gap: 4px; }
+    .gelmeyen .g-plates .tas-box { display: inline-block; padding: 0 5px; }
+    .gelmeyen .g-bbt { color: #64748b; font-size: .75rem; }
+    .gelmeyen .g-rem { margin-top: 4px; font-size: .82rem; color: #c2410c; }
     .multi-line { margin: 0; padding: 4px 10px; background: #fffaf3; color: #b45309; border-top: 1px solid #f5e1c8; font-size: .78rem; font-weight: 500; }
     .empty { padding: 28px 12px; color: #3f6212; }
     .tabbar { position: fixed; left: 0; right: 0; bottom: 0; background: #e5e7eb; border-top: 1px solid #9ca3af; padding: 4px 8px; }
@@ -161,6 +186,7 @@
         background: #ffedd5 !important; color: #c2410c;
       }
       table.grid td.c-durum.is-out { background: #16a34a !important; color: #fff; }
+      table.grid td.c-durum.is-inside { background: #dbeafe !important; color: #1d4ed8; }
       table.grid td.c-durum:empty::before { content: attr(data-fallback); }
       table.grid td.c-sofor { grid-area: sofor; font-size: .92rem; color: #1e293b; }
       table.grid td.c-sofor:empty::before { content: "şoför yok"; color: #94a3b8; font-weight: 400; }
@@ -174,6 +200,9 @@
       table.grid td.c-sum { grid-area: nums; display: block; font-size: .74rem; color: #475569; margin-top: 2px; }
       table.grid td.c-sum:empty { display: none; }
       table.grid td.c-sum b { color: #64748b; }
+      table.grid td.c-tas { grid-column: 2; padding: 0; }
+      table.grid td.c-tas:empty { display: none; }
+      table.grid td.c-tas .tas-box { display: inline-block; }
       .rownote { font-size: .78rem; }
       .rownote input { width: 100%; max-width: 220px; font-size: 16px; }
       .progress-line, .done-line { font-size: .8rem; padding: 6px 10px; }
@@ -188,6 +217,7 @@
     <div class="top-inner">
       <div class="title-row">
         <h1>İhracat Takip Listesi</h1>
+        <div class="gelmeyen-wrap" id="gelmeyenWrap"></div>
         <div class="presence-col">
           <span class="presence-chip" id="chipPresence"></span>
           <div class="excel-status" id="excelStatus"></div>
@@ -207,6 +237,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261005-liman29"></script>
+  <script src="liman.js?v=20261005-liman36"></script>
 </body>
 </html>

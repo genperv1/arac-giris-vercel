@@ -157,6 +157,82 @@
     box.innerHTML = html;
   }
 
+  /**
+   * Yalnız amir: plakası verilip gelmeyen araçlar + daha plaka verilecek BBT (nakliye bekleyenler hesabı).
+   * Takip formu basılan / İÇERİDE / DIŞARIDA / sarılmış araç gelmiş sayılır.
+   */
+  function gelmeyenBlocks() {
+    var core = window.NakliyeBekleyenCore;
+    var day = activeDay();
+    if (!core || typeof core.analyzeBlock !== 'function' || !day) return [];
+    var out = [];
+    (day.blocks || []).forEach(function (block) {
+      var items = (block.rows || []).map(function (row) {
+        var durum = String(row.durum || '').trim();
+        return Object.assign({}, row, {
+          headerText: block.title || row.headerText || '',
+          _nbInside: !!row._printedInside || /^İÇERİDE$/i.test(durum),
+          disarida: /^DIŞARIDA$/i.test(durum),
+        });
+      });
+      if (!items.length) return;
+      var item = null;
+      try { item = core.analyzeBlock(items); } catch (e) { item = null; }
+      if (!item) return;
+      var waiting = (item.waitingPlates || []).concat(item.ozmalPlates || []);
+      var remaining = Number(item.remainingBbt) || 0;
+      if (!waiting.length && remaining <= 0) return;
+      out.push({ block: block, item: item, waiting: waiting, remaining: remaining });
+    });
+    return out;
+  }
+
+  /** Başlıktaki düğme; basınca gelmeyenler paneli açılır (yalnız amir). */
+  function renderGelmeyen() {
+    var wrap = $('gelmeyenWrap');
+    if (!wrap) return;
+    if (!state.canEdit) {
+      wrap.innerHTML = '';
+      return;
+    }
+    var list = gelmeyenBlocks();
+    var plates = 0;
+    var bbt = 0;
+    list.forEach(function (g) { plates += g.waiting.length; bbt += g.remaining; });
+    var btn = '<button type="button" class="gelmeyen-btn' + (state.gelmeyenOpen ? ' is-open' : '') + '" data-gelmeyen-toggle>' +
+      'Gelmeyen araçlar <span class="g-count' + (plates ? '' : ' is-zero') + '">' + plates + '</span></button>';
+    wrap.innerHTML = btn + (state.gelmeyenOpen ? gelmeyenPanel(list, plates, bbt) : '');
+  }
+
+  function gelmeyenPanel(list, plates, bbt) {
+    var top = '<div class="g-top"><span><b>' + plates + ' araç</b> bekleniyor' +
+      (bbt > 0 ? ' · <b>' + esc(fmtTotal(bbt)) + ' BBT</b> plaka verilecek' : '') + '</span>' +
+      '<button type="button" class="g-close" data-gelmeyen-toggle aria-label="Kapat">×</button></div>';
+    if (!list.length) {
+      return '<div class="gelmeyen">' + top + '<div class="g-empty">Gelmeyen araç yok · plaka verilecek BBT yok</div></div>';
+    }
+    var body = list.map(function (g) {
+      var head = [
+        g.item.ydKey,
+        g.item.lotLabel,
+        g.item.malzemeLabel,
+        g.block.liman || g.block.port || '',
+      ].filter(Boolean).join(' · ');
+      var rows = g.waiting.map(function (p) {
+        return '<li><b>' + esc(p.plaka) + '</b>' +
+          (p.bbt ? ' <span class="g-bbt">' + esc(p.bbt) + ' BBT</span>' : '') +
+          (p.tasiyici ? ' <span class="tas-box' + (/^GPM$/i.test(p.tasiyici) ? ' is-gpm' : '') + '">' + esc(p.tasiyici) + '</span>' : '') +
+          '</li>';
+      }).join('');
+      return '<div class="g-blok">' +
+        '<div class="g-head">' + esc(head) + '</div>' +
+        (rows ? '<ul class="g-plates">' + rows + '</ul>' : '') +
+        (g.remaining > 0 ? '<div class="g-rem">Plaka verilecek: <b>' + esc(fmtTotal(g.remaining)) + ' BBT</b></div>' : '') +
+        '</div>';
+    }).join('');
+    return '<div class="gelmeyen">' + top + '<div class="g-list">' + body + '</div></div>';
+  }
+
   function todayLabel() {
     var d = new Date();
     var p = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -408,10 +484,19 @@
       return;
     }
     $('list').innerHTML = '<div class="sheet">' + blocks.map(function (block) {
+      var tasiyici = String(block.tasiyici || '').trim();
+      var rowTasiyici = (block.rows || []).some(function (row) { return row.tasiyici; });
       var rows = (block.rows || []).map(function (row) {
         var plate = String(row.plaka || '').trim();
         var plateHtml = plate ? '<b>' + esc(plate) + '</b>' : '<span class="noplate">plaka yok</span>';
         if (rowDeparted(row)) plateHtml += '<div class="mark">sarılmış</div>';
+        var tasCell = '';
+        if (rowTasiyici) {
+          var tas = String(row.tasiyici || '').trim();
+          tasCell = '<td class="c-tas">' + (tas
+            ? '<span class="tas-box' + (/^GPM$/i.test(tas) ? ' is-gpm' : '') + '">' + esc(tas) + '</span>'
+            : '') + '</td>';
+        }
         var note = row.note ? '<span class="rownote">' + esc(row.note) + '</span>' : '';
         var editor = '';
         if (state.canEdit && row.irsaliyeNo) {
@@ -439,10 +524,12 @@
           '<td class="c-min c-nar">' + esc(numCell(row.bosCuval)) + '</td>' +
           '<td class="c-min c-ton">' + esc(numCell(row.net)) + '</td>' +
           '<td class="c-min c-ton">' + esc(numCell(row.giden || row.gidenTonaj)) + '</td>' +
-          '<td class="durum c-durum' + (out ? ' is-out' : '') + '" data-fallback="' + (out ? 'SARILMIŞ' : 'BEKLİYOR') + '">' + esc(durum) + '</td>' +
+          '<td class="durum c-durum' + (out ? ' is-out' : (/^İÇERİDE$/i.test(durum) ? ' is-inside' : '')) + '"' +
+            (row._printedInside && row.cikisSaat ? ' title="Takip formu ' + esc(row.cikisSaat) + '"' : '') + ' data-fallback="' + (out ? 'SARILMIŞ' : 'BEKLİYOR') + '">' + esc(durum) + '</td>' +
           '<td class="c-min c-yer">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
           '<td class="left c-sofor">' + esc(row.sofor || '') + '</td>' +
           '<td class="c-tel">' + telCell(row.telefon) + '</td>' +
+          tasCell +
           '<td class="c-sum">' + sum + '</td>' +
           '</tr>';
       }).join('');
@@ -464,7 +551,9 @@
         : '<p class="progress-line">' + progress.done + ' / ' + progress.total + ' araç çıktı' + orderText + '</p>';
       return '<section class="blok' + (progress.complete ? ' is-done' : '') + '">' +
         '<div class="blok-head">' +
-          '<h2 class="blok-title">' + esc(block.title || '') + '</h2>' +
+          '<h2 class="blok-title' + (tasiyici ? ' has-tasiyici' : '') + '">' +
+            (tasiyici ? '<span class="blok-tasiyici">' + esc(tasiyici) + '</span><span>' + esc(block.title || '') + '</span>' : esc(block.title || '')) +
+            '</h2>' +
           '<table class="meta"><tbody>' +
             '<tr><th>LİMAN</th><td>' + esc(block.liman || block.port || '') + '</td></tr>' +
             '<tr><th>GEMİ DETAYI</th><td>' + esc(block.gemi || '') + '</td></tr>' +
@@ -479,12 +568,14 @@
           '<th class="c-nar">ÇUVAL</th><th class="c-nar">PALET</th><th class="c-nar">BOŞ<br>BBT</th><th class="c-nar">BOŞ<br>ÇUVAL</th>' +
           '<th class="c-ton">NET</th><th class="c-ton">GİDEN</th><th class="c-durum">DURUM</th><th class="c-yer">YÜKLEME<br>YERİ</th>' +
           '<th class="c-sofor">ŞOFÖR</th><th class="c-tel">TELEFON</th>' +
+          (rowTasiyici ? '<th class="c-tas"></th>' : '') +
         '</tr></thead><tbody>' + rows + '</tbody>' + totalsFoot(block, block.rows || [], state.canEdit && !state.plate) + '</table></section>';
     }).join('') + '</div>';
   }
 
   function render() {
     renderAdmin();
+    renderGelmeyen();
     renderPorts();
     renderList();
   }
@@ -551,7 +642,18 @@
           (block.rows || []).forEach(function (row) { flat.push(row); });
         });
         var marked = core.applyLiveDepartedMarks(flat, { dateKey: day.dateKey }, state.reports, { forPending: true });
-        var faced = attachFaces(marked, state.reports);
+        // Takip formu basıldı = araç kantarda (İÇERİDE). SARILMIŞ yalnız Excel'e giden tonaj girilince.
+        var faced = attachFaces(marked, state.reports).map(function (row, i) {
+          if (!row || !row._nbLiveDeparted) return row;
+          var inside = Object.assign({}, row, {
+            gidenTonaj: flat[i].gidenTonaj,
+            giden: flat[i].giden,
+            durum: 'İÇERİDE',
+            _printedInside: true,
+          });
+          delete inside._nbLiveDeparted;
+          return inside;
+        });
         var cursor = 0;
         return Object.assign({}, day, {
           blocks: (day.blocks || []).map(function (block) {
@@ -571,6 +673,15 @@
   });
 
   document.body.addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-gelmeyen-toggle]')) {
+      state.gelmeyenOpen = !state.gelmeyenOpen;
+      renderGelmeyen();
+      return;
+    }
+    if (state.gelmeyenOpen && !ev.target.closest('#gelmeyenWrap')) {
+      state.gelmeyenOpen = false;
+      renderGelmeyen();
+    }
     var closeBtn = ev.target.closest('[data-close-day]');
     if (closeBtn) {
       closeDay(closeBtn.getAttribute('data-close-day') || '', closeBtn);
@@ -593,6 +704,13 @@
     if (!portBtn) return;
     state.port = portBtn.getAttribute('data-port') || '';
     render();
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && state.gelmeyenOpen) {
+      state.gelmeyenOpen = false;
+      renderGelmeyen();
+    }
   });
 
   document.body.addEventListener('change', function (ev) {
@@ -655,6 +773,12 @@
         return;
       }
       var info = await api('/api/liman/version');
+      var printed = info && info.p != null && state.printMark != null && info.p !== state.printMark;
+      if (info && info.p != null) state.printMark = info.p;
+      if (printed) {
+        await guncelle();
+        return;
+      }
       if (info && info.v && info.v !== state.version) await load();
       setLive(true);
     } catch (e) {
