@@ -404,8 +404,9 @@ function registerLimanRoutes(api, ctx, publicApp) {
           ip: requestIp(req),
           excel: !!body.excelLoaded,
           fileName: sanitizeString(body.fileName || '', 180),
-          readOk,
-          readReason: readOk === false ? sanitizeString(body.readReason || '', 40) : '',
+          // Okuma sonucu taşımayan nabız (sayfa açılışı) son bilinen sonucu silmez
+          readOk: readOk === null ? (typeof prev.readOk === 'boolean' ? prev.readOk : null) : readOk,
+          readReason: readOk === false ? sanitizeString(body.readReason || '', 40) : (readOk === null ? (prev.readReason || '') : ''),
           readOkAt: readOk === true ? at : (prev.readOkAt || ''),
         };
         state.heartbeats = hb;

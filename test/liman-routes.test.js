@@ -229,12 +229,16 @@ test('publicApp modunda oturumsuz kantar gönderimi 401 + günlükte "denied"; n
   assert.equal(badView.heartbeatReadOk, false);
   assert.equal(badView.heartbeatReadReason, 'permission');
   assert.equal(badView.heartbeatReadOkAt, okView.heartbeatReadOkAt);
+  await run('put /api/liman/heartbeat', Object.assign({ body: { excelLoaded: true } }, hdr));
+  const keptView = (await run('get /api/liman', { headers: {} })).out.sites.AVDAN;
+  assert.equal(keptView.heartbeatReadOk, false);
+  assert.equal(keptView.heartbeatReadReason, 'permission');
   // Amir görünümü: günlükte 2 red + nabızlar
   const amirTok = jwt.sign({ username: 'xxr', role: 'amir' }, 'test-secret', { expiresIn: '1h' });
   const amir = (await run('get /api/liman', { headers: { cookie: 'auth_token=' + amirTok }, cookies: { auth_token: amirTok }, user: { username: 'xxr', role: 'amir' } })).out;
-  assert.deepEqual(amir.events.map((e) => e.kind), ['heartbeat', 'heartbeat', 'heartbeat', 'denied', 'denied']);
-  assert.equal(amir.events[3].reason, 'expired');
-  assert.equal(amir.events[4].reason, 'no-token');
+  assert.deepEqual(amir.events.map((e) => e.kind), ['heartbeat', 'heartbeat', 'heartbeat', 'heartbeat', 'denied', 'denied']);
+  assert.equal(amir.events[4].reason, 'expired');
+  assert.equal(amir.events[5].reason, 'no-token');
 });
 
 test('diğer kantarın eski İÇERİDE notu çıkmış aracı kirletmez; aynı içerik receivedAt günceller', async () => {
