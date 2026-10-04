@@ -365,8 +365,35 @@
     }).join('');
   }
 
+  function plateKeyOf(raw) {
+    return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  }
+
+  /**
+   * Aynı gün aynı plaka birden fazla blokta (farklı malzeme) → çift malzemeli araç.
+   * Liman filtresi / plaka araması açıkken de tüm günün bloklarına bakılır.
+   */
+  function multiMaterialIndex() {
+    var day = activeDay();
+    var map = {};
+    ((day && day.blocks) || []).forEach(function (block, bi) {
+      (block.rows || []).forEach(function (row) {
+        var key = plateKeyOf(row.plaka);
+        if (!key) return;
+        var blocksOf = map[key] = map[key] || [];
+        if (blocksOf.indexOf(bi) < 0) blocksOf.push(bi);
+      });
+    });
+    var out = {};
+    Object.keys(map).forEach(function (key) {
+      if (map[key].length > 1) out[key] = true;
+    });
+    return out;
+  }
+
   function renderList() {
     var blocks = visibleBlocks();
+    var multi = multiMaterialIndex();
     if (!state.days.length) {
       var today = todayLabel();
       var closedToday = state.closedDays.some(function (c) { return c.label === today; });
@@ -420,6 +447,15 @@
           '</tr>';
       }).join('');
       var noteLine = block.note ? '<p class="note-line">' + esc(block.note) + '</p>' : '';
+      var multiPlates = [];
+      (block.rows || []).forEach(function (row) {
+        var p = String(row.plaka || '').trim();
+        if (p && multi[plateKeyOf(p)] && multiPlates.indexOf(p) < 0) multiPlates.push(p);
+      });
+      if (multiPlates.length) {
+        noteLine += '<p class="multi-line">⚠ ÇİFT MALZEMELİ ARAÇ: ' + esc(multiPlates.join(', ')) +
+          ' — aynı araç başka malzeme bloğunda da var, yüklemeyi iki malzeme için kontrol edin.</p>';
+      }
       var progress = blockProgress(block);
       var order = orderOf(block.title);
       var orderText = order ? ' · Sipariş: ' + esc(order) : '';
