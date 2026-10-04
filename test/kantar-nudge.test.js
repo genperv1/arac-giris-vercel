@@ -51,6 +51,28 @@ test('çevrimdışı hedefe nudge gitmez; online olunca kısa ömürlü durur', 
   assert.equal(store.pending('1.OSB', 0), null);
 });
 
+test('kantar yalnız kendi son çağrısını onaylar; onaylanan tekrar gelmez', () => {
+  let now = 5_000_000;
+  let n = 0;
+  const store = createNudgeStore({ now: () => now, id: () => 'a' + (++n) });
+  const online = [{ key: 'AVDAN', online: true }, { key: '1.OSB', online: true }];
+  const sent = store.send('AVDAN', online);
+  assert.equal(store.status().AVDAN.ackAt, null);
+  assert.equal(store.status()['1.OSB'], null);
+
+  assert.equal(store.ack('1.OSB', sent.nudge.id).ok, false);
+  assert.equal(store.ack('AVDAN', 'yanlis').ok, false);
+
+  now += 1500;
+  const acked = store.ack('AVDAN', sent.nudge.id);
+  assert.equal(acked.ok, true);
+  assert.equal(acked.nudge.ackAt, now);
+  assert.equal(store.pending('AVDAN', 0), null);
+
+  now += 1000;
+  assert.equal(store.ack('AVDAN', sent.nudge.id).nudge.ackAt, now - 1000);
+});
+
 function harness(user) {
   const routes = {};
   const api = {};
@@ -126,14 +148,45 @@ test('amir yalnız online tesise nudge yollar; kantar kendi bekleyenini okur', a
   assert.equal(blocked.status, 403);
 });
 
-test('istemci her sayfada SSE + poll ve sarsıntı / bip bağlar', () => {
+test('kantar Tamam deyince amir okundu bilgisini alır', async () => {
+  const amir = harness({ username: 'xxr', role: 'amir' });
+  amir.presence.touch({ username: 'AVDAN' });
+  const sent = await amir.call('post /nudge', { body: { target: 'AVDAN' } });
+  const id = sent.out.nudge.id;
+
+  const wrongSite = await amir.call('post /nudge/ack', { user: { username: '1.OSB', role: 'admin' }, body: { id } });
+  assert.equal(wrongSite.status, 404);
+
+  amir.tick(2000);
+  const ok = await amir.call('post /nudge/ack', { user: { username: 'AVDAN', role: 'admin' }, body: { id } });
+  assert.equal(ok.status, 200);
+  assert.ok(ok.out.nudge.ackAt);
+  const ev = amir.events.find((e) => e.type === 'kantar_nudge_ack');
+  assert.equal(ev.data.id, id);
+
+  const status = await amir.call('get /nudge/status', {});
+  assert.equal(status.out.status.AVDAN.id, id);
+  assert.ok(status.out.status.AVDAN.ackAt);
+
+  const kantarStatus = await amir.call('get /nudge/status', { user: { username: 'AVDAN', role: 'admin' } });
+  assert.equal(kantarStatus.status, 403);
+});
+
+test('kantar: titreyen, arkası bulanık, Tamam deyince kapanan evrak notu', () => {
   const sm = fs.readFileSync(path.join(__dirname, '../public/session-manager.js'), 'utf8');
   assert.match(sm, /\/api\/nudge/);
   assert.match(sm, /kantar_nudge/);
-  assert.match(sm, /gpm-nudge-shake/);
-  assert.match(sm, /AMİR çağırıyor/);
+  assert.match(sm, /function shakeElement/);
+  assert.match(sm, /Evrakları sevkiyat ofisine gönderin\./);
+  assert.match(sm, /backdrop-filter:blur/);
+  assert.match(sm, /gpm-nn-ok/);
+  assert.doesNotMatch(sm, /AMİR çağırıyor/);
+  assert.doesNotMatch(sm, /prefers-reduced-motion/);
   assert.match(sm, /function startNudge/);
   assert.match(sm, /data-presence-key/);
+  assert.match(sm, /\/api\/nudge\/ack/);
+  assert.match(sm, /kantar_nudge_ack/);
+  assert.match(sm, /NUDGE_RING_MAX = 10/);
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
-  assert.match(giris, /session-manager\.js\?v=20261004-nudge1/);
+  assert.match(giris, /session-manager\.js\?v=20261004-nudge4/);
 });

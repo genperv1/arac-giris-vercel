@@ -2,7 +2,7 @@
 
 function registerPlakaStatsRoutes(api, ctx) {
   const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs, normPlateForLookup, VEH_PLATE_NORM_SQL_CEK, PLATE_NORM_SQL, PLATE_NORM_SQL_PH, plateNormSql } = ctx;
-// â€”â€”â€” Plaka istatistikleri (yazdÄ±rma = geliÅŸ) â€”â€”â€”
+// ——— Plaka istatistikleri (yazdırma = geliş) ———
 api.get("/plaka-stats", async (req, res) => {
   try {
     const tab = String(req.query.tab || 'top').toLowerCase();
@@ -126,7 +126,7 @@ api.get("/plaka-stats", async (req, res) => {
   }
 });
 
-// Plaka Ã— firma Ã— malzeme (Excel / takip formundan basÄ±lan Ã¼rÃ¼nler)
+// Plaka × firma × malzeme (Excel / takip formundan basılan ürünler)
 api.get("/plaka-product-stats", async (req, res) => {
   try {
     const search = sanitizeString(req.query.search || '', 80).trim();
@@ -246,7 +246,7 @@ api.get("/plaka-stats/summary", async (req, res) => {
   }
 });
 
-// ÅofÃ¶r kartÄ± dÃ¼zenleme geÃ§miÅŸi (ayarlar â†’ Plaka istatistikleri â†’ Bilgi)
+// Şoför kartı düzenleme geçmişi (ayarlar → Plaka istatistikleri → Bilgi)
 api.get('/vehicle-edit-log', async (req, res) => {
   try {
     const search = sanitizeString(req.query.search || '', 80).trim();

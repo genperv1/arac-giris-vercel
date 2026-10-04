@@ -144,10 +144,10 @@ api.get('/stats/daily-shifts', async (req, res) => {
         let d = {};
         try { d = JSON.parse(row.data || '{}'); } catch(e) { d = {}; }
         
-        // Ã–nce direkt vardiya alanÄ±nÄ± kontrol et
+        // Önce direkt vardiya alanını kontrol et
         if (d && d.vardiya) {
           const vardiyaStr = String(d.vardiya).toLowerCase().trim();
-          if (vardiyaStr === 'gÃ¼ndÃ¼z' || vardiyaStr === 'gunduz' || vardiyaStr === 'day') {
+          if (vardiyaStr === 'gündüz' || vardiyaStr === 'gunduz' || vardiyaStr === 'day') {
             dayCount++;
             continue;
           } else if (vardiyaStr === 'gece' || vardiyaStr === 'night') {
@@ -156,7 +156,7 @@ api.get('/stats/daily-shifts', async (req, res) => {
           }
         }
         
-        // Vardiya alanÄ± yoksa saat bilgisinden hesapla
+        // Vardiya alanı yoksa saat bilgisinden hesapla
         let mins = null;
         if (d && (d.saat || d.time)) {
           mins = timeStrToMinutes(d.saat || d.time);
@@ -187,7 +187,7 @@ api.post("/reports", requireValidSession, async (req, res) => {
   try {
     const body = req.body || {};
     const id = String(body.id || (Date.now().toString() + Math.random().toString(16).slice(2)));
-    // âœ… SECURITY: Sanitize type field
+    // ✅ SECURITY: Sanitize type field
     const type = sanitizeString(body.type || "", 50);
     let data = body.data !== undefined ? body.data : body;
 

@@ -92,7 +92,7 @@ const PG_CONNECT_TIMEOUT = envNumber('PG_CONNECT_TIMEOUT', 15000, { min: 1000, m
 const PG_POOL_VERBOSE = process.env.PG_POOL_VERBOSE === 'true';
 const PG_MAX_USES = envNumber('PG_MAX_USES', 7500, { min: 100, max: 1000000 });
 const PG_STATEMENT_TIMEOUT = envNumber('PG_STATEMENT_TIMEOUT', 30000, { min: 1000, max: 300000 });
-/** Slow-query console.warn eÅŸiÄŸi (ms). BoÅŸ bÄ±rakÄ±lÄ±rsa 3000 â€” paylaÅŸÄ±mlÄ± DBâ€™de ~1sn listeler uyarÄ± spamâ€™i yapmaz. 0 / off / false = uyarÄ± kapalÄ±. */
+/** Slow-query console.warn eşiği (ms). Boş bırakılırsa 3000 — paylaşımlı DB’de ~1sn listeler uyarı spam’i yapmaz. 0 / off / false = uyarı kapalı. */
 const SQL_SLOW_MS = (() => {
   const raw = process.env.SQL_SLOW_MS;
   if (raw === undefined || raw === null || raw === '') return 3000;
@@ -107,7 +107,7 @@ const SQL_SLOW_MS = (() => {
 /** When listing many vehicles (offset=0), read in keyset pages to avoid long single statements on modest DB hosts. */
 const VEH_LIST_KEYSET_BATCH = envNumber('VEH_LIST_KEYSET_BATCH', 650, { min: 50, max: 5000 });
 
-/** Statik .js / .css iÃ§in Cache-Control max-age (saniye). 0 = Ã¶nbellek yok. */
+/** Statik .js / .css için Cache-Control max-age (saniye). 0 = önbellek yok. */
 const STATIC_MAX_AGE_SEC = envNumber(
   'STATIC_MAX_AGE_SEC',
   process.env.NODE_ENV === 'production' ? 3600 : 60,
@@ -116,7 +116,7 @@ const STATIC_MAX_AGE_SEC = envNumber(
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '2mb';
 const URLENCODED_BODY_LIMIT = process.env.URLENCODED_BODY_LIMIT || '2mb';
 
-// âœ… POSTGRESQL CONNECTION POOLING: Advanced configuration
+// ✅ POSTGRESQL CONNECTION POOLING: Advanced configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -133,9 +133,9 @@ const pool = new Pool({
   statement_timeout: PG_STATEMENT_TIMEOUT,
 });
 
-// âœ… POOL EVENT HANDLERS: Monitor pool health and catch errors
+// ✅ POOL EVENT HANDLERS: Monitor pool health and catch errors
 pool.on('error', (err, client) => {
-  console.error('âŒ Unexpected pool error on idle client:', err.message || err);
+  console.error('❌ Unexpected pool error on idle client:', err.message || err);
   console.error('Client info:', client ? 'Active' : 'Unknown');
   // Don't exit the process on pool errors - let the pool handle reconnection
 });
@@ -151,22 +151,22 @@ pool.on('connect', (client) => {
 
 pool.on('acquire', (client) => {
   // Uncomment for verbose logging:
-  // console.log('ğŸ”µ Client acquired from pool');
+  // console.log('🔵 Client acquired from pool');
 });
 
 pool.on('remove', (client) => {
   if (PG_POOL_VERBOSE) console.log('PostgreSQL pool: client removed');
 });
 
-// âœ… GRACEFUL SHUTDOWN: Clean up pool connections on exit
+// ✅ GRACEFUL SHUTDOWN: Clean up pool connections on exit
 const gracefulShutdown = async (signal) => {
   console.log(`\n${signal} received. Starting graceful shutdown...`);
   try {
     await pool.end();
-    console.log('âœ… PostgreSQL pool closed successfully');
+    console.log('✅ PostgreSQL pool closed successfully');
     process.exit(0);
   } catch (err) {
-    console.error('âŒ Error during pool shutdown:', err.message || err);
+    console.error('❌ Error during pool shutdown:', err.message || err);
     process.exit(1);
   }
 };
@@ -174,27 +174,27 @@ const gracefulShutdown = async (signal) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('unhandledRejection', (reason) => {
-  console.error('âŒ Unhandled promise rejection:', reason);
+  console.error('❌ Unhandled promise rejection:', reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('âŒ Uncaught exception:', err);
+  console.error('❌ Uncaught exception:', err);
 });
 
-// âœ… POOL HEALTH CHECK: Verify pool connectivity
+// ✅ POOL HEALTH CHECK: Verify pool connectivity
 let poolHealthy = false;
 async function checkPoolHealth() {
   try {
     const client = await pool.connect();
     try {
       const result = await client.query('SELECT NOW() as now, current_database() as db');
-      console.log('âœ… Pool health check OK - DB:', result.rows[0].db, 'Time:', result.rows[0].now);
+      console.log('✅ Pool health check OK - DB:', result.rows[0].db, 'Time:', result.rows[0].now);
       poolHealthy = true;
       return true;
     } finally {
       client.release();
     }
   } catch (err) {
-    console.error('âŒ Pool health check FAILED:', err.message || err);
+    console.error('❌ Pool health check FAILED:', err.message || err);
     poolHealthy = false;
     return false;
   }
@@ -215,7 +215,7 @@ function isReadOnlyQuery(text) {
   return q.startsWith('SELECT') || q.startsWith('WITH');
 }
 
-// âœ… RETRY WRAPPER: Retry failed queries with exponential backoff + jitter
+// ✅ RETRY WRAPPER: Retry failed queries with exponential backoff + jitter
 async function retryQuery(queryFn, maxRetries = 3, baseDelay = 250) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -229,7 +229,7 @@ async function retryQuery(queryFn, maxRetries = 3, baseDelay = 250) {
       }
       
       const delay = Math.round((baseDelay * Math.pow(2, attempt - 1)) + Math.random() * 150);
-      console.warn(`âš ï¸ Query failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms:`, err.message);
+      console.warn(`⚠️ Query failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms:`, err.message);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -237,7 +237,7 @@ async function retryQuery(queryFn, maxRetries = 3, baseDelay = 250) {
 
 
 async function prepareSchema() {
-  console.log('ğŸ”§ Preparing database schema...');
+  console.log('🔧 Preparing database schema...');
   
   // Verify pool health before schema operations
   const healthy = await checkPoolHealth();
@@ -245,7 +245,7 @@ async function prepareSchema() {
     throw new Error('Database pool is not healthy. Cannot prepare schema.');
   }
   
-  // TEXT id + TEXT json payload yaklaÅŸÄ±mÄ±nÄ± bozmuyoruz
+  // TEXT id + TEXT json payload yaklaşımını bozmuyoruz
   await pool.query(`
     CREATE TABLE IF NOT EXISTS vehicles(
       id TEXT PRIMARY KEY,
@@ -329,7 +329,7 @@ async function prepareSchema() {
       tarih BIGINT
     );
   `);
-  // Legacy DB'ler iÃ§in kolon migrasyonu
+  // Legacy DB'ler için kolon migrasyonu
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS basim_yeri TEXT;`);
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS sofor TEXT;`);
   await pool.query(`ALTER TABLE print_history ADD COLUMN IF NOT EXISTS sevk_yeri TEXT;`);
@@ -456,7 +456,7 @@ async function prepareSchema() {
   // (opsiyonel) indexler
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_daily_rows_created_at ON daily_rows(created_at DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_problems_plate_ts ON problems(plate, ts DESC);`);
-  // Global ORDER BY ts (GET /problems without ?plate=) â€” composite (plate, ts) cannot drive this sort.
+  // Global ORDER BY ts (GET /problems without ?plate=) — composite (plate, ts) cannot drive this sort.
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_problems_ts_desc ON problems(ts DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_ts ON report(ts DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_type_ts ON report(type, ts DESC);`);
@@ -467,7 +467,7 @@ async function prepareSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_vehicles_cekici_norm_lookup ON vehicles ((${VEH_PLATE_NORM_SQL_CEK}));`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_vehicles_dorse_norm_lookup ON vehicles ((${VEH_PLATE_NORM_SQL_DORSE}));`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_plaka_tarih ON print_history(plaka, tarih DESC);`);
-  // Global ORDER BY tarih (GET /reports, unfiltered lists) â€” composite (plaka, tarih) is for per-plate only.
+  // Global ORDER BY tarih (GET /reports, unfiltered lists) — composite (plaka, tarih) is for per-plate only.
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_tarih_desc ON print_history(tarih DESC);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_basim_yeri ON print_history(basim_yeri);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_print_history_malzeme_tarih ON print_history(malzeme, tarih DESC);`);
@@ -528,8 +528,8 @@ async function prepareSchema() {
 
 
 const DEFAULT_KANTAR_SIGNATURES = [
-  { display_name: 'BURAK KARATAÅ', path: 'signatures/burak_karatas.png' },
-  { display_name: 'BEKÄ°R DOÄRU', path: 'signatures/bekir_dogru.png' },
+  { display_name: 'BURAK KARATAŞ', path: 'signatures/burak_karatas.png' },
+  { display_name: 'BEKİR DOĞRU', path: 'signatures/bekir_dogru.png' },
   { display_name: 'BATUHAN KOCABAY', path: 'signatures/batuhan_kocabay.png' },
   { display_name: 'BATUHAN CINAR', path: 'signatures/batuhan_cinar.png' },
   { display_name: 'BURAK TALAY', path: 'signatures/burak_talay.png' }
@@ -556,7 +556,7 @@ async function seedDefaultSignatures() {
   }
 }
 
-/** AnlatÄ±m / demo â€” gerÃ§ek araÃ§ deÄŸil; Ayarlar â†’ Bilgi sekmesinde Ã¶rnek gÃ¶rÃ¼nsÃ¼n diye */
+/** Anlatım / demo — gerçek araç değil; Ayarlar → Bilgi sekmesinde örnek görünsün diye */
 async function seedDemoVehicleEditLogs() {
   const now = Date.now();
   const demos = [
@@ -564,11 +564,11 @@ async function seedDemoVehicleEditLogs() {
       id: 'demo_edit_plaka_001',
       vehicle_id: 'demo_vehicle_001',
       plaka: '43 HP 433',
-      summary: 'Ã‡ekici plaka: 43 HP 433 â†’ 43 HP 450 Â· ÅofÃ¶r adÄ±: MEHMET YILMAZ â†’ ZÃœLFÃœ USLU',
+      summary: 'Çekici plaka: 43 HP 433 → 43 HP 450 · Şoför adı: MEHMET YILMAZ → ZÜLFÜ USLU',
       changes: [
-        { field: 'cekiciPlaka', label: 'Ã‡ekici plaka', old: '43 HP 433', new: '43 HP 450' },
-        { field: 'soforAdi', label: 'ÅofÃ¶r adÄ±', old: 'MEHMET', new: 'ZÃœLFÃœ' },
-        { field: 'soforSoyadi', label: 'ÅofÃ¶r soyadÄ±', old: 'YILMAZ', new: 'USLU' },
+        { field: 'cekiciPlaka', label: 'Çekici plaka', old: '43 HP 433', new: '43 HP 450' },
+        { field: 'soforAdi', label: 'Şoför adı', old: 'MEHMET', new: 'ZÜLFÜ' },
+        { field: 'soforSoyadi', label: 'Şoför soyadı', old: 'YILMAZ', new: 'USLU' },
       ],
       user_id: 'GENPER',
       edit_ts: now - 2 * 60 * 60 * 1000,
@@ -577,10 +577,10 @@ async function seedDemoVehicleEditLogs() {
       id: 'demo_edit_isim_002',
       vehicle_id: 'demo_vehicle_002',
       plaka: '34 ZFP 78',
-      summary: 'ÅofÃ¶r adÄ±: ALÄ° KAYA â†’ HASAN Ã–ZTÃœRK Â· ÅofÃ¶r soyadÄ±: â€” â†’ â€”',
+      summary: 'Şoför adı: ALİ KAYA → HASAN ÖZTÜRK · Şoför soyadı: — → —',
       changes: [
-        { field: 'soforAdi', label: 'ÅofÃ¶r adÄ±', old: 'ALÄ°', new: 'HASAN' },
-        { field: 'soforSoyadi', label: 'ÅofÃ¶r soyadÄ±', old: 'KAYA', new: 'Ã–ZTÃœRK' },
+        { field: 'soforAdi', label: 'Şoför adı', old: 'ALİ', new: 'HASAN' },
+        { field: 'soforSoyadi', label: 'Şoför soyadı', old: 'KAYA', new: 'ÖZTÜRK' },
       ],
       user_id: 'GENPER',
       edit_ts: now - 5 * 60 * 60 * 1000,
@@ -589,9 +589,9 @@ async function seedDemoVehicleEditLogs() {
       id: 'demo_edit_tel_003',
       vehicle_id: 'demo_vehicle_003',
       plaka: '06 ABT 123',
-      summary: 'Ä°letiÅŸim: 0532 508 43 02 â†’ 0542 611 55 44',
+      summary: 'İletişim: 0532 508 43 02 → 0542 611 55 44',
       changes: [
-        { field: 'iletisim', label: 'Ä°letiÅŸim', old: '0532 508 43 02', new: '0542 611 55 44' },
+        { field: 'iletisim', label: 'İletişim', old: '0532 508 43 02', new: '0542 611 55 44' },
       ],
       user_id: 'GENPER',
       edit_ts: now - 26 * 60 * 60 * 1000,
@@ -600,11 +600,11 @@ async function seedDemoVehicleEditLogs() {
       id: 'demo_edit_karma_004',
       vehicle_id: 'demo_vehicle_004',
       plaka: '16 BCD 890',
-      summary: 'Dorse plaka: 34 ABC 12 â†’ 34 ZFP 78 Â· Ä°letiÅŸim: 0535 100 20 30 â†’ 0505 777 88 99 (+1)',
+      summary: 'Dorse plaka: 34 ABC 12 → 34 ZFP 78 · İletişim: 0535 100 20 30 → 0505 777 88 99 (+1)',
       changes: [
         { field: 'dorsePlaka', label: 'Dorse plaka', old: '34 ABC 12', new: '34 ZFP 78' },
-        { field: 'iletisim', label: 'Ä°letiÅŸim', old: '0535 100 20 30', new: '0505 777 88 99' },
-        { field: 'soforAdi', label: 'ÅofÃ¶r adÄ±', old: 'MUSTAFA', new: 'EMRE' },
+        { field: 'iletisim', label: 'İletişim', old: '0535 100 20 30', new: '0505 777 88 99' },
+        { field: 'soforAdi', label: 'Şoför adı', old: 'MUSTAFA', new: 'EMRE' },
       ],
       user_id: 'GENPER',
       edit_ts: now - 3 * 24 * 60 * 60 * 1000,
@@ -660,7 +660,7 @@ function parsePagination(req, defaults = {}) {
   return { limit, offset };
 }
 
-// âœ… ENHANCED QUERY HELPER: error logging, retry logic, timeout, slow-query logs
+// ✅ ENHANCED QUERY HELPER: error logging, retry logic, timeout, slow-query logs
 async function q(text, params = [], options = {}) {
   const defaultRetry = isReadOnlyQuery(text);
   const { retry = defaultRetry, timeout = PG_STATEMENT_TIMEOUT } = options;
@@ -685,7 +685,7 @@ async function q(text, params = [], options = {}) {
     });
     const elapsed = Date.now() - startedAt;
     if (SQL_SLOW_MS > 0 && elapsed >= SQL_SLOW_MS) {
-      console.warn(`âš ï¸ Slow query ${elapsed}ms: ${summarizeQuery(text)}`);
+      console.warn(`⚠️ Slow query ${elapsed}ms: ${summarizeQuery(text)}`);
     }
     return result;
   };
@@ -827,7 +827,7 @@ const ipRequestCount = new Map(); // { ip: { count: number, resetTime: timestamp
 // Ban list file path
 const BAN_LIST_FILE = path.join(__dirname, 'banned_ips.json');
 
-// Load banned IPs from file (must be a JSON object { "ip": { ... }, ... } â€” not an array)
+// Load banned IPs from file (must be a JSON object { "ip": { ... }, ... } — not an array)
 let bannedIpsList = {};
 function loadBannedIps() {
   try {
@@ -956,7 +956,7 @@ function isSettingsAuthorized(req) {
 
 function requireSettingsAccess(req, res, next) {
   if (isSettingsAuthorized(req)) return next();
-  return res.status(403).json({ ok: false, error: 'Ayarlar parolasÄ± gerekli' });
+  return res.status(403).json({ ok: false, error: 'Ayarlar parolası gerekli' });
 }
 
 function listBannedIpsPayload() {
@@ -967,7 +967,7 @@ function listBannedIpsPayload() {
     const bannedAt = data && data.bannedAt ? Number(data.bannedAt) : 0;
     return {
       ip,
-      reason: (data && data.reason) || 'â€”',
+      reason: (data && data.reason) || '—',
       bannedAt: bannedAt ? new Date(bannedAt).toISOString() : null,
       expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
       remainingMs: Math.max(0, expiresAt - now),
@@ -1048,7 +1048,7 @@ async function rateLimitMiddleware(req, res, next) {
   if (banned && !isBanExemptApiPath(req)) {
     return res.status(403).json({
       ok: false,
-      error: 'IP adresiniz geÃ§ici olarak engellendi. Ayarlar > Ban bÃ¶lÃ¼mÃ¼nden kaldÄ±rÄ±labilir veya sÃ¼re dolana kadar bekleyin.',
+      error: 'IP adresiniz geçici olarak engellendi. Ayarlar > Ban bölümünden kaldırılabilir veya süre dolana kadar bekleyin.',
       code: 'IP_BANNED',
     });
   }
@@ -1079,7 +1079,7 @@ async function rateLimitMiddleware(req, res, next) {
         banIp(ip, `Exceeded rate limit ${FAILED_LOGIN_THRESHOLD} times`);
         return res.status(403).json({
           ok: false,
-          error: 'Ã‡ok fazla istek nedeniyle IP adresiniz geÃ§ici olarak engellendi.',
+          error: 'Çok fazla istek nedeniyle IP adresiniz geçici olarak engellendi.',
           code: 'IP_BANNED',
         });
       }
@@ -1103,7 +1103,7 @@ app.get("/liman", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "liman.html"));
 });
 
-// âœ… STATIC FILES: Serve only public directory (short cache for hashed-free assets)
+// ✅ STATIC FILES: Serve only public directory (short cache for hashed-free assets)
 app.use(
   express.static(path.join(__dirname, 'public'), {
     etag: true,
@@ -1123,7 +1123,7 @@ app.use(
 
 const api = express.Router();
 
-/** GiriÅŸ endpoint'i: IP baÅŸÄ±na kÄ±sa pencerede ek sÄ±nÄ±r (baÅŸarÄ±lÄ± giriÅŸler sayÄ±lmaz). */
+/** Giriş endpoint'i: IP başına kısa pencerede ek sınır (başarılı girişler sayılmaz). */
 const loginEndpointLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: (() => {
@@ -1149,7 +1149,7 @@ const JWT_SECRET = resolveSecret('JWT_SECRET', {
   forbidden: ['dev_secret_change_me'],
   deriveFrom: process.env.DATABASE_URL,
 });
-/** Oturum sÃ¼resi (saat). .env: AUTH_SESSION_HOURS=6 */
+/** Oturum süresi (saat). .env: AUTH_SESSION_HOURS=6 */
 const AUTH_SESSION_HOURS = envNumber('AUTH_SESSION_HOURS', 6, { min: 1, max: 168 });
 const AUTH_SESSION_EXPIRES = `${AUTH_SESSION_HOURS}h`;
 const AUTH_SESSION_MS = AUTH_SESSION_HOURS * 60 * 60 * 1000;
@@ -1292,7 +1292,7 @@ api.get('/print-spool/since', (req, res) => {
   });
 });
 
-// JWT + yazma iÅŸlemleri iÃ§in oturum zorunluluÄŸu
+// JWT + yazma işlemleri için oturum zorunluluğu
 api.use(auth.verifyToken);
 api.use(requireMutatingSession);
 
@@ -1437,7 +1437,7 @@ api.post("/kv/:key", auth.verifyToken, async (req, res) => {
       });
     }
     const v = req.body && req.body.value !== undefined ? req.body.value : req.body;
-    // âœ… SECURITY: Sanitize KV store values
+    // ✅ SECURITY: Sanitize KV store values
     let raw = '';
     if (typeof v === "string") {
       raw = sanitizeString(v, 1000);
@@ -1495,7 +1495,7 @@ function operationNoteHasRule(rules) {
   return !!(rules.yd_key || rules.firma_kodu || rules.malzeme_p1p2);
 }
 
-// Vardiya / operasyon notlarÄ± (Excel kurallÄ± uyarÄ±lar)
+// Vardiya / operasyon notları (Excel kurallı uyarılar)
 api.get('/operation-notes', async (req, res) => {
   try {
     const activeParam = String(req.query.active ?? '1').toLowerCase();
@@ -1807,7 +1807,7 @@ api.get('/search', async (req, res) => {
     const qRaw = String(req.query.q || '').trim();
     if (!qRaw) return res.json([]);
     // basic normalize: remove special chars, lower
-    const qNorm = qRaw.replace(/[^A-Za-z0-9Ã‡ÄÄ°Ã–ÅÃœÃ§ÄŸÄ±Ã¶ÅŸÃ¼\s]/g, '').toLowerCase();
+    const qNorm = qRaw.replace(/[^A-Za-z0-9ÇĞİÖŞÜçğıöşü\s]/g, '').toLowerCase();
     const like = '%' + qNorm + '%';
     const likeCompact = '%' + qNorm.replace(/\s+/g, '') + '%';
     const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 200);
@@ -1839,7 +1839,7 @@ api.get('/search', async (req, res) => {
   }
 });
 
-// Print History API - YazdÄ±rÄ±lma geÃ§miÅŸini yÃ¶netir
+// Print History API - Yazdırılma geçmişini yönetir
 api.get("/print_history", async (req, res) => {
   try {
     const plaka = req.query.plaka;
@@ -2014,7 +2014,7 @@ registerAdminBanRoutes(api, {
   ipRequestCount,
 });
 
-// Ayarlar / ban API â€” JWT router dÄ±ÅŸÄ±nda (api.use(verifyToken) tÃ¼m isteklere uygulanÄ±yordu)
+// Ayarlar / ban API — JWT router dışında (api.use(verifyToken) tüm isteklere uygulanıyordu)
 app.post('/api/settings/amir-access', requireAmir, (req, res) => {
   try {
     const settingsToken = issueSettingsToken();
@@ -2028,7 +2028,7 @@ app.post('/api/settings/verify-access', (req, res) => {
   try {
     const password = String((req.body && req.body.password) || '');
     if (!verifySettingsPassword(password)) {
-      return res.status(403).json({ ok: false, error: 'HatalÄ± ayarlar parolasÄ±' });
+      return res.status(403).json({ ok: false, error: 'Hatalı ayarlar parolası' });
     }
     const settingsToken = issueSettingsToken();
     return res.json({ ok: true, settingsToken });
@@ -2058,7 +2058,7 @@ app.post('/api/settings/bans/unban', requireSettingsAccess, (req, res) => {
     const ip = String(req.body.ip || '').trim();
     if (!ip) return res.status(400).json({ ok: false, error: 'IP gerekli' });
     const removed = unbanIp(ip);
-    res.json({ ok: true, removed, message: removed ? `IP ${ip} engeli kaldÄ±rÄ±ldÄ±` : 'Bu IP listede yoktu' });
+    res.json({ ok: true, removed, message: removed ? `IP ${ip} engeli kaldırıldı` : 'Bu IP listede yoktu' });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -2081,7 +2081,7 @@ app.post('/api/settings/bans/clear', requireSettingsAccess, (req, res) => {
     const count = Object.keys(bannedIpsList).length;
     bannedIpsList = {};
     saveBannedIps();
-    res.json({ ok: true, cleared: count, message: 'TÃ¼m IP engelleri kaldÄ±rÄ±ldÄ±' });
+    res.json({ ok: true, cleared: count, message: 'Tüm IP engelleri kaldırıldı' });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -2089,7 +2089,7 @@ app.post('/api/settings/bans/clear', requireSettingsAccess, (req, res) => {
 
 app.use("/api", api);
 
-// âœ… SPA FALLBACK: Catch-all route for client-side routing
+// ✅ SPA FALLBACK: Catch-all route for client-side routing
 app.use((req, res) => {
   if (!req.url.startsWith("/api")) {
     return res.sendFile(
@@ -2105,7 +2105,7 @@ app.use((req, res) => {
   res.status(404).json({ error: "Endpoint not found" });
 });
 
-// App initialization (DB, bans file, cron) â€” once per process
+// App initialization (DB, bans file, cron) — once per process
 let initialized = false;
 let initPromise = null;
 
@@ -2115,14 +2115,14 @@ async function initializeApp() {
 
   initPromise = (async () => {
     try {
-      console.log('ğŸš€ Initializing application...');
+      console.log('🚀 Initializing application...');
       
       // Load banned IPs from file at startup; reload when file changes (manual edits / clear-bans)
       loadBannedIps();
       startBannedIpsFileWatcher();
       
       // Initial pool health check
-      console.log('ğŸ” Checking database connection...');
+      console.log('🔍 Checking database connection...');
       const initialHealth = await checkPoolHealth();
       if (!initialHealth) {
         throw new Error('Initial database connection failed. Please check DATABASE_URL and network.');
@@ -2130,13 +2130,13 @@ async function initializeApp() {
       
       await prepareSchema();
       await piyasaServer.seedPiyasaCustomersIfEmpty();
-      console.log("âœ… Connected to PostgreSQL and ensured schema.");
+      console.log("✅ Connected to PostgreSQL and ensured schema.");
       
       // Periodic health monitoring (every 15 minutes)
       setInterval(async () => {
         const healthy = await checkPoolHealth();
         if (!healthy) {
-          console.warn('âš ï¸ Periodic health check failed - pool may have connectivity issues');
+          console.warn('⚠️ Periodic health check failed - pool may have connectivity issues');
         }
       }, 15 * 60 * 1000);
 
@@ -2167,30 +2167,34 @@ async function initializeApp() {
       }
       try {
         await auth.ensureUsersTable();
-        const kantarUsers = { AVDAN: 'GEN20AVDAN', '1.OSB': 'GEN201.OSB' };
-        for (const [kantarUser, kantarPass] of Object.entries(kantarUsers)) {
+        // Şifreler .env'den gelir; tanımlı değilse DB'deki mevcut hesaba dokunulmaz.
+        const seedUsers = [
+          { username: 'AVDAN', envKey: 'KANTAR_AVDAN_PASSWORD', role: 'admin' },
+          { username: '1.OSB', envKey: 'KANTAR_1OSB_PASSWORD', role: 'admin' },
+          { username: 'xxr', envKey: 'AMIR_PASSWORD', role: 'amir' },
+        ];
+        for (const { username, envKey, role } of seedUsers) {
+          const password = String(process.env[envKey] || '');
+          if (!password) {
+            console.warn(`${envKey} tanımlı değil; ${username} hesabı olduğu gibi bırakıldı.`);
+            continue;
+          }
           try {
-            await auth.registerUser(kantarUser, kantarPass, { role: 'admin' });
-            const row = await pool.query('SELECT password_hash FROM users WHERE username = $1', [kantarUser]);
+            await auth.registerUser(username, password, { role });
+            const row = await pool.query('SELECT password_hash FROM users WHERE username = $1', [username]);
             const hash = row.rows[0] && row.rows[0].password_hash;
-            if (hash && !(await bcrypt.compare(kantarPass, hash))) {
-              await pool.query('UPDATE users SET password_hash = $1 WHERE username = $2', [await bcrypt.hash(kantarPass, 10), kantarUser]);
+            if (hash && !(await bcrypt.compare(password, hash))) {
+              await pool.query('UPDATE users SET password_hash = $1 WHERE username = $2', [await bcrypt.hash(password, 10), username]);
             }
-            console.log('Kantar user ensured:', kantarUser);
+            console.log('User ensured:', username);
           } catch (e) {
-            console.log('Kantar user setup skipped or already exists:', kantarUser);
+            console.log('User setup skipped:', username, e && e.message ? e.message : e);
           }
         }
         try {
           await pool.query('DELETE FROM users WHERE username = $1', ['GENPER']);
         } catch (e) {
           console.log('GENPER user removal skipped:', e && e.message ? e.message : e);
-        }
-        try {
-          await auth.registerUser('xxr', 'gp1451', { role: 'amir' });
-          console.log('Amir user ensured: xxr');
-        } catch (e) {
-          console.log('Amir user setup skipped or already exists');
         }
       } catch (e) {
         console.error('Failed to ensure users table or create default user:', e && e.message ? e.message : e);
@@ -2220,9 +2224,9 @@ app.use(async (req, res, next) => {
 module.exports = app;
 
 const PORT = Number(process.env.PORT || 3000);
-/** 0 = port doluysa 3001'e geÃ§me; yalnÄ±zca PORT'ta dinle veya Ã§Ä±k */
+/** 0 = port doluysa 3001'e geçme; yalnızca PORT'ta dinle veya çık */
 const MAX_PORT_RETRIES = Number(process.env.PORT_RETRY_LIMIT ?? 0);
-/** true: baÅŸlamadan Ã¶nce PORT'taki eski node sÃ¼recini sonlandÄ±r (localhost geliÅŸtirme) */
+/** true: başlamadan önce PORT'taki eski node sürecini sonlandır (localhost geliştirme) */
 const PORT_RECLAIM = String(process.env.PORT_RECLAIM ?? 'true').toLowerCase() !== 'false';
 const { execSync } = require('child_process');
 
@@ -2250,7 +2254,7 @@ function freeListeningPort(port) {
       if (pid === myPid) continue;
       try {
         execSync(`taskkill /PID ${pid} /F`, { stdio: 'ignore' });
-        console.warn(`âš ï¸ Port ${port} â€” eski sÃ¼reÃ§ sonlandÄ±rÄ±ldÄ± (PID ${pid}).`);
+        console.warn(`⚠️ Port ${port} — eski süreç sonlandırıldı (PID ${pid}).`);
       } catch (_) {}
     }
     return;
@@ -2266,9 +2270,9 @@ function startServerWithPortFallback(basePort) {
   const tryListen = (port, attemptsLeft, afterReclaim) => {
     const server = app.listen(port, () => {
       if (port !== basePort) {
-        console.log(`âš ï¸ Port ${basePort} dolu olduÄŸu iÃ§in ${port} kullanÄ±lÄ±yor.`);
+        console.log(`⚠️ Port ${basePort} dolu olduğu için ${port} kullanılıyor.`);
       }
-      console.log(`âœ… Server listening on http://localhost:${port}`);
+      console.log(`✅ Server listening on http://localhost:${port}`);
       if (!DRIVER_SEFER_PANEL_ENABLED) {
         console.log('ℹ️ Şoför sefer paneli kapalı (DRIVER_SEFER_PANEL_ENABLED=true ile açılır)');
       }
@@ -2277,7 +2281,7 @@ function startServerWithPortFallback(basePort) {
     server.on('error', (err) => {
       if (err && err.code === 'EADDRINUSE' && PORT_RECLAIM && !reclaimAttempted) {
         reclaimAttempted = true;
-        console.warn(`âš ï¸ Port ${port} dolu; ${port} yeniden alÄ±nÄ±yor...`);
+        console.warn(`⚠️ Port ${port} dolu; ${port} yeniden alınıyor...`);
         try {
           server.close(() => {});
         } catch (_) {}
@@ -2287,12 +2291,12 @@ function startServerWithPortFallback(basePort) {
       }
       if (err && err.code === 'EADDRINUSE' && attemptsLeft > 0) {
         const nextPort = port + 1;
-        console.warn(`âš ï¸ Port ${port} kullanÄ±mda. ${nextPort} deneniyor...`);
+        console.warn(`⚠️ Port ${port} kullanımda. ${nextPort} deneniyor...`);
         setTimeout(() => tryListen(nextPort, attemptsLeft - 1, afterReclaim), 100);
         return;
       }
       if (err && err.code === 'EADDRINUSE') {
-        console.error(`âŒ Port ${port} kullanÄ±mda. BaÅŸka bir program portu tutuyor veya PORT_RECLAIM kapalÄ±.`);
+        console.error(`❌ Port ${port} kullanımda. Başka bir program portu tutuyor veya PORT_RECLAIM kapalı.`);
       } else {
         console.error('Server listen error:', err);
       }

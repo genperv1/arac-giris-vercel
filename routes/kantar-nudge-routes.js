@@ -45,6 +45,29 @@ function registerKantarNudgeRoutes(api, ctx) {
       return sendApiError(res, err, 500, 'NUDGE_READ_FAILED');
     }
   });
+
+  api.post('/nudge/ack', requireValidSession, (req, res) => {
+    try {
+      touchPresence(req);
+      const site = siteFromUsername(req.user && req.user.username);
+      const id = sanitizeString((req.body && req.body.id) || '', 64);
+      const result = site ? store.ack(site, id) : { ok: false };
+      if (!result.ok) return res.status(404).json({ ok: false, code: 'NOT_FOUND', error: 'Çağrı bulunamadı' });
+      try { if (typeof broadcastEvent === 'function') broadcastEvent('kantar_nudge_ack', result.nudge); } catch (e) { /* ignore */ }
+      return res.json({ ok: true, nudge: result.nudge });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'NUDGE_ACK_FAILED');
+    }
+  });
+
+  api.get('/nudge/status', requireAmir, (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ok: true, status: store.status() });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'NUDGE_STATUS_FAILED');
+    }
+  });
 }
 
 module.exports = { registerKantarNudgeRoutes };

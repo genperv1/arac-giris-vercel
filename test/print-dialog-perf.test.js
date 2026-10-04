@@ -51,7 +51,7 @@ test('Boş takip formu firma kodu olmadan yazdırılmaz', () => {
     'utf8'
   );
   assert.match(takip, /function visibleTakipFirmaKodu/);
-  assert.match(takip, /Firma \/ müşteri kodu zorunlu/);
+  assert.match(takip, /Firma kodu boş\. İhracat için YD veya HP/);
   assert.doesNotMatch(takip, /opts\.allowBlank !== false && isTakipFormCargoBlank\(\)/);
   const start = excelIhr.indexOf('function ensureIhracatExcelPickBeforePrint');
   const end = excelIhr.indexOf('async function maybeOfferIhracatExcelPickOnOpen');

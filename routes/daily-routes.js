@@ -27,7 +27,7 @@ api.post("/daily_rows", requireValidSession, async (req, res) => {
     const id = String(row.id || (Date.now().toString() + Math.random().toString(16).slice(2)));
     const created = Number(row.created_at || Date.now());
     
-    // âœ… SECURITY: Validate and sanitize plaka
+    // ✅ SECURITY: Validate and sanitize plaka
     const plakaRaw = sanitizeString(row.plaka || "", 50);
     if (plakaRaw && !validatePlateFormat(plakaRaw)) {
       console.warn('Rejected plaka in daily_rows:', plakaRaw, 'Original:', row.plaka);
@@ -74,7 +74,7 @@ api.post("/daily_rows", requireValidSession, async (req, res) => {
   }
 });
 
-// TÃ¼m gÃ¼nlÃ¼k Excel satÄ±rlarÄ±nÄ± sil (Ä°HRACAT Excel Sil)
+// Tüm günlük Excel satırlarını sil (İHRACAT Excel Sil)
 api.delete("/daily_rows", requireValidSession, async (req, res) => {
   try {
     await q("DELETE FROM daily_rows");

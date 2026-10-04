@@ -51,7 +51,7 @@ api.get("/piyasa", async (req, res) => {
 
 api.post("/piyasa", auth.verifyToken, async (req, res) => {
   try {
-    // âœ… SECURITY: Sanitize piyasa data
+    // ✅ SECURITY: Sanitize piyasa data
     let sanitized = req.body || {};
     if (sanitized.plate) sanitized.plate = sanitizeString(sanitized.plate, 50);
     if (sanitized.firma) sanitized.firma = sanitizeString(sanitized.firma, 100);

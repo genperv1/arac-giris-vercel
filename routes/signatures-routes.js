@@ -29,7 +29,7 @@ function registerSignatureImageRoute(api, ctx) {
 
 function registerSignaturesRoutes(api, ctx) {
   const { q, pool, auth, parsePagination, sendApiError, requireValidSession, requireAdmin, sanitizeString, validatePlateFormat, broadcastEvent, broadcastReportUpdate, withTransaction, computeVehicleSortTs, signatureRowToSrc } = ctx;
-// â€”â€”â€” Ä°mza yÃ¶netimi (Kantar + Sevkiyat saha) â€”â€”â€”
+// ——— İmza yönetimi (Kantar + Sevkiyat saha) ———
 api.get("/signatures", async (req, res) => {
   try {
     const role = sanitizeString(req.query.role || '', 20).toLowerCase();
@@ -97,7 +97,7 @@ api.post("/signatures", requireValidSession, async (req, res) => {
       [role, displayName]
     );
     if (dup.rows[0]) {
-      return res.status(409).json({ error: 'Bu isim bu rol iÃ§in zaten kayÄ±tlÄ±', id: dup.rows[0].id });
+      return res.status(409).json({ error: 'Bu isim bu rol için zaten kayıtlı', id: dup.rows[0].id });
     }
     const id = String(body.id || `sig_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`);
     const created = Date.now();
