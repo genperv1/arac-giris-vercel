@@ -217,12 +217,24 @@ test('publicApp modunda oturumsuz kantar gönderimi 401 + günlükte "denied"; n
   assert.ok(anon.sites.AVDAN.heartbeatAt);
   assert.equal(anon.sites.AVDAN.heartbeatExcel, false);
   assert.equal(anon.events, undefined);
-  // Amir görünümü: günlükte 2 red + 1 nabız
+  assert.equal(anon.sites.AVDAN.heartbeatReadOk, null);
+  // Okuma sonucu: başarılı okuma zamanı saklanır, sonraki başarısız okumada korunur
+  const hdr = { headers: { 'x-forwarded-for': '9.9.9.9', cookie: 'auth_token=' + good }, cookies: { auth_token: good } };
+  await run('put /api/liman/heartbeat', Object.assign({ body: { excelLoaded: true, readOk: true } }, hdr));
+  const okView = (await run('get /api/liman', { headers: {} })).out.sites.AVDAN;
+  assert.equal(okView.heartbeatReadOk, true);
+  assert.ok(okView.heartbeatReadOkAt);
+  await run('put /api/liman/heartbeat', Object.assign({ body: { excelLoaded: true, readOk: false, readReason: 'permission' } }, hdr));
+  const badView = (await run('get /api/liman', { headers: {} })).out.sites.AVDAN;
+  assert.equal(badView.heartbeatReadOk, false);
+  assert.equal(badView.heartbeatReadReason, 'permission');
+  assert.equal(badView.heartbeatReadOkAt, okView.heartbeatReadOkAt);
+  // Amir görünümü: günlükte 2 red + nabızlar
   const amirTok = jwt.sign({ username: 'xxr', role: 'amir' }, 'test-secret', { expiresIn: '1h' });
   const amir = (await run('get /api/liman', { headers: { cookie: 'auth_token=' + amirTok }, cookies: { auth_token: amirTok }, user: { username: 'xxr', role: 'amir' } })).out;
-  assert.deepEqual(amir.events.map((e) => e.kind), ['heartbeat', 'denied', 'denied']);
-  assert.equal(amir.events[1].reason, 'expired');
-  assert.equal(amir.events[2].reason, 'no-token');
+  assert.deepEqual(amir.events.map((e) => e.kind), ['heartbeat', 'heartbeat', 'heartbeat', 'denied', 'denied']);
+  assert.equal(amir.events[3].reason, 'expired');
+  assert.equal(amir.events[4].reason, 'no-token');
 });
 
 test('diğer kantarın eski İÇERİDE notu çıkmış aracı kirletmez; aynı içerik receivedAt günceller', async () => {

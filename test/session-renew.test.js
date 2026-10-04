@@ -193,14 +193,16 @@ test('istemci: kantar hesabında hareketsizlik çıkışı yok; 401\'de cihazla 
   assert.match(excel, /'\/api\/liman\/heartbeat'/);
 
   const src = read('modules/ihracat-excel-source.js');
-  assert.match(src, /async function autoRefreshTick\(\)[\s\S]*sm\.ensureSession\(\)[\s\S]*heartbeat\(true\)/);
+  assert.match(src, /async function autoRefreshTick\(\)[\s\S]*sm\.ensureSession\(\)[\s\S]*heartbeat\(true, read\)/);
+  assert.match(src, /reason: _silentPermMissing \? 'permission' : 'not-found'/);
+  assert.match(excel, /readOk: info && typeof info\.readOk === 'boolean'/);
 
   const giris = read('GIRIS.html');
   assert.match(giris, /session-manager\.js\?v=20261004-nudge4/);
   assert.match(giris, /app-auth\.js\?v=1\.0\.28-20261003-renew/);
-  assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.58-20261004-note-loop/);
-  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.26-20261004-nabiz/);
-  assert.match(read('liman.html'), /liman\.js\?v=20261004-liman20/);
+  assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.59-20261004-okuma/);
+  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.27-20261004-okuma/);
+  assert.match(read('liman.html'), /liman\.js\?v=20261004-liman22/);
   assert.match(read('ayarlar.html'), /ayarlar\.js\?v=20261003-cihazlar/);
   assert.match(read('ayarlar.html'), /id="section-cihazlar"/);
   assert.match(read('ayarlar.js'), /'\/api\/session\/devices'/);

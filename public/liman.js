@@ -45,11 +45,50 @@
       var chip = $('chipPresence');
       if (chip) chip.innerHTML = SessionManager.presenceChipHtml(data.presence);
     }
+    renderExcelStatus();
     render();
   }
 
   async function load() {
     applyView(await api('/api/liman'));
+  }
+
+  var READ_REASON = {
+    permission: 'dosya izni yok, kantarda bir kez Güncelle',
+    'not-found': 'Excel dosyası bulunamadı',
+    'no-excel': 'Excel seçilmemiş',
+    error: 'okuma hatası',
+  };
+
+  /** Yalnız amir: online çubuğunun altında her kantarın son Excel okuma sonucu. */
+  function renderExcelStatus() {
+    var box = $('excelStatus');
+    if (!box) return;
+    if (!state.canEdit) {
+      box.innerHTML = '';
+      return;
+    }
+    var hm = function (iso) { return iso ? new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : ''; };
+    box.innerHTML = ['AVDAN', '1.OSB'].map(function (site) {
+      var info = (state.sites || {})[site] || null;
+      var at = info && info.heartbeatAt;
+      var readOk = info ? info.heartbeatReadOk : null;
+      var cls = 'xs-none';
+      var text;
+      if (!at || readOk === null || readOk === undefined) {
+        text = 'Excel okuma bilgisi yok';
+      } else if (Date.now() - new Date(at).getTime() > 25 * 60 * 1000) {
+        text = 'kantar sayfası kapalı · son okuma ' + hm(info.heartbeatReadOkAt || at);
+      } else if (readOk) {
+        cls = 'xs-ok';
+        text = 'Excel okundu ' + hm(info.heartbeatReadOkAt || at);
+      } else {
+        cls = 'xs-bad';
+        text = (READ_REASON[info.heartbeatReadReason] || 'Excel okunamıyor') +
+          (info.heartbeatReadOkAt ? ' · son başarılı ' + hm(info.heartbeatReadOkAt) : '');
+      }
+      return '<span class="xs-item ' + cls + '"><b>' + esc(site) + ':</b> ' + esc(text) + '</span>';
+    }).join('');
   }
 
   function renderAdmin() {
@@ -60,38 +99,7 @@
       return;
     }
     var fmt = function (iso) { return iso ? new Date(iso).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; };
-    var hm = function (iso) { return iso ? new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : ''; };
-    var parts = Object.keys(state.sites || {}).map(function (site) {
-      var info = state.sites[site];
-      if (!info) return '<span class="site-info"><b>' + esc(site) + ':</b> <i>liste yok</i> · <span class="hb hb-none">kantar hiç bağlanmadı</span></span>';
-      var changed = fmt(info.updatedAt);
-      var received = fmt(info.receivedAt || info.updatedAt);
-      var staleMs = info.receivedAt ? Date.now() - new Date(info.receivedAt).getTime() : 0;
-      var staleCls = staleMs > 3 * 60 * 60 * 1000 ? ' is-stale' : '';
-      // Kantar PC nabzı: 10 dk'da bir gelir. Güncelle de liste gönderir; taze gönderim varsa PC bağlı sayılır.
-      var hbHtml = '';
-      var hbAt = info.heartbeatAt || '';
-      var recvAt = info.receivedAt || info.updatedAt || '';
-      var hbAge = hbAt ? Date.now() - new Date(hbAt).getTime() : Infinity;
-      var recvAge = recvAt ? Date.now() - new Date(recvAt).getTime() : Infinity;
-      if (hbAge < 30 * 60 * 1000) {
-        hbHtml = ' · <span class="hb hb-ok" title="Kantar PC\'nin son bağlıyım sinyali">kantar bağlı · son kontrol ' +
-          esc(hm(hbAt)) + (info.heartbeatExcel === false ? ' · Excel yüklü değil!' : '') + '</span>';
-      } else if (recvAge < 30 * 60 * 1000) {
-        hbHtml = ' · <span class="hb hb-ok" title="Az önce liste geldi; PC bağlı">kantar bağlı · az önce gönderdi</span>';
-      } else if (hbAt) {
-        hbHtml = ' · <span class="hb hb-dead" title="30 dakikadır nabız yok">kantar bağlı değil · son nabız ' + esc(fmt(hbAt)) + '</span>';
-      } else {
-        hbHtml = ' · <span class="hb hb-none" title="Bu kantar henüz bağlıyım sinyali göndermedi">nabız yok</span>';
-      }
-      var listHtml = info.hasList === false
-        ? '<i>liste yok</i>'
-        : esc(info.fileName || '') + ' · ' + info.rowCount + ' satır' +
-          ' · <span title="Kantarın en son Güncelle ile gönderdiği an (içerik aynı olsa da)">son gönderim ' + esc(received) + '</span>' +
-          (received !== changed ? ' · <span title="Liste içeriğinin en son değiştiği an">son değişiklik ' + esc(changed) + '</span>' : '');
-      return '<span class="site-info' + staleCls + '"><b>' + esc(site) + ':</b> ' + listHtml + hbHtml + '</span>';
-    });
-    var html = '<div class="known">' + parts.join(' &nbsp; ') + '</div>';
+    var html = '';
 
     // Gönderim günlüğü: kantar gönderdi mi, aynı mıydı, reddedildi mi (oturum) — amir buradan anlar
     var ev = state.events || [];

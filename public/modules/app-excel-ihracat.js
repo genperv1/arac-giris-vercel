@@ -1513,6 +1513,8 @@ function sendLimanHeartbeat(info) {
       site: limanPublishSite(rows),
       excelLoaded: !!(info && info.excelLoaded !== undefined ? info.excelLoaded : rows.length),
       fileName: (info && info.fileName) || meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : '') || '',
+      readOk: info && typeof info.readOk === 'boolean' ? info.readOk : undefined,
+      readReason: (info && info.readReason) || '',
     });
     const doFetch = (window.SessionManager && typeof window.SessionManager.fetchWithSession === 'function')
       ? window.SessionManager.fetchWithSession.bind(window.SessionManager)

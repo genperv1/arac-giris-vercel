@@ -90,6 +90,13 @@
     .presence-item.is-nudge { cursor: pointer; }
     .presence-item.is-nudge:hover { background: rgba(255,255,255,.08); border-radius: 8px; }
     .presence-item.is-nudge-off { cursor: not-allowed; }
+    .presence-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .excel-status:empty { display: none; }
+    .excel-status { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: .72rem; }
+    .xs-item { padding: 1px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+    .xs-ok { background: rgba(74,222,128,.18); color: #bbf7d0; }
+    .xs-bad { background: #f97316; color: #fff; }
+    .xs-none { background: rgba(255,255,255,.1); color: #d1d5db; }
     .toast { position: fixed; bottom: 36px; right: 16px; background: #14532d; color: #fff; padding: 10px 14px; display: none; }
     a.tel { color: inherit; text-decoration: none; }
     table.grid td.c-sum { display: none; }
@@ -100,7 +107,7 @@
       .top-inner { padding: 8px 10px 10px; }
       .top h1 { font-size: .95rem; }
       .title-row { gap: 6px; }
-      .presence-chip { display: none; }
+      .presence-chip, .excel-status { display: none; }
       .ports { gap: 6px; margin-top: 8px; }
       .ports #ports { display: contents; }
       .chip { padding: 7px 10px; font-size: .8rem; }
@@ -170,7 +177,10 @@
     <div class="top-inner">
       <div class="title-row">
         <h1>İhracat Takip Listesi</h1>
-        <span class="presence-chip" id="chipPresence"></span>
+        <div class="presence-col">
+          <span class="presence-chip" id="chipPresence"></span>
+          <div class="excel-status" id="excelStatus"></div>
+        </div>
       </div>
       <div class="ports">
         <div id="ports"></div>
@@ -186,6 +196,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261004-liman20"></script>
+  <script src="liman.js?v=20261004-liman22"></script>
 </body>
 </html>

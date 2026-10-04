@@ -17,6 +17,7 @@
   var AUTO_REFRESH_MS = 10 * 60 * 1000;
   var _busy = false;
   var _silentRun = false;
+  var _silentPermMissing = false;
   var _cache = null;
   var _liveHandle = null;
   var _handleReady = null;
@@ -882,7 +883,10 @@
         if (q === 'granted') return await handle.getFile();
       }
       // Sessiz (otomatik) çalışmada izin penceresi açılmaz; izin yoksa dosya yok sayılır.
-      if (_silentRun) return { __missing: true };
+      if (_silentRun) {
+        _silentPermMissing = true;
+        return { __missing: true };
+      }
       // İzin tıklama anında primeHandlePermissions ile istenmiş olmalı.
       if (typeof handle.requestPermission === 'function') {
         var perm = await handle.requestPermission({ mode: 'read' });
@@ -1108,6 +1112,7 @@
           return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames, silent: true };
         }
         setNeedPath(true);
+        heartbeat(true, { ok: false, reason: 'not-found' });
         if (typeof window.showToast === 'function') window.showToast(lastFailMsg || MSG_NOT_FOUND, 'warn');
         return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames };
       }
@@ -1139,7 +1144,7 @@
             }
             try {
               if (pub.ok && typeof window.sendLimanHeartbeat === 'function') {
-                window.sendLimanHeartbeat({ excelLoaded: true });
+                window.sendLimanHeartbeat({ excelLoaded: true, readOk: true });
               }
             } catch (eHb) { /* nabız ayrı; liste gittiysa sorun değil */ }
           } else if (pub && pub.reason === 'empty') {
@@ -1205,10 +1210,15 @@
    * Excel diskten okunur ve liman listesine gönderilir. İzin / dosya yoksa sessizce atlanır.
    */
   /** Kantar nabzı (Excel olmasa da): amir "kantar PC bağlı mı?" sorusunu buradan görür. */
-  function heartbeat(excelLoaded) {
+  function heartbeat(excelLoaded, read) {
     try {
       if (typeof window.sendLimanHeartbeat !== 'function') return Promise.resolve(null);
-      return Promise.resolve(window.sendLimanHeartbeat({ excelLoaded: !!excelLoaded })).catch(function () { return null; });
+      var info = { excelLoaded: !!excelLoaded };
+      if (read) {
+        info.readOk = !!read.ok;
+        info.readReason = read.ok ? '' : (read.reason || '');
+      }
+      return Promise.resolve(window.sendLimanHeartbeat(info)).catch(function () { return null; });
     } catch (e) { return Promise.resolve(null); }
   }
 
@@ -1227,17 +1237,26 @@
     } catch (e) { /* kontrol edilemedi, yine de dene */ }
     try { await loadHandle(); } catch (e) {}
     adoptLoadedExcelAsSource();
-    if (!hasLoadedExcel()) { heartbeat(false); return; }
+    if (!hasLoadedExcel()) { heartbeat(false, { ok: false, reason: 'no-excel' }); return; }
     var sources = [];
     try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
-    if (!sources.length) { heartbeat(false); return; }
+    if (!sources.length) { heartbeat(false, { ok: false, reason: 'no-excel' }); return; }
+    var read = { ok: false, reason: 'error' };
+    _silentPermMissing = false;
     try {
       var r = await refreshFromStored(null, null, null, { silent: true });
       if (r && r.ok) {
+        read = { ok: true };
         try { console.info('[İhracat Excel] otomatik güncellendi:', (r.okNames || []).join(', ')); } catch (e2) {}
+      } else if (r && r.code === 'EXCEL_FILE_NOT_FOUND') {
+        read = { ok: false, reason: _silentPermMissing ? 'permission' : 'not-found' };
+      } else if (r && r.code === 'EXCEL_CLEARED') {
+        read = { ok: false, reason: 'no-excel' };
+      } else if (r && r.msg === 'Güncelleme sürüyor.') {
+        return;
       }
     } catch (e) { /* sessiz */ }
-    heartbeat(true);
+    heartbeat(true, read);
   }
 
   function startAutoRefresh() {

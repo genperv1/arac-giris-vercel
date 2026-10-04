@@ -288,6 +288,10 @@ function registerLimanRoutes(api, ctx, publicApp) {
         heartbeatAt: (beat && beat.at) || '',
         heartbeatExcel: beat ? !!beat.excel : null,
         heartbeatFile: (beat && beat.fileName) || '',
+        // Son otomatik/elle Excel okumasının sonucu: true okundu, false okunamadı, null bilinmiyor (eski istemci)
+        heartbeatReadOk: beat && typeof beat.readOk === 'boolean' ? beat.readOk : null,
+        heartbeatReadReason: (beat && beat.readReason) || '',
+        heartbeatReadOkAt: (beat && beat.readOkAt) || '',
       } : null;
     });
     return out;
@@ -389,20 +393,26 @@ function registerLimanRoutes(api, ctx, publicApp) {
       const body = req.body || {};
       const site = normalizeSite(req.user && req.user.username) || ipSite(requestIp(req)) || normalizeSite(body.site);
       if (!site) return res.status(400).json({ ok: false, error: 'Kantar anlaşılamadı.' });
+      const readOk = typeof body.readOk === 'boolean' ? body.readOk : null;
       const committed = await commitState((state) => {
         const hb = Object.assign({}, heartbeats(state));
+        const prev = hb[site] || {};
+        const at = new Date().toISOString();
         hb[site] = {
-          at: new Date().toISOString(),
+          at,
           user: sanitizeString((req.user && req.user.username) || '', 40),
           ip: requestIp(req),
           excel: !!body.excelLoaded,
           fileName: sanitizeString(body.fileName || '', 180),
+          readOk,
+          readReason: readOk === false ? sanitizeString(body.readReason || '', 40) : '',
+          readOkAt: readOk === true ? at : (prev.readOkAt || ''),
         };
         state.heartbeats = hb;
         return { site, at: hb[site].at };
       }, { silent: true });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
-      logEvent('heartbeat', req, { site, excel: !!body.excelLoaded });
+      logEvent('heartbeat', req, { site, excel: !!body.excelLoaded, readOk });
       res.setHeader('Cache-Control', 'no-store');
       return res.json({ ok: true, site, at: committed.at });
     } catch (err) {

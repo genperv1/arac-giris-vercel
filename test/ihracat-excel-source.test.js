@@ -253,7 +253,7 @@ test('client refresh: manual button + silent 10 dk auto refresh (kantar only), n
   assert.match(autoFn, /isKantarSessionActive\(\)/);
   assert.match(autoFn, /refreshFromStored\(null, null, null, \{ silent: true \}\)/);
   assert.doesNotMatch(autoFn, /showOpenFilePicker|requestPermission|warn\(|showToast/);
-  assert.match(clientCode, /if \(_silentRun\) return \{ __missing: true \};/);
+  assert.match(clientCode, /if \(_silentRun\) \{\s*_silentPermMissing = true;\s*return \{ __missing: true \};/);
   assert.match(clientCode, /isAmirUser\(\)\) return false/);
   assert.doesNotMatch(clientCode, /watchFile/);
   assert.match(clientCode, /Önce İhracat Excel dosyasını seçmelisiniz/);
