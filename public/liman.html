@@ -90,6 +90,11 @@
     .presence-item.is-nudge { cursor: pointer; }
     .presence-item.is-nudge:hover { background: rgba(255,255,255,.08); border-radius: 8px; }
     .presence-item.is-nudge-off { cursor: not-allowed; }
+    .live { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 700; color: #bbf7d0; }
+    .live i { width: 8px; height: 8px; border-radius: 999px; background: #4ade80; animation: live-pulse 2s ease-in-out infinite; }
+    .live.is-off { color: #d1d5db; }
+    .live.is-off i { background: #9ca3af; animation: none; }
+    @keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,.6); } 50% { box-shadow: 0 0 0 5px rgba(74,222,128,0); } }
     .presence-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
     .excel-status:empty { display: none; }
     .excel-status { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: .72rem; }
@@ -185,7 +190,7 @@
       <div class="ports">
         <div id="ports"></div>
         <input id="plate" class="search" type="search" placeholder="Plaka ara" />
-        <button type="button" class="btn" id="refreshBtn" title="Bu sayfadaki listeyi yeniler. Kantar nabzı buradan gitmez; kantar PC'de Güncelle gerekir.">Listeyi yenile</button>
+        <span class="live" id="liveDot" title="Liste kendiliğinden yenilenir"><i aria-hidden="true"></i><span>Canlı</span></span>
       </div>
     </div>
   </header>
@@ -196,6 +201,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261004-liman22"></script>
+  <script src="liman.js?v=20261004-liman24"></script>
 </body>
 </html>

@@ -46,6 +46,7 @@
       if (chip) chip.innerHTML = SessionManager.presenceChipHtml(data.presence);
     }
     renderExcelStatus();
+    setLive(true);
     render();
   }
 
@@ -59,6 +60,14 @@
     'no-excel': 'Excel seçilmemiş',
     error: 'okuma hatası',
   };
+
+  /** Liste kendiliğinden yenileniyor mu: sunucuya ulaşılamazsa "Bağlantı yok". */
+  function setLive(ok) {
+    var el = $('liveDot');
+    if (!el) return;
+    el.classList.toggle('is-off', !ok);
+    el.lastChild.textContent = ok ? 'Canlı' : 'Bağlantı yok';
+  }
 
   /** Yalnız amir: online çubuğunun altında her kantarın son Excel okuma sonucu. */
   function renderExcelStatus() {
@@ -397,8 +406,7 @@
     });
   }
 
-  async function guncelle(opts) {
-    var silent = !!(opts && opts.silent);
+  async function guncelle() {
     var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
     // Oturumsuz çıkış akışı (liman görevlisi giriş yapmaz)
     var res = await fetch('/api/liman/departed?since=' + since, { credentials: 'same-origin', cache: 'no-store' });
@@ -406,7 +414,6 @@
     await load();
     lastCheck = Date.now();
     lastFull = Date.now();
-    if (!silent) toast('Liste ve sarılmış durum güncellendi');
   }
 
   function applyMarks() {
@@ -431,10 +438,6 @@
       });
     }
   }
-
-  document.getElementById('refreshBtn').addEventListener('click', function () {
-    guncelle().catch(function (err) { toast(err.message || 'Güncellenemedi'); });
-  });
 
   document.getElementById('plate').addEventListener('input', function (ev) {
     state.plate = ev.target.value || '';
@@ -492,9 +495,10 @@
       try { await SessionManager.requireValidSession(); } catch (e) { /* oturumsuz görünüm */ }
     }
     try {
-      await guncelle({ silent: true });
+      await guncelle();
     } catch (err) {
       try { await load(); } catch (err2) {
+        setLive(false);
         $('list').innerHTML = '<p class="empty">' + esc(err2.message || 'Liste açılamadı') + '</p>';
       }
     }
@@ -503,6 +507,8 @@
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) checkForChange(true);
     });
+    window.addEventListener('offline', function () { setLive(false); });
+    window.addEventListener('online', function () { checkForChange(true); });
   }
 
   var CHECK_MS = 60 * 1000;          // kantar yeni liste gönderdi mi (hafif istek)
@@ -519,12 +525,14 @@
     lastCheck = Date.now();
     try {
       if (force || Date.now() - lastFull >= FULL_MS) {
-        await guncelle({ silent: true });
+        await guncelle();
         return;
       }
       var info = await api('/api/liman/version');
       if (info && info.v && info.v !== state.version) await load();
+      setLive(true);
     } catch (e) {
+      setLive(false);
     } finally {
       checking = false;
     }
