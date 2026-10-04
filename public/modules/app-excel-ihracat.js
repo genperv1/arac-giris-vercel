@@ -4132,6 +4132,15 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
       if (rr > r + 1 && isIhracatBlockHeaderRow(d)) break;
       if (/\bTOPLAM\b/.test(rowTextUpper) && !/ARA\s+TOPLAM/.test(rowTextUpper)) {
         blockTotals = parseIhracatBlockToplamRow(d, blockCols);
+        limanSheetBlock.toplam = blockTotals;
+        for (let kr = rr + 1; kr <= Math.min(grid.length - 1, rr + 3); kr++) {
+          const kd = grid[kr] || [];
+          if (isIhracatBlockHeaderRow(kd)) break;
+          if (/\bKALAN\b/.test(_rowToText(kd).toUpperCase())) {
+            limanSheetBlock.kalan = parseIhracatBlockToplamRow(kd, blockCols);
+            break;
+          }
+        }
         break;
       }
       if (/\bKALAN\b/.test(rowTextUpper)) break;

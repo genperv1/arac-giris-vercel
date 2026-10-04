@@ -226,6 +226,94 @@
     return s;
   }
 
+  function parseNum(value) {
+    var s = String(value == null ? '' : value).replace(/\s/g, '');
+    if (!s) return 0;
+    if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(',', '.');
+    var n = Number(s);
+    return isFinite(n) ? n : 0;
+  }
+
+  function fmtTotal(n) {
+    return n.toLocaleString('tr-TR', { maximumFractionDigits: 3 });
+  }
+
+  var TOTAL_FIELDS = ['bbt', 'cuval', 'palet', 'bosBbt', 'bosCuval', 'net', 'giden'];
+  var KALAN_FIELDS = ['bbt', 'cuval', 'palet', 'bosBbt', 'bosCuval'];
+
+  function blockTotals(rows) {
+    var toplam = {};
+    var kalan = {};
+    TOTAL_FIELDS.forEach(function (key) { toplam[key] = 0; kalan[key] = 0; });
+    rows.forEach(function (row) {
+      var departed = rowDeparted(row);
+      TOTAL_FIELDS.forEach(function (key) {
+        var n = parseNum(key === 'giden' ? (row.giden || row.gidenTonaj) : row[key]);
+        toplam[key] += n;
+        if (!departed) kalan[key] += n;
+      });
+    });
+    return { toplam: toplam, kalan: kalan };
+  }
+
+  var TOTAL_CLS = { bbt: 'c-bbt', cuval: 'c-nar', palet: 'c-nar', bosBbt: 'c-nar', bosCuval: 'c-nar', net: 'c-ton', giden: 'c-ton' };
+  var EXCEL_KEY = { net: 'netTonaj', giden: 'gidenTonaj' };
+
+  function excelTotal(excel, key) {
+    if (!excel) return '';
+    var raw = excel[EXCEL_KEY[key] || key];
+    return raw == null ? '' : String(raw).trim();
+  }
+
+  /**
+   * Excel'deki TOPLAM / KALAN satırı varsa birebir gösterilir, yoksa sayfa hesaplar.
+   * compare: yalnız amir görür — sayfanın hesabı Excel'den farklıysa hücre işaretlenir
+   * (plaka araması açıkken satırların bir kısmı göründüğü için kapalı).
+   */
+  function totalsRow(label, cls, excel, calc, fields, compare, extra) {
+    var cells = TOTAL_FIELDS.map(function (key) {
+      var active = fields.indexOf(key) >= 0;
+      var calcText = active ? fmtTotal(calc[key]) : '';
+      if (!excel) return '<td class="' + TOTAL_CLS[key] + '">' + esc(calcText) + '</td>';
+      var raw = excelTotal(excel, key);
+      var text = raw ? fmtTotal(parseNum(raw)) : '';
+      var diff = compare && active && Math.abs(parseNum(raw) - calc[key]) > 0.5;
+      if (!diff) return '<td class="' + TOTAL_CLS[key] + '">' + esc(text) + '</td>';
+      return '<td class="' + TOTAL_CLS[key] + ' tot-diff" title="Sayfa hesabı: ' + esc(calcText) + '">' +
+        esc(text || '—') + '<small>hesap: ' + esc(calcText) + '</small></td>';
+    }).join('');
+    return '<tr class="tot ' + cls + '"><td colspan="2">' + label + '</td>' + cells +
+      '<td colspan="4" class="left tot-extra">' + (extra || '') + '</td></tr>';
+  }
+
+  function totalsFoot(block, rows, compare) {
+    var t = blockTotals(rows);
+    var ex = block.toplam || null;
+    var extra = '';
+    if (ex) {
+      var parts = [];
+      if (ex.ogrTonaj) parts.push('BR. TONAJ: ' + fmtTotal(parseNum(ex.ogrTonaj)));
+      if (ex.fark) parts.push('FARK: ' + fmtTotal(parseNum(ex.fark)));
+      extra = esc(parts.join(' · '));
+    }
+    return '<tfoot>' +
+      totalsRow('TOPLAM', 'tot-toplam', ex, t.toplam, TOTAL_FIELDS, compare, extra) +
+      totalsRow('KALAN', 'tot-kalan', ex ? (block.kalan || {}) : null, t.kalan, KALAN_FIELDS, compare && !!block.kalan, '') +
+      '</tfoot>';
+  }
+
+  /** Başlıktaki sipariş miktarı: "... / 162 TON / ... / 120 BBT / ..." */
+  function orderOf(title) {
+    var s = String(title || '');
+    var bbt = s.match(/(\d+)\s*BBT\b/i);
+    var ton = s.match(/(\d+(?:[.,]\d+)?)\s*TON\b/i);
+    var parts = [];
+    if (bbt) parts.push(bbt[1] + ' BBT');
+    if (ton) parts.push(ton[1] + ' TON');
+    return parts.join(' · ');
+  }
+
   function telHref(raw) {
     var digits = String(raw || '').replace(/[^\d+]/g, '');
     if (digits.length < 7) return '';
@@ -333,9 +421,11 @@
       }).join('');
       var noteLine = block.note ? '<p class="note-line">' + esc(block.note) + '</p>' : '';
       var progress = blockProgress(block);
+      var order = orderOf(block.title);
+      var orderText = order ? ' · Sipariş: ' + esc(order) : '';
       var statusLine = progress.complete
-        ? '<p class="done-line"><i>✔</i> SEVKİYAT TAMAMLANDI · ' + progress.total + ' / ' + progress.total + ' araç çıktı</p>'
-        : '<p class="progress-line">' + progress.done + ' / ' + progress.total + ' araç çıktı</p>';
+        ? '<p class="done-line"><i>✔</i> SEVKİYAT TAMAMLANDI · ' + progress.total + ' / ' + progress.total + ' araç çıktı' + orderText + '</p>'
+        : '<p class="progress-line">' + progress.done + ' / ' + progress.total + ' araç çıktı' + orderText + '</p>';
       return '<section class="blok' + (progress.complete ? ' is-done' : '') + '">' +
         '<div class="blok-head">' +
           '<h2 class="blok-title">' + esc(block.title || '') + '</h2>' +
@@ -353,7 +443,7 @@
           '<th class="c-nar">ÇUVAL</th><th class="c-nar">PALET</th><th class="c-nar">BOŞ<br>BBT</th><th class="c-nar">BOŞ<br>ÇUVAL</th>' +
           '<th class="c-ton">NET</th><th class="c-ton">GİDEN</th><th class="c-durum">DURUM</th><th class="c-yer">YÜKLEME<br>YERİ</th>' +
           '<th class="c-sofor">ŞOFÖR</th><th class="c-tel">TELEFON</th>' +
-        '</tr></thead><tbody>' + rows + '</tbody></table></section>';
+        '</tr></thead><tbody>' + rows + '</tbody>' + totalsFoot(block, block.rows || [], state.canEdit && !state.plate) + '</table></section>';
     }).join('') + '</div>';
   }
 
