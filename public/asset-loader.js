@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v32-isg-afterprint';
+  var PRINT_REV = 'print-v33-no-isg-on-takip';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

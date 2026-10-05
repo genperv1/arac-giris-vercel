@@ -710,6 +710,20 @@ test('isOzmalPlate recognizes company plates with spaces', () => {
   assert.equal(core.isOzmalPlate('43VE530'), false);
 });
 
+test('liman gelmeyen — içerideki araç özmal olsa da listelenmez', () => {
+  const header = 'YD210(G) / LOT NO 26 04 11 / HP 0,15-0,60 / 80 BBT';
+  const rows = [
+    { headerText: header, plaka: '43 ADT 557', bbt: '20', durum: 'İçeride', giden: '' },
+    { headerText: header, plaka: '43ADT546', bbt: '20', gidenTonaj: 'içeride' },
+    { headerText: header, plaka: '43VE530', bbt: '20', durum: 'İÇERİDE', _printedInside: true },
+    { headerText: header, plaka: '43ABC123', bbt: '20', gidenTonaj: '' },
+  ].map((row) => core.limanRowForGelmeyen(row, header));
+  const item = core.analyzeBlock(rows);
+  const plates = core.limanGelmeyenPlates(item).map((p) => String(p.plaka).replace(/\s+/g, ''));
+  assert.deepEqual(plates, ['43ABC123']);
+  assert.equal(item.ozmalPlates.filter((p) => p.isInside).length, 2);
+});
+
 test('analyzeBlock — özmal plate separated from gelmeyen list', () => {
   const item = core.analyzeBlock([
     {

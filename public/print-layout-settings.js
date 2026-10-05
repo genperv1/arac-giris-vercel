@@ -873,13 +873,6 @@
         const sig = signatures[def.key] || {};
         inner = buildSigInnerHtml(sig.name || values[def.key] || '', sig.src || '', getFieldStyle(def.key));
       } else if (def.kind === 'isg') {
-        let signed = opts && opts.isgSigned != null ? !!opts.isgSigned : false;
-        if (opts && opts.isgSigned == null) {
-          signed = isgStampSignedFromSample(sampleForField('isgStamp'));
-        }
-        const stampCls = signed ? 'isg-stamp--ok' : 'isg-stamp--miss';
-        inner = buildIsgStampInnerHtml(signed, getFieldStyle(def.key));
-        fieldsHtml += `<div class="plf-field plf-field--isg isg-stamp ${stampCls}" data-key="${def.key}" style="${pos}z-index:6;">${inner}</div>`;
         return;
       } else {
         const val = values[def.key] != null ? values[def.key] : '';

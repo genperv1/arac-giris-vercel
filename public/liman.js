@@ -174,7 +174,7 @@
 
   /**
    * Yalnız amir: plakası verilip gelmeyen araçlar + daha plaka verilecek BBT (nakliye bekleyenler hesabı).
-   * Takip formu basılan / İÇERİDE / DIŞARIDA / sarıldı araç gelmiş sayılır.
+   * Takip formu basılan / İÇERİDE / DIŞARIDA / sarıldı araç gelmiş sayılır; özmal olsa da gelmeyen listesine girmez.
    */
   function gelmeyenBlocks(blocks) {
     var core = window.NakliyeBekleyenCore;
@@ -186,9 +186,13 @@
     var out = [];
     (blocks || []).forEach(function (block) {
       var items = (block.rows || []).map(function (row) {
+        if (typeof core.limanRowForGelmeyen === 'function') {
+          return core.limanRowForGelmeyen(row, block.title || (row && row.headerText) || '');
+        }
         var durum = String(row.durum || '').trim();
         return Object.assign({}, row, {
           headerText: block.title || row.headerText || '',
+          gidenTonaj: row.gidenTonaj || row.giden || '',
           _nbInside: !!row._printedInside || /^İÇERİDE$/i.test(durum),
           disarida: /^DIŞARIDA$/i.test(durum),
         });
@@ -197,7 +201,11 @@
       var item = null;
       try { item = core.analyzeBlock(items); } catch (e) { item = null; }
       if (!item) return;
-      var waiting = (item.waitingPlates || []).concat(item.ozmalPlates || []);
+      var waiting = typeof core.limanGelmeyenPlates === 'function'
+        ? core.limanGelmeyenPlates(item)
+        : (item.waitingPlates || []).concat(item.ozmalPlates || []).filter(function (p) {
+            return p && !p.isInside && !p.isOutside;
+          });
       var remaining = Number(item.remainingBbt) || 0;
       if (!waiting.length && remaining <= 0) return;
       out.push({ block: block, item: item, waiting: waiting, remaining: remaining });

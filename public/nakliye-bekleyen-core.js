@@ -3294,6 +3294,43 @@
     return collapsePlanItems(out);
   }
 
+  /**
+   * Liman gelmeyen hesabı için satır: İÇERİDE / içeride notu / takip formu
+   * gelmiş sayılır. Özmal plaka olsa da _nbInside kalır.
+   */
+  function limanRowForGelmeyen(row, headerText) {
+    const durum = String((row && row.durum) || '').trim();
+    const giden = String((row && (row.gidenTonaj || row.giden)) || '').trim();
+    const inside = !!(
+      row &&
+      (row._printedInside ||
+        row.iceride === true ||
+        isGidenInsideNote(durum) ||
+        isGidenInsideNote(giden))
+    );
+    const outside = !inside && !!(
+      row &&
+      (row.disarida === true || isGidenOutsideNote(durum) || isGidenOutsideNote(giden))
+    );
+    const copy = Object.assign({}, row, {
+      headerText: headerText || (row && row.headerText) || '',
+      gidenTonaj: giden,
+      _nbInside: inside,
+      disarida: outside,
+    });
+    if (outside && !isGidenOutsideNote(giden) && !isGidenOutsideNote(copy.aciklama)) {
+      copy.aciklama = [copy.aciklama, 'dışarıda'].filter(Boolean).join(' ');
+    }
+    return copy;
+  }
+
+  /** Liman gelmeyen listesi: içeride ve dışarıda araçlar (özmal dahil) yazılmaz. */
+  function limanGelmeyenPlates(item) {
+    return []
+      .concat((item && item.waitingPlates) || [], (item && item.ozmalPlates) || [])
+      .filter((p) => p && !p.isInside && !p.isOutside);
+  }
+
   return {
     analyzeNakliyePending,
     analyzeIhracatBalance,
@@ -3312,6 +3349,8 @@
     findReportStatsForItem,
     rowYdKey,
     analyzeBlock,
+    limanRowForGelmeyen,
+    limanGelmeyenPlates,
     buildExcelBlockRows,
     buildExcelSheetRows,
     buildExcelSheetParts,

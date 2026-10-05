@@ -147,9 +147,14 @@ test('shipment print path shows the badge and prints the ISG sheet only when uns
   const vehicles = fs.readFileSync(path.join(__dirname, '../public/modules/app-vehicles.js'), 'utf8');
   const card = fs.readFileSync(path.join(__dirname, '../public/modules/app-issues-core.js'), 'utf8');
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
-  assert.match(printMain, /printBadgeHtml/);
+  assert.doesNotMatch(printMain, /printBadgeHtml/);
+  const pls = fs.readFileSync(path.join(__dirname, '../public/print-layout-settings.js'), 'utf8');
+  assert.match(pls, /def\.kind === 'isg'/);
   assert.match(printMain, /queueIsgPrintAfterTakip/);
   assert.match(takip, /afterTakipPrint/);
+  const isgJs = fs.readFileSync(path.join(__dirname, '../public/modules/isg-form.js'), 'utf8');
+  assert.match(isgJs, /isg-t004\.pdf/);
+  assert.doesNotMatch(isgJs, /buildCommitmentHtml\(idn\)/);
   assert.match(vehicles, /isgPrint/);
   assert.match(card, /isgCardBlockHTML/);
   assert.match(giris, /modules\/isg-form\.js/);

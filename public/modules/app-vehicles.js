@@ -581,10 +581,9 @@ function setupTakipFormButtons() {
                   cekiciPlaka: plateFromForm || '',
                   snapshot: snap || null
                 });
-                const fromForm = typeof window.IsgForm.resolveFromForm === 'function'
-                  ? window.IsgForm.resolveFromForm()
-                  : null;
-                isgRequired = !(fromForm && fromForm.signed);
+                isgRequired = typeof window.IsgForm.needsIsgShipmentPrint === 'function'
+                  ? window.IsgForm.needsIsgShipmentPrint(ctx)
+                  : true;
                 if (isgRequired) {
                   isgPrint = ctx;
                 }
