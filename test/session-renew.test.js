@@ -201,7 +201,7 @@ test('istemci: kantar hesabında hareketsizlik çıkışı yok; 401\'de cihazla 
   assert.match(giris, /session-manager\.js\?v=20261004-nudge4/);
   assert.match(giris, /app-auth\.js\?v=1\.0\.28-20261003-renew/);
   assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.65-20261005-pfk/);
-  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.30-20261005-yd28b/);
+  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.31-20261005-reread/);
   assert.match(read('liman.html'), /liman\.js\?v=20261005-liman49/);
   assert.match(read('ayarlar.html'), /ayarlar\.js\?v=20261003-cihazlar/);
   assert.match(read('ayarlar.html'), /id="section-cihazlar"/);

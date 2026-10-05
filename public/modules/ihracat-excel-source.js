@@ -1044,10 +1044,9 @@
     }
     if (handleOk) namedFile = aliasFileToSource(namedFile, wanted);
 
+    // Sunucu yerel dosyayı (localhost) ya da Excel Ajanı'nın yüklediği kopyayı verebilir
     var fromBackend = null;
-    if (serverCanSeeLocalExcel()) {
-      try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
-    }
+    try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
     var backendOk = fromBackend && !fromBackend.__missing && !fromBackend.__notSelected
       && sameExcelName(fromBackend.name, wanted);
 

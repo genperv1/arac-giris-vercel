@@ -245,7 +245,8 @@ test('client refresh: manual button + silent auto refresh + 30 sn file stamp wat
   assert.match(clientCode, /FIRST_REFRESH_MS = 15 \* 1000/);
   assert.match(clientCode, /WATCH_MS = 30 \* 1000/);
   assert.match(clientCode, /setInterval\s*\(/);
-  assert.equal((clientCode.match(/setTimeout\s*\(/g) || []).length, 1);
+  // ilk otomatik güncelleme + Excel Ajanı olayı (debounce) + SyncManager bekleme
+  assert.equal((clientCode.match(/setTimeout\s*\(/g) || []).length, 3);
   assert.doesNotMatch(clientCode, /fs\.watch/);
   const watchFn = clientCode.slice(
     clientCode.indexOf('async function grantedStamp'),
@@ -383,7 +384,7 @@ test('her Excel dosyasının konumu ayrı saklanır', () => {
   assert.match(clientCode, /primeHandlePermissions\(picked\)/);
   assert.match(clientCode, /function openFolderPicker/);
   assert.match(clientCode, /namesLackHandle\(picked\)/);
-  assert.match(clientCode, /function serverCanSeeLocalExcel/);
+  assert.doesNotMatch(clientCode, /serverCanSeeLocalExcel/);
   assert.match(clientCode, /function persistDirHandle/);
   assert.match(clientCode, /ihracat_dir/);
   assert.doesNotMatch(clientCode, /Dosyaları seç/);
