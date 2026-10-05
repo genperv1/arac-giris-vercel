@@ -43,6 +43,8 @@ const { registerVehicleRoutes } = require('./routes/vehicles-routes');
 const { registerProblemRoutes } = require('./routes/problems-routes');
 const { registerDailyRoutes } = require('./routes/daily-routes');
 const { registerIhracatExcelRoutes } = require('./routes/ihracat-excel-routes');
+const { registerExcelAgentRoutes } = require('./routes/excel-agent-routes');
+const { createExcelAgentStore } = require('./lib/excel-agent-store');
 const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerLimanRoutes, STATE_KEY: LIMAN_STATE_KEY } = require('./routes/liman-routes');
 const { registerHealthRoutes } = require('./routes/health-routes');
@@ -1187,11 +1189,13 @@ const presence = createPresence();
 /** Kantar PC "hatırlanan cihaz" anahtarı (gün). .env: DEVICE_TOKEN_DAYS=30 */
 const DEVICE_TOKEN_DAYS = envNumber('DEVICE_TOKEN_DAYS', 30, { min: 1, max: 365 });
 const deviceTokens = createDeviceTokenStore(q, { days: DEVICE_TOKEN_DAYS });
+const excelAgentStore = createExcelAgentStore(q);
 
 const routeCtx = {
   q,
   presence,
   deviceTokens,
+  excelAgentStore,
   pool,
   auth,
   parsePagination,
@@ -1291,6 +1295,9 @@ api.get('/print-spool/since', (req, res) => {
     watching: printSpoolWatch.isWatching(),
   });
 });
+
+// Kantar PC Excel Ajanı: oturum yerine EXCEL_AGENT_KEY ile korunur
+registerExcelAgentRoutes(api, routeCtx);
 
 // JWT + yazma işlemleri için oturum zorunluluğu
 api.use(auth.verifyToken);
@@ -2157,6 +2164,14 @@ async function initializeApp() {
         }
       } else {
         console.log('Report cleanup disabled (REPORT_CLEANUP_ENABLED=false).');
+      }
+
+      try {
+        cron.schedule('30 3 * * *', () => {
+          excelAgentStore.pruneOlderThan(14).catch((e) => console.error('Excel ajan temizliği:', e.message || e));
+        }, { timezone: process.env.CRON_TIMEZONE || 'Europe/Istanbul' });
+      } catch (e) {
+        console.error('Excel ajan temizliği zamanlanamadı:', e.message || e);
       }
 
       // Kantar kullanıcıları: her kantarın kendi hesabı (liman listesi kullanıcı adından eşlenir)

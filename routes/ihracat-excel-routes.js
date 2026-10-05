@@ -10,8 +10,34 @@ const {
   readExcelFromStoredPath,
 } = require('../lib/ihracat-excel-source');
 
+async function readNewestExcel(source, excelAgentStore) {
+  let local = null;
+  let localErr = null;
+  try {
+    local = await readExcelFromStoredPath(source);
+  } catch (err) {
+    localErr = err;
+  }
+  let uploaded = null;
+  if (excelAgentStore && source.fileName) {
+    try {
+      uploaded = await excelAgentStore.getUpload(source.fileName);
+    } catch (_) {
+      uploaded = null;
+    }
+  }
+  if (local && uploaded) {
+    const sameName = String(local.fileName).toLowerCase() === String(uploaded.fileName).toLowerCase();
+    if (!sameName) return local;
+    return Number(uploaded.mtime) > Number(local.mtime) ? uploaded : local;
+  }
+  if (local) return local;
+  if (uploaded) return uploaded;
+  throw localErr;
+}
+
 function registerIhracatExcelRoutes(api, ctx) {
-  const { q, sendApiError, requireValidSession } = ctx;
+  const { q, sendApiError, requireValidSession, excelAgentStore } = ctx;
 
   api.get('/ihracat-excel/source', requireValidSession, async (req, res) => {
     try {
@@ -40,6 +66,16 @@ function registerIhracatExcelRoutes(api, ctx) {
     }
   });
 
+  api.get('/ihracat-excel/agent-files', requireValidSession, async (req, res) => {
+    try {
+      const files = excelAgentStore ? await excelAgentStore.listUploads(50) : [];
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ok: true, files });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'IHRACAT_EXCEL_AGENT_LIST_FAILED');
+    }
+  });
+
   api.post('/ihracat-excel/reread', requireValidSession, async (req, res) => {
     try {
       const stored = await getStoredSource(q);
@@ -53,13 +89,14 @@ function registerIhracatExcelRoutes(api, ctx) {
           },
         });
       }
-      const read = await readExcelFromStoredPath(source);
+      const read = await readNewestExcel(source, excelAgentStore);
       try {
-        await setStoredSource(q, {
+        const patch = {
           fileName: read.fileName,
-          filePath: read.filePath,
           lastUpdatedAt: read.mtime ? new Date(read.mtime).toISOString() : new Date().toISOString(),
-        });
+        };
+        if (read.filePath) patch.filePath = read.filePath;
+        await setStoredSource(q, patch);
       } catch (_) {}
       const lastUpdated = read.mtime ? new Date(read.mtime).toISOString() : new Date().toISOString();
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -69,6 +106,7 @@ function registerIhracatExcelRoutes(api, ctx) {
       );
       res.setHeader('X-Ihracat-Excel-File-Name', encodeURIComponent(read.fileName || 'ihracat.xlsx'));
       res.setHeader('X-Ihracat-Excel-Last-Updated', lastUpdated);
+      res.setHeader('X-Ihracat-Excel-Origin', read.filePath ? 'disk' : 'agent');
       return res.status(200).send(read.buf);
     } catch (err) {
       if (err && err.code === 'EXCEL_FILE_NOT_FOUND') {
@@ -85,4 +123,4 @@ function registerIhracatExcelRoutes(api, ctx) {
   });
 }
 
-module.exports = { registerIhracatExcelRoutes };
+module.exports = { registerIhracatExcelRoutes, readNewestExcel };

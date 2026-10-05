@@ -628,15 +628,6 @@
     },
   ];
 
-  function serverCanSeeLocalExcel() {
-    try {
-      var host = String(location.hostname || '').toLowerCase();
-      return host === 'localhost' || host === '127.0.0.1' || host === '::1';
-    } catch (e) {
-      return false;
-    }
-  }
-
   function namesLackHandle(names) {
     var list = names || [];
     if (!list.length) return false;
@@ -1369,6 +1360,35 @@
       if (ev && ev.persisted) wakeTick();
     });
   }
+  /** Excel Ajanı kantar PC'sinden yeni Excel yükleyince 10 dk beklemeden yeniden oku. */
+  var AGENT_EVENT_DEBOUNCE_MS = 3000;
+  var _agentEventTimer = null;
+
+  function onAgentUpload(data) {
+    var name = String((data && data.fileName) || '').trim();
+    if (!name) return;
+    var sources = [];
+    try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
+    var wanted = sources.some(function (n) { return sameExcelName(n, name); });
+    if (!wanted) return;
+    clearTimeout(_agentEventTimer);
+    _agentEventTimer = setTimeout(function () {
+      try { console.info('[İhracat Excel] Excel Ajanı yeni dosya yükledi:', name); } catch (e) {}
+      autoRefreshTick().catch(function () {});
+    }, AGENT_EVENT_DEBOUNCE_MS);
+  }
+
+  function bindAgentUploadEvents(tries) {
+    if (/\/liman(\.html)?$/i.test(String(location.pathname || ''))) return;
+    if (window.SyncManager && typeof window.SyncManager.on === 'function') {
+      window.SyncManager.on('ihracat_excel_uploaded', onAgentUpload);
+      return;
+    }
+    if ((tries || 0) < 50) setTimeout(function () { bindAgentUploadEvents((tries || 0) + 1); }, 200);
+  }
+
+  try { bindAgentUploadEvents(0); } catch (e) {}
+
 
   try {
     window.addEventListener('daily-store-ready', function () {
