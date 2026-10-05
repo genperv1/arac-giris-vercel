@@ -270,6 +270,17 @@ function createIsgApi() {
     });
   }
 
+  function persistedIsgRecords() {
+    return (state.records || []).filter(function (r) {
+      return !String(r.id || '').startsWith('local_');
+    });
+  }
+
+  function needsIsgShipmentPrint(ctx) {
+    const idn = normalizeIsgPrintCtx(ctx || capturePrintContext());
+    return !resolveIsgStatus(idn, persistedIsgRecords()).signed;
+  }
+
   function resolveFromForm() {
     return resolveIsgStatus(capturePrintContext(), state.records);
   }
@@ -819,6 +830,7 @@ function createIsgApi() {
         let settled = false;
         let dialogClosed = false;
         let printStarted = false;
+        let printInvoked = false;
 
         const teardown = function () {
           iframe.style.left = '-10000px';
@@ -846,7 +858,7 @@ function createIsgApi() {
         };
 
         const onPrintDialogClosed = function () {
-          if (dialogClosed) return;
+          if (dialogClosed || !printInvoked) return;
           dialogClosed = true;
           patchLocalSignedRecord(idn);
           markIsgPrinted(idn).then(function (saved) {
@@ -912,9 +924,10 @@ function createIsgApi() {
             settle(false, new Error('isg-frame'));
             return;
           }
-          watchIsgPrintDialogEnd(w, onPrintDialogClosed);
-          startIsgSpoolWatch();
           setTimeout(function () {
+            printInvoked = true;
+            watchIsgPrintDialogEnd(w, onPrintDialogClosed);
+            startIsgSpoolWatch();
             try { w.focus(); } catch (e) { /* ignore */ }
             try { w.print(); } catch (e) {
               settle(false, e);
@@ -988,6 +1001,7 @@ function createIsgApi() {
     buildCommitmentHtml,
     capturePrintContext,
     resolveFromForm,
+    needsIsgShipmentPrint,
     resolveIsgSignedForTakipPrint,
     normalizeIsgPrintCtx,
     cardHtml,

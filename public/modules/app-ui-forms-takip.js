@@ -2381,6 +2381,18 @@ try {
                   snapshot: pending.snapshot || pending.isgPrint.snapshot || null
                 })
                 : null;
+              if (!isgPrintCtx && pending && window.IsgForm && typeof window.IsgForm.needsIsgShipmentPrint === 'function') {
+                const fallback = Object.assign({}, pending.isgPrint || {}, {
+                  id: pending.vehicleId,
+                  vehicleId: pending.vehicleId,
+                  plaka: pending.plaka,
+                  cekiciPlaka: pending.plaka,
+                  snapshot: pending.snapshot
+                });
+                if (window.IsgForm.needsIsgShipmentPrint(fallback)) {
+                  isgPrintCtx = fallback;
+                }
+              }
               try { refreshPendingPrintSnapshotFromForm(pending); } catch (e) {}
               try {
                 const frame = document.getElementById('takipDirectPrintFrame');
@@ -2572,8 +2584,6 @@ try {
                   console.warn('Piyasa yazdırma sayacı güncellenemedi:', e);
                 }
 
-                try { window.__pendingPrintCommit = null; } catch(e) {}
-
               if (isgPrintCtx && window.IsgForm && typeof window.IsgForm.printIsgFormWithDialog === 'function') {
                 try {
                   if (typeof showToast === 'function') {
@@ -2590,6 +2600,8 @@ try {
                   } catch (e) { /* ignore */ }
                 });
               }
+
+                try { window.__pendingPrintCommit = null; } catch(e) {}
             }
 
             try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}

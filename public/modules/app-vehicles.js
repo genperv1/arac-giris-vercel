@@ -572,16 +572,19 @@ function setupTakipFormButtons() {
 
             let isgPrint = null;
             try {
-              if (window.IsgForm && typeof window.IsgForm.resolveFromForm === 'function') {
-                const isgStatus = window.IsgForm.resolveFromForm();
-                if (!isgStatus || !isgStatus.signed) {
-                  isgPrint = Object.assign({}, window.IsgForm.capturePrintContext(), {
-                    id: vid,
-                    vehicleId: vid,
-                    plaka: plateFromForm || '',
-                    cekiciPlaka: plateFromForm || '',
-                    snapshot: snap || null
-                  });
+              if (window.IsgForm && typeof window.IsgForm.capturePrintContext === 'function') {
+                const ctx = Object.assign({}, window.IsgForm.capturePrintContext(), {
+                  id: vid,
+                  vehicleId: vid,
+                  plaka: plateFromForm || '',
+                  cekiciPlaka: plateFromForm || '',
+                  snapshot: snap || null
+                });
+                const needIsg = typeof window.IsgForm.needsIsgShipmentPrint === 'function'
+                  ? window.IsgForm.needsIsgShipmentPrint(ctx)
+                  : !(window.IsgForm.resolveFromForm && window.IsgForm.resolveFromForm().signed);
+                if (needIsg) {
+                  isgPrint = ctx;
                 }
               }
             } catch (e) { isgPrint = null; }

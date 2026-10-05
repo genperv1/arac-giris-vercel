@@ -1289,8 +1289,11 @@ function printSpoolSeenNow(token, rawSeq) {
   const tokenOk = /^TF[A-Z0-9]{8}$/.test(token) && printSpoolWatch.hasToken(token);
   const hasSeq = rawSeq != null && rawSeq !== '' && Number.isFinite(Number(rawSeq));
   const jobOk = hasSeq && printSpoolWatch.hasJobSince(Number(rawSeq));
+  if (hasSeq) {
+    return !!(tokenOk || jobOk);
+  }
   const recentOk = printSpoolWatch.hasRecentJob(25000);
-  return !!(tokenOk || jobOk || recentOk);
+  return !!(tokenOk || recentOk);
 }
 
 api.get('/print-spool/seen', (req, res) => {
