@@ -2372,6 +2372,7 @@ try {
                 return;
               }
 
+              try { refreshPendingPrintSnapshotFromForm(pending); } catch (e) {}
               isgPrintCtx = pending && pending.isgPrint
                 ? Object.assign({}, pending.isgPrint, {
                   id: pending.vehicleId || pending.isgPrint.id || '',
@@ -2393,7 +2394,6 @@ try {
                   isgPrintCtx = fallback;
                 }
               }
-              try { refreshPendingPrintSnapshotFromForm(pending); } catch (e) {}
               try {
                 const frame = document.getElementById('takipDirectPrintFrame');
                 if (frame) {
@@ -2407,6 +2407,28 @@ try {
 
               try { resetTakipFormUI(); } catch (e) {}
               try { kapatForm(); } catch (e) {}
+
+              // Takip penceresi kapandıktan hemen sonra ISG yazdır (rapor kaydı beklenmez)
+              if (isgPrintCtx && window.IsgForm && typeof window.IsgForm.printIsgFormWithDialog === 'function') {
+                const isgCtxNow = isgPrintCtx;
+                setTimeout(function () {
+                  try {
+                    if (typeof showToast === 'function') {
+                      showToast('Sırada: İSG formu — yazıcı penceresini onaylayın.', 'info', 5000);
+                    }
+                  } catch (e) { /* ignore */ }
+                  window.IsgForm.printIsgFormWithDialog(isgCtxNow).then(function () {
+                    try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
+                  }).catch(function () {
+                    try {
+                      if (typeof showToast === 'function') {
+                        showToast('ISG formu basılmadı. Kart imzasız kaldı.', 'warn', 6000);
+                      }
+                    } catch (e) { /* ignore */ }
+                  });
+                }, 350);
+              }
+
               // Yazdır tıklanınca değil, baskı kuyruğa düşünce anlık zaman damgası
               const commitTs = Date.now();
               const commitTarihTr = (() => {
@@ -2583,23 +2605,6 @@ try {
                 } catch (e) {
                   console.warn('Piyasa yazdırma sayacı güncellenemedi:', e);
                 }
-
-              if (isgPrintCtx && window.IsgForm && typeof window.IsgForm.printIsgFormWithDialog === 'function') {
-                try {
-                  if (typeof showToast === 'function') {
-                    showToast('Sırada: İSG formu — yazıcı seçip yazdırın.', 'info', 4500);
-                  }
-                } catch (e) { /* ignore */ }
-                window.IsgForm.printIsgFormWithDialog(isgPrintCtx).then(function () {
-                  try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
-                }).catch(function () {
-                  try {
-                    if (typeof showToast === 'function') {
-                      showToast('ISG formu basılmadı. Kart imzasız kaldı.', 'warn', 6000);
-                    }
-                  } catch (e) { /* ignore */ }
-                });
-              }
 
                 try { window.__pendingPrintCommit = null; } catch(e) {}
             }

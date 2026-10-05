@@ -745,7 +745,6 @@ function createIsgApi() {
     };
 
     try { win.addEventListener('afterprint', finish, { once: true }); } catch (e) { /* ignore */ }
-    try { window.addEventListener('afterprint', finish, { once: true }); } catch (e) { /* ignore */ }
     trackMq(win);
     trackMq(window);
 
@@ -804,161 +803,133 @@ function createIsgApi() {
       return Promise.reject(new Error('no-dom'));
     }
     const idn = normalizeIsgPrintCtx(ctx && (ctx.plateText != null || ctx.plateKey || ctx.driverKey || ctx.snapshot) ? ctx : capturePrintContext(ctx || {}));
-    return readSpoolSeq().then(function (sinceSeq) {
-      return new Promise(function (resolve, reject) {
-        let blobUrl = null;
-        const prev = document.getElementById('isgDirectPrintFrame');
-        if (prev) prev.remove();
-        const takip = document.getElementById('takipDirectPrintFrame');
-        if (takip) {
-          takip.style.left = '-10000px';
-          takip.style.visibility = 'hidden';
-          takip.style.pointerEvents = 'none';
+    return new Promise(function (resolve, reject) {
+      let blobUrl = null;
+      const prev = document.getElementById('isgDirectPrintFrame');
+      if (prev) prev.remove();
+      const takip = document.getElementById('takipDirectPrintFrame');
+      if (takip) {
+        takip.style.left = '-10000px';
+        takip.style.visibility = 'hidden';
+        takip.style.pointerEvents = 'none';
+      }
+      try {
+        const overlay = document.getElementById('takipPrintOverlay');
+        if (overlay) overlay.style.display = 'none';
+      } catch (e) { /* ignore */ }
+
+      const iframe = document.createElement('iframe');
+      iframe.id = 'isgDirectPrintFrame';
+      iframe.title = 'ISG-T004 İSG Formu';
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.style.cssText =
+        'position:fixed;left:0;top:0;width:210mm;height:297mm;border:0;margin:0;padding:0;'
+        + 'visibility:visible;pointer-events:auto;opacity:1;z-index:2147483001;overflow:hidden;background:#fff;';
+      let settled = false;
+      let dialogClosed = false;
+      let printStarted = false;
+      let printInvoked = false;
+
+      const teardown = function () {
+        iframe.style.left = '-10000px';
+        iframe.style.visibility = 'hidden';
+        iframe.style.pointerEvents = 'none';
+        iframe.style.opacity = '0';
+        iframe.style.zIndex = '-1';
+        setTimeout(function () {
+          try { iframe.remove(); } catch (e2) { /* ignore */ }
+        }, 400);
+      };
+
+      const settle = function (ok, err) {
+        if (settled) return;
+        settled = true;
+        try { window.removeEventListener('message', onParentMsg); } catch (e) { /* ignore */ }
+        clearTimeout(safetyTimer);
+        clearInterval(printWatch);
+        clearTimeout(printDelayTimer);
+        if (blobUrl) {
+          try { URL.revokeObjectURL(blobUrl); } catch (e4) { /* ignore */ }
+          blobUrl = null;
         }
+        teardown();
+        if (ok) resolve(true);
+        else reject(err || new Error('isg-not-printed'));
+      };
+
+      const onPrintDialogClosed = function () {
+        if (dialogClosed || !printInvoked) return;
+        dialogClosed = true;
+        patchLocalSignedRecord(idn);
+        markIsgPrinted(idn).then(function (saved) {
+          if (!saved) notifyUi();
+          settle(true);
+        });
+      };
+
+      const onParentMsg = function (ev) {
+        if (!ev || !ev.data || ev.data.type !== 'isgPrintEnd') return;
+        onPrintDialogClosed();
+      };
+
+      window.addEventListener('message', onParentMsg);
+
+      const safetyTimer = setTimeout(function () {
+        if (!dialogClosed && printInvoked) {
+          settle(false, new Error('isg-timeout'));
+        }
+      }, 180000);
+
+      let printDelayTimer = null;
+      const invokePrint = function () {
+        if (printInvoked) return;
+        printInvoked = true;
+        const w = iframe.contentWindow;
+        if (!w) {
+          settle(false, new Error('isg-frame'));
+          return;
+        }
+        watchIsgPrintDialogEnd(w, onPrintDialogClosed);
+        try { iframe.style.left = '-10000px'; iframe.style.visibility = 'hidden'; } catch (e) { /* ignore */ }
+        try { w.focus(); } catch (e) { /* ignore */ }
+        try { w.print(); } catch (e) {
+          settle(false, e);
+        }
+      };
+
+      const startPrint = function () {
+        if (printStarted) return;
+        printStarted = true;
+        printDelayTimer = setTimeout(invokePrint, 900);
+      };
+
+      let printWatch = setInterval(function () {
+        if (dialogClosed || printStarted) return;
         try {
-          const overlay = document.getElementById('takipPrintOverlay');
-          if (overlay) overlay.style.display = 'none';
-        } catch (e) { /* ignore */ }
-
-        const iframe = document.createElement('iframe');
-        iframe.id = 'isgDirectPrintFrame';
-        iframe.title = 'ISG-T004 İSG Formu';
-        iframe.setAttribute('aria-hidden', 'true');
-        iframe.style.cssText =
-          'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;margin:0;padding:0;'
-          + 'visibility:hidden;pointer-events:none;opacity:0;z-index:-1;overflow:hidden;background:#fff;';
-        let settled = false;
-        let dialogClosed = false;
-        let printStarted = false;
-        let printInvoked = false;
-
-        const teardown = function () {
-          iframe.style.left = '-10000px';
-          iframe.style.visibility = 'hidden';
-          iframe.style.pointerEvents = 'none';
-          setTimeout(function () {
-            try { iframe.remove(); } catch (e2) { /* ignore */ }
-          }, 400);
-        };
-
-        const settle = function (ok, err) {
-          if (settled) return;
-          settled = true;
-          try { window.removeEventListener('message', onParentMsg); } catch (e) { /* ignore */ }
-          if (spoolWatchStop) spoolWatchStop();
-          clearTimeout(safetyTimer);
-          clearInterval(printWatch);
-          if (blobUrl) {
-            try { URL.revokeObjectURL(blobUrl); } catch (e4) { /* ignore */ }
-            blobUrl = null;
-          }
-          teardown();
-          if (ok) resolve(true);
-          else reject(err || new Error('isg-not-printed'));
-        };
-
-        const onPrintDialogClosed = function () {
-          if (dialogClosed || !printInvoked) return;
-          dialogClosed = true;
-          patchLocalSignedRecord(idn);
-          markIsgPrinted(idn).then(function (saved) {
-            if (!saved) notifyUi();
-            settle(true);
-          });
-        };
-
-        const onParentMsg = function (ev) {
-          if (!ev || !ev.data || ev.data.type !== 'isgPrintEnd') return;
-          onPrintDialogClosed();
-        };
-
-        window.addEventListener('message', onParentMsg);
-
-        let spoolWatchStop = null;
-        const startIsgSpoolWatch = function () {
-          if (spoolWatchStop) return;
-          let dead = false;
-          spoolWatchStop = function () { dead = true; };
-          (async function () {
-            let pollSpool = spoolIsLocal();
-            try {
-              const cur = await fetch('/api/print-spool/cursor', { cache: 'no-store', credentials: 'same-origin' });
-              if (cur.ok) {
-                const d = await cur.json();
-                if (d && d.watching) pollSpool = true;
-              }
-            } catch (e) { /* ignore */ }
-            if (!pollSpool) return;
-            await new Promise(function (r) { setTimeout(r, 700); });
-            const deadline = Date.now() + 120000;
-            while (!dead && !dialogClosed && Date.now() < deadline) {
-              try {
-                const qs = new URLSearchParams();
-                if (sinceSeq != null) qs.set('seq', String(sinceSeq));
-                const res = await fetch('/api/print-spool/since?' + qs.toString(), {
-                  cache: 'no-store',
-                  credentials: 'same-origin'
-                });
-                if (res.ok) {
-                  const data = await res.json();
-                  if (data && data.seen) {
-                    onPrintDialogClosed();
-                    return;
-                  }
-                }
-              } catch (e) { /* ignore */ }
-              await new Promise(function (r) { setTimeout(r, 280); });
-            }
-          })();
-        };
-
-        const safetyTimer = setTimeout(function () {
-          if (!dialogClosed && printStarted) onPrintDialogClosed();
-        }, 180000);
-
-        const startPrint = function () {
-          if (printStarted) return;
-          printStarted = true;
           const w = iframe.contentWindow;
-          if (!w) {
-            settle(false, new Error('isg-frame'));
-            return;
+          if (w && w.document && w.document.readyState === 'complete') {
+            clearInterval(printWatch);
+            startPrint();
           }
-          setTimeout(function () {
-            printInvoked = true;
-            watchIsgPrintDialogEnd(w, onPrintDialogClosed);
-            startIsgSpoolWatch();
-            try { w.focus(); } catch (e) { /* ignore */ }
-            try { w.print(); } catch (e) {
-              settle(false, e);
-            }
-          }, 400);
-        };
+        } catch (e) { /* ignore */ }
+      }, 120);
 
-        let printWatch = setInterval(function () {
-          if (dialogClosed || printStarted) return;
-          try {
-            const w = iframe.contentWindow;
-            if (w && w.document && w.document.readyState === 'complete') {
-              clearInterval(printWatch);
-              startPrint();
-            }
-          } catch (e) { /* ignore */ }
-        }, 120);
+      iframe.onload = function () {
+        clearInterval(printWatch);
+        startPrint();
+      };
 
-        iframe.onload = function () {
-          clearInterval(printWatch);
-          startPrint();
-        };
-
-        document.body.appendChild(iframe);
-        try {
-          blobUrl = isgPrintShellBlobUrl();
-          iframe.src = blobUrl;
-        } catch (e) {
-          iframe.src = isgPdfAbsoluteUrl();
-        }
-      });
+      document.body.appendChild(iframe);
+      const pdfDirect = isgPdfAbsoluteUrl();
+      try {
+        blobUrl = isgPrintShellBlobUrl();
+        iframe.src = blobUrl;
+      } catch (e) {
+        iframe.src = pdfDirect;
+      }
+      setTimeout(function () {
+        if (!printStarted && !settled) startPrint();
+      }, 4500);
     });
   }
 
