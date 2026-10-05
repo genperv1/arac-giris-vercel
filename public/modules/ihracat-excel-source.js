@@ -1269,6 +1269,7 @@
       var r = await refreshFromStored(null, null, null, { silent: true });
       if (r && r.ok) {
         read = { ok: true };
+        _autoReadOk = true;
         try { console.info('[İhracat Excel] otomatik güncellendi:', (r.okNames || []).join(', ')); } catch (e2) {}
       } else if (r && r.code === 'EXCEL_FILE_NOT_FOUND') {
         read = { ok: false, reason: _silentPermMissing ? 'permission' : 'not-found' };
@@ -1284,6 +1285,43 @@
   /** Kaydedilen Excel'i fark etmek için yalnız dosya damgası (tarih + boyut) okunur; izin penceresi açılmaz. */
   var _watchStamps = Object.create(null);
   var _watchBusy = false;
+  var _agentSeen = Object.create(null);
+  var _autoReadOk = false;
+
+  /** Excel Ajanı yeni kopya yüklediyse (SSE kaçsa da) 30 sn içinde yeniden oku. */
+  async function agentCopyChanged() {
+    var sources = [];
+    try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
+    if (!sources.length) return false;
+    var res;
+    try {
+      res = await fetch('/api/ihracat-excel/agent-files', { credentials: 'include', cache: 'no-store' });
+    } catch (e) { return false; }
+    if (!res.ok) return false;
+    var data = null;
+    try { data = await res.json(); } catch (e) { return false; }
+    var files = data && Array.isArray(data.files) ? data.files : [];
+    var nextSeen = Object.assign({}, _agentSeen);
+    var changed = false;
+    files.forEach(function (f) {
+      var name = String((f && f.fileName) || '').trim();
+      if (!name || !sources.some(function (n) { return sameExcelName(n, name); })) return;
+      var key = name.toLowerCase();
+      var stamp = String(f.uploadedAt || 0) + ':' + String(f.size || 0) + ':' + String(f.mtime || 0);
+      if (!nextSeen[key]) {
+        nextSeen[key] = stamp;
+        if (!_autoReadOk) changed = true;
+        return;
+      }
+      if (nextSeen[key] !== stamp) {
+        nextSeen[key] = stamp;
+        changed = true;
+      }
+    });
+    if (changed && (_busy || _picking)) return false;
+    _agentSeen = nextSeen;
+    return changed;
+  }
 
   async function grantedStamp(handle) {
     if (!handle || typeof handle.getFile !== 'function' || typeof handle.queryPermission !== 'function') return '';
@@ -1312,7 +1350,9 @@
         if (_watchStamps[key] && _watchStamps[key] !== stamp) changed = true;
         _watchStamps[key] = stamp;
       }
-      if (changed) {
+      var agentChanged = false;
+      try { agentChanged = await agentCopyChanged(); } catch (e2) { agentChanged = false; }
+      if (changed || agentChanged) {
         try { console.info('[İhracat Excel] dosya kaydedildi, liste yeniden okunuyor'); } catch (e) {}
         await autoRefreshTick();
       }

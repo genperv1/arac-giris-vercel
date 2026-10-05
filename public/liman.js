@@ -388,10 +388,15 @@
   }
 
   function rowDeparted(row) {
-    if (row._nbLiveDeparted) return true;
+    if (!row) return false;
+    // Baskı işareti çıkış sayılmaz. Yalnız Excel giden tonajı.
+    var probe = row;
+    if (!String(row.gidenTonaj || '').trim() && String(row.giden || '').trim()) {
+      probe = Object.assign({}, row, { gidenTonaj: row.giden });
+    }
     var core = window.NakliyeBekleyenCore;
-    if (core && typeof core.isRowDeparted === 'function') return !!core.isRowDeparted(row);
-    return Number(String(row.gidenTonaj || '').replace(/\./g, '').replace(',', '.')) >= 1000;
+    if (core && typeof core.isRowDeparted === 'function') return !!core.isRowDeparted(probe);
+    return Number(String(probe.gidenTonaj || '').replace(/\./g, '').replace(',', '.')) >= 1000;
   }
 
   function blockProgress(block) {
@@ -735,31 +740,31 @@
 
   var PRINT_CSS =
     '@page { size: A4 portrait; margin: 8mm; }' +
-    '* { box-sizing: border-box; }' +
-    'html, body { margin: 0; padding: 0; }' +
-    'body { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #000; font-size: 11pt; }' +
+    '* { box-sizing: border-box; color: #000; -webkit-text-fill-color: #000; }' +
+    'html, body { margin: 0; padding: 0; background: #fff; }' +
+    'body { font-family: Arial, "Segoe UI", sans-serif; color: #000; font-size: 11pt; font-weight: 700; -webkit-font-smoothing: none; }' +
     '#wrap { display: flex; justify-content: center; }' +
     '#pg { width: 733px; flex: 0 0 auto; }' +
     '.p-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 8px; }' +
-    '.p-head h1 { margin: 0; font-size: 18pt; }' +
-    '.p-head span { font-size: 10pt; }' +
+    '.p-head h1 { margin: 0; font-size: 18pt; font-weight: 700; -webkit-text-stroke: 0.35px #000; }' +
+    '.p-head span { font-size: 10pt; font-weight: 700; }' +
     '.p-blok { margin-bottom: 12px; break-inside: avoid; page-break-inside: avoid; }' +
-    '.p-title { font-weight: 700; font-size: 12.5pt; padding: 4px 6px; border: 1px solid #000; border-bottom: 0; }' +
-    '.p-meta { font-size: 10.5pt; padding: 3px 6px; border: 1px solid #000; border-bottom: 0; }' +
+    '.p-title { font-weight: 700; font-size: 12.5pt; padding: 4px 6px; border: 1.5px solid #000; border-bottom: 0; -webkit-text-stroke: 0.3px #000; }' +
+    '.p-meta { font-size: 10.5pt; font-weight: 700; padding: 3px 6px; border: 1.5px solid #000; border-bottom: 0; }' +
     '.p-meta b { margin-left: 10px; }' +
     '.p-meta b:first-child { margin-left: 0; }' +
     'table { width: 100%; border-collapse: collapse; }' +
     'tr { break-inside: avoid; page-break-inside: avoid; }' +
-    'th, td { border: 1px solid #000; padding: 4px 3px; text-align: center; white-space: nowrap; }' +
-    'th { font-size: 9pt; background: #eee; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    'th, td, h1, span, b, div { color: #000; }' +
+    'th, td { border: 1.5px solid #000; padding: 4px 3px; text-align: center; white-space: nowrap; font-weight: 700; -webkit-text-stroke: 0.25px #000; }' +
+    'th { font-size: 9pt; background: #fff; }' +
     'td.l { text-align: left; }' +
     'td.sof { white-space: normal; }' +
-    'td.plk { font-weight: 700; font-size: 13pt; letter-spacing: .02em; }' +
+    'td.plk { font-size: 13pt; letter-spacing: .02em; }' +
     'td.chk { width: 28px; padding: 2px; }' +
-    '.box { display: inline-block; width: 18px; height: 18px; border: 1.5px solid #000; vertical-align: middle; }' +
+    '.box { display: inline-block; width: 18px; height: 18px; border: 2px solid #000; vertical-align: middle; }' +
     'td.not { min-width: 50px; }' +
-    'tr.out td { color: #555; }' +
-    'tfoot td { font-weight: 700; background: #f3f3f3; -webkit-print-color-adjust: exact; print-color-adjust: exact; }';
+    'tfoot td { background: #fff; }';
 
   function printTabHtml(tab) {
     var now = new Date().toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -845,7 +850,7 @@
     var oldTitle = document.title;
     var frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true');
-    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + PAGE_W_PX + 'px;height:' + PAGE_H_PX + 'px;border:0;visibility:hidden;';
+    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + PAGE_W_PX + 'px;height:' + PAGE_H_PX + 'px;border:0;opacity:1;visibility:visible;';
     document.body.appendChild(frame);
     try {
       var doc = frame.contentWindow.document;
@@ -938,11 +943,11 @@
           (block.rows || []).forEach(function (row) { flat.push(row); });
         });
         var marked = core.applyLiveDepartedMarks(flat, { dateKey: day.dateKey }, state.reports, { forPending: true });
-        // Takip formu basıldı = araç kantarda (İÇERİDE). SARILDI yalnız Excel'e giden tonaj girilince.
+        // Takip formu basıldı = İÇERİDE (liman bunu görür). Excel'de giden doluysa SARILDI; baskı onu ezmez.
         var faced = attachFaces(marked, state.reports).map(function (row, i) {
           if (!row || !row._nbLiveDeparted) return row;
           var base = flat[i] || row;
-          var baseDurum = String(base.durum || row.durum || '').trim();
+          var baseDurum = String(base.durum || '').trim();
           if (/^DIŞARIDA$/i.test(baseDurum)) {
             var outside = Object.assign({}, row, {
               gidenTonaj: base.gidenTonaj,
@@ -1081,14 +1086,14 @@
     window.addEventListener('online', function () { checkForChange(true); });
   }
 
-  var CHECK_MS = 60 * 1000;          // kantar yeni liste gönderdi mi (hafif istek)
+  var CHECK_MS = 8 * 1000;           // kantar yeni liste gönderdi mi (hafif istek)
   var FULL_MS = 5 * 60 * 1000;       // çıkış (sarıldı) durumu için raporları yeniden çek
   var lastCheck = 0;
   var lastFull = 0;
   var checking = false;
   async function checkForChange(force) {
     if (checking || document.hidden) return;
-    if (!force && Date.now() - lastCheck < 30000) return;
+    if (!force && Date.now() - lastCheck < 7000) return;
     var active = document.activeElement;
     if (active && active.matches && active.matches('[data-note]')) return;
     checking = true;
@@ -1105,7 +1110,10 @@
         await guncelle();
         return;
       }
-      if (info && info.v && info.v !== state.version) await load();
+      if (info && info.v && info.v !== state.version) {
+        await guncelle();
+        return;
+      }
       setLive(true);
     } catch (e) {
       setLive(false);

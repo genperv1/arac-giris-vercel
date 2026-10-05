@@ -12,7 +12,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$VarsayilanSunucu = 'https://cooperative-radiance-production.up.railway.app'
+$VarsayilanSunucu = 'https://genper.site'
 try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 } catch {}

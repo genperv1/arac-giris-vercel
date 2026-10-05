@@ -52,6 +52,27 @@ test('aynı adlı Excel iki kantarda ayrı saklanır', () => {
   assert.equal(uploadKey('xxr', '03.10.2026.xlsx'), '');
 });
 
+test('boş anahtar JWT_SECRET ile kantara göre türetilir', () => {
+  const env = { JWT_SECRET: 'jwt-secret-en-az-16xx', EXCEL_AGENT_KEY_AVDAN: '', EXCEL_AGENT_KEY_1OSB: 'kisa' };
+  const keys = agentKeysFromEnv(env);
+  assert.equal(keys.AVDAN.length, 64);
+  assert.equal(keys['1.OSB'].length, 64);
+  assert.notEqual(keys.AVDAN, keys['1.OSB']);
+  const pinned = agentKeysFromEnv({ JWT_SECRET: env.JWT_SECRET, EXCEL_AGENT_KEY_AVDAN: AVDAN_KEY, EXCEL_AGENT_KEY_1OSB: '' });
+  assert.equal(pinned.AVDAN, AVDAN_KEY);
+});
+
+test('kurulum dosyası canlı siteyi ve anahtarı yazar', () => {
+  const { buildAgentInstallerBat, agentPublicOrigin } = require('../routes/excel-agent-routes');
+  assert.equal(agentPublicOrigin({ headers: { host: 'localhost:3000' } }), 'https://genper.site');
+  assert.equal(agentPublicOrigin({ headers: { host: 'genper.site' } }), 'https://genper.site');
+  const bat = buildAgentInstallerBat('AVDAN', AVDAN_KEY, 'https://genper.site');
+  assert.match(bat, /SUNUCU=https:\/\/genper\.site/);
+  assert.match(bat, new RegExp('ANAHTAR=' + AVDAN_KEY));
+  assert.match(bat, /\/api\/excel-agent\/script/);
+  assert.match(bat, /ajan\.ps1" -Kur/);
+});
+
 test('yükleme anahtarın kantarına yazılır; anahtar yoksa / yanlışsa reddedilir', async () => {
   const saved = [];
   const store = { saveUpload: async (x) => { saved.push(x); return { fileName: x.fileName, site: x.site, unchanged: true }; } };

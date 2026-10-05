@@ -3282,6 +3282,13 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                   <span class="app-excel-suite__hint">Sevkiyat Excel</span>
                 </div>
                 <div class="app-excel-suite__actions">
+                  <a href="/api/excel-agent/kurulum" class="app-excel-tile app-excel-tile--load" title="Excel Ajanını bu bilgisayara kur">
+                    <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-download"></i></span>
+                    <span class="app-excel-tile__copy">
+                      <b>Ajanı kur</b>
+                      <small>Excel kendisi gitsin</small>
+                    </span>
+                  </a>
                   <button type="button" id="excelBlockSelectButtonTop" class="app-excel-tile app-excel-tile--load" title="İhracat Excel Yükle">
                     <span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-file-import"></i></span>
                     <span class="app-excel-tile__copy">
