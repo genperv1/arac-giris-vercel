@@ -202,6 +202,11 @@
     win.onafterprint = function () {
       if (Date.now() - started < 800) return;
       try {
+        if (window.IsgForm && typeof window.IsgForm.queueIsgPrintAfterTakip === 'function') {
+          window.IsgForm.queueIsgPrintAfterTakip(window.__pendingPrintCommit);
+        }
+      } catch (e) { /* ignore */ }
+      try {
         if (typeof window.afterTakipPrint === 'function') window.afterTakipPrint();
       } catch (e) {}
       if (closePopup) {

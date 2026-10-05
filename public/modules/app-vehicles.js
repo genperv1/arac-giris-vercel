@@ -571,6 +571,7 @@ function setupTakipFormButtons() {
             printPayload.plaka = plateFromForm;
 
             let isgPrint = null;
+            let isgRequired = false;
             try {
               if (window.IsgForm && typeof window.IsgForm.capturePrintContext === 'function') {
                 const ctx = Object.assign({}, window.IsgForm.capturePrintContext(), {
@@ -580,19 +581,23 @@ function setupTakipFormButtons() {
                   cekiciPlaka: plateFromForm || '',
                   snapshot: snap || null
                 });
-                const needIsg = typeof window.IsgForm.needsIsgShipmentPrint === 'function'
-                  ? window.IsgForm.needsIsgShipmentPrint(ctx)
-                  : !(window.IsgForm.resolveFromForm && window.IsgForm.resolveFromForm().signed);
-                if (needIsg) {
+                const fromForm = typeof window.IsgForm.resolveFromForm === 'function'
+                  ? window.IsgForm.resolveFromForm()
+                  : null;
+                isgRequired = !(fromForm && fromForm.signed);
+                if (isgRequired) {
                   isgPrint = ctx;
                 }
               }
-            } catch (e) { isgPrint = null; }
+            } catch (e) { isgPrint = null; isgRequired = false; }
+
+            try { window.__isgPrintQueuedForSession = false; } catch (e) {}
 
             window.__pendingPrintCommit = {
                 vehicleId: vid,
                 plaka: plateFromForm,
                 isgPrint,
+                isgRequired,
                 nowTs,
                 yuklemeSirasi: get('yuklemeSirasi'),
                 basimYeri: basimYeriValue,

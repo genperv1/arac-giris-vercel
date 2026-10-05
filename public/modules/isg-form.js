@@ -289,7 +289,7 @@ function createIsgApi() {
   function resolveIsgSignedForTakipPrint() {
     try {
       const pending = typeof window !== 'undefined' ? window.__pendingPrintCommit : null;
-      if (pending && pending.isgPrint) {
+      if (pending && (pending.isgPrint || pending.isgRequired)) {
         return true;
       }
       const fromForm = resolveIsgStatus(capturePrintContext(), state.records);
@@ -786,6 +786,57 @@ function createIsgApi() {
     }
   }
 
+  function buildShipmentPrintCtx(pending) {
+    if (!pending) return null;
+    if (pending.isgPrint) {
+      return normalizeIsgPrintCtx(Object.assign({}, pending.isgPrint, {
+        id: pending.vehicleId || pending.isgPrint.id || '',
+        vehicleId: pending.vehicleId || pending.isgPrint.vehicleId || '',
+        plaka: pending.plaka || pending.isgPrint.plateText || '',
+        cekiciPlaka: pending.plaka || pending.isgPrint.plateText || pending.isgPrint.cekiciPlaka || '',
+        snapshot: pending.snapshot || pending.isgPrint.snapshot || null
+      }));
+    }
+    if (pending.isgRequired === false) return null;
+    const fallback = {
+      id: pending.vehicleId,
+      vehicleId: pending.vehicleId,
+      plaka: pending.plaka,
+      cekiciPlaka: pending.plaka,
+      snapshot: pending.snapshot
+    };
+    if (pending.isgRequired === true) return normalizeIsgPrintCtx(fallback);
+    if (needsIsgShipmentPrint(fallback)) return normalizeIsgPrintCtx(fallback);
+    try {
+      if (!resolveFromForm().signed) return normalizeIsgPrintCtx(fallback);
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  /** Takip afterprint ile aynı anda (await öncesi) — Chrome yazdırma engelini aşmak için. */
+  function queueIsgPrintAfterTakip(pending) {
+    if (typeof document === 'undefined') return null;
+    if (window.__isgPrintQueuedForSession) return null;
+    const ctx = buildShipmentPrintCtx(pending);
+    if (!ctx) return null;
+    window.__isgPrintQueuedForSession = true;
+    try {
+      if (typeof showToast === 'function') {
+        showToast('Sırada: İSG formu — yazıcı penceresini onaylayın.', 'info', 5000);
+      }
+    } catch (e) { /* ignore */ }
+    printIsgFormWithDialog(ctx).then(function () {
+      try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
+    }).catch(function () {
+      try {
+        if (typeof showToast === 'function') {
+          showToast('ISG otomatik açılamadı. Ekrandaki ISG Yazdır düğmesine basın.', 'warn', 8000);
+        }
+      } catch (e) { /* ignore */ }
+    });
+    return ctx;
+  }
+
   function isgPrintShellBlobUrl() {
     const pdfAbs = isgPdfAbsoluteUrl().replace(/"/g, '%22');
     const html = '<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>ISG-T004 ISG Formu</title>'
@@ -852,6 +903,9 @@ function createIsgApi() {
           try { URL.revokeObjectURL(blobUrl); } catch (e4) { /* ignore */ }
           blobUrl = null;
         }
+        try {
+          if (manualBar) manualBar.remove();
+        } catch (e) { /* ignore */ }
         teardown();
         if (ok) resolve(true);
         else reject(err || new Error('isg-not-printed'));
@@ -881,8 +935,34 @@ function createIsgApi() {
       }, 180000);
 
       let printDelayTimer = null;
-      const invokePrint = function () {
-        if (printInvoked) return;
+      let manualBar = null;
+
+      const showManualPrintBar = function () {
+        if (manualBar || settled) return;
+        manualBar = document.createElement('div');
+        manualBar.id = 'isgManualPrintBar';
+        manualBar.style.cssText =
+          'position:fixed;inset:0;z-index:2147483002;background:rgba(2,6,23,0.92);'
+          + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;';
+        const msg = document.createElement('div');
+        msg.style.cssText = 'color:#e2e8f0;font:600 16px/1.4 Arial,sans-serif;text-align:center;max-width:420px;';
+        msg.textContent = 'İSG-T004 formu hazır. Yazıcı penceresi açılmadıysa aşağıdaki düğmeye basın.';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'ISG Yazdır';
+        btn.style.cssText =
+          'border:0;background:#0f766e;color:#fff;border-radius:10px;padding:14px 28px;'
+          + 'min-height:48px;font:700 17px/1 Arial,sans-serif;cursor:pointer;';
+        btn.addEventListener('click', function () {
+          invokePrint(true);
+        });
+        manualBar.appendChild(msg);
+        manualBar.appendChild(btn);
+        document.body.appendChild(manualBar);
+      };
+
+      const invokePrint = function (fromUserClick) {
+        if (printInvoked && !fromUserClick) return;
         printInvoked = true;
         const w = iframe.contentWindow;
         if (!w) {
@@ -892,7 +972,14 @@ function createIsgApi() {
         watchIsgPrintDialogEnd(w, onPrintDialogClosed);
         try { iframe.style.left = '-10000px'; iframe.style.visibility = 'hidden'; } catch (e) { /* ignore */ }
         try { w.focus(); } catch (e) { /* ignore */ }
-        try { w.print(); } catch (e) {
+        try {
+          w.print();
+        } catch (e) {
+          if (!fromUserClick) {
+            showManualPrintBar();
+            printInvoked = false;
+            return;
+          }
           settle(false, e);
         }
       };
@@ -900,7 +987,12 @@ function createIsgApi() {
       const startPrint = function () {
         if (printStarted) return;
         printStarted = true;
-        printDelayTimer = setTimeout(invokePrint, 900);
+        printDelayTimer = setTimeout(function () {
+          invokePrint(false);
+          setTimeout(function () {
+            if (!dialogClosed && !settled && !manualBar) showManualPrintBar();
+          }, 2200);
+        }, 450);
       };
 
       let printWatch = setInterval(function () {
@@ -974,6 +1066,8 @@ function createIsgApi() {
     resolveFromForm,
     needsIsgShipmentPrint,
     resolveIsgSignedForTakipPrint,
+    buildShipmentPrintCtx,
+    queueIsgPrintAfterTakip,
     normalizeIsgPrintCtx,
     cardHtml,
     mountTakipBanner,

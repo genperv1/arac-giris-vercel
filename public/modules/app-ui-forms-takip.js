@@ -2332,7 +2332,11 @@ try {
             if (Date.now() >= deadline) break;
             await new Promise((r) => setTimeout(r, 200));
           } while (Date.now() < deadline);
-          return !serverWatchesQueue;
+          if (serverWatchesQueue) {
+            console.warn('[takip-print] Yazıcı kuyruğu zaman aşımı; takip afterprint ile devam.');
+            return true;
+          }
+          return false;
         }
 
         // Print penceresi (print.js) yazdırma bittikten sonra bunu çağırır
@@ -2407,27 +2411,6 @@ try {
 
               try { resetTakipFormUI(); } catch (e) {}
               try { kapatForm(); } catch (e) {}
-
-              // Takip penceresi kapandıktan hemen sonra ISG yazdır (rapor kaydı beklenmez)
-              if (isgPrintCtx && window.IsgForm && typeof window.IsgForm.printIsgFormWithDialog === 'function') {
-                const isgCtxNow = isgPrintCtx;
-                setTimeout(function () {
-                  try {
-                    if (typeof showToast === 'function') {
-                      showToast('Sırada: İSG formu — yazıcı penceresini onaylayın.', 'info', 5000);
-                    }
-                  } catch (e) { /* ignore */ }
-                  window.IsgForm.printIsgFormWithDialog(isgCtxNow).then(function () {
-                    try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
-                  }).catch(function () {
-                    try {
-                      if (typeof showToast === 'function') {
-                        showToast('ISG formu basılmadı. Kart imzasız kaldı.', 'warn', 6000);
-                      }
-                    } catch (e) { /* ignore */ }
-                  });
-                }, 350);
-              }
 
               // Yazdır tıklanınca değil, baskı kuyruğa düşünce anlık zaman damgası
               const commitTs = Date.now();
