@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
-const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici } = require('../lib/liman-sheet');
+const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, fileLabelOf } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { printHistoryListColumns, printHistoryKantarSelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
 
@@ -156,6 +156,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       if (parsed.notes && typeof parsed.notes === 'object') base.notes = parsed.notes;
       base.closedDays = pruneClosedDays(parsed.closedDays);
       if (parsed.heartbeats && typeof parsed.heartbeats === 'object') base.heartbeats = parsed.heartbeats;
+      if (parsed.fileSeen && typeof parsed.fileSeen === 'object') base.fileSeen = parsed.fileSeen;
       (Array.isArray(parsed.pending) ? parsed.pending : []).forEach((p) => {
         const site = ipSite(p && p.ip) || normalizeSite(p && p.guess);
         if (!site || !p.snapshot) return;
@@ -373,6 +374,51 @@ function registerLimanRoutes(api, ctx, publicApp) {
     return Array.isArray(snap.rows) ? snap.rows.length : 0;
   }
 
+  /** Kantarın yüklediği Excel'ler, kantardaki yükleme sırasıyla ("a.xlsx + b.xlsx" + blok dosyaları). */
+  function snapshotFileLabels(snap) {
+    const out = [];
+    const add = (name) => {
+      const label = fileLabelOf(name);
+      if (label && out.indexOf(label) < 0) out.push(label);
+    };
+    if (!snap) return out;
+    String(snap.fileName || '').split(/\s+\+\s+/).forEach(add);
+    (snap.blocks || []).forEach((block) => add(block.fileName));
+    return out;
+  }
+
+  /** Alt sekmeler yükleme sırasına dizilsin: her Excel'in limana ilk geldiği an saklanır. */
+  function noteFileSeen(state, snap) {
+    const now = Date.now();
+    const seen = {};
+    const known = fileOrder(state);
+    let next = now;
+    Object.keys(known).forEach((label) => {
+      const at = Date.parse(known[label]) || 0;
+      if (!at || now - at > CLOSED_DAY_TTL_MS) return;
+      seen[label] = known[label];
+      if (at >= next) next = at + 1;
+    });
+    snapshotFileLabels(snap).forEach((label) => {
+      if (!seen[label]) seen[label] = new Date(next++).toISOString();
+    });
+    state.fileSeen = seen;
+  }
+
+  /** Kayıtlı ilk geliş anı; eski kayıtlarda kantar listesindeki sıra (liste alınma anı + sıra) kullanılır. */
+  function fileOrder(state) {
+    const out = Object.assign({}, state.fileSeen || {});
+    SITES.forEach((site) => {
+      const snap = state.sites[site];
+      if (!snap) return;
+      const base = Date.parse(snap.receivedAt || snap.updatedAt || '') || 0;
+      snapshotFileLabels(snap).forEach((label, i) => {
+        if (!out[label]) out[label] = new Date(base + i).toISOString();
+      });
+    });
+    return out;
+  }
+
   function heartbeats(state) {
     return state && state.heartbeats && typeof state.heartbeats === 'object' ? state.heartbeats : {};
   }
@@ -427,6 +473,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
       canEdit: amir,
       sites: publicSites(state),
       days: amir ? days : withoutTasiyici(days),
+      // Alt sekme sırası: Excel'in ilk geliş anı (soldan sağa ilk yüklenenden son yüklenene)
+      fileOrder: fileOrder(state),
       // Kapatılan günler: amir yeniden açabilsin, liman görevlisi "sevkiyat bitti" diye anlasın
       closedDays: closedDayList(state),
       // Yalnız amir: gönderim günlüğü (kabul / aynı / nabız / red)
@@ -588,6 +636,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         const sameContent = prev && prev.fileName === snapshot.fileName
           && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
           && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
+        noteFileSeen(state, snapshot);
         if (sameContent) {
           state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
           return { unchanged: true, silent: true };

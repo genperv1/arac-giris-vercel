@@ -37,6 +37,7 @@
     state.sites = data.sites || {};
     state.closedDays = Array.isArray(data.closedDays) ? data.closedDays : [];
     state.events = Array.isArray(data.events) ? data.events : [];
+    state.fileOrder = data.fileOrder && typeof data.fileOrder === 'object' ? data.fileOrder : {};
     if (!state.days.some(function (d) { return d.dateKey === state.day; })) {
       state.day = state.days[0] ? state.days[0].dateKey : '';
     }
@@ -171,12 +172,15 @@
    * Yalnız amir: plakası verilip gelmeyen araçlar + daha plaka verilecek BBT (nakliye bekleyenler hesabı).
    * Takip formu basılan / İÇERİDE / DIŞARIDA / sarılmış araç gelmiş sayılır.
    */
-  function gelmeyenBlocks() {
+  function gelmeyenBlocks(blocks) {
     var core = window.NakliyeBekleyenCore;
-    var day = activeDay();
-    if (!core || typeof core.analyzeBlock !== 'function' || !day) return [];
+    if (!blocks) {
+      var day = activeDay();
+      blocks = day ? fileBlocks(day) : [];
+    }
+    if (!core || typeof core.analyzeBlock !== 'function') return [];
     var out = [];
-    (day.blocks || []).forEach(function (block) {
+    (blocks || []).forEach(function (block) {
       var items = (block.rows || []).map(function (row) {
         var durum = String(row.durum || '').trim();
         return Object.assign({}, row, {
@@ -206,21 +210,60 @@
       return;
     }
     var list = gelmeyenBlocks();
-    var plates = 0;
-    var bbt = 0;
-    list.forEach(function (g) { plates += g.waiting.length; bbt += g.remaining; });
+    var sum = gelmeyenSum(list);
     var btn = '<button type="button" class="gelmeyen-btn' + (state.gelmeyenOpen ? ' is-open' : '') + '" data-gelmeyen-toggle>' +
-      'Gelmeyen araçlar <span class="g-count' + (plates ? '' : ' is-zero') + '">' + plates + '</span></button>';
-    wrap.innerHTML = btn + (state.gelmeyenOpen ? gelmeyenPanel(list, plates, bbt) : '');
+      'Gelmeyen araçlar <span class="g-count' + (sum.plates ? '' : ' is-zero') + '">' + sum.plates + '</span></button>';
+    var panel = '';
+    if (state.gelmeyenOpen) {
+      var groups = state.gelmeyenAll
+        ? printTabs().map(function (t) { return { label: t.label, list: gelmeyenBlocks(t.blocks) }; })
+        : [{ label: currentTabLabel(), list: list }];
+      panel = gelmeyenPanel(groups);
+    }
+    wrap.innerHTML = btn + panel;
   }
 
-  function gelmeyenPanel(list, plates, bbt) {
-    var top = '<div class="g-top"><span><b>' + plates + ' araç</b> bekleniyor' +
-      (bbt > 0 ? ' · <b>' + esc(fmtTotal(bbt)) + ' BBT</b> plaka verilecek' : '') + '</span>' +
+  function currentTabLabel() {
+    var day = activeDay();
+    return state.file || (day ? day.label : '');
+  }
+
+  function gelmeyenSum(list) {
+    var out = { plates: 0, bbt: 0 };
+    list.forEach(function (g) { out.plates += g.waiting.length; out.bbt += g.remaining; });
+    return out;
+  }
+
+  function gelmeyenPanel(groups) {
+    var total = { plates: 0, bbt: 0 };
+    groups.forEach(function (gr) {
+      var s = gelmeyenSum(gr.list);
+      total.plates += s.plates;
+      total.bbt += s.bbt;
+    });
+    var scope = state.gelmeyenAll ? 'Tüm listeler' : esc(groups[0] ? groups[0].label : '');
+    var top = '<div class="g-top"><span>' + (scope ? '<span class="g-scope">' + scope + '</span> · ' : '') +
+      '<b>' + total.plates + ' araç</b> bekleniyor' +
+      (total.bbt > 0 ? ' · <b>' + esc(fmtTotal(total.bbt)) + ' BBT</b> plaka verilecek' : '') + '</span>' +
       '<button type="button" class="g-close" data-gelmeyen-toggle aria-label="Kapat">×</button></div>';
-    if (!list.length) {
-      return '<div class="gelmeyen">' + top + '<div class="g-empty">Gelmeyen araç yok · plaka verilecek BBT yok</div></div>';
+    var body;
+    if (!total.plates && total.bbt <= 0) {
+      body = '<div class="g-empty">Gelmeyen araç yok · plaka verilecek BBT yok</div>';
+    } else if (state.gelmeyenAll) {
+      body = groups.filter(function (gr) { return gr.list.length; }).map(function (gr) {
+        var s = gelmeyenSum(gr.list);
+        return '<div class="g-tab">' + esc(gr.label) + ' · ' + s.plates + ' araç' +
+          (s.bbt > 0 ? ' · ' + esc(fmtTotal(s.bbt)) + ' BBT' : '') + '</div>' + gelmeyenList(gr.list);
+      }).join('');
+    } else {
+      body = gelmeyenList(groups[0] ? groups[0].list : []);
     }
+    var foot = '<button type="button" class="g-all" data-gelmeyen-all>' +
+      (state.gelmeyenAll ? 'Yalnız bu sayfayı göster' : 'Tüm listeleri toplu göster') + '</button>';
+    return '<div class="gelmeyen">' + top + body + foot + '</div>';
+  }
+
+  function gelmeyenList(list) {
     var body = list.map(function (g) {
       var head = [
         g.item.ydKey,
@@ -240,7 +283,7 @@
         (g.remaining > 0 ? '<div class="g-rem">Plaka verilecek: <b>' + esc(fmtTotal(g.remaining)) + ' BBT</b></div>' : '') +
         '</div>';
     }).join('');
-    return '<div class="gelmeyen">' + top + '<div class="g-list">' + body + '</div></div>';
+    return '<div class="g-list">' + body + '</div>';
   }
 
   function todayLabel() {
@@ -264,7 +307,7 @@
     var waiting = 0;
     var remaining = 0;
     if (day && day.dateKey === state.day) {
-      gelmeyenBlocks().forEach(function (g) { waiting += g.waiting.length; remaining += g.remaining; });
+      gelmeyenBlocks(day.blocks || []).forEach(function (g) { waiting += g.waiting.length; remaining += g.remaining; });
     }
     var out = [];
     if (inside) out.push('• ' + inside + ' araç hâlâ İÇERİDE');
@@ -492,7 +535,9 @@
     var day = activeDay();
     var dayFiles = filesOf(day);
     if (state.file && (dayFiles.length < 2 || dayFiles.indexOf(state.file) < 0)) state.file = '';
-    if (!state.file && dayFiles.length > 1) state.file = dayFiles[0];
+    if (!state.file && dayFiles.length > 1) {
+      state.file = dayFiles.slice().sort(function (a, b) { return (fileSeenAt(a) - fileSeenAt(b)) || 0; })[0];
+    }
     var ports = portsOf(day);
     if (state.port && ports.indexOf(state.port) < 0) state.port = '';
     var html = '<button type="button" class="chip' + (!state.port ? ' is-on' : '') + '" data-port="">Hepsi</button>';
@@ -500,17 +545,39 @@
       html += '<button type="button" class="chip' + (state.port === port ? ' is-on' : '') + '" data-port="' + esc(port) + '">' + esc(port) + '</button>';
     });
     $('ports').innerHTML = html;
-    $('sheetTabs').innerHTML = state.days.map(function (d) {
-      var files = filesOf(d);
-      var isDay = d.dateKey === state.day;
-      if (files.length < 2) {
-        return '<button type="button" class="tab' + (isDay ? ' is-on' : '') + '" data-day="' + esc(d.dateKey) + '">' + esc(d.label) + '</button>';
-      }
-      return files.map(function (f) {
-        var on = isDay && state.file === f;
-        return '<button type="button" class="tab' + (on ? ' is-on' : '') + '" data-day="' + esc(d.dateKey) + '" data-file="' + esc(f) + '">' + esc(f) + '</button>';
-      }).join('');
+    $('sheetTabs').innerHTML = sheetTabs().map(function (t) {
+      var on = t.dateKey === state.day && (!t.file || state.file === t.file);
+      return '<button type="button" class="tab' + (on ? ' is-on' : '') + '" data-day="' + esc(t.dateKey) + '"' +
+        (t.file ? ' data-file="' + esc(t.file) + '"' : '') + '>' + esc(t.label) + '</button>';
     }).join('');
+  }
+
+  function fileSeenAt(label) {
+    var at = label && state.fileOrder ? Date.parse(state.fileOrder[label] || '') : NaN;
+    return isFinite(at) ? at : Infinity;
+  }
+
+  /**
+   * Alt sekmeler (Excel sayfaları gibi): soldan sağa ilk yüklenen Excel'den son yüklenene.
+   * Aynı tarihli 2. Excel ayrı sekme olur; sırası bilinmeyen sekme tarih sırasıyla sona gelir.
+   */
+  function sheetTabs() {
+    var tabs = [];
+    state.days.forEach(function (d, di) {
+      var files = filesOf(d);
+      if (files.length < 2) {
+        tabs.push({ dateKey: d.dateKey, file: '', label: d.label, at: fileSeenAt(files[0]), idx: tabs.length, di: di });
+        return;
+      }
+      files.forEach(function (f) {
+        tabs.push({ dateKey: d.dateKey, file: f, label: f, at: fileSeenAt(f), idx: tabs.length, di: di });
+      });
+    });
+    return tabs.sort(function (a, b) {
+      if (a.at !== b.at) return a.at < b.at ? -1 : 1;
+      if (a.di !== b.di) return b.di - a.di;
+      return a.idx - b.idx;
+    });
   }
 
   function plateKeyOf(raw) {
@@ -645,10 +712,149 @@
     }).join('') + '</div>';
   }
 
+  /** Alttaki sekmelerle aynı sıra: gün tek dosyaysa gün, birden fazlaysa her dosya ayrı sekme. */
+  function printTabs() {
+    var byKey = {};
+    state.days.forEach(function (d) { byKey[d.dateKey] = d; });
+    return sheetTabs().map(function (t) {
+      var d = byKey[t.dateKey] || {};
+      return {
+        label: t.label,
+        blocks: (d.blocks || []).filter(function (block) {
+          var bf = block.files || [];
+          return !t.file || !bf.length || bf.indexOf(t.file) >= 0;
+        }),
+      };
+    }).filter(function (t) { return t.blocks.length; });
+  }
+
+  var PRINT_CSS =
+    '@page { size: A4 portrait; margin: 8mm; }' +
+    '* { box-sizing: border-box; }' +
+    'body { margin: 0; font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #000; font-size: 9pt; }' +
+    '.p-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 8px; }' +
+    '.p-head h1 { margin: 0; font-size: 16pt; }' +
+    '.p-head span { font-size: 9pt; }' +
+    '#pg { width: 733px; }' +
+    '.p-blok { margin-bottom: 10px; }' +
+    '.p-title { font-weight: 700; font-size: 11pt; padding: 4px 6px; border: 1px solid #000; border-bottom: 0; }' +
+    '.p-tas { display: inline-block; border: 1.5px solid #000; padding: 0 6px; margin-right: 8px; }' +
+    '.p-meta { font-size: 9pt; padding: 3px 6px; border: 1px solid #000; border-bottom: 0; }' +
+    '.p-meta b { margin-left: 10px; }' +
+    '.p-meta b:first-child { margin-left: 0; }' +
+    'table { width: 100%; border-collapse: collapse; }' +
+    'th, td { border: 1px solid #000; padding: 3px 3px; text-align: center; white-space: nowrap; }' +
+    'th { font-size: 7.5pt; background: #eee; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    'td.l { text-align: left; }' +
+    'td.sof { white-space: normal; }' +
+    'td.plk { font-weight: 700; font-size: 10.5pt; letter-spacing: .02em; }' +
+    'td.chk { width: 24px; padding: 2px; }' +
+    '.box { display: inline-block; width: 15px; height: 15px; border: 1.5px solid #000; vertical-align: middle; }' +
+    'td.not { min-width: 70px; }' +
+    'tr.out td { color: #555; }' +
+    'tfoot td { font-weight: 700; background: #f3f3f3; -webkit-print-color-adjust: exact; print-color-adjust: exact; }';
+
+  function printTabHtml(tab) {
+    var now = new Date().toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    var body = tab.blocks.map(function (block) {
+      var rows = block.rows || [];
+      var rowTas = rows.some(function (row) { return row.tasiyici; });
+      var tasiyici = String(block.tasiyici || '').trim();
+      var meta = [
+        ['LİMAN', block.liman || block.port],
+        ['GEMİ', block.gemi],
+        ['BOOKING', block.booking],
+        ['SEVK', block.sevk],
+      ].filter(function (p) { return String(p[1] || '').trim(); }).map(function (p) {
+        return '<b>' + p[0] + ':</b> ' + esc(p[1]);
+      }).join(' ');
+      var t = blockTotals(rows).toplam;
+      var tr = rows.map(function (row) {
+        var out = rowDeparted(row);
+        var durum = out ? 'SARILMIŞ' : String(row.durum || '').trim();
+        return '<tr' + (out ? ' class="out"' : '') + '>' +
+          '<td class="chk"><span class="box"></span></td>' +
+          '<td>' + esc(row.sira || '') + '</td>' +
+          '<td class="l plk">' + esc(String(row.plaka || '').trim() || '—') + '</td>' +
+          '<td>' + esc(numCell(row.bbt)) + '</td>' +
+          '<td>' + esc(numCell(row.cuval)) + '</td>' +
+          '<td>' + esc(numCell(row.palet)) + '</td>' +
+          '<td>' + esc(numCell(row.bosBbt)) + '</td>' +
+          '<td>' + esc(numCell(row.bosCuval)) + '</td>' +
+          '<td>' + esc(numCell(row.net)) + '</td>' +
+          '<td>' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
+          '<td class="l sof">' + esc(row.sofor || '') + '</td>' +
+          '<td>' + esc(row.telefon || '') + '</td>' +
+          (rowTas ? '<td>' + esc(row.tasiyici || '') + '</td>' : '') +
+          '<td>' + esc(durum) + '</td>' +
+          '<td class="not"></td>' +
+          '</tr>';
+      }).join('');
+      return '<div class="p-blok">' +
+        '<div class="p-title">' + (tasiyici ? '<span class="p-tas">' + esc(tasiyici) + '</span>' : '') + esc(block.title || '') + '</div>' +
+        (meta ? '<div class="p-meta">' + meta + '</div>' : '') +
+        '<table><thead><tr>' +
+          '<th>✓</th><th>#</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ<br>BBT</th><th>BOŞ<br>ÇUVAL</th>' +
+          '<th>NET</th><th>YÜKL.<br>YERİ</th><th>ŞOFÖR</th><th>TELEFON</th>' + (rowTas ? '<th>TAŞIYICI</th>' : '') +
+          '<th>DURUM</th><th>NOT</th>' +
+        '</tr></thead><tbody>' + tr + '</tbody>' +
+        '<tfoot><tr><td></td><td colspan="2" class="l">TOPLAM · ' + rows.length + ' araç</td>' +
+          '<td>' + esc(fmtTotal(t.bbt)) + '</td><td>' + esc(fmtTotal(t.cuval)) + '</td><td>' + esc(fmtTotal(t.palet)) + '</td>' +
+          '<td>' + esc(fmtTotal(t.bosBbt)) + '</td><td>' + esc(fmtTotal(t.bosCuval)) + '</td><td>' + esc(fmtTotal(t.net)) + '</td>' +
+          '<td colspan="' + (rowTas ? 6 : 5) + '"></td></tr></tfoot>' +
+        '</table></div>';
+    }).join('');
+    return '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Liman ' + esc(tab.label) + '</title>' +
+      '<style>' + PRINT_CSS + '</style></head><body><div id="pg">' +
+      '<div class="p-head"><h1>İhracat Takip Listesi · ' + esc(tab.label) + '</h1><span>Yazdırma: ' + esc(now) + '</span></div>' +
+      body + '</div></body></html>';
+  }
+
+  // A4 dikey, 8 mm kenar: yazdırılabilir alan 194 × 281 mm (96 dpi)
+  var PAGE_W_PX = 733;
+  var PAGE_H_PX = 1040;
+
+  /** Alttaki sekmede seçili liste tek A4 sayfaya sığacak kadar küçültülüp yazdırılır. */
+  async function printCurrent() {
+    var label = currentTabLabel();
+    var tab = printTabs().filter(function (t) { return t.label === label; })[0];
+    if (!tab) {
+      toast('Yazdırılacak liste yok');
+      return;
+    }
+    await printTab(tab);
+  }
+
+  async function printTab(tab) {
+    var oldTitle = document.title;
+    var frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + PAGE_W_PX + 'px;height:' + PAGE_H_PX + 'px;border:0;visibility:hidden;';
+    document.body.appendChild(frame);
+    try {
+      var doc = frame.contentWindow.document;
+      doc.open();
+      doc.write(printTabHtml(tab));
+      doc.close();
+      await new Promise(function (r) { setTimeout(r, 150); });
+      var page = doc.getElementById('pg');
+      var scale = Math.min(PAGE_W_PX / Math.max(page.scrollWidth, 1), PAGE_H_PX / Math.max(page.scrollHeight, 1), 1);
+      if (scale < 1) page.style.zoom = String(Math.floor(scale * 1000) / 1000);
+      document.title = 'Liman ' + tab.label;
+      await new Promise(function (r) { setTimeout(r, 100); });
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+      await new Promise(function (r) { setTimeout(r, 400); });
+    } finally {
+      document.title = oldTitle;
+      frame.remove();
+    }
+  }
+
   function render() {
     renderAdmin();
-    renderGelmeyen();
     renderPorts();
+    renderGelmeyen();
     renderList();
   }
 
@@ -745,6 +951,11 @@
   });
 
   document.body.addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-gelmeyen-all]')) {
+      state.gelmeyenAll = !state.gelmeyenAll;
+      renderGelmeyen();
+      return;
+    }
     if (ev.target.closest('[data-gelmeyen-toggle]')) {
       state.gelmeyenOpen = !state.gelmeyenOpen;
       renderGelmeyen();
@@ -753,6 +964,10 @@
     if (state.gelmeyenOpen && !ev.target.closest('#gelmeyenWrap')) {
       state.gelmeyenOpen = false;
       renderGelmeyen();
+    }
+    if (ev.target.closest('[data-print-current]')) {
+      printCurrent();
+      return;
     }
     var closeBtn = ev.target.closest('[data-close-day]');
     if (closeBtn) {

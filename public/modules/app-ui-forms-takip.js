@@ -3320,6 +3320,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
     </div>
   </div>
 </header>
+                    </div>
 
                     <div id="excelDateWarnContainer">${excelWarnHTML}</div>
 
@@ -3352,7 +3353,6 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                             </button>
                         </div>
                     </section>
-                    </div>
 
                     <div id="vehicleList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 vehicle-list-grid">
                         ${state.vehiclesLoading ? vehicleListSkeletonHTML() : (

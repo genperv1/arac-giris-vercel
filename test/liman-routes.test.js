@@ -63,6 +63,22 @@ test('1.OSB IP\'sinden gelen liste onaysız 1.OSB olarak işlenir', async () => 
   assert.equal(view.days[0].blocks.length, 1);
 });
 
+test('alt sekme sırası: Excel\'in limana ilk geliş sırası korunur, yeni Excel sona eklenir', async () => {
+  const { call } = harness({ username: 'AVDAN', role: 'admin' });
+  const b = (title, fileName) => ({ title, liman: 'EVYAP', fileName, rows: [{ sira: '1', plaka: '43RY761' }] });
+  await call('put /liman/snapshot', '95.3.27.82', {
+    fileName: '03.10.2026.xlsx + 03.10.2026-YD28.xlsx',
+    blocks: [b('YD02 / LOT NO 1 / EVYAP', '03.10.2026.xlsx'), b('YD28 / LOT NO 2 / EVYAP', '03.10.2026-YD28.xlsx')],
+  });
+  await call('put /liman/snapshot', '95.3.27.82', {
+    fileName: '05.10.2026.xlsx + 03.10.2026.xlsx + 03.10.2026-YD28.xlsx',
+    blocks: [b('YD05 / LOT NO 3 / EVYAP', '05.10.2026.xlsx'), b('YD02 / LOT NO 1 / EVYAP', '03.10.2026.xlsx'), b('YD28 / LOT NO 2 / EVYAP', '03.10.2026-YD28.xlsx')],
+  });
+  const view = await call('get /liman', '1.1.1.1');
+  const order = Object.keys(view.fileOrder).sort((x, y) => Date.parse(view.fileOrder[x]) - Date.parse(view.fileOrder[y]));
+  assert.deepEqual(order, ['03.10.2026', '03.10.2026-YD28', '05.10.2026']);
+});
+
 test('bilinmeyen IP basım yeri ya da yükleme yeri ile kabul edilir', async () => {
   const { call } = harness({ username: 'GENPER', role: 'admin' });
   const put = await call('put /liman/snapshot', '10.0.0.9', { site: '', fileName: '03.10.2026.xlsx', blocks: [block('YD47 / LOT NO 26 08 32 / SAFİPORT', 'AVDAN')] });

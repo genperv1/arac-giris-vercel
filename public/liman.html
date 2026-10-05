@@ -16,6 +16,7 @@
     .chip { background: #e8f5e9; color: #1b3a22; }
     .chip.is-on { background: #fff; color: #14532d; box-shadow: inset 0 -3px 0 #16a34a; }
     .btn { background: #166534; color: #fff; }
+    .btn-print { background: #fff; color: #14532d; }
     .search { border: 0; border-radius: 4px; padding: 8px 10px; min-width: 160px; font: inherit; }
     .wrap { padding: 14px 12px 48px; }
     /* Bilgisayar: sayfa ortalanır; küçük sayı sütunları (çuval, palet, boş bbt/çuval ≤ 2 hane, yükleme yeri ≤ 5 karakter) dar tutulur */
@@ -91,6 +92,10 @@
     .gelmeyen .g-plates li { font-size: .85rem; display: flex; align-items: center; gap: 4px; }
     .gelmeyen .g-plates .tas-box { display: inline-block; padding: 0 5px; }
     .gelmeyen .g-bbt { color: #64748b; font-size: .75rem; }
+    .gelmeyen .g-scope { display: inline-block; padding: 1px 8px; border-radius: 4px; background: #1f4e2a; color: #fff; font-weight: 700; }
+    .gelmeyen .g-tab { margin-top: 10px; padding: 4px 8px; border-left: 4px solid #16a34a; background: #e8f5e9; font-size: .82rem; font-weight: 700; color: #14532d; }
+    .gelmeyen .g-all { display: block; width: 100%; margin-top: 10px; padding: 8px 12px; border: 1px solid #16a34a; border-radius: 6px; background: #fff; color: #14532d; font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; }
+    .gelmeyen .g-all:hover { background: #e8f5e9; }
     .gelmeyen .g-rem { margin-top: 4px; font-size: .82rem; color: #c2410c; }
     .multi-line { margin: 0; padding: 4px 10px; background: #fffaf3; color: #b45309; border-top: 1px solid #f5e1c8; font-size: .78rem; font-weight: 500; }
     .empty { padding: 28px 12px; color: #3f6212; }
@@ -226,6 +231,7 @@
       <div class="ports">
         <div id="ports"></div>
         <input id="plate" class="search" type="search" placeholder="Plaka ara" />
+        <button type="button" class="btn btn-print" data-print-current title="Alttaki sekmede seçili liste yazdırılır">Yazdır</button>
         <span class="live" id="liveDot" title="Liste kendiliğinden yenilenir"><i aria-hidden="true"></i><span>Canlı</span></span>
       </div>
     </div>
@@ -237,6 +243,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261003-liman3"></script>
-  <script src="liman.js?v=20261005-liman38"></script>
+  <script src="liman.js?v=20261005-liman43"></script>
 </body>
 </html>
