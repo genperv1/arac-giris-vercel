@@ -200,9 +200,9 @@ test('istemci: kantar hesabında hareketsizlik çıkışı yok; 401\'de cihazla 
   const giris = read('GIRIS.html');
   assert.match(giris, /session-manager\.js\?v=20261004-nudge4/);
   assert.match(giris, /app-auth\.js\?v=1\.0\.28-20261003-renew/);
-  assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.63-20261005-sipno/);
-  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.27-20261004-okuma/);
-  assert.match(read('liman.html'), /liman\.js\?v=20261005-liman37/);
+  assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.65-20261005-pfk/);
+  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.29-20261005-yd28/);
+  assert.match(read('liman.html'), /liman\.js\?v=20261005-liman49/);
   assert.match(read('ayarlar.html'), /ayarlar\.js\?v=20261003-cihazlar/);
   assert.match(read('ayarlar.html'), /id="section-cihazlar"/);
   assert.match(read('ayarlar.js'), /'\/api\/session\/devices'/);

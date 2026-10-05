@@ -396,3 +396,25 @@ test('her Excel dosyasının konumu ayrı saklanır', () => {
   assert.match(refreshFn, /catch \(err\)/);
   assert.doesNotMatch(refreshFn, /showOpenFilePicker/);
 });
+
+function clientFn(name) {
+  const i = clientCode.indexOf('function ' + name + '(');
+  let depth = 0;
+  for (let k = clientCode.indexOf('{', i); k < clientCode.length; k++) {
+    if (clientCode[k] === '{') depth++;
+    else if (clientCode[k] === '}' && --depth === 0) return clientCode.slice(i, k + 1);
+  }
+  return '';
+}
+
+test('same-date Excels keep their own file on refresh (no YD28 swap)', () => {
+  const bind = new Function(
+    ['handleKey', 'dateToken', 'bindPresetToExpected'].map(clientFn).join('\n') + '\nreturn bindPresetToExpected;'
+  )();
+  const files = ['03.10.2026-YD28.xlsx', '03.10.2026.xlsx', '05.10.2026.xlsx'].map((name) => ({ name }));
+  const map = bind({}, files, ['03.10.2026.xlsx', '03.10.2026-YD28.xlsx', '05.10.2026.xlsx']);
+  assert.equal(map['03.10.2026.xlsx'].name, '03.10.2026.xlsx');
+  assert.equal(map['03.10.2026-yd28.xlsx'].name, '03.10.2026-YD28.xlsx');
+  const missing = bind({}, [{ name: '03.10.2026-YD28.xlsx' }], ['03.10.2026.xlsx', '03.10.2026-YD28.xlsx']);
+  assert.equal(missing['03.10.2026.xlsx'], undefined);
+});

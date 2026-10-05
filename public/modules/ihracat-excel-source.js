@@ -750,9 +750,12 @@
     var list = files || [];
     var expected = (expectedNames || []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
     var used = Object.create(null);
+    var expectedKeys = Object.create(null);
+    expected.forEach(function (name) { expectedKeys[handleKey(name)] = true; });
     list.forEach(function (file) {
       if (file && file.name) used[handleKey(file.name)] = false;
     });
+    // Önce birebir ad: "03.10.2026.xlsx" ile "03.10.2026-YD28.xlsx" aynı tarihli diye yer değiştirmesin
     expected.forEach(function (name) {
       var key = handleKey(name);
       if (map[key]) {
@@ -760,9 +763,20 @@
         return;
       }
       for (var i = 0; i < list.length; i++) {
+        if (handleKey(list[i] && list[i].name) === key) {
+          map[key] = list[i];
+          used[key] = true;
+          return;
+        }
+      }
+    });
+    expected.forEach(function (name) {
+      var key = handleKey(name);
+      if (map[key]) return;
+      for (var i = 0; i < list.length; i++) {
         var file = list[i];
         var fk = handleKey(file && file.name);
-        if (!fk || used[fk]) continue;
+        if (!fk || used[fk] || expectedKeys[fk]) continue;
         var sameDate = dateToken(name) && dateToken(name) === dateToken(file && file.name);
         if (fk === key || fk.indexOf(key) >= 0 || key.indexOf(fk) >= 0 || sameDate) {
           map[key] = file;
@@ -774,7 +788,7 @@
     var leftNames = expected.filter(function (name) { return !map[handleKey(name)]; });
     var leftFiles = list.filter(function (file) {
       var fk = handleKey(file && file.name);
-      return fk && !used[fk];
+      return fk && !used[fk] && !expectedKeys[fk];
     });
     if (leftNames.length && leftNames.length === leftFiles.length) {
       leftNames.forEach(function (name, i) { map[handleKey(name)] = leftFiles[i]; });
@@ -1018,7 +1032,11 @@
     }
     var handleOk = namedFile && !namedFile.__missing && !namedFile.__cancelled && !namedFile.__notSelected;
     if (!handleOk && handleFile && !handleFile.__missing && !handleFile.__cancelled) {
-      var dated = dateToken(handleFile.name) && dateToken(handleFile.name) === dateToken(wanted);
+      // Aynı tarihli başka yüklü Excel'in dosyası bu kaynağın adıyla okunmasın
+      var otherSource = listLoadedSourceNames().some(function (n) {
+        return !sameExcelName(n, wanted) && sameExcelName(n, handleFile.name);
+      });
+      var dated = !otherSource && dateToken(handleFile.name) && dateToken(handleFile.name) === dateToken(wanted);
       if (sameExcelName(handleFile.name, wanted) || dated) {
         namedFile = handleFile;
         handleOk = true;
