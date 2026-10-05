@@ -1171,6 +1171,19 @@ function extractFirmaTextFromN(ws, rowNumber, maxRowsBack = 40) {
   }
 }
 
+/** N hücresi "YD92(M) / LOT NO 26 08 10" ama başlık "… 26 08 10 PFK-26-39(K) / …" ise PFK'yı da al. */
+function extendFirmaFromHeader(firma, headerText) {
+  const norm = (s) => String(s || '').replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ').trim();
+  const f = norm(firma);
+  const h = norm(headerText);
+  if (!f || !h || h.length <= f.length) return f;
+  if (h.slice(0, f.length).toLocaleUpperCase('tr-TR') !== f.toLocaleUpperCase('tr-TR')) return f;
+  const rest = h.slice(f.length);
+  if (/^\s*\//.test(rest) || !/^\s/.test(rest)) return f;
+  const tail = rest.split('/')[0].trim();
+  return tail ? `${f} ${tail}` : f;
+}
+
 function findNearestSheetColumnValue(ws, startRow, colIndex, maxRowsBack = 40, predicate) {
   const endRow = Math.max(1, startRow - maxRowsBack);
   for (let r = startRow; r >= endRow; r--) {
@@ -1818,7 +1831,10 @@ function fillTakipFormFromExcelRow(chosen) {
     if (el) el.value = v;
   };
 
-  const firmaFromRow = String(chosen.firma || '').trim();
+  const firmaFromRow = extendFirmaFromHeader(
+    String(chosen.firma || '').trim(),
+    chosen.blockMeta?.mainHeader || chosen.headerText
+  );
   const ydOnly = String(chosen.ydKey || '').trim();
   const firmaVal = firmaFromRow
     || (/\bYD\d{1,4}\b/i.test(ydOnly) ? ydOnly : '')
@@ -4235,7 +4251,7 @@ const firmaFromN = extractFirmaTextFromN(ws, rr + 1, 40);
 const ydKey = (((firmaFromN || '').match(/\b(YD\d{1,4})\b/i) || [])[1] || ydFromHeader || '').trim().toUpperCase();
 
 // ✅ Firma = N sütunundaki TAM hücre
-const firma = String(firmaFromN || ydKey || '').trim();
+const firma = extendFirmaFromHeader(String(firmaFromN || ydKey || '').trim(), headerText);
 
      const irsaliyeNo = resolveIrsaliyeFromRow(d, parseCols);
      const siraVal = blockCols.sirano !== undefined ? (d[blockCols.sirano] != null ? String(d[blockCols.sirano]).trim() : '') : '';

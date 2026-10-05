@@ -733,26 +733,27 @@
     '@page { size: A4 portrait; margin: 8mm; }' +
     '* { box-sizing: border-box; }' +
     'html, body { margin: 0; padding: 0; }' +
-    'body { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #000; }' +
-    '#pg { width: 733px; margin: 0 auto; font-size: 9pt; }' +
-    '.p-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: .3em; margin-bottom: .6em; }' +
-    '.p-head h1 { margin: 0; font-size: 1.75em; }' +
-    '.p-head span { font-size: 1em; }' +
-    '.p-blok { margin-bottom: .8em; break-inside: avoid; page-break-inside: avoid; }' +
-    '.p-title { font-weight: 700; font-size: 1.2em; padding: .3em .5em; border: 1px solid #000; border-bottom: 0; }' +
-    '.p-meta { padding: .25em .5em; border: 1px solid #000; border-bottom: 0; }' +
-    '.p-meta b { margin-left: .8em; }' +
+    'body { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #000; font-size: 11pt; }' +
+    '#wrap { display: flex; justify-content: center; }' +
+    '#pg { width: 733px; flex: 0 0 auto; }' +
+    '.p-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 8px; }' +
+    '.p-head h1 { margin: 0; font-size: 18pt; }' +
+    '.p-head span { font-size: 10pt; }' +
+    '.p-blok { margin-bottom: 12px; break-inside: avoid; page-break-inside: avoid; }' +
+    '.p-title { font-weight: 700; font-size: 12.5pt; padding: 4px 6px; border: 1px solid #000; border-bottom: 0; }' +
+    '.p-meta { font-size: 10.5pt; padding: 3px 6px; border: 1px solid #000; border-bottom: 0; }' +
+    '.p-meta b { margin-left: 10px; }' +
     '.p-meta b:first-child { margin-left: 0; }' +
     'table { width: 100%; border-collapse: collapse; }' +
     'tr { break-inside: avoid; page-break-inside: avoid; }' +
-    'th, td { border: 1px solid #000; padding: .25em .25em; text-align: center; white-space: nowrap; }' +
-    'th { font-size: .83em; background: #eee; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    'th, td { border: 1px solid #000; padding: 4px 3px; text-align: center; white-space: nowrap; }' +
+    'th { font-size: 9pt; background: #eee; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     'td.l { text-align: left; }' +
     'td.sof { white-space: normal; }' +
-    'td.plk { font-weight: 700; font-size: 1.17em; letter-spacing: .02em; }' +
-    'td.chk { width: 2em; padding: .15em; }' +
-    '.box { display: inline-block; width: 1.25em; height: 1.25em; border: 1.5px solid #000; vertical-align: middle; }' +
-    'td.not { min-width: 6em; }' +
+    'td.plk { font-weight: 700; font-size: 13pt; letter-spacing: .02em; }' +
+    'td.chk { width: 28px; padding: 2px; }' +
+    '.box { display: inline-block; width: 18px; height: 18px; border: 1.5px solid #000; vertical-align: middle; }' +
+    'td.not { min-width: 50px; }' +
     'tr.out td { color: #555; }' +
     'tfoot td { font-weight: 700; background: #f3f3f3; -webkit-print-color-adjust: exact; print-color-adjust: exact; }';
 
@@ -804,9 +805,9 @@
         '</table></div>';
     }).join('');
     return '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Liman ' + esc(tab.label) + '</title>' +
-      '<style>' + PRINT_CSS + '</style></head><body><div id="pg">' +
+      '<style>' + PRINT_CSS + '</style></head><body><div id="wrap"><div id="pg">' +
       '<div class="p-head"><h1>İhracat Takip Listesi · ' + esc(tab.label) + '</h1><span>Yazdırma: ' + esc(now) + '</span></div>' +
-      body + '</div></body></html>';
+      body + '</div></div></body></html>';
   }
 
   // A4 dikey, 8 mm kenar: yazdırılabilir alan 194 × 281 mm (96 dpi)
@@ -815,34 +816,25 @@
 
   /** Alttaki sekmede seçili liste tek A4 sayfaya sığacak kadar küçültülüp yazdırılır. */
   async function printCurrent() {
-    var label = currentTabLabel();
-    var tab = printTabs().filter(function (t) { return t.label === label; })[0];
-    if (!tab) {
+    var day = activeDay();
+    var blocks = (day ? fileBlocks(day) : []).filter(function (block) {
+      return !state.port || (block.liman || block.port || '') === state.port;
+    });
+    if (!blocks.length) {
       toast('Yazdırılacak liste yok');
       return;
     }
-    await printTab(tab);
+    await printTab({ label: currentTabLabel() + (state.port ? ' · ' + state.port : ''), blocks: blocks });
   }
 
   /**
-   * Tablolar sayfa genişliğinde kalır; yazı boyutu sayfa boyunu dolduracak en büyük değere ayarlanır.
-   * En küçük yazıda da sığmazsa bütün sayfa küçültülür (yine tek sayfa).
+   * Sayfaya sığmıyorsa liste orantılı küçültülür; okunmaz olmasın diye en fazla %80'e.
+   * Yine sığmayan uzun liste sonraki sayfaya geçer (blok bölünmez); #wrap ortalar.
    */
   function fitPage(page) {
-    var fits = function () { return page.scrollHeight <= PAGE_H_PX && page.scrollWidth <= PAGE_W_PX; };
-    var lo = 5;
-    var hi = 12;
-    page.style.fontSize = hi + 'pt';
-    if (fits()) return;
-    for (var i = 0; i < 10; i++) {
-      var mid = (lo + hi) / 2;
-      page.style.fontSize = mid + 'pt';
-      if (fits()) lo = mid; else hi = mid;
-    }
-    page.style.fontSize = lo + 'pt';
-    if (fits()) return;
-    var scale = Math.min(PAGE_W_PX / Math.max(page.scrollWidth, 1), PAGE_H_PX / Math.max(page.scrollHeight, 1));
-    page.style.zoom = String(Math.floor(scale * 1000) / 1000);
+    var scale = Math.min(PAGE_W_PX / Math.max(page.scrollWidth, 1), PAGE_H_PX / Math.max(page.scrollHeight, 1), 1);
+    scale = Math.max(scale, 0.8);
+    if (scale < 1) page.style.zoom = String(Math.floor(scale * 1000) / 1000);
   }
 
   async function printTab(tab) {

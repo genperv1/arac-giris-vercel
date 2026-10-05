@@ -729,7 +729,9 @@ function _applyExcelShipmentFieldsToTakipForm(chosen) {
   const bosCuval = document.getElementById('bosCuval');
   const yuklemeNotu = document.getElementById('yuklemeNotu');
 
-  const firmaFromRow = String(chosen.firma || '').trim();
+  const firmaFromRow = typeof extendFirmaFromHeader === 'function'
+    ? extendFirmaFromHeader(String(chosen.firma || '').trim(), chosen.blockMeta?.mainHeader || chosen.headerText)
+    : String(chosen.firma || '').trim();
   const ydOnly = String(chosen.ydKey || '').trim();
   const firmaVal = firmaFromRow
     || (/\bYD\d{1,4}\b/i.test(ydOnly) ? ydOnly : '')
