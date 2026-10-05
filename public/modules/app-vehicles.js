@@ -578,7 +578,9 @@ function setupTakipFormButtons() {
                   isgPrint = Object.assign({}, window.IsgForm.capturePrintContext(), {
                     id: vid,
                     vehicleId: vid,
-                    cekiciPlaka: plateFromForm || ''
+                    plaka: plateFromForm || '',
+                    cekiciPlaka: plateFromForm || '',
+                    snapshot: snap || null
                   });
                 }
               }

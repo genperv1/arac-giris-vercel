@@ -2376,7 +2376,9 @@ try {
                 ? Object.assign({}, pending.isgPrint, {
                   id: pending.vehicleId || pending.isgPrint.id || '',
                   vehicleId: pending.vehicleId || pending.isgPrint.vehicleId || '',
-                  cekiciPlaka: pending.plaka || pending.isgPrint.plateText || pending.isgPrint.cekiciPlaka || ''
+                  plaka: pending.plaka || pending.isgPrint.plateText || '',
+                  cekiciPlaka: pending.plaka || pending.isgPrint.plateText || pending.isgPrint.cekiciPlaka || '',
+                  snapshot: pending.snapshot || pending.isgPrint.snapshot || null
                 })
                 : null;
               try { refreshPendingPrintSnapshotFromForm(pending); } catch (e) {}

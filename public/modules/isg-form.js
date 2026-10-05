@@ -250,8 +250,52 @@ function createIsgApi() {
     });
   }
 
+  /** Yazdır tıklanınca / form kapandıktan sonra kalan ISG bağlamı (snapshot + plaka). */
+  function normalizeIsgPrintCtx(ctx) {
+    const raw = ctx && typeof ctx === 'object' ? ctx : {};
+    const snap = raw.snapshot && typeof raw.snapshot === 'object' ? raw.snapshot : {};
+    let soforAdi = String(raw.soforAdi || snap.soforAdi || '').trim();
+    let soforSoyadi = String(raw.soforSoyadi || snap.soforSoyadi || '').trim();
+    if (!soforAdi && !soforSoyadi) {
+      const fromName = splitDriverName(raw.driverName || snap.soforBilgi || readField('soforBilgi') || '');
+      soforAdi = fromName.soforAdi;
+      soforSoyadi = fromName.soforSoyadi;
+    }
+    return vehicleIdentity({
+      id: String(raw.vehicleId || raw.id || '').trim(),
+      cekiciPlaka: raw.cekiciPlaka || raw.plateText || raw.plaka || snap.cekiciPlaka || snap.plaka || '',
+      soforAdi,
+      soforSoyadi,
+      tcKimlik: raw.tcKimlik || raw.tc || snap.tcKimlik || snap.tc || ''
+    });
+  }
+
   function resolveFromForm() {
     return resolveIsgStatus(capturePrintContext(), state.records);
+  }
+
+  /** Takip formu baskısındaki ISG damgası (2 kantar: takip + ISG aynı oturum). */
+  function resolveIsgSignedForTakipPrint() {
+    try {
+      const pending = typeof window !== 'undefined' ? window.__pendingPrintCommit : null;
+      if (pending && pending.isgPrint) {
+        return true;
+      }
+      const fromForm = resolveIsgStatus(capturePrintContext(), state.records);
+      if (fromForm.signed) return true;
+      if (pending) {
+        const raw = pending.isgPrint || {
+          vehicleId: pending.vehicleId,
+          id: pending.vehicleId,
+          plaka: pending.plaka,
+          cekiciPlaka: pending.plaka,
+          snapshot: pending.snapshot
+        };
+        const idn = normalizeIsgPrintCtx(raw);
+        if (resolveIsgStatus(idn, state.records).signed) return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
   }
 
   function printBadgeHtml(signed) {
@@ -633,12 +677,24 @@ function createIsgApi() {
           signedAt: Date.now()
         })
       });
-      if (!res.ok) return false;
+      if (!res.ok) {
+        try {
+          if (typeof showToast === 'function') {
+            showToast('ISG imza kaydı sunucuya yazılamadı.', 'warn', 5000);
+          }
+        } catch (e2) { /* ignore */ }
+        return false;
+      }
       const data = await res.json().catch(function () { return {}; });
       if (data && data.record) {
         mergeServerRecord(data.record);
         notifyUi();
       }
+      try {
+        if (window.SyncManager && typeof window.SyncManager.broadcastLocal === 'function') {
+          window.SyncManager.broadcastLocal('isg_updated', { signed: true });
+        }
+      } catch (e3) { /* ignore */ }
       await ensureLoaded({ force: true });
       notifyUi();
       return true;
@@ -720,14 +776,26 @@ function createIsgApi() {
     }
   }
 
+  function isgPrintShellBlobUrl() {
+    const pdfAbs = isgPdfAbsoluteUrl().replace(/"/g, '%22');
+    const html = '<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>ISG-T004 ISG Formu</title>'
+      + '<style>@page{size:A4;margin:0;}html,body{margin:0;padding:0;width:210mm;height:297mm;overflow:hidden;background:#fff;}'
+      + 'embed{display:block;width:210mm;height:297mm;border:0;}</style></head><body>'
+      + '<embed src="' + pdfAbs + '" type="application/pdf">'
+      + '<script>(function(){function notify(){try{parent.postMessage({type:"isgPrintEnd"},"*");}catch(e){}}'
+      + 'window.addEventListener("afterprint",notify,{once:true});})();<\/script></body></html>';
+    return URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  }
+
   /** Takip formu (A5) bittikten sonra: yazıcı seçim penceresi ile ISG PDF bas. */
   function printIsgFormWithDialog(ctx) {
     if (typeof document === 'undefined') {
       return Promise.reject(new Error('no-dom'));
     }
-    const idn = ctx && ctx.plateText != null ? ctx : capturePrintContext(ctx || {});
+    const idn = normalizeIsgPrintCtx(ctx && (ctx.plateText != null || ctx.plateKey || ctx.driverKey || ctx.snapshot) ? ctx : capturePrintContext(ctx || {}));
     return readSpoolSeq().then(function (sinceSeq) {
       return new Promise(function (resolve, reject) {
+        let blobUrl = null;
         const prev = document.getElementById('isgDirectPrintFrame');
         if (prev) prev.remove();
         const takip = document.getElementById('takipDirectPrintFrame');
@@ -768,6 +836,10 @@ function createIsgApi() {
           if (spoolWatchStop) spoolWatchStop();
           clearTimeout(safetyTimer);
           clearInterval(printWatch);
+          if (blobUrl) {
+            try { URL.revokeObjectURL(blobUrl); } catch (e4) { /* ignore */ }
+            blobUrl = null;
+          }
           teardown();
           if (ok) resolve(true);
           else reject(err || new Error('isg-not-printed'));
@@ -792,10 +864,19 @@ function createIsgApi() {
 
         let spoolWatchStop = null;
         const startIsgSpoolWatch = function () {
-          if (!spoolIsLocal() || spoolWatchStop) return;
+          if (spoolWatchStop) return;
           let dead = false;
           spoolWatchStop = function () { dead = true; };
           (async function () {
+            let pollSpool = spoolIsLocal();
+            try {
+              const cur = await fetch('/api/print-spool/cursor', { cache: 'no-store', credentials: 'same-origin' });
+              if (cur.ok) {
+                const d = await cur.json();
+                if (d && d.watching) pollSpool = true;
+              }
+            } catch (e) { /* ignore */ }
+            if (!pollSpool) return;
             await new Promise(function (r) { setTimeout(r, 700); });
             const deadline = Date.now() + 120000;
             while (!dead && !dialogClosed && Date.now() < deadline) {
@@ -858,7 +939,12 @@ function createIsgApi() {
         };
 
         document.body.appendChild(iframe);
-        iframe.src = isgPdfAbsoluteUrl();
+        try {
+          blobUrl = isgPrintShellBlobUrl();
+          iframe.src = blobUrl;
+        } catch (e) {
+          iframe.src = isgPdfAbsoluteUrl();
+        }
       });
     });
   }
@@ -902,6 +988,8 @@ function createIsgApi() {
     buildCommitmentHtml,
     capturePrintContext,
     resolveFromForm,
+    resolveIsgSignedForTakipPrint,
+    normalizeIsgPrintCtx,
     cardHtml,
     mountTakipBanner,
     ensureLoaded,

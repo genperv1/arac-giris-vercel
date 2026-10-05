@@ -2654,7 +2654,9 @@ const bosBbtText = amb.bosBbt;
 
     let isgSignedForPrint;
     try {
-      if (!isDemo && window.IsgForm && typeof window.IsgForm.resolveFromForm === 'function') {
+      if (!isDemo && window.IsgForm && typeof window.IsgForm.resolveIsgSignedForTakipPrint === 'function') {
+        isgSignedForPrint = !!window.IsgForm.resolveIsgSignedForTakipPrint();
+      } else if (!isDemo && window.IsgForm && typeof window.IsgForm.resolveFromForm === 'function') {
         const st = window.IsgForm.resolveFromForm();
         isgSignedForPrint = !!(st && st.signed);
       }
