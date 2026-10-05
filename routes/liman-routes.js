@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
-const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, fileLabelOf } = require('../lib/liman-sheet');
+const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { printHistoryListColumns, printHistoryKantarSelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
 
@@ -17,7 +17,7 @@ const MAX_ROWS = 2000;
 // Amirin kapattığı günler bu kadar süre sonra kendiliğinden listeden düşer (kv_store şişmesin).
 const CLOSED_DAY_TTL_MS = 45 * 24 * 60 * 60 * 1000;
 const DAY_KEY_RE = /^(\d{4}-\d{2}-\d{2}|tarihsiz)$/;
-// Kapatılan günün mühürlü kopyası: kantar yeni dosyaya geçince canlı liste silinse de sayı kontrol bunu kullanır.
+// Kapatılan günün mühürlü kopyası. Canlı liste kantar Excel silince düşmez; amir kapatır. Sayı kontrol mühürlü kopyayı kullanır.
 const ARCHIVE_PREFIX = 'liman_archive_v1:';
 const ARCHIVE_INDEX_KEY = 'liman_archive_index_v1';
 const ARCHIVE_ROW_FIELDS = ['sira', 'plaka', 'bbt', 'cuval', 'palet', 'bosBbt', 'bosCuval', 'net', 'giden', 'yukleme', 'sofor', 'telefon', 'irsaliye', 'tasiyici', 'note'];
@@ -617,22 +617,41 @@ function registerLimanRoutes(api, ctx, publicApp) {
       const rows = incoming.map((row) => slimRow(row, site, fileName)).filter((row) => {
         return row.irsaliyeNo || row.plaka || row.headerText;
       });
+      const incomingBlocks = blocks;
       const snapshot = {
         fileName,
         updatedAt: new Date().toISOString(),
         user: sanitizeString((req.user && req.user.username) || '', 40),
-        rows: blocks.length ? [] : rows,
-        blocks,
+        rows: incomingBlocks.length ? [] : rows,
+        blocks: incomingBlocks,
       };
       const committed = await commitState((state) => {
         const prev = state.sites[site];
-        const prevBlocks = [];
-        if (prev && Array.isArray(prev.blocks)) prevBlocks.push(...prev.blocks);
+        const prevSiteBlocks = prev && Array.isArray(prev.blocks) ? prev.blocks : [];
+        const carryFrom = prevSiteBlocks.slice();
         Object.keys(state.sites).forEach((other) => {
           const snap = state.sites[other];
-          if (other !== site && snap && Array.isArray(snap.blocks)) prevBlocks.push(...snap.blocks);
+          if (other !== site && snap && Array.isArray(snap.blocks)) carryFrom.push(...snap.blocks);
         });
-        snapshot.blocks = carryTasiyici(prevBlocks, snapshot.blocks);
+        // Boş gönderim (Excel silindi) listeyi silmez. Dolu gönderim: o dosya güncellenir, yeni kitap eklenir, eksik kitap durur.
+        if (incomingBlocks.length) {
+          snapshot.fileName = fileName;
+          snapshot.blocks = retainDroppedBooks(
+            prevSiteBlocks,
+            carryTasiyici(carryFrom, incomingBlocks),
+            prev && prev.fileName,
+            fileName
+          );
+          snapshot.rows = [];
+        } else if (!rows.length) {
+          snapshot.fileName = (prev && prev.fileName) || fileName;
+          snapshot.blocks = prevSiteBlocks.slice();
+          snapshot.rows = prev && Array.isArray(prev.rows) ? prev.rows : [];
+        } else {
+          snapshot.fileName = fileName;
+          snapshot.blocks = [];
+          snapshot.rows = rows;
+        }
         const sameContent = prev && prev.fileName === snapshot.fileName
           && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
           && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);

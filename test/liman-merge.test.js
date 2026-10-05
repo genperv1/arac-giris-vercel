@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mergeLimanState } = require('../lib/liman-merge');
-const { daysFromSheetState, rowsToBlocks } = require('../lib/liman-sheet');
+const { daysFromSheetState, rowsToBlocks, retainDroppedBooks } = require('../lib/liman-sheet');
 
 function row(patch) {
   return Object.assign({
@@ -141,6 +141,34 @@ test('aynı tarihli ikinci Excel blokları dosya adıyla işaretlenir (alt sekme
   });
   assert.equal(days.length, 1);
   assert.deepEqual(days[0].blocks.map((b) => b.files), [['03.10.2026'], ['03.10.2026-YD28']]);
+});
+
+test('silinen Excel kitabı durur; gelen dosya güncellenir, yeni kitap eklenir', () => {
+  const prev = [
+    { title: 'YD02 / LOT NO 1 / EVYAP', fileName: '03.10.2026.xlsx', rows: [{ sira: '1', plaka: '43RY761', giden: '1000' }] },
+    { title: 'YD28 / LOT NO 2 / EVYAP', fileName: '03.10.2026-YD28.xlsx', rows: [{ sira: '1', plaka: '03ADK440', giden: '2000' }] },
+  ];
+  const updated = retainDroppedBooks(
+    prev,
+    [{ title: 'YD28 / LOT NO 2 / EVYAP', fileName: '03.10.2026-YD28.xlsx', rows: [{ sira: '1', plaka: '03ADK440', giden: '26000' }] }],
+    '03.10.2026.xlsx + 03.10.2026-YD28.xlsx',
+    '03.10.2026-YD28.xlsx'
+  );
+  assert.equal(updated.length, 2);
+  assert.equal(updated[0].fileName, '03.10.2026.xlsx');
+  assert.equal(updated[0].rows[0].giden, '1000');
+  assert.equal(updated[1].rows[0].giden, '26000');
+
+  const withNew = retainDroppedBooks(
+    updated,
+    [{ title: 'YD05 / LOT NO 3 / SAFİPORT', fileName: '05.10.2026.xlsx', rows: [{ sira: '1', plaka: '43AAA01', giden: '500' }] }],
+    '03.10.2026-YD28.xlsx',
+    '05.10.2026.xlsx'
+  );
+  assert.deepEqual(withNew.map((b) => b.fileName), ['03.10.2026.xlsx', '03.10.2026-YD28.xlsx', '05.10.2026.xlsx']);
+
+  const wiped = retainDroppedBooks(withNew, [], '05.10.2026.xlsx', '');
+  assert.equal(wiped.length, 3);
 });
 
 test('eski satır kaydı Excel bloğuna çevrilir', () => {

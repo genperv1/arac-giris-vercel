@@ -1484,6 +1484,10 @@ function publishLimanSnapshot(rows, meta, opts) {
       disarida: !!(row && row.disarida),
     }));
     const fileName = (meta && (meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : ''))) || '';
+    // Boş liste limanı silmesin. Kantar Excel'i silse de kayıtlı kitap durur; kapatma amirde.
+    if (!list.length && !(blocks && blocks.length)) {
+      return Promise.resolve({ sent: false, reason: 'empty' });
+    }
     const body = JSON.stringify({ site, fileName, rows: list, blocks });
     let sentBefore = '';
     try { sentBefore = localStorage.getItem('liman_last_sent_v1') || ''; } catch (e) {}
@@ -1924,7 +1928,7 @@ async function clearDailyShipments() {
       notifyIhracatExcelChanged();
       try { localStorage.removeItem('liman_blank_rows_v1'); } catch (e) {}
       try { localStorage.removeItem('liman_sheet_v1'); } catch (e) {}
-      publishLimanSnapshot([], {});
+      // Liman listesine boş snapshot gitmez: silinen Excel kitabı düşürmesin, amir kapatır.
       try {
         if (window.IhracatExcelSource && typeof window.IhracatExcelSource.clearStoredBinding === 'function') {
           window.IhracatExcelSource.clearStoredBinding();

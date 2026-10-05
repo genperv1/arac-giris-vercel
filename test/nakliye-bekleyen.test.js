@@ -66,6 +66,31 @@ test('analyzeNakliyePending includeComplete keeps finished Excel block', () => {
   assert.equal(core.hasNakliyeBlockContent(out[0]), false);
 });
 
+test('giden tonajı dolu çıkan araç bekleyen listesine geri yazılmaz', () => {
+  const header = 'YD05 / 49 BBT';
+  const base = {
+    blockKey: 'BLK_3',
+    blockHeaderRow: 3,
+    headerText: header,
+    ydKey: 'YD05',
+    tasiyici: 'AKYUZ',
+    fileName: '05.10.2026.xlsx',
+  };
+  const rows = [
+    Object.assign({}, base, { plaka: '43AEA633', bbt: '24', netTonaj: 31.2, gidenTonaj: 31.4 }),
+    Object.assign({}, base, { plaka: '03F1924', bbt: '25', netTonaj: 32.5, gidenTonaj: 32.72 }),
+  ];
+  assert.equal(core.analyzeNakliyePending(rows).length, 0);
+
+  const withInside = [
+    rows[0],
+    Object.assign({}, base, { plaka: '03F1924', bbt: '25', iceride: true, gidenTonaj: '' }),
+  ];
+  const pending = core.analyzeNakliyePending(withInside);
+  const plates = pending.flatMap((it) => (it.waitingPlates || []).map((p) => p.plaka));
+  assert.equal(plates.includes('43AEA633'), false);
+});
+
 test('analyzeBlock — departed truck is hidden', () => {
   const item = core.analyzeBlock([
     { blockKey: 'Z', blockHeaderRow: 5, headerText: 'YD265 / 40 BBT', plaka: '03EA682', bbt: '20', gidenTonaj: '20100', tonajKg: '20500' },

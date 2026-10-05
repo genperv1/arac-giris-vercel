@@ -2708,21 +2708,10 @@
     return !rowIsOzmal(r);
   }
 
-  function rowHasRealKgDeparture(r) {
-    if (!rowHasValidPlate(r)) return false;
-    const g = parseNum(r.gidenTonaj);
-    const kg = weightKg(r);
-    return g >= 1000 && kg >= 1000 && Math.abs(g - kg) >= 1;
-  }
-
   function analyzeBlockGroups(groupMap, opts) {
     const pending = [];
     groupMap.forEach((items) => {
-      let item = analyzeBlock(items, opts);
-      if (!item) {
-        const hasOpenPlate = items.some((r) => rowHasValidPlate(r) && !isRowDeparted(r));
-        if (hasOpenPlate) item = analyzeBlock(items, Object.assign({}, opts, { keepExcelPlates: true }));
-      }
+      const item = analyzeBlock(items, opts);
       if (item) pending.push(item);
     });
     return pending;
@@ -2888,9 +2877,10 @@
         const hasCarrier = items.some(rowHasCarrierPlate);
         const hasEmpty = items.some((r) => r && r._ihracatEmptyBlock);
         if (!hasCarrier && !hasEmpty) return;
-        const reallyGone = hasCarrier && items.filter(rowHasCarrierPlate).every(rowHasRealKgDeparture);
+        const carrierPlates = items.filter(rowHasCarrierPlate);
+        const reallyGone = hasCarrier && carrierPlates.length > 0 && carrierPlates.every((r) => isRowDeparted(r));
         if (reallyGone && !blockOpts.includeComplete) return;
-        const item = analyzeBlock(items, Object.assign({}, blockOpts, hasCarrier ? { keepExcelPlates: true } : {}));
+        const item = analyzeBlock(items, blockOpts);
         if (!item) return;
         pending.push(item);
         seen.add(yd);

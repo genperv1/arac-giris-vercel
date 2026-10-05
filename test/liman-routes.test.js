@@ -513,3 +513,47 @@ test('kapandıktan sonra kantar farklı liste gönderirse arşiv "değişti" gö
   const rec = await a2.call('get /liman/archive/:dateKey', '1.1.1.1', {}, { dateKey: '2026-10-03' });
   assert.equal(rec.day.blocks[0].rows[0].giden, '27540');
 });
+
+test('kantar Excel silince kitap düşmez; güncelleme ve yeni kitap işlenir, boş gönderim silmez', async () => {
+  const { call } = harness({ username: 'AVDAN', role: 'admin' });
+  const book = (title, fileName, giden) => ({
+    title, liman: 'EVYAP', fileName,
+    rows: [{ sira: '1', plaka: '43RY761', giden }],
+  });
+  await call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '03.10.2026.xlsx + 03.10.2026-YD28.xlsx',
+    blocks: [
+      book('YD02 / LOT NO 1 / EVYAP', '03.10.2026.xlsx', '1000'),
+      book('YD28 / LOT NO 2 / EVYAP', '03.10.2026-YD28.xlsx', '2000'),
+    ],
+  });
+
+  await call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '03.10.2026-YD28.xlsx',
+    blocks: [book('YD28 / LOT NO 2 / EVYAP', '03.10.2026-YD28.xlsx', '26000')],
+  });
+  let view = await call('get /liman', '1.1.1.1');
+  const day3 = view.days.find((d) => d.dateKey === '2026-10-03');
+  assert.equal(day3.blocks.length, 2);
+  const kept = day3.blocks.find((b) => (b.files || []).indexOf('03.10.2026') >= 0);
+  const updated = day3.blocks.find((b) => (b.files || []).indexOf('03.10.2026-YD28') >= 0);
+  assert.equal(kept.rows[0].giden, '1000');
+  assert.equal(updated.rows[0].giden, '26000');
+
+  await call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '05.10.2026.xlsx',
+    blocks: [book('YD05 / LOT NO 3 / EVYAP', '05.10.2026.xlsx', '500')],
+  });
+  view = await call('get /liman', '1.1.1.1');
+  assert.deepEqual(view.days.map((d) => d.dateKey).sort(), ['2026-10-03', '2026-10-05']);
+  const still = view.days.find((d) => d.dateKey === '2026-10-03');
+  assert.equal(still.blocks.length, 2);
+
+  const wiped = await call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', fileName: '', blocks: [], rows: [] });
+  assert.equal(wiped.unchanged, true);
+  view = await call('get /liman', '1.1.1.1');
+  assert.equal(view.days.length, 2);
+});
