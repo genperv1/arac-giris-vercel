@@ -834,6 +834,8 @@
   async function collectReadableExcelFiles() {
     var files = [];
     var seen = [];
+    // Eski günlerin dosya tutamaçları da taranır; onların izni yoksa "dosya izni yok" denmesin.
+    var permBefore = _silentPermMissing;
     async function take(handle) {
       if (!handle || typeof handle.getFile !== 'function' || seen.indexOf(handle) >= 0) return;
       seen.push(handle);
@@ -850,6 +852,7 @@
         for (var j = 0; j < fromDir.length; j++) files.push(fromDir[j]);
       } catch (e) { /* klasör izni yok (sessiz çalışma) */ }
     }
+    _silentPermMissing = permBefore;
     return files;
   }
 

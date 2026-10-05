@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var state = { days: [], closedDays: [], canEdit: false, day: '', port: '', plate: '', reports: null };
+  var state = { days: [], closedDays: [], canEdit: false, day: '', file: '', port: '', plate: '', reports: null };
   var toastTimer = 0;
 
   function $(id) { return document.getElementById(id); }
@@ -83,9 +83,9 @@
       var at = info && info.heartbeatAt;
       var readOk = info ? info.heartbeatReadOk : null;
       var okAt = info && info.heartbeatReadOkAt;
-      // Kantar Excel'i elle yükleyince değişen liste gelir ama nabız eski okuma hatasında kalabilir:
-      // hatadan daha yeni değişmiş liste = Excel okunmuş.
-      var listAt = info && info.updatedAt;
+      // Kantar Excel'i okuyunca liste gönderir (içerik aynı olsa da) ama nabız eski okuma hatasında kalabilir:
+      // hatadan daha yeni gelen liste = Excel okunmuş.
+      var listAt = info && (info.receivedAt || info.updatedAt);
       var ts = function (iso) { return iso ? new Date(iso).getTime() || 0 : 0; };
       if (listAt && ts(listAt) > ts(at) && ts(listAt) > ts(okAt)) {
         readOk = true;
@@ -310,9 +310,30 @@
     return state.days.filter(function (d) { return d.dateKey === state.day; })[0] || null;
   }
 
-  function portsOf(day) {
+  /** Günün Excel dosyaları (aynı tarihli 2. dosya, ör. "03.10.2026-YD28"); tarihi yalnız olan önce. */
+  function filesOf(day) {
     var seen = [];
     ((day && day.blocks) || []).forEach(function (block) {
+      (block.files || []).forEach(function (f) {
+        if (f && seen.indexOf(f) < 0) seen.push(f);
+      });
+    });
+    return seen.sort(function (a, b) { return a.length - b.length || a.localeCompare(b, 'tr'); });
+  }
+
+  /** Seçili dosya sekmesindeki bloklar; dosya bilgisi olmayan (eski kantar) blok her sekmede görünür. */
+  function fileBlocks(day) {
+    var blocks = (day && day.blocks) || [];
+    if (!state.file) return blocks;
+    return blocks.filter(function (block) {
+      var files = block.files || [];
+      return !files.length || files.indexOf(state.file) >= 0;
+    });
+  }
+
+  function portsOf(day) {
+    var seen = [];
+    fileBlocks(day).forEach(function (block) {
       var port = block.liman || block.port || '';
       if (port && seen.indexOf(port) < 0) seen.push(port);
     });
@@ -450,7 +471,7 @@
     var day = activeDay();
     if (!day) return [];
     var q = String(state.plate || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    return (day.blocks || []).filter(function (block) {
+    return fileBlocks(day).filter(function (block) {
       var port = block.liman || block.port || '';
       if (state.port && port !== state.port) return false;
       if (!q) return true;
@@ -469,6 +490,9 @@
 
   function renderPorts() {
     var day = activeDay();
+    var dayFiles = filesOf(day);
+    if (state.file && (dayFiles.length < 2 || dayFiles.indexOf(state.file) < 0)) state.file = '';
+    if (!state.file && dayFiles.length > 1) state.file = dayFiles[0];
     var ports = portsOf(day);
     if (state.port && ports.indexOf(state.port) < 0) state.port = '';
     var html = '<button type="button" class="chip' + (!state.port ? ' is-on' : '') + '" data-port="">Hepsi</button>';
@@ -477,7 +501,15 @@
     });
     $('ports').innerHTML = html;
     $('sheetTabs').innerHTML = state.days.map(function (d) {
-      return '<button type="button" class="tab' + (d.dateKey === state.day ? ' is-on' : '') + '" data-day="' + esc(d.dateKey) + '">' + esc(d.label) + '</button>';
+      var files = filesOf(d);
+      var isDay = d.dateKey === state.day;
+      if (files.length < 2) {
+        return '<button type="button" class="tab' + (isDay ? ' is-on' : '') + '" data-day="' + esc(d.dateKey) + '">' + esc(d.label) + '</button>';
+      }
+      return files.map(function (f) {
+        var on = isDay && state.file === f;
+        return '<button type="button" class="tab' + (on ? ' is-on' : '') + '" data-day="' + esc(d.dateKey) + '" data-file="' + esc(f) + '">' + esc(f) + '</button>';
+      }).join('');
     }).join('');
   }
 
@@ -735,6 +767,7 @@
     var dayBtn = ev.target.closest('[data-day]');
     if (dayBtn) {
       state.day = dayBtn.getAttribute('data-day') || '';
+      state.file = dayBtn.getAttribute('data-file') || '';
       state.port = '';
       render();
       window.scrollTo(0, 0);

@@ -122,6 +122,27 @@ test('aynı blok iki kantarda doluysa sıra bazında birleşir', () => {
   assert.equal(days[0].blocks[0].rows[1].sofor, 'ALİ');
 });
 
+test('aynı tarihli ikinci Excel blokları dosya adıyla işaretlenir (alt sekme)', () => {
+  const days = daysFromSheetState({
+    sites: {
+      AVDAN: {
+        fileName: '03.10.2026.xlsx + 03.10.2026-YD28.xlsx',
+        blocks: [
+          { title: 'YD02(M) / LOT NO 26 08 10 / EVYAP', fileName: '03.10.2026.xlsx', rows: [{ sira: '1', plaka: '43AFV215' }] },
+          { title: 'YD28(M) / LOT NO 26 08 40 / YILPORT', fileName: '03.10.2026-YD28.xlsx', rows: [{ sira: '1', plaka: '03ADK440' }] },
+        ],
+      },
+      '1.OSB': {
+        fileName: '03.10.2026.xlsx',
+        blocks: [{ title: 'YD02(M) / LOT NO 26 08 10 / EVYAP', rows: [{ sira: '2', plaka: '43ACN771' }] }],
+      },
+    },
+    notes: {},
+  });
+  assert.equal(days.length, 1);
+  assert.deepEqual(days[0].blocks.map((b) => b.files), [['03.10.2026'], ['03.10.2026-YD28']]);
+});
+
 test('eski satır kaydı Excel bloğuna çevrilir', () => {
   const blocks = rowsToBlocks([
     { headerText: 'YD15 / LOT NO 26 07 30 / SAFİPORT', sira: '1', plaka: '43RY761', fileName: '03.10.2026.xlsx' },
