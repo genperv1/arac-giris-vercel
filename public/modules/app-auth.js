@@ -1408,6 +1408,11 @@ async function validateToken(_afterRenew) {
 
 function startPostLoginTasks() {
   try {
+    if (window.IsgForm && typeof window.IsgForm.ensureLoaded === 'function') {
+      Promise.resolve(window.IsgForm.ensureLoaded({ force: true })).catch(function () {});
+    }
+  } catch (e) {}
+  try {
     if (window.storage && typeof window.storage._readAll === 'function') {
       window.storage._readAll().catch(()=>{});
     }

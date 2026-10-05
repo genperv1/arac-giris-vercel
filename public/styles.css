@@ -7049,4 +7049,143 @@ html:not(.allow-ui-motion):not(.reduce-motion-os) .am-radar__core {
   .am-table-wrap { min-height: 55vh; flex: none; }
 }
 
+.vehicle-card__isg {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+}
+.vehicle-card__isg--signed {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.vehicle-card__isg--wait {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+.vehicle-card__isg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.vehicle-card__isg-status {
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #b91c1c;
+}
+.vehicle-card__isg--signed .vehicle-card__isg-status { color: #166534; }
+.vehicle-card__isg--wait .vehicle-card__isg-status { color: #64748b; font-weight: 700; }
+.vehicle-card__isg-meta {
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: #334155;
+}
+.vehicle-card__isg-file { color: #1d4ed8; font-weight: 700; }
+.vehicle-card__isg-btn {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: #b91c1c;
+  color: #fff;
+  white-space: nowrap;
+}
+.vehicle-card__isg--signed .vehicle-card__isg-btn { background: #166534; }
+
+.isg-banner {
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+.isg-banner--ok {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+.isg-banner--wait {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+.isg-banner__title { font-size: 0.95rem; font-weight: 800; }
+.isg-banner__meta { margin-top: 0.2rem; font-size: 0.8rem; font-weight: 600; color: #334155; }
+.isg-banner__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
+.isg-banner__btn {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: #b91c1c;
+  color: #fff;
+}
+.isg-banner--ok .isg-banner__btn { background: #166534; }
+.isg-banner__btn--ghost { background: #fff; color: #991b1b; border: 1px solid #fca5a5; }
+
+.isg-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  overflow: auto;
+}
+.isg-dialog__card {
+  width: min(440px, 100%);
+  background: #fff;
+  color: #0f172a;
+  border-radius: 12px;
+  padding: 1rem 1rem 0.85rem;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+}
+.isg-dialog__card h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+.isg-dialog__who { margin: 0 0 0.45rem; font-size: 0.85rem; }
+.isg-dialog__status { margin: 0 0 0.7rem; font-weight: 800; }
+.isg-dialog__status.is-ok { color: #166534; }
+.isg-dialog__status.is-miss { color: #b91c1c; }
+.isg-dialog__card label {
+  display: block;
+  margin: 0 0 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+}
+.isg-dialog__card input {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+.isg-dialog__meta, .isg-dialog__file, .isg-dialog__muted { font-size: 0.78rem; color: #334155; }
+.isg-dialog__file { margin-bottom: 0.6rem; }
+.isg-dialog__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.isg-dialog__btn {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.isg-dialog__btn--ok { background: #166534; color: #fff; }
+.isg-dialog__btn--miss { background: #b91c1c; color: #fff; }
+.isg-dialog__btn--ghost { background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; }
+
 

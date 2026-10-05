@@ -78,6 +78,7 @@
       }
       if (!def) return '';
       if (def.kind === 'sig') return def.sampleName || '';
+      if (def.kind === 'isg') return def.sample || 'miss';
       return def.sample || def.label || '';
     }
 
@@ -199,6 +200,19 @@
         `<div class="ple-note-body" style="font-size:${s.descPt}pt;line-height:${s.lineHeight};white-space:pre-line;font-weight:${s.descFontWeight};font-style:${s.descFontStyle || 'normal'};${s.descTextDecoration === 'underline' ? 'text-decoration:underline;' : ''}">${desc}</div>`;
     }
 
+    function applyIsgPreview(body, key) {
+      const signed = PLS.isgStampSignedFromSample
+        ? PLS.isgStampSignedFromSample(getSampleText(key))
+        : String(getSampleText(key)).trim().toLowerCase() === 'ok';
+      if (PLS.buildIsgStampInnerHtml) {
+        body.className = 'ple-body ple-body--isg';
+        body.innerHTML = PLS.buildIsgStampInnerHtml(signed, getFieldStyle(key));
+        return;
+      }
+      body.className = 'ple-body ple-body--isg';
+      body.textContent = signed ? '✅ İSG Formu İmzalı' : '❌ İSG Formu İmzasız';
+    }
+
     function applySigPreview(body, key) {
       const s = getFieldStyle(key);
       const def = getDef(key);
@@ -242,7 +256,7 @@
       box.addEventListener('mousedown', (e) => {
         if (e.target === handle || editingKey === def.key) return;
         if (e.target.closest('.ple-body')) {
-          if (selectedKey === def.key && !editingKey && def.kind !== 'sig') {
+          if (selectedKey === def.key && !editingKey && def.kind !== 'sig' && def.kind !== 'isg') {
             startInlineEdit(def.key);
           } else {
             selectField(def.key);
@@ -293,7 +307,7 @@
         btn.classList.toggle('ple-fmt-btn--active', !!active);
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       };
-      if (def?.kind === 'text') {
+      if (def?.kind === 'text' || def?.kind === 'isg') {
         setBtn('pleFmtBold', isBoldWeight(s.fontWeight));
         setBtn('pleFmtItalic', s.fontStyle === 'italic');
         setBtn('pleFmtUnderline', s.textDecoration === 'underline');
@@ -329,8 +343,8 @@
     function bindFmtToggle(btnId, prefix, mode) {
       val(btnId)?.addEventListener('click', () => {
         const def = getDef(selectedKey);
-        if (!def || (def.kind !== 'text' && def.kind !== 'note')) return;
-        if (def.kind === 'text' && prefix) return;
+        if (!def || (def.kind !== 'text' && def.kind !== 'note' && def.kind !== 'isg')) return;
+        if ((def.kind === 'text' || def.kind === 'isg') && prefix) return;
         if (def.kind === 'note' && !prefix) return;
         const maps = toggleTypography(prefix);
         const rule = maps[mode];
@@ -349,11 +363,17 @@
         const sampleEl = val('pleSampleText');
         if (sampleEl) sampleEl.value = getSampleText(selectedKey);
       }
-      if (def?.kind === 'text') {
+      if (def?.kind === 'isg') {
+        const modeEl = val('pleIsgPreviewMode');
+        if (modeEl) modeEl.value = PLS.isgStampSignedFromSample
+          ? (PLS.isgStampSignedFromSample(getSampleText('isgStamp')) ? 'ok' : 'miss')
+          : (String(getSampleText('isgStamp')).trim().toLowerCase() === 'ok' ? 'ok' : 'miss');
+      }
+      if (def?.kind === 'text' || def?.kind === 'isg') {
         val('pleFontPt').value = String(s.fontPt);
         val('pleLineHeight').value = String(s.lineHeight);
         val('pleTextAlign').value = s.align || 'left';
-        val('pleWrapMode').value = s.wrap || 'wrap';
+        if (def?.kind === 'text') val('pleWrapMode').value = s.wrap || 'wrap';
         val('pleValign').value = s.valign || 'center';
         val('plePadMm').value = String(s.padMm);
         val('pleFontVal').textContent = s.fontPt + ' pt';
@@ -389,6 +409,7 @@
       const body = box.querySelector('.ple-body');
       if (!body) return;
       if (def.kind === 'sig') applySigPreview(body, key);
+      else if (def.kind === 'isg') applyIsgPreview(body, key);
       else if (def.kind === 'note') applyNotePreview(body);
       else applyTextPreview(body, key);
     }
@@ -406,7 +427,7 @@
 
     function startInlineEdit(key) {
       const def = getDef(key);
-      if (!def || def.kind === 'sig') return;
+      if (!def || def.kind === 'sig' || def.kind === 'isg') return;
       endInlineEdit(false);
       editingKey = key;
       const box = boxes.get(key);
@@ -444,15 +465,16 @@
     function onStyleInput() {
       const def = getDef(selectedKey);
       if (!def) return;
-      if (def.kind === 'text') {
-        setFieldStyle(selectedKey, {
-          fontPt: clamp(Number(val('pleFontPt')?.value) || 10, 5, 16),
+      if (def.kind === 'text' || def.kind === 'isg') {
+        const patch = {
+          fontPt: clamp(Number(val('pleFontPt')?.value) || 10, def.kind === 'isg' ? 4 : 5, def.kind === 'isg' ? 10 : 16),
           lineHeight: clamp(Number(val('pleLineHeight')?.value) || 1.05, 0.9, 1.6),
           align: val('pleTextAlign')?.value || 'left',
-          wrap: val('pleWrapMode')?.value || 'wrap',
           valign: val('pleValign')?.value || 'center',
           padMm: clamp(Number(val('plePadMm')?.value) || 0.35, 0, 3),
-        });
+        };
+        if (def.kind === 'text') patch.wrap = val('pleWrapMode')?.value || 'wrap';
+        setFieldStyle(selectedKey, patch);
         val('pleFontVal').textContent = getFieldStyle(selectedKey).fontPt + ' pt';
         val('pleLhVal').textContent = String(getFieldStyle(selectedKey).lineHeight);
       }
@@ -570,9 +592,21 @@
 
     fieldSelect?.addEventListener('change', () => selectField(fieldSelect.value));
 
+    function onIsgPreviewChange() {
+      const def = getDef(selectedKey);
+      if (!def || def.kind !== 'isg') return;
+      const mode = val('pleIsgPreviewMode')?.value || 'miss';
+      setSampleText('isgStamp', mode === 'ok' ? 'ok' : 'miss');
+      renderBox('isgStamp');
+    }
+
     stylePanel?.querySelectorAll('input, select, textarea').forEach((el) => {
       if (el.id === 'pleSampleText') {
         el.addEventListener('input', onSampleTextInput);
+        return;
+      }
+      if (el.id === 'pleIsgPreviewMode') {
+        el.addEventListener('change', onIsgPreviewChange);
         return;
       }
       el.addEventListener('input', onStyleInput);

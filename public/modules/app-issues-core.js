@@ -521,6 +521,7 @@ ${overlay}
           <span class="vehicle-card__value vehicle-card__value--missing">Eksik</span>
         </div>`}
       </div>` : ''}
+      ${typeof isgCardBlockHTML === 'function' ? isgCardBlockHTML(vehicle) : ''}
     </div>
     <div class="vehicle-card__footer">
       ${footerActions}

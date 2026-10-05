@@ -2652,6 +2652,14 @@ const bosBbtText = amb.bosBbt;
       if (window.__pendingPrintCommit) window.__pendingPrintCommit.printJobToken = printJobToken;
     } catch (e) {}
 
+    let isgSignedForPrint;
+    try {
+      if (!isDemo && window.IsgForm && typeof window.IsgForm.resolveFromForm === 'function') {
+        const st = window.IsgForm.resolveFromForm();
+        isgSignedForPrint = !!(st && st.signed);
+      }
+    } catch (e) { /* ignore */ }
+
     let printHTML;
     if (strictPrintLayout && typeof window.PrintLayoutSettings?.buildLayoutPrintDocument === 'function') {
       const fieldHtml = {};
@@ -2668,6 +2676,7 @@ const bosBbtText = amb.bosBbt;
         noteHtml: fieldHtml.not || '',
         fieldHtml,
         docTitle: printDocTitle,
+        isgSigned: isgSignedForPrint,
       });
     } else {
     printHTML = `
@@ -3342,6 +3351,24 @@ ${layoutPrintCss}
 </html>
 `;
     }
+
+    try {
+      if (!isDemo && printHTML && window.IsgForm && typeof window.IsgForm.printBadgeHtml === 'function') {
+        if (printHTML.indexOf('plf-field--isg') === -1) {
+          const signed = isgSignedForPrint != null
+            ? !!isgSignedForPrint
+            : !!(window.IsgForm.resolveFromForm() && window.IsgForm.resolveFromForm().signed);
+          const isgBadge = window.IsgForm.printBadgeHtml(signed);
+          if (isgBadge) {
+            if (printHTML.indexOf('class="plf-page"') !== -1) {
+              printHTML = printHTML.replace('<div class="plf-page">', '<div class="plf-page">' + isgBadge);
+            } else if (printHTML.indexOf('class="page"') !== -1) {
+              printHTML = printHTML.replace('<div class="page">', '<div class="page">' + isgBadge);
+            }
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
 
 
     

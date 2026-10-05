@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mergeLimanState } = require('../lib/liman-merge');
-const { daysFromSheetState, rowsToBlocks, retainDroppedBooks } = require('../lib/liman-sheet');
+const { daysFromSheetState, rowsToBlocks, retainDroppedBooks, mergeRows, mergeTransientDurum } = require('../lib/liman-sheet');
 
 function row(patch) {
   return Object.assign({
@@ -169,6 +169,22 @@ test('silinen Excel kitabı durur; gelen dosya güncellenir, yeni kitap eklenir'
 
   const wiped = retainDroppedBooks(withNew, [], '05.10.2026.xlsx', '');
   assert.equal(wiped.length, 3);
+});
+
+test('mergeTransientDurum — DIŞARIDA eski İÇERİDE yener; boş birincil stale içeri getirmez', () => {
+  assert.equal(mergeTransientDurum('İÇERİDE', 'DIŞARIDA'), 'DIŞARIDA');
+  assert.equal(mergeTransientDurum('', 'İÇERİDE'), '');
+  assert.equal(mergeTransientDurum('DIŞARIDA', ''), 'DIŞARIDA');
+});
+
+test('mergeRows — bir kantar DIŞARIDA diğeri stale İÇERİDE ise DIŞARIDA kalır', () => {
+  const title = 'YD20(M) / LOT NO 26 08 26 / DP WORLD';
+  const merged = mergeRows([
+    { sira: '2', plaka: '03DH540', durum: 'İÇERİDE', sofor: 'A' },
+    { sira: '2', plaka: '03DH540', durum: 'DIŞARIDA' },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].durum, 'DIŞARIDA');
 });
 
 test('eski satır kaydı Excel bloğuna çevrilir', () => {

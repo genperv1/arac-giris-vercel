@@ -155,8 +155,18 @@
     }
   }
 
+  function invalidatePrintReportsCache() {
+    _printCache.at = 0;
+    _printCache.loading = null;
+  }
+
+  try {
+    window._nbInvalidatePrintReportsCache = invalidatePrintReportsCache;
+  } catch (e) {}
+
   async function loadPrintReports(force) {
-    if (!force && _printCache.at && Date.now() - _printCache.at < PRINT_TTL_MS) return _printCache.reports;
+    if (force) invalidatePrintReportsCache();
+    else if (_printCache.at && Date.now() - _printCache.at < PRINT_TTL_MS) return _printCache.reports;
     if (_printCache.loading) return _printCache.loading;
     _printCache.loading = (async () => {
       try {
@@ -1540,7 +1550,8 @@
   }
 
   async function refreshFromStore() {
-    await reloadStore();
+    invalidatePrintReportsCache();
+    await Promise.all([reloadStore(), loadPrintReports(true)]);
     refreshExcelStatus();
     await renderList();
   }

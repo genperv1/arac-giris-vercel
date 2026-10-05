@@ -570,9 +570,24 @@ function setupTakipFormButtons() {
             printPayload.yuklemeSirasi = get('yuklemeSirasi');
             printPayload.plaka = plateFromForm;
 
+            let isgPrint = null;
+            try {
+              if (window.IsgForm && typeof window.IsgForm.resolveFromForm === 'function') {
+                const isgStatus = window.IsgForm.resolveFromForm();
+                if (!isgStatus || !isgStatus.signed) {
+                  isgPrint = Object.assign({}, window.IsgForm.capturePrintContext(), {
+                    id: vid,
+                    vehicleId: vid,
+                    cekiciPlaka: plateFromForm || ''
+                  });
+                }
+              }
+            } catch (e) { isgPrint = null; }
+
             window.__pendingPrintCommit = {
                 vehicleId: vid,
                 plaka: plateFromForm,
+                isgPrint,
                 nowTs,
                 yuklemeSirasi: get('yuklemeSirasi'),
                 basimYeri: basimYeriValue,

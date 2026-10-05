@@ -30,7 +30,10 @@
     return data;
   }
 
-  function applyView(data) {
+  var viewGeneration = 0;
+
+  function applyView(data, gen) {
+    if (gen != null && gen !== viewGeneration) return;
     state.days = data.days || [];
     state.version = data.version || '';
     state.canEdit = !!data.canEdit;
@@ -52,7 +55,8 @@
   }
 
   async function load() {
-    applyView(await api('/api/liman'));
+    var gen = ++viewGeneration;
+    applyView(await api('/api/liman'), gen);
   }
 
   var READ_REASON = {
@@ -170,7 +174,7 @@
 
   /**
    * Yalnız amir: plakası verilip gelmeyen araçlar + daha plaka verilecek BBT (nakliye bekleyenler hesabı).
-   * Takip formu basılan / İÇERİDE / DIŞARIDA / sarılmış araç gelmiş sayılır.
+   * Takip formu basılan / İÇERİDE / DIŞARIDA / sarıldı araç gelmiş sayılır.
    */
   function gelmeyenBlocks(blocks) {
     var core = window.NakliyeBekleyenCore;
@@ -629,7 +633,7 @@
       var rows = (block.rows || []).map(function (row) {
         var plate = String(row.plaka || '').trim();
         var plateHtml = plate ? '<b>' + esc(plate) + '</b>' : '<span class="noplate">plaka yok</span>';
-        if (rowDeparted(row)) plateHtml += '<div class="mark">sarılmış</div>';
+        if (rowDeparted(row)) plateHtml += '<div class="mark">sarıldı</div>';
         var tasCell = '';
         if (rowTasiyici) {
           var tas = String(row.tasiyici || '').trim();
@@ -643,8 +647,8 @@
           editor = '<span class="rownote"><input data-note="' + esc(row.irsaliyeNo) + '" value="' + esc(row.note || '') + '" placeholder="Not" /></span>';
         }
         var out = rowDeparted(row);
-        // Çıkmış araçta Excel'in eski "İÇERİDE / DIŞARIDA" notu gösterilmez; durum tek: SARILMIŞ
-        var durum = out ? 'SARILMIŞ' : String(row.durum || '').trim();
+        // Çıkmış araçta Excel'in eski "İÇERİDE / DIŞARIDA" notu gösterilmez; durum tek: SARILDI
+        var durum = out ? 'SARILDI' : String(row.durum || '').trim();
         // Telefon görünümü için kısa özet (masaüstünde gizli)
         var sum = [
           ['BBT', numCell(row.bbt)],
@@ -665,7 +669,7 @@
           '<td class="c-min c-ton">' + esc(numCell(row.net)) + '</td>' +
           '<td class="c-min c-ton">' + esc(numCell(row.giden || row.gidenTonaj)) + '</td>' +
           '<td class="durum c-durum' + (out ? ' is-out' : (/^İÇERİDE$/i.test(durum) ? ' is-inside' : '')) + '"' +
-            (row._printedInside && row.cikisSaat ? ' title="Takip formu ' + esc(row.cikisSaat) + '"' : '') + ' data-fallback="' + (out ? 'SARILMIŞ' : 'BEKLİYOR') + '">' + esc(durum) + '</td>' +
+            (row._printedInside && row.cikisSaat ? ' title="Takip formu ' + esc(row.cikisSaat) + '"' : '') + ' data-fallback="' + (out ? 'SARILDI' : 'BEKLİYOR') + '">' + esc(durum) + '</td>' +
           '<td class="c-min c-yer">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
           '<td class="left c-sofor">' + esc(row.sofor || '') + '</td>' +
           '<td class="c-tel">' + telCell(row.telefon) + '</td>' +
@@ -772,7 +776,7 @@
       var t = blockTotals(rows).toplam;
       var tr = rows.map(function (row) {
         var out = rowDeparted(row);
-        var durum = out ? 'SARILMIŞ' : String(row.durum || '').trim();
+        var durum = out ? 'SARILDI' : String(row.durum || '').trim();
         return '<tr' + (out ? ' class="out"' : '') + '>' +
           '<td class="chk"><span class="box"></span></td>' +
           '<td>' + esc(row.sira || '') + '</td>' +
@@ -912,11 +916,15 @@
   }
 
   async function guncelle() {
+    var gen = ++viewGeneration;
     var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
     // Oturumsuz çıkış akışı (liman görevlisi giriş yapmaz)
     var res = await fetch('/api/liman/departed?since=' + since, { credentials: 'same-origin', cache: 'no-store' });
+    if (gen !== viewGeneration) return;
     state.reports = res.ok ? await res.json() : (state.reports || []);
-    await load();
+    var data = await api('/api/liman');
+    if (gen !== viewGeneration) return;
+    applyView(data, gen);
     lastCheck = Date.now();
     lastFull = Date.now();
   }
@@ -930,12 +938,32 @@
           (block.rows || []).forEach(function (row) { flat.push(row); });
         });
         var marked = core.applyLiveDepartedMarks(flat, { dateKey: day.dateKey }, state.reports, { forPending: true });
-        // Takip formu basıldı = araç kantarda (İÇERİDE). SARILMIŞ yalnız Excel'e giden tonaj girilince.
+        // Takip formu basıldı = araç kantarda (İÇERİDE). SARILDI yalnız Excel'e giden tonaj girilince.
         var faced = attachFaces(marked, state.reports).map(function (row, i) {
           if (!row || !row._nbLiveDeparted) return row;
+          var base = flat[i] || row;
+          var baseDurum = String(base.durum || row.durum || '').trim();
+          if (/^DIŞARIDA$/i.test(baseDurum)) {
+            var outside = Object.assign({}, row, {
+              gidenTonaj: base.gidenTonaj,
+              giden: base.giden,
+              durum: 'DIŞARIDA',
+            });
+            delete outside._nbLiveDeparted;
+            return outside;
+          }
+          if (rowDeparted(base)) {
+            var departed = Object.assign({}, row, {
+              gidenTonaj: base.gidenTonaj,
+              giden: base.giden,
+              durum: baseDurum,
+            });
+            delete departed._nbLiveDeparted;
+            return departed;
+          }
           var inside = Object.assign({}, row, {
-            gidenTonaj: flat[i].gidenTonaj,
-            giden: flat[i].giden,
+            gidenTonaj: base.gidenTonaj,
+            giden: base.giden,
             durum: 'İÇERİDE',
             _printedInside: true,
           });
@@ -1054,7 +1082,7 @@
   }
 
   var CHECK_MS = 60 * 1000;          // kantar yeni liste gönderdi mi (hafif istek)
-  var FULL_MS = 5 * 60 * 1000;       // çıkış (sarılmış) durumu için raporları yeniden çek
+  var FULL_MS = 5 * 60 * 1000;       // çıkış (sarıldı) durumu için raporları yeniden çek
   var lastCheck = 0;
   var lastFull = 0;
   var checking = false;

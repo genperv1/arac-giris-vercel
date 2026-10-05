@@ -1235,11 +1235,19 @@
               <textarea id="pleSampleText" rows="4" placeholder="Metni yazın… Enter = yeni satır"></textarea>
             </div>
 
-            <div class="ple-side-block" data-for="text">
+            <div class="ple-side-block" data-for="isg">
+              <label for="pleIsgPreviewMode">İSG damgası önizleme</label>
+              <select id="pleIsgPreviewMode">
+                <option value="miss">❌ İSG Formu İmzasız</option>
+                <option value="ok">✅ İSG Formu İmzalı</option>
+              </select>
+            </div>
+
+            <div class="ple-side-block" data-for="text isg">
               <label for="pleFontPt">Punto <span id="pleFontVal">10 pt</span></label>
               <input id="pleFontPt" type="range" min="5" max="16" step="0.5" value="10">
             </div>
-            <div class="ple-side-block" data-for="text">
+            <div class="ple-side-block" data-for="text isg">
               <label for="pleLineHeight">Satır aralığı <span id="pleLhVal">1.05</span></label>
               <input id="pleLineHeight" type="range" min="0.9" max="1.6" step="0.02" value="1.05">
             </div>
@@ -1251,7 +1259,7 @@
                 <option value="nowrap">Tek satır (taşanı kes)</option>
               </select>
             </div>
-            <div class="ple-side-block" data-for="text">
+            <div class="ple-side-block" data-for="text isg">
               <label>Yazı stili</label>
               <div class="ple-format-bar" role="group" aria-label="Yazı stili">
                 <button type="button" id="pleFmtBold" class="ple-fmt-btn" title="Kalın" aria-pressed="false">B</button>
@@ -1259,7 +1267,7 @@
                 <button type="button" id="pleFmtUnderline" class="ple-fmt-btn ple-fmt-btn--u" title="Altı çizili" aria-pressed="false">U</button>
               </div>
             </div>
-            <div class="ple-side-block" data-for="text">
+            <div class="ple-side-block" data-for="text isg">
               <label for="pleTextAlign">Yatay hiza</label>
               <select id="pleTextAlign">
                 <option value="left">Sola</option>
@@ -1267,7 +1275,7 @@
                 <option value="right">Sağa</option>
               </select>
             </div>
-            <div class="ple-side-block" data-for="text">
+            <div class="ple-side-block" data-for="text isg">
               <label for="pleValign">Dikey hiza</label>
               <select id="pleValign">
                 <option value="flex-start">Üst</option>
@@ -1275,7 +1283,7 @@
                 <option value="flex-end">Alt</option>
               </select>
             </div>
-            <div class="ple-side-block" data-for="text">
+            <div class="ple-side-block" data-for="text isg">
               <label for="plePadMm">İç boşluk (mm)</label>
               <input id="plePadMm" type="range" min="0" max="3" step="0.1" value="0.35">
             </div>
@@ -1505,8 +1513,8 @@
   <script src="signatures-registry.js"></script>
   <script src="print-form-bg-bootstrap.js?v=1.0.3-20260909-formjpg"></script>
   <script src="print-form-bg-builtin.js"></script>
-  <script src="print-layout-settings.js?v=20260902-frameprint"></script>
-  <script src="print-layout-editor.js?v=20260827-printfast"></script>
+  <script src="print-layout-settings.js?v=20261005-isg-stamp"></script>
+  <script src="print-layout-editor.js?v=20261005-isg-stamp"></script>
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
   <script src="ayarlar.js?v=20261003-cihazlar"></script>
 </body>

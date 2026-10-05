@@ -11,6 +11,7 @@
   const WRAP_MODES = ['nowrap', 'wrap', 'pre-line', 'break-word'];
 
   const FIELD_DEFS = [
+    { key: 'isgStamp', label: 'İSG damgası', sample: 'miss', align: 'center', kind: 'isg' },
     { key: 'yuklemeSirasi', label: 'Yükleme sırası', sample: '127', align: 'center', kind: 'text' },
     { key: 'tarih', label: 'Tarih', sample: '18.07.2026', align: 'center', kind: 'text' },
     { key: 'sofor', label: 'Şoför', sample: 'MEHMET YILMAZ', kind: 'text' },
@@ -120,11 +121,27 @@
     return Object.assign({}, STYLE_DEFAULTS[key] || STYLE_DEFAULTS.imzaKantar);
   }
 
+  function defaultIsgStyle() {
+    return {
+      fontPt: 5,
+      lineHeight: 1.05,
+      align: 'center',
+      valign: 'center',
+      fontWeight: 800,
+      fontStyle: 'normal',
+      textDecoration: 'none',
+      padMm: 0.25,
+      radiusMm: 0.8,
+      borderMm: 0.35,
+    };
+  }
+
   function getDefaultFieldStyle(key) {
     const def = getDef(key);
     if (!def) return {};
     if (def.kind === 'note') return defaultNoteStyle();
     if (def.kind === 'sig') return defaultSigStyle(key);
+    if (def.kind === 'isg') return defaultIsgStyle();
     return defaultTextStyle(def);
   }
 
@@ -134,6 +151,7 @@
     const imzaMm = [54.8, 105.4, 154.8, 205.7];
     const imzaPx = [20].concat(imzaMm.map(mmPx));
     const P = {
+      isgStamp:      { left: 79, top: 12.6, w: 52, h: 6.8, align: 'center' },
       yuklemeSirasi: { left: xMm(455), top: mid(172, 210, 1.3), w: xMm(535 - 455), h: 5, align: 'center' },
       tarih:         { left: xMm(700), top: mid(172, 210, 1.3), w: xMm(990 - 700), h: 5, align: 'center' },
       sofor:         { left: xMm(215), top: mid(210, 248, 1.3), w: xMm(539 - 215), h: 5 },
@@ -413,6 +431,16 @@
       out.padTopMm = clampNum(out.padTopMm, 0, 12, base.padTopMm);
       if (!['left', 'center'].includes(out.align)) out.align = 'center';
     }
+    if (def && def.kind === 'isg') {
+      out.fontPt = clampNum(out.fontPt, 4, 10, base.fontPt);
+      out.lineHeight = clampNum(out.lineHeight, 0.9, 1.4, base.lineHeight);
+      out.padMm = clampNum(out.padMm, 0, 2, base.padMm);
+      out.radiusMm = clampNum(out.radiusMm, 0, 3, base.radiusMm);
+      out.borderMm = clampNum(out.borderMm, 0.15, 1, base.borderMm);
+      if (!['flex-start', 'center', 'flex-end'].includes(out.valign)) out.valign = 'center';
+      if (!['left', 'center', 'right'].includes(out.align)) out.align = 'center';
+      normalizeTypography(out, base);
+    }
     return out;
   }
 
@@ -500,10 +528,52 @@
     return `white-space:normal;word-break:${style.wordBreak || 'normal'};overflow-wrap:${style.overflowWrap || 'break-word'};`;
   }
 
+  function isgStampSignedFromSample(raw) {
+    const t = String(raw ?? '').trim().toLowerCase();
+    return t === 'ok' || t === '1' || t === 'signed' || t === 'imzali' || t === 'imzalı';
+  }
+
+  function isgStampLabel(signed) {
+    return signed ? '✅ İSG Formu İmzalı' : '❌ İSG Formu İmzasız';
+  }
+
+  function isgStampColors(signed) {
+    return signed
+      ? { color: '#166534', bg: '#ecfdf5', border: '#15803d' }
+      : { color: '#991b1b', bg: '#fef2f2', border: '#b91c1c' };
+  }
+
+  function buildIsgStampInnerHtml(signed, style) {
+    const s = style || defaultIsgStyle();
+    const colors = isgStampColors(!!signed);
+    const valign = valignToAlign(s.valign);
+    let css = 'width:100%;height:100%;box-sizing:border-box;display:flex;align-items:' + valign + ';justify-content:center;';
+    css += 'text-align:' + (s.align || 'center') + ';overflow:hidden;font-family:Arial,sans-serif;';
+    css += 'font-size:' + (s.fontPt || 5) + 'pt;line-height:' + (s.lineHeight || 1.05) + ';' + typographyInlineCss(s);
+    css += 'padding:' + (s.padMm != null ? s.padMm : 0.25) + 'mm;border-radius:' + (s.radiusMm != null ? s.radiusMm : 0.8) + 'mm;';
+    css += 'border:' + (s.borderMm != null ? s.borderMm : 0.35) + 'mm solid ' + colors.border + ';';
+    css += 'color:' + colors.color + ';background:' + colors.bg + ';';
+    css += '-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;';
+    return '<div class="plf-body plf-body--isg" style="' + css + '">' + escapeHtml(isgStampLabel(!!signed)) + '</div>';
+  }
+
+  /** Eski / enjekte baskı yolu — düzenleyicide kaydedilen mm konumu. */
+  function buildIsgStampPrintFragment(signed) {
+    const rect = getFieldRect('isgStamp');
+    if (!rect) return '';
+    const style = getFieldStyle('isgStamp');
+    const stampCls = signed ? 'isg-stamp--ok' : 'isg-stamp--miss';
+    const inner = buildIsgStampInnerHtml(!!signed, style);
+    return '<div class="plf-field plf-field--isg isg-stamp ' + stampCls + '" style="position:absolute;left:'
+      + rect.left + 'mm;top:' + rect.top + 'mm;width:' + rect.w + 'mm;height:' + rect.h + 'mm;z-index:6;overflow:visible;">'
+      + inner + '</div>';
+  }
+
   function buildFieldCssRules(key, style) {
     const def = getDef(key);
     if (!def) return '';
     if (def.kind === 'sig') return '';
+    if (def.kind === 'isg') return '';
     const s = style || getFieldStyle(key);
     const valign = valignToAlign(s.valign);
     let css = `display:flex;align-items:${valign};box-sizing:border-box;overflow:hidden;`;
@@ -535,7 +605,7 @@
   function buildPrintLayoutCss() {
     let css = '';
     FIELD_DEFS.forEach((def) => {
-      if (def.kind === 'sig') return;
+      if (def.kind === 'sig' || def.kind === 'isg') return;
       const s = getFieldStyle(def.key);
       const sel = `.field.pf-field.pf-${def.key}`;
       css += `${sel}{${buildFieldCssRules(def.key, s)}}`;
@@ -802,6 +872,15 @@
       } else if (def.kind === 'sig') {
         const sig = signatures[def.key] || {};
         inner = buildSigInnerHtml(sig.name || values[def.key] || '', sig.src || '', getFieldStyle(def.key));
+      } else if (def.kind === 'isg') {
+        let signed = opts && opts.isgSigned != null ? !!opts.isgSigned : false;
+        if (opts && opts.isgSigned == null) {
+          signed = isgStampSignedFromSample(sampleForField('isgStamp'));
+        }
+        const stampCls = signed ? 'isg-stamp--ok' : 'isg-stamp--miss';
+        inner = buildIsgStampInnerHtml(signed, getFieldStyle(def.key));
+        fieldsHtml += `<div class="plf-field plf-field--isg isg-stamp ${stampCls}" data-key="${def.key}" style="${pos}z-index:6;">${inner}</div>`;
+        return;
       } else {
         const val = values[def.key] != null ? values[def.key] : '';
         inner = buildTextInnerHtml(val, getFieldStyle(def.key));
@@ -879,6 +958,7 @@
       return String(saved.samples[key]);
     }
     if (def.kind === 'sig') return def.sampleName || '';
+    if (def.kind === 'isg') return def.sample || 'miss';
     return def.sample || '';
   }
 
@@ -955,6 +1035,10 @@
     buildImzaPrintCss,
     buildFullPrintLayoutCss,
     buildLayoutPrintDocument,
+    buildIsgStampPrintFragment,
+    buildIsgStampInnerHtml,
+    isgStampSignedFromSample,
+    isgStampLabel,
     pctStyle,
     buildFieldCssRules,
     fieldPosStyle,

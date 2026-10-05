@@ -284,6 +284,7 @@ function showTakipFormu(vehicle) {
 
             formContainer.innerHTML = `
             <div id="takipFormWarn" class="form-warn hidden"></div>
+            <div id="isgTakipBanner"></div>
 
             <div class="takip-form">
                 <h1 class="takip-form__doc-title">SEVKİYAT YÜKLEMESİ TAKİP FORMU</h1>
@@ -1504,6 +1505,15 @@ try {
 
             document.getElementById('takipFormuModal').classList.remove('hidden');
             try {
+              const isgReady = window.IsgForm && typeof window.IsgForm.ensureLoaded === 'function'
+                ? window.IsgForm.ensureLoaded()
+                : Promise.resolve();
+              Promise.resolve(isgReady).then(function () {
+                try { window.IsgForm && window.IsgForm.mountTakipBanner && window.IsgForm.mountTakipBanner(); } catch (e) {}
+              }).catch(function () {});
+              try { window.IsgForm && window.IsgForm.mountTakipBanner && window.IsgForm.mountTakipBanner(); } catch (e) {}
+            } catch (e) {}
+            try {
               if (typeof window.warmupPrintPipeline === 'function') window.warmupPrintPipeline();
               if (window.OperationNotesAlert && typeof window.OperationNotesAlert.prefetch === 'function') {
                 window.OperationNotesAlert.prefetch();
@@ -2330,6 +2340,7 @@ try {
           if (window.__afterTakipPrintRunning) return;
 
           const pending = window.__pendingPrintCommit;
+          let isgPrintCtx = null;
           const wasRequested = !!window.__afterTakipPrintRequested;
           if (!pending && !wasRequested) return;
 
@@ -2355,8 +2366,19 @@ try {
                     showToast('İptal edildi. Yükleme sırası ve raporlara yazılmadı.', 'warning');
                   }
                 } catch (e) {}
+                try { resetTakipFormUI(); } catch (e) {}
+                try { kapatForm(); } catch (e) {}
+                try { window.__pendingPrintCommit = null; } catch (e) {}
                 return;
               }
+
+              isgPrintCtx = pending && pending.isgPrint
+                ? Object.assign({}, pending.isgPrint, {
+                  id: pending.vehicleId || pending.isgPrint.id || '',
+                  vehicleId: pending.vehicleId || pending.isgPrint.vehicleId || '',
+                  cekiciPlaka: pending.plaka || pending.isgPrint.plateText || pending.isgPrint.cekiciPlaka || ''
+                })
+                : null;
               try { refreshPendingPrintSnapshotFromForm(pending); } catch (e) {}
               try {
                 const frame = document.getElementById('takipDirectPrintFrame');
@@ -2368,6 +2390,7 @@ try {
                 const overlay = document.getElementById('takipPrintOverlay');
                 if (overlay) overlay.style.display = 'none';
               } catch (e) {}
+
               try { resetTakipFormUI(); } catch (e) {}
               try { kapatForm(); } catch (e) {}
               // Yazdır tıklanınca değil, baskı kuyruğa düşünce anlık zaman damgası
@@ -2548,12 +2571,27 @@ try {
                 }
 
                 try { window.__pendingPrintCommit = null; } catch(e) {}
+
+              if (isgPrintCtx && window.IsgForm && typeof window.IsgForm.printIsgFormWithDialog === 'function') {
+                try {
+                  if (typeof showToast === 'function') {
+                    showToast('Sırada: İSG formu — yazıcı seçip yazdırın.', 'info', 4500);
+                  }
+                } catch (e) { /* ignore */ }
+                window.IsgForm.printIsgFormWithDialog(isgPrintCtx).then(function () {
+                  try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
+                }).catch(function () {
+                  try {
+                    if (typeof showToast === 'function') {
+                      showToast('ISG formu basılmadı. Kart imzasız kaldı.', 'warn', 6000);
+                    }
+                  } catch (e) { /* ignore */ }
+                });
+              }
             }
 
             try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
 
-            try { resetTakipFormUI(); } catch(e){}
-            try { kapatForm(); } catch(e){}
           } finally {
             try { window.__afterTakipPrintRunning = false; } catch(e) {}
           }

@@ -58,6 +58,7 @@ const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerKantarNudgeRoutes } = require('./routes/kantar-nudge-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
+const { registerIsgRoutes } = require('./routes/isg-routes');
 const { registerPrintFormBgImageRoute, registerPrintFormBgRoutes } = require('./routes/print-form-bg-routes');
 const { registerPrintLayoutReadRoute, registerPrintLayoutSettingsRoutes } = require('./routes/print-layout-routes');
 const { purgeUnacceptablePrintFormBg } = require('./lib/print-form-bg-store');
@@ -404,6 +405,32 @@ async function prepareSchema() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_signatures_role_active ON signatures(role, active);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_signatures_display_name ON signatures(upper(display_name));`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS isg_forms(
+      id TEXT PRIMARY KEY,
+      plate_key TEXT,
+      driver_key TEXT,
+      name_key TEXT,
+      vehicle_id TEXT,
+      plate_text TEXT,
+      driver_name TEXT,
+      signed BOOLEAN NOT NULL DEFAULT FALSE,
+      signed_at BIGINT,
+      doc_no TEXT,
+      form_code TEXT,
+      recorded_by TEXT,
+      file_name TEXT,
+      file_url TEXT,
+      file_data TEXT,
+      updated_at BIGINT
+    );
+  `);
+  await pool.query(`ALTER TABLE isg_forms ADD COLUMN IF NOT EXISTS name_key TEXT;`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_isg_forms_driver ON isg_forms(driver_key);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_isg_forms_name ON isg_forms(name_key);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_isg_forms_plate ON isg_forms(plate_key);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_isg_forms_updated ON isg_forms(updated_at DESC);`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS vehicle_edit_log(
@@ -783,6 +810,7 @@ app.use((req, res, next) => {
     if (req.method === 'PUT' && reqPath.startsWith('/api/excel-agent/upload')) return next();
     if (req.method === 'POST' && reqPath === '/api/restore-full') limit = '50mb';
     if ((req.method === 'POST' || req.method === 'PUT') && reqPath.startsWith('/api/driver-trips')) limit = '15mb';
+    if (req.method === 'POST' && reqPath === '/api/isg') limit = '8mb';
   } catch (e) {}
   return bodyParser({ limit })(req, res, next);
 });
@@ -1336,6 +1364,7 @@ api.post("/reports/bulk-delete", requireValidSession, async (req, res) => {
 });
 
 registerVehicleRoutes(api, routeCtx);
+registerIsgRoutes(api, routeCtx);
 registerDailyRoutes(api, routeCtx);
 registerIhracatExcelRoutes(api, routeCtx);
 registerPiyasaRoutes(api, routeCtx);
