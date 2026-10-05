@@ -830,82 +830,122 @@ function createIsgApi() {
     }).catch(function () {
       try {
         if (typeof showToast === 'function') {
-          showToast('ISG otomatik açılamadı. Ekrandaki ISG Yazdır düğmesine basın.', 'warn', 8000);
+          showToast('ISG yazıcı penceresi açılmadı. «Yazıcıya gönder» düğmesine basın.', 'warn', 8000);
         }
       } catch (e) { /* ignore */ }
     });
     return ctx;
   }
 
-  function isgPrintShellBlobUrl() {
-    const pdfAbs = isgPdfAbsoluteUrl().replace(/"/g, '%22');
-    const html = '<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>ISG-T004 ISG Formu</title>'
-      + '<style>@page{size:A4;margin:0;}html,body{margin:0;padding:0;width:210mm;height:297mm;overflow:hidden;background:#fff;}'
-      + 'embed{display:block;width:210mm;height:297mm;border:0;}</style></head><body>'
-      + '<embed src="' + pdfAbs + '" type="application/pdf">'
-      + '<script>(function(){function notify(){try{parent.postMessage({type:"isgPrintEnd"},"*");}catch(e){}}'
-      + 'window.addEventListener("afterprint",notify,{once:true});})();<\/script></body></html>';
-    return URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  function waitIsgPrintImages(doc, done, maxMs) {
+    const finishOnce = (function () {
+      let doneFlag = false;
+      return function () {
+        if (doneFlag) return;
+        doneFlag = true;
+        try { done(); } catch (e) { /* ignore */ }
+      };
+    })();
+    const limit = Math.max(Number(maxMs) || 0, 500);
+    try {
+      if (!doc) {
+        finishOnce();
+        return;
+      }
+      const pending = [];
+      doc.querySelectorAll('img').forEach(function (img) {
+        if (img && !img.complete) pending.push(img);
+      });
+      if (!pending.length) {
+        finishOnce();
+        return;
+      }
+      let left = pending.length;
+      const tick = function () {
+        if (--left <= 0) finishOnce();
+      };
+      pending.forEach(function (img) {
+        img.addEventListener('load', tick, { once: true });
+        img.addEventListener('error', tick, { once: true });
+        if (img.complete) tick();
+      });
+    } catch (e) {
+      finishOnce();
+      return;
+    }
+    setTimeout(finishOnce, limit);
   }
 
-  /** Takip formu (A5) bittikten sonra: yazıcı seçim penceresi ile ISG PDF bas. */
+  /** Takip formu gibi HTML ISG-T004 — Chrome PDF iframe print() güvenilir değil. */
   function printIsgFormWithDialog(ctx) {
     if (typeof document === 'undefined') {
       return Promise.reject(new Error('no-dom'));
     }
     const idn = normalizeIsgPrintCtx(ctx && (ctx.plateText != null || ctx.plateKey || ctx.driverKey || ctx.snapshot) ? ctx : capturePrintContext(ctx || {}));
+    const printHtml = buildCommitmentHtml(idn);
     return new Promise(function (resolve, reject) {
-      let blobUrl = null;
-      const prev = document.getElementById('isgDirectPrintFrame');
-      if (prev) prev.remove();
-      const takip = document.getElementById('takipDirectPrintFrame');
-      if (takip) {
-        takip.style.left = '-10000px';
-        takip.style.visibility = 'hidden';
-        takip.style.pointerEvents = 'none';
+      const prevOverlay = document.getElementById('isgPrintOverlay');
+      if (prevOverlay) {
+        try { prevOverlay.remove(); } catch (e) { /* ignore */ }
       }
       try {
-        const overlay = document.getElementById('takipPrintOverlay');
-        if (overlay) overlay.style.display = 'none';
+        const takipOv = document.getElementById('takipPrintOverlay');
+        if (takipOv) takipOv.style.display = 'none';
       } catch (e) { /* ignore */ }
+
+      let settled = false;
+      let dialogClosed = false;
+      let printInvoked = false;
+      let watchBound = false;
+
+      const overlay = document.createElement('div');
+      overlay.id = 'isgPrintOverlay';
+      overlay.style.cssText =
+        'display:flex;position:fixed;inset:0;z-index:2147483001;background:#020617;'
+        + 'flex-direction:column;width:100vw;height:100vh;overflow:auto;';
+
+      const bar = document.createElement('div');
+      bar.style.cssText =
+        'flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;gap:12px;'
+        + 'padding:12px 16px;background:#0f172a;z-index:2;pointer-events:auto;';
+      const hint = document.createElement('div');
+      hint.style.cssText = 'margin-right:auto;color:#e2e8f0;font:600 14px/1.3 Arial,sans-serif;';
+      hint.textContent = 'İSG-T004 — yazdırmak için «Yazıcıya gönder», vazgeçmek için «Kapat».';
+      const printBtn = document.createElement('button');
+      printBtn.type = 'button';
+      printBtn.textContent = 'Yazıcıya gönder';
+      printBtn.style.cssText =
+        'border:0;background:#0f766e;color:#fff;border-radius:10px;padding:12px 22px;'
+        + 'min-height:48px;min-width:180px;font:700 16px/1 Arial,sans-serif;cursor:pointer;';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.textContent = 'Kapat';
+      closeBtn.style.cssText =
+        'border:0;background:#334155;color:#fff;border-radius:10px;padding:12px 22px;'
+        + 'min-height:48px;min-width:120px;font:700 16px/1 Arial,sans-serif;cursor:pointer;';
 
       const iframe = document.createElement('iframe');
       iframe.id = 'isgDirectPrintFrame';
       iframe.title = 'ISG-T004 İSG Formu';
-      iframe.setAttribute('aria-hidden', 'true');
       iframe.style.cssText =
-        'position:fixed;left:0;top:0;width:210mm;height:297mm;border:0;margin:0;padding:0;'
-        + 'visibility:visible;pointer-events:auto;opacity:1;z-index:2147483001;overflow:hidden;background:#fff;';
-      let settled = false;
-      let dialogClosed = false;
-      let printStarted = false;
-      let printInvoked = false;
+        'flex:0 0 auto;width:210mm;height:297mm;max-width:calc(100vw - 24px);'
+        + 'border:0;background:#fff;margin:16px auto 24px;display:block;';
+
+      bar.appendChild(hint);
+      bar.appendChild(printBtn);
+      bar.appendChild(closeBtn);
+      overlay.appendChild(bar);
+      overlay.appendChild(iframe);
+      document.body.appendChild(overlay);
 
       const teardown = function () {
-        iframe.style.left = '-10000px';
-        iframe.style.visibility = 'hidden';
-        iframe.style.pointerEvents = 'none';
-        iframe.style.opacity = '0';
-        iframe.style.zIndex = '-1';
-        setTimeout(function () {
-          try { iframe.remove(); } catch (e2) { /* ignore */ }
-        }, 400);
+        try { overlay.remove(); } catch (e) { /* ignore */ }
       };
 
       const settle = function (ok, err) {
         if (settled) return;
         settled = true;
-        try { window.removeEventListener('message', onParentMsg); } catch (e) { /* ignore */ }
         clearTimeout(safetyTimer);
-        clearInterval(printWatch);
-        clearTimeout(printDelayTimer);
-        if (blobUrl) {
-          try { URL.revokeObjectURL(blobUrl); } catch (e4) { /* ignore */ }
-          blobUrl = null;
-        }
-        try {
-          if (manualBar) manualBar.remove();
-        } catch (e) { /* ignore */ }
         teardown();
         if (ok) resolve(true);
         else reject(err || new Error('isg-not-printed'));
@@ -921,12 +961,30 @@ function createIsgApi() {
         });
       };
 
-      const onParentMsg = function (ev) {
-        if (!ev || !ev.data || ev.data.type !== 'isgPrintEnd') return;
-        onPrintDialogClosed();
+      const invokePrint = function () {
+        const w = iframe.contentWindow;
+        if (!w || !w.document) {
+          settle(false, new Error('isg-frame'));
+          return;
+        }
+        printInvoked = true;
+        if (!watchBound) {
+          watchBound = true;
+          watchIsgPrintDialogEnd(w, onPrintDialogClosed);
+        }
+        try { w.focus(); } catch (e) { /* ignore */ }
+        try { w.print(); } catch (e) {
+          settle(false, e);
+        }
       };
 
-      window.addEventListener('message', onParentMsg);
+      printBtn.addEventListener('click', function (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (e) { /* ignore */ }
+        invokePrint();
+      });
+      closeBtn.addEventListener('click', function () {
+        settle(false, new Error('isg-cancelled'));
+      });
 
       const safetyTimer = setTimeout(function () {
         if (!dialogClosed && printInvoked) {
@@ -934,94 +992,22 @@ function createIsgApi() {
         }
       }, 180000);
 
-      let printDelayTimer = null;
-      let manualBar = null;
-
-      const showManualPrintBar = function () {
-        if (manualBar || settled) return;
-        manualBar = document.createElement('div');
-        manualBar.id = 'isgManualPrintBar';
-        manualBar.style.cssText =
-          'position:fixed;inset:0;z-index:2147483002;background:rgba(2,6,23,0.92);'
-          + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;';
-        const msg = document.createElement('div');
-        msg.style.cssText = 'color:#e2e8f0;font:600 16px/1.4 Arial,sans-serif;text-align:center;max-width:420px;';
-        msg.textContent = 'İSG-T004 formu hazır. Yazıcı penceresi açılmadıysa aşağıdaki düğmeye basın.';
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.textContent = 'ISG Yazdır';
-        btn.style.cssText =
-          'border:0;background:#0f766e;color:#fff;border-radius:10px;padding:14px 28px;'
-          + 'min-height:48px;font:700 17px/1 Arial,sans-serif;cursor:pointer;';
-        btn.addEventListener('click', function () {
-          invokePrint(true);
-        });
-        manualBar.appendChild(msg);
-        manualBar.appendChild(btn);
-        document.body.appendChild(manualBar);
-      };
-
-      const invokePrint = function (fromUserClick) {
-        if (printInvoked && !fromUserClick) return;
-        printInvoked = true;
-        const w = iframe.contentWindow;
-        if (!w) {
-          settle(false, new Error('isg-frame'));
-          return;
-        }
-        watchIsgPrintDialogEnd(w, onPrintDialogClosed);
-        try { iframe.style.left = '-10000px'; iframe.style.visibility = 'hidden'; } catch (e) { /* ignore */ }
-        try { w.focus(); } catch (e) { /* ignore */ }
-        try {
-          w.print();
-        } catch (e) {
-          if (!fromUserClick) {
-            showManualPrintBar();
-            printInvoked = false;
-            return;
-          }
-          settle(false, e);
-        }
-      };
-
-      const startPrint = function () {
-        if (printStarted) return;
-        printStarted = true;
-        printDelayTimer = setTimeout(function () {
-          invokePrint(false);
-          setTimeout(function () {
-            if (!dialogClosed && !settled && !manualBar) showManualPrintBar();
-          }, 2200);
-        }, 450);
-      };
-
-      let printWatch = setInterval(function () {
-        if (dialogClosed || printStarted) return;
-        try {
-          const w = iframe.contentWindow;
-          if (w && w.document && w.document.readyState === 'complete') {
-            clearInterval(printWatch);
-            startPrint();
-          }
-        } catch (e) { /* ignore */ }
-      }, 120);
-
-      iframe.onload = function () {
-        clearInterval(printWatch);
-        startPrint();
-      };
-
-      document.body.appendChild(iframe);
-      const pdfDirect = isgPdfAbsoluteUrl();
-      try {
-        blobUrl = isgPrintShellBlobUrl();
-        iframe.src = blobUrl;
-      } catch (e) {
-        iframe.src = pdfDirect;
+      const w = iframe.contentWindow;
+      if (!w || !w.document) {
+        settle(false, new Error('isg-frame'));
+        return;
       }
-      setTimeout(function () {
-        if (!printStarted && !settled) startPrint();
-      }, 4500);
+      w.document.open();
+      w.document.write(printHtml);
+      w.document.close();
+      try { w.document.title = FORM_CODE + ' ISG Formu'; } catch (e) { /* ignore */ }
+
+      waitIsgPrintImages(w.document, function () {
+        try { printBtn.focus(); } catch (e) { /* ignore */ }
+        setTimeout(function () {
+          if (!settled && !printInvoked) invokePrint();
+        }, 350);
+      }, 4000);
     });
   }
 
