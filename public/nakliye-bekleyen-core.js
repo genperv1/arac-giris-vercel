@@ -2654,6 +2654,7 @@
       fileName: rowSourceFile(sample),
       sourceDateLabel: sourceDateLabelFromRow(sample),
       ydKey,
+      firma: String(sample.firma || '').trim(),
       planBbt,
       departedBbt,
       excelKgDepartedBbt,

@@ -623,8 +623,9 @@
       return;
     }
     $('list').innerHTML = '<div class="sheet">' + blocks.map(function (block) {
-      var tasiyici = String(block.tasiyici || '').trim();
-      var rowTasiyici = (block.rows || []).some(function (row) { return row.tasiyici; });
+      // Taşıyıcı (AKYÜZ, GPM…) yalnız amire görünür
+      var tasiyici = state.canEdit ? String(block.tasiyici || '').trim() : '';
+      var rowTasiyici = state.canEdit && (block.rows || []).some(function (row) { return row.tasiyici; });
       var rows = (block.rows || []).map(function (row) {
         var plate = String(row.plaka || '').trim();
         var plateHtml = plate ? '<b>' + esc(plate) + '</b>' : '<span class="noplate">plaka yok</span>';
@@ -731,26 +732,27 @@
   var PRINT_CSS =
     '@page { size: A4 portrait; margin: 8mm; }' +
     '* { box-sizing: border-box; }' +
-    'body { margin: 0; font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #000; font-size: 9pt; }' +
-    '.p-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 8px; }' +
-    '.p-head h1 { margin: 0; font-size: 16pt; }' +
-    '.p-head span { font-size: 9pt; }' +
-    '#pg { width: 733px; }' +
-    '.p-blok { margin-bottom: 10px; }' +
-    '.p-title { font-weight: 700; font-size: 11pt; padding: 4px 6px; border: 1px solid #000; border-bottom: 0; }' +
-    '.p-tas { display: inline-block; border: 1.5px solid #000; padding: 0 6px; margin-right: 8px; }' +
-    '.p-meta { font-size: 9pt; padding: 3px 6px; border: 1px solid #000; border-bottom: 0; }' +
-    '.p-meta b { margin-left: 10px; }' +
+    'html, body { margin: 0; padding: 0; }' +
+    'body { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #000; }' +
+    '#pg { width: 733px; margin: 0 auto; font-size: 9pt; }' +
+    '.p-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: .3em; margin-bottom: .6em; }' +
+    '.p-head h1 { margin: 0; font-size: 1.75em; }' +
+    '.p-head span { font-size: 1em; }' +
+    '.p-blok { margin-bottom: .8em; break-inside: avoid; page-break-inside: avoid; }' +
+    '.p-title { font-weight: 700; font-size: 1.2em; padding: .3em .5em; border: 1px solid #000; border-bottom: 0; }' +
+    '.p-meta { padding: .25em .5em; border: 1px solid #000; border-bottom: 0; }' +
+    '.p-meta b { margin-left: .8em; }' +
     '.p-meta b:first-child { margin-left: 0; }' +
     'table { width: 100%; border-collapse: collapse; }' +
-    'th, td { border: 1px solid #000; padding: 3px 3px; text-align: center; white-space: nowrap; }' +
-    'th { font-size: 7.5pt; background: #eee; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    'tr { break-inside: avoid; page-break-inside: avoid; }' +
+    'th, td { border: 1px solid #000; padding: .25em .25em; text-align: center; white-space: nowrap; }' +
+    'th { font-size: .83em; background: #eee; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     'td.l { text-align: left; }' +
     'td.sof { white-space: normal; }' +
-    'td.plk { font-weight: 700; font-size: 10.5pt; letter-spacing: .02em; }' +
-    'td.chk { width: 24px; padding: 2px; }' +
-    '.box { display: inline-block; width: 15px; height: 15px; border: 1.5px solid #000; vertical-align: middle; }' +
-    'td.not { min-width: 70px; }' +
+    'td.plk { font-weight: 700; font-size: 1.17em; letter-spacing: .02em; }' +
+    'td.chk { width: 2em; padding: .15em; }' +
+    '.box { display: inline-block; width: 1.25em; height: 1.25em; border: 1.5px solid #000; vertical-align: middle; }' +
+    'td.not { min-width: 6em; }' +
     'tr.out td { color: #555; }' +
     'tfoot td { font-weight: 700; background: #f3f3f3; -webkit-print-color-adjust: exact; print-color-adjust: exact; }';
 
@@ -758,8 +760,6 @@
     var now = new Date().toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     var body = tab.blocks.map(function (block) {
       var rows = block.rows || [];
-      var rowTas = rows.some(function (row) { return row.tasiyici; });
-      var tasiyici = String(block.tasiyici || '').trim();
       var meta = [
         ['LİMAN', block.liman || block.port],
         ['GEMİ', block.gemi],
@@ -785,23 +785,22 @@
           '<td>' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
           '<td class="l sof">' + esc(row.sofor || '') + '</td>' +
           '<td>' + esc(row.telefon || '') + '</td>' +
-          (rowTas ? '<td>' + esc(row.tasiyici || '') + '</td>' : '') +
           '<td>' + esc(durum) + '</td>' +
           '<td class="not"></td>' +
           '</tr>';
       }).join('');
       return '<div class="p-blok">' +
-        '<div class="p-title">' + (tasiyici ? '<span class="p-tas">' + esc(tasiyici) + '</span>' : '') + esc(block.title || '') + '</div>' +
+        '<div class="p-title">' + esc(block.title || '') + '</div>' +
         (meta ? '<div class="p-meta">' + meta + '</div>' : '') +
         '<table><thead><tr>' +
           '<th>✓</th><th>#</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ<br>BBT</th><th>BOŞ<br>ÇUVAL</th>' +
-          '<th>NET</th><th>YÜKL.<br>YERİ</th><th>ŞOFÖR</th><th>TELEFON</th>' + (rowTas ? '<th>TAŞIYICI</th>' : '') +
+          '<th>NET</th><th>YÜKL.<br>YERİ</th><th>ŞOFÖR</th><th>TELEFON</th>' +
           '<th>DURUM</th><th>NOT</th>' +
         '</tr></thead><tbody>' + tr + '</tbody>' +
         '<tfoot><tr><td></td><td colspan="2" class="l">TOPLAM · ' + rows.length + ' araç</td>' +
           '<td>' + esc(fmtTotal(t.bbt)) + '</td><td>' + esc(fmtTotal(t.cuval)) + '</td><td>' + esc(fmtTotal(t.palet)) + '</td>' +
           '<td>' + esc(fmtTotal(t.bosBbt)) + '</td><td>' + esc(fmtTotal(t.bosCuval)) + '</td><td>' + esc(fmtTotal(t.net)) + '</td>' +
-          '<td colspan="' + (rowTas ? 6 : 5) + '"></td></tr></tfoot>' +
+          '<td colspan="5"></td></tr></tfoot>' +
         '</table></div>';
     }).join('');
     return '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Liman ' + esc(tab.label) + '</title>' +
@@ -825,6 +824,27 @@
     await printTab(tab);
   }
 
+  /**
+   * Tablolar sayfa genişliğinde kalır; yazı boyutu sayfa boyunu dolduracak en büyük değere ayarlanır.
+   * En küçük yazıda da sığmazsa bütün sayfa küçültülür (yine tek sayfa).
+   */
+  function fitPage(page) {
+    var fits = function () { return page.scrollHeight <= PAGE_H_PX && page.scrollWidth <= PAGE_W_PX; };
+    var lo = 5;
+    var hi = 12;
+    page.style.fontSize = hi + 'pt';
+    if (fits()) return;
+    for (var i = 0; i < 10; i++) {
+      var mid = (lo + hi) / 2;
+      page.style.fontSize = mid + 'pt';
+      if (fits()) lo = mid; else hi = mid;
+    }
+    page.style.fontSize = lo + 'pt';
+    if (fits()) return;
+    var scale = Math.min(PAGE_W_PX / Math.max(page.scrollWidth, 1), PAGE_H_PX / Math.max(page.scrollHeight, 1));
+    page.style.zoom = String(Math.floor(scale * 1000) / 1000);
+  }
+
   async function printTab(tab) {
     var oldTitle = document.title;
     var frame = document.createElement('iframe');
@@ -837,9 +857,7 @@
       doc.write(printTabHtml(tab));
       doc.close();
       await new Promise(function (r) { setTimeout(r, 150); });
-      var page = doc.getElementById('pg');
-      var scale = Math.min(PAGE_W_PX / Math.max(page.scrollWidth, 1), PAGE_H_PX / Math.max(page.scrollHeight, 1), 1);
-      if (scale < 1) page.style.zoom = String(Math.floor(scale * 1000) / 1000);
+      fitPage(doc.getElementById('pg'));
       document.title = 'Liman ' + tab.label;
       await new Promise(function (r) { setTimeout(r, 100); });
       frame.contentWindow.focus();

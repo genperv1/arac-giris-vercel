@@ -4532,7 +4532,7 @@ function mergeIhracatPickReportItem(existing, extra) {
   [
     'sevkYeri', 'port', 'ambalaj', 'ambalajBilgisi', 'seperatorBilgisi',
     'yuklemeNotu', 'tonaj', 'malzeme', 'malzemeLabel', 'lotLabel',
-    'headerText', 'fileName',
+    'headerText', 'fileName', 'firma',
   ].forEach((k) => {
     if (!String(out[k] || '').trim() && String((extra && extra[k]) || '').trim()) {
       out[k] = extra[k];
@@ -4552,7 +4552,7 @@ function ihracatChosenFromPickItem(item) {
   const note = String(item.yuklemeNotu || fromReport.yuklemeNotu || item.lotLabel || '').trim();
   const headerText = String(item.headerText || fromReport.headerText || '').trim();
   return {
-    firma: item.ydKey || item.firma || '',
+    firma: item.firma || item.ydKey || '',
     ydKey: item.ydKey || '',
     headerText,
     malzeme: item.malzemeLabel || item.malzeme || '',
@@ -4688,6 +4688,7 @@ async function listTodayIhracatReportBlocks(opts) {
     })();
     const next = {
       ydKey: yd,
+      firma: String(d.firma || d.firmaKodu || r.firma || '').trim(),
       lotLabel: lot,
       malzemeLabel: mal,
       malzeme: mal,
