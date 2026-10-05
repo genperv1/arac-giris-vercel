@@ -418,3 +418,12 @@ test('same-date Excels keep their own file on refresh (no YD28 swap)', () => {
   const missing = bind({}, [{ name: '03.10.2026-YD28.xlsx' }], ['03.10.2026.xlsx', '03.10.2026-YD28.xlsx']);
   assert.equal(missing['03.10.2026.xlsx'], undefined);
 });
+test('a file whose disk name is another loaded Excel is never read as this one', () => {
+  const belongs = new Function(
+    ['sameExcelName', 'belongsToOtherSource'].map(clientFn).join('\n') + '\nreturn belongsToOtherSource;'
+  )();
+  const sources = ['03.10.2026.xlsx', '03.10.2026-YD28.xlsx'];
+  assert.equal(belongs({ name: '03.10.2026-YD28.xlsx', __diskName: '03.10.2026.xlsx' }, '03.10.2026-YD28.xlsx', sources), true);
+  assert.equal(belongs({ name: '03.10.2026-YD28.xlsx' }, '03.10.2026-YD28.xlsx', sources), false);
+  assert.equal(belongs({ name: '03.10.2026.xlsx', __diskName: '3.10.2026 (1).xlsx' }, '03.10.2026.xlsx', sources), false);
+});

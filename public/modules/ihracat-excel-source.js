@@ -729,13 +729,22 @@
     if (!file || !wanted) return file;
     if (sameExcelName(file.name, wanted)) return file;
     try {
-      return new File([file], wanted, {
+      var aliased = new File([file], wanted, {
         type: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         lastModified: Number(file.lastModified) || Date.now(),
       });
+      aliased.__diskName = file.__diskName || file.name;
+      return aliased;
     } catch (e) {
       return file;
     }
+  }
+
+  /** Diskteki adı başka bir yüklü Excel'in adı olan dosya bu kaynak yerine okunmaz (YD28 karışması). */
+  function belongsToOtherSource(file, sourceName, sources) {
+    var disk = file && (file.__diskName || file.name);
+    if (!disk || sameExcelName(disk, sourceName)) return false;
+    return (sources || []).some(function (n) { return sameExcelName(n, disk); });
   }
 
   function dateToken(name) {
@@ -1113,7 +1122,9 @@
         try {
           var rawPreset = presetAll[handleKey(sourceName)] || null;
           var file = rawPreset ? aliasFileToSource(rawPreset, sourceName) : null;
+          if (file && belongsToOtherSource(file, sourceName, sources)) file = null;
           if (!file) file = await resolveFileForSource(sourceName, handleFile);
+          if (file && belongsToOtherSource(file, sourceName, listLoadedSourceNames())) file = null;
           if (!file || file.__missing || file.__notSelected) {
             failNames.push(sourceName);
             continue;
