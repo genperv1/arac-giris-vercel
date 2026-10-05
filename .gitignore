@@ -9,3 +9,8 @@ npm-debug.log*
 Thumbs.db
 uploads/
 !uploads/.gitkeep
+tmp-*.py
+excel-ajan/ayar.txt
+excel-ajan/durum.txt
+excel-ajan/*.bak
+excel-ajan/*.yeni

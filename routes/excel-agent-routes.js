@@ -9,15 +9,23 @@ const {
   readAgentScript,
 } = require('../lib/excel-agent-store');
 
+/** Kantar başına anahtar: hangi kantarın Excel'i olduğu anahtardan anlaşılır. */
+function agentKeysFromEnv(env) {
+  const e = env || process.env;
+  return {
+    AVDAN: String(e.EXCEL_AGENT_KEY_AVDAN || '').trim(),
+    '1.OSB': String(e.EXCEL_AGENT_KEY_1OSB || '').trim(),
+  };
+}
+
 /**
- * Kantar PC'lerindeki Excel Ajanı uçları. Oturum (JWT) yerine EXCEL_AGENT_KEY ile korunur;
+ * Kantar PC'lerindeki Excel Ajanı uçları. Oturum (JWT) yerine kantar anahtarıyla
+ * (EXCEL_AGENT_KEY_AVDAN / EXCEL_AGENT_KEY_1OSB) korunur;
  * bu yüzden `api.use(auth.verifyToken)` satırından ÖNCE kaydedilmelidir.
  */
 function registerExcelAgentRoutes(api, ctx) {
   const { excelAgentStore, broadcastEvent, sendApiError } = ctx;
-  const getKey = typeof ctx.getAgentKey === 'function'
-    ? ctx.getAgentKey
-    : () => String(process.env.EXCEL_AGENT_KEY || '').trim();
+  const getKeys = typeof ctx.getAgentKeys === 'function' ? ctx.getAgentKeys : () => agentKeysFromEnv();
   const scriptPath = ctx.agentScriptPath;
 
   const agentLimiter = rateLimit({
@@ -28,20 +36,23 @@ function registerExcelAgentRoutes(api, ctx) {
   });
 
   function requireAgentKey(req, res, next) {
-    const expected = getKey();
-    if (!expected) {
+    const keys = getKeys() || {};
+    const sites = Object.keys(keys).filter((site) => String(keys[site] || '').length >= 16);
+    if (!sites.length) {
       return res.status(503).json({
         ok: false,
-        error: { code: 'EXCEL_AGENT_DISABLED', message: 'Sunucuda EXCEL_AGENT_KEY tanımlı değil.' },
+        error: { code: 'EXCEL_AGENT_DISABLED', message: 'Sunucuda EXCEL_AGENT_KEY_AVDAN / EXCEL_AGENT_KEY_1OSB tanımlı değil.' },
       });
     }
     const given = String(req.headers['x-excel-agent-key'] || '').trim();
-    if (!safeEqualText(given, expected)) {
+    const site = sites.find((s) => safeEqualText(given, keys[s]));
+    if (!site) {
       return res.status(401).json({
         ok: false,
         error: { code: 'EXCEL_AGENT_BAD_KEY', message: 'Ajan anahtarı hatalı.' },
       });
     }
+    req.agentSite = site;
     return next();
   }
 
@@ -86,9 +97,11 @@ function registerExcelAgentRoutes(api, ctx) {
           buf: req.body,
           mtime: req.query.mtime,
           machine: req.query.machine,
+          site: req.agentSite,
         });
         if (!saved.unchanged && typeof broadcastEvent === 'function') {
           broadcastEvent('ihracat_excel_uploaded', {
+            site: saved.site,
             fileName: saved.fileName,
             mtime: saved.mtime,
             machine: String(req.query.machine || '').slice(0, 120),
@@ -102,4 +115,4 @@ function registerExcelAgentRoutes(api, ctx) {
   );
 }
 
-module.exports = { registerExcelAgentRoutes };
+module.exports = { registerExcelAgentRoutes, agentKeysFromEnv };

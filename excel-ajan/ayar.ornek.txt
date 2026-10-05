@@ -1,0 +1,12 @@
+# Bu dosya ayar.txt olarak kopyalanir. Satirlari doldurup kaydedin.
+# SUNUCU: sitenin adresi. Sonunda / olmasin.
+SUNUCU=https://genper.site
+# ANAHTAR: bu kantarin anahtari. AVDAN icin sunucudaki EXCEL_AGENT_KEY_AVDAN,
+# 1.OSB icin EXCEL_AGENT_KEY_1OSB ile ayni olmali. Kimseyle paylasmayin.
+ANAHTAR=
+# KLASOR: (istege bagli) ihracat Excel dosyasinin durdugu klasor.
+# Bos birakilirsa Masaustu, Belgeler ve Indirilenler taranir.
+# Birden fazla klasor varsa noktali virgul ile ayirin.
+KLASOR=
+# Sirket agi sertifikasi hata verirse alttaki satirin basindaki # isaretini silin.
+# SERTIFIKA=atla

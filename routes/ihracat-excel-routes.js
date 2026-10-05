@@ -10,7 +10,14 @@ const {
   readExcelFromStoredPath,
 } = require('../lib/ihracat-excel-source');
 
-async function readNewestExcel(source, excelAgentStore) {
+/** Oturumdaki kantar (AVDAN / 1.OSB); amir ve diğerleri için ''. */
+function kantarSiteOf(req) {
+  const name = String((req && req.user && req.user.username) || '').trim().toUpperCase();
+  return name === 'AVDAN' || name === '1.OSB' ? name : '';
+}
+
+/** Ajan kopyası yalnız aynı kantarınki kullanılır: diğer kantarın aynı adlı Excel'i okunmaz. */
+async function readNewestExcel(source, excelAgentStore, site) {
   let local = null;
   let localErr = null;
   try {
@@ -19,9 +26,9 @@ async function readNewestExcel(source, excelAgentStore) {
     localErr = err;
   }
   let uploaded = null;
-  if (excelAgentStore && source.fileName) {
+  if (excelAgentStore && source.fileName && site) {
     try {
-      uploaded = await excelAgentStore.getUpload(source.fileName);
+      uploaded = await excelAgentStore.getUpload(source.fileName, site);
     } catch (_) {
       uploaded = null;
     }
@@ -68,7 +75,9 @@ function registerIhracatExcelRoutes(api, ctx) {
 
   api.get('/ihracat-excel/agent-files', requireValidSession, async (req, res) => {
     try {
-      const files = excelAgentStore ? await excelAgentStore.listUploads(50) : [];
+      const site = kantarSiteOf(req);
+      const all = excelAgentStore ? await excelAgentStore.listUploads(50) : [];
+      const files = site ? all.filter((f) => f.site === site) : all;
       res.setHeader('Cache-Control', 'no-store');
       return res.json({ ok: true, files });
     } catch (err) {
@@ -89,7 +98,7 @@ function registerIhracatExcelRoutes(api, ctx) {
           },
         });
       }
-      const read = await readNewestExcel(source, excelAgentStore);
+      const read = await readNewestExcel(source, excelAgentStore, kantarSiteOf(req));
       try {
         const patch = {
           fileName: read.fileName,
@@ -123,4 +132,4 @@ function registerIhracatExcelRoutes(api, ctx) {
   });
 }
 
-module.exports = { registerIhracatExcelRoutes, readNewestExcel };
+module.exports = { registerIhracatExcelRoutes, readNewestExcel, kantarSiteOf };

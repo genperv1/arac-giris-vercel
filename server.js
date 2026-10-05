@@ -779,8 +779,10 @@ async function withTransaction(handler, context = 'tx') {
 app.use((req, res, next) => {
   let limit = JSON_BODY_LIMIT;
   try {
-    if (req.method === 'POST' && String(req.path || '') === '/api/restore-full') limit = '50mb';
-    if ((req.method === 'POST' || req.method === 'PUT') && String(req.path || '').startsWith('/api/driver-trips')) limit = '15mb';
+    const reqPath = String(req.path || '');
+    if (req.method === 'PUT' && reqPath.startsWith('/api/excel-agent/upload')) return next();
+    if (req.method === 'POST' && reqPath === '/api/restore-full') limit = '50mb';
+    if ((req.method === 'POST' || req.method === 'PUT') && reqPath.startsWith('/api/driver-trips')) limit = '15mb';
   } catch (e) {}
   return bodyParser({ limit })(req, res, next);
 });
@@ -1296,7 +1298,7 @@ api.get('/print-spool/since', (req, res) => {
   });
 });
 
-// Kantar PC Excel Ajanı: oturum yerine EXCEL_AGENT_KEY ile korunur
+// Kantar PC Excel Ajanı: oturum yerine kantar anahtarıyla (EXCEL_AGENT_KEY_AVDAN / _1OSB) korunur
 registerExcelAgentRoutes(api, routeCtx);
 
 // JWT + yazma işlemleri için oturum zorunluluğu

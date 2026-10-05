@@ -1366,6 +1366,9 @@
   function onAgentUpload(data) {
     var name = String((data && data.fileName) || '').trim();
     if (!name) return;
+    var me = '';
+    try { me = String(localStorage.getItem('currentUserId') || '').trim().toUpperCase(); } catch (e) { me = ''; }
+    if (data.site && me && String(data.site).toUpperCase() !== me) return;
     var sources = [];
     try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
     var wanted = sources.some(function (n) { return sameExcelName(n, name); });
