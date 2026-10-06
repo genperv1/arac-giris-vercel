@@ -71,7 +71,7 @@ function registerIhracatExcelRoutes(api, ctx) {
       const site = kantarSiteOf(req);
       const wanted = fileLabelOf((req.body && req.body.fileName) || source.fileName).toLowerCase();
       if (site && wanted) {
-        const dropFiles = await readSettledFileLabels(q, site);
+        const dropFiles = await readSettledFileLabels(q);
         if (dropFiles.some((name) => String(name).toLowerCase() === wanted)) {
           return res.status(410).json({
             ok: false,

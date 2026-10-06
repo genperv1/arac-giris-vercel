@@ -659,3 +659,47 @@ test('tamamlanan Excel bir daha işlenmez; kantar silsin diye adı döner', asyn
   assert.ok(beat.dropFiles.includes('05.10.2026'));
   assert.equal(beat.dropFiles.includes('06.10.2026'), false);
 });
+
+test('tamamlanan dosya hangi kantarda yüklüyse oradan da düşer', async () => {
+  const done = (title, fileName) => ({
+    title, liman: 'EVYAP', fileName,
+    rows: [{ sira: '1', plaka: '43RY761', giden: '26000' }],
+  });
+  const open = (title, fileName) => ({
+    title, liman: 'EVYAP', fileName,
+    rows: [{ sira: '1', plaka: '43RY762', giden: '' }],
+  });
+  const avdan = harness({ username: 'AVDAN', role: 'admin' });
+  await avdan.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '03.10.2026-YD28.xlsx + 05.10.2026.xlsx + 06.10.2026.xlsx',
+    blocks: [
+      done('YD28 / LOT NO 2 / EVYAP', '03.10.2026-YD28.xlsx'),
+      done('YD05 / LOT NO 1 / EVYAP', '05.10.2026.xlsx'),
+      open('YD06 / LOT NO 3 / EVYAP', '06.10.2026.xlsx'),
+    ],
+  });
+  const osb = harness({ username: '1.OSB', role: 'admin' });
+  Object.assign(osb.store, avdan.store);
+  await osb.call('put /liman/snapshot', '195.175.103.150', {
+    site: '1.OSB',
+    fileName: '05.10.2026.xlsx',
+    blocks: [done('YD05 OSB / LOT NO 9 / EVYAP', '05.10.2026.xlsx')],
+  });
+  await osb.call('put /liman/heartbeat', '195.175.103.150', {
+    site: '1.OSB', excelLoaded: true, fileName: '05.10.2026.xlsx',
+  });
+  const view = await osb.call('get /liman', '1.1.1.1');
+  assert.equal(view.sites.AVDAN.fileName, '06.10.2026.xlsx');
+  assert.equal(view.sites['1.OSB'].fileName, '');
+  assert.equal(view.sites['1.OSB'].heartbeatFile, '');
+  assert.equal(view.sites['1.OSB'].heartbeatExcel, false);
+  const beat = await osb.call('put /liman/heartbeat', '195.175.103.150', {
+    site: '1.OSB', excelLoaded: true, fileName: '05.10.2026.xlsx',
+  });
+  assert.ok(beat.dropFiles.includes('05.10.2026'));
+  assert.ok(beat.dropFiles.includes('03.10.2026-YD28'));
+  assert.equal(beat.dropFiles.includes('06.10.2026'), false);
+  const day5 = view.days.find((d) => d.dateKey === '2026-10-05');
+  assert.ok(day5 && day5.blocks.length >= 1);
+});

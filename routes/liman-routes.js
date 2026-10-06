@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
-const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, settledFileLabels } = require('../lib/liman-sheet');
+const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, settledFileLabels, withoutSettledFiles } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { canManageLimanList } = require('../lib/amir-user');
 const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
@@ -428,11 +428,16 @@ function registerLimanRoutes(api, ctx, publicApp) {
   function publicSites(state) {
     const out = {};
     const hb = heartbeats(state);
+    const doneFiles = settledFileLabels(state);
+    const openName = (raw) => withoutSettledFiles(raw, doneFiles);
     SITES.forEach((site) => {
       const snap = state.sites[site];
       const beat = hb[site] || null;
+      const fileName = openName(snap && snap.fileName);
+      const heartbeatFile = openName(beat && beat.fileName);
+      const stillLoaded = !!(fileName || heartbeatFile);
       out[site] = (snap || beat) ? {
-        fileName: (snap && snap.fileName) || '',
+        fileName,
         updatedAt: (snap && snap.updatedAt) || '',
         receivedAt: (snap && (snap.receivedAt || snap.updatedAt)) || '',
         user: (snap && snap.user) || (beat && beat.user) || '',
@@ -440,8 +445,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
         hasList: !!snap,
         // Kantar PC'nin son nabzı (10 dk otomatik döngü): bağlı mı, Excel yüklü mü, oturum kimde
         heartbeatAt: (beat && beat.at) || '',
-        heartbeatExcel: beat ? !!beat.excel : null,
-        heartbeatFile: (beat && beat.fileName) || '',
+        heartbeatExcel: stillLoaded ? (beat ? !!beat.excel : null) : false,
+        heartbeatFile,
         // Son otomatik/elle Excel okumasının sonucu: true okundu, false okunamadı, null bilinmiyor (eski istemci)
         heartbeatReadOk: beat && typeof beat.readOk === 'boolean' ? beat.readOk : null,
         heartbeatReadReason: (beat && beat.readReason) || '',
@@ -603,12 +608,13 @@ function registerLimanRoutes(api, ctx, publicApp) {
         const hb = Object.assign({}, heartbeats(state));
         const prev = hb[site] || {};
         const at = new Date().toISOString();
+        const openFile = withoutSettledFiles(sanitizeString(body.fileName || '', 180), settledFileLabels(state));
         hb[site] = {
           at,
           user: sanitizeString((req.user && req.user.username) || '', 40),
           ip: requestIp(req),
-          excel: !!body.excelLoaded,
-          fileName: sanitizeString(body.fileName || '', 180),
+          excel: !!body.excelLoaded && !!openFile,
+          fileName: openFile,
           // Okuma sonucu taşımayan nabız (sayfa açılışı) son bilinen sonucu silmez
           readOk: readOk === null ? (typeof prev.readOk === 'boolean' ? prev.readOk : null) : readOk,
           readReason: readOk === false ? sanitizeString(body.readReason || '', 40) : (readOk === null ? (prev.readReason || '') : ''),
@@ -624,7 +630,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         ok: true,
         site,
         at: committed.at,
-        dropFiles: settledFileLabels(committed.state, site),
+        dropFiles: settledFileLabels(committed.state),
       });
     } catch (err) {
       logEvent('error', req, { path: 'heartbeat', error: String(err && err.message || err) });
@@ -653,7 +659,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         return row.irsaliyeNo || row.plaka || row.headerText;
       });
       const incomingBlocks = blocks;
-      const dropSetOf = (state) => new Set(settledFileLabels(state, site).map((label) => label.toLowerCase()));
+      const dropSetOf = (state) => new Set(settledFileLabels(state).map((label) => label.toLowerCase()));
       const blockIsSettled = (block, state) => {
         const label = (fileLabelOf(block && block.fileName) || fileLabelOf(fileName) || '').toLowerCase();
         return !!(label && dropSetOf(state).has(label));
@@ -677,10 +683,10 @@ function registerLimanRoutes(api, ctx, publicApp) {
         const activeRows = rows.filter((row) => !blockIsSettled(row, state));
         // Tamamlanan Excel bir daha işlenmez: limandaki liste durur, kantar dosyayı siler.
         if (incomingBlocks.length && !activeBlocks.length) {
-          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state, site) };
+          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state) };
         }
         if (!incomingBlocks.length && rows.length && !activeRows.length) {
-          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state, site) };
+          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state) };
         }
         // Boş gönderim (Excel silindi) listeyi silmez. Dolu gönderim: o dosya güncellenir, yeni kitap eklenir, eksik kitap durur.
         if (activeBlocks.length) {
@@ -701,18 +707,22 @@ function registerLimanRoutes(api, ctx, publicApp) {
           snapshot.blocks = [];
           snapshot.rows = activeRows;
         }
+        const openLabels = settledFileLabels(Object.assign({}, state, {
+          sites: Object.assign({}, state.sites, { [site]: snapshot }),
+        }));
+        snapshot.fileName = withoutSettledFiles(snapshot.fileName || fileName, openLabels);
         const sameContent = prev && prev.fileName === snapshot.fileName
           && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
           && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
         noteFileSeen(state, snapshot);
-        const dropFiles = settledFileLabels(state, site);
+        const dropFiles = settledFileLabels(state);
         if (sameContent) {
           state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
           return { unchanged: true, silent: true, dropFiles };
         }
         snapshot.receivedAt = snapshot.updatedAt;
         state.sites[site] = snapshot;
-        return { unchanged: false, dropFiles: settledFileLabels(state, site) };
+        return { unchanged: false, dropFiles: settledFileLabels(state) };
       }, { silent: false });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
       const dropFiles = committed.dropFiles || [];

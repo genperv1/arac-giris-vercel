@@ -118,7 +118,7 @@ function registerExcelAgentRoutes(api, ctx) {
 
   api.get('/excel-agent/ping', guard, async (req, res) => {
     const script = readAgentScript(scriptPath);
-    const dropFiles = await readSettledFileLabels(q, req.agentSite);
+    const dropFiles = await readSettledFileLabels(q);
     res.setHeader('Cache-Control', 'no-store');
     res.json({ ok: true, version: script ? script.version : '', serverTime: Date.now(), dropFiles });
   });
@@ -151,7 +151,7 @@ function registerExcelAgentRoutes(api, ctx) {
             error: { code: 'EXCEL_AGENT_BAD_NAME', message: 'Geçersiz Excel dosya adı.' },
           });
         }
-        const dropFiles = await readSettledFileLabels(q, req.agentSite);
+        const dropFiles = await readSettledFileLabels(q);
         const label = fileLabelOf(fileName).toLowerCase();
         if (label && dropFiles.some((name) => String(name).toLowerCase() === label)) {
           return res.json({ ok: true, dropped: true, dropFiles });
