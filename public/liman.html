@@ -21,7 +21,7 @@
     .btn { background: #166534; color: #fff; }
     .btn-print { background: #fff; color: #14532d; }
     .search { border: 0; border-radius: 4px; padding: 8px 10px; min-width: 160px; font: inherit; }
-    .wrap { padding: 14px 12px 48px; }
+    .wrap { padding: 14px 12px 64px; }
     /* Bilgisayar: sayfa ortalanır; küçük sayı sütunları (çuval, palet, boş bbt/çuval ≤ 2 hane, yükleme yeri ≤ 5 karakter) dar tutulur */
     .sheet { min-width: 980px; max-width: 1360px; margin: 0 auto; }
     table.grid th.c-sira, table.grid td.c-sira { width: 30px; }
@@ -106,9 +106,10 @@
     .gelmeyen .g-rem { margin-top: 4px; font-size: .82rem; color: #c2410c; }
     .multi-line { margin: 0; padding: 4px 10px; background: #fffaf3; color: #b45309; border-top: 1px solid #f5e1c8; font-size: .78rem; font-weight: 500; }
     .empty { padding: 28px 12px; color: #3f6212; }
-    .tabbar { position: fixed; left: 0; right: 0; bottom: 0; background: #e5e7eb; border-top: 1px solid #9ca3af; padding: 4px 8px; }
-    .tab { display: inline-block; background: #f3f4f6; border: 1px solid #9ca3af; border-top: 0; padding: 4px 12px; font: inherit; font-size: .8rem; font-weight: 700; color: #374151; cursor: pointer; margin-right: 2px; }
+    .tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: 2px; background: #e5e7eb; border-top: 1px solid #9ca3af; padding: 3px 8px 4px; overflow-x: auto; }
+    .tab { display: inline-flex; flex-direction: column; align-items: center; justify-content: flex-end; background: #f3f4f6; border: 1px solid #9ca3af; border-top: 0; padding: 3px 12px 4px; font: inherit; font-size: .8rem; font-weight: 700; color: #374151; cursor: pointer; line-height: 1.15; }
     .tab.is-on { background: #fff; color: #14532d; box-shadow: inset 0 -3px 0 #16a34a; }
+    .tab-done { display: block; margin-bottom: 1px; font-size: .68rem; font-weight: 800; letter-spacing: .01em; color: #166534; line-height: 1; }
     table.grid td.durum { color: #c2410c; font-weight: 700; }
     table.grid td.durum.is-out { color: #166534; }
     .progress-line { margin: 0; padding: 4px 10px; background: #f8fafc; color: #475569; font-size: .8rem; font-weight: 700; border-bottom: 1px solid #e2e8f0; }
@@ -152,7 +153,7 @@
 
     /* ===== Telefon (liman görevlisi): plaka · durum · şoför · telefon öne çıkar ===== */
     @media (max-width: 760px) {
-      body { padding-bottom: 56px; }
+      body { padding-bottom: 72px; }
       .top-inner { padding: 8px 10px 10px; }
       .top h1 { font-size: .95rem; }
       .title-row { gap: 6px; }
@@ -274,6 +275,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
-  <script src="liman.js?v=20261006-liman63-mobil"></script>
+  <script src="liman.js?v=20261006-liman-tamamlandi"></script>
 </body>
 </html>

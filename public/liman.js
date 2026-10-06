@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var state = { days: [], closedDays: [], canEdit: false, day: '', file: '', port: '', plate: '', reports: null };
+  var state = { days: [], closedDays: [], canEdit: false, canClose: false, day: '', file: '', port: '', plate: '', reports: null };
   var toastTimer = 0;
 
   function $(id) { return document.getElementById(id); }
@@ -43,6 +43,7 @@
     state.version = data.version || '';
     if (data.sheet) state.sheetStamp = data.sheet;
     state.canEdit = !!data.canEdit;
+    state.canClose = !!data.canClose;
     state.sites = data.sites || {};
     state.closedDays = Array.isArray(data.closedDays) ? data.closedDays : [];
     state.events = Array.isArray(data.events) ? data.events : [];
@@ -153,10 +154,10 @@
         }).join('') + '</ul></details>';
     }
 
-    // Sevkiyat bitince amir günün listesini kapatır; liman tarafı o günü görmez.
+    // Sevkiyat bitince listeyi yalnız Selahattin Toker kapatır; liman tarafı o günü görmez.
     var day = activeDay();
     var closeRow = '';
-    if (day) {
+    if (state.canClose && day) {
       closeRow = '<span class="close-day-text">Sevkiyat bitti mi? Liman görevlisi bu listeyi artık görmesin:</span>' +
         '<button type="button" class="btn btn-close-day" data-close-day="' + esc(day.dateKey) + '">' + esc(day.label) + ' listesini kapat</button>';
     }
@@ -164,9 +165,11 @@
     if (state.closedDays.length) {
       closedRow = '<span class="closed-label">Kapalı listeler:</span> ' + state.closedDays.map(function (c) {
         var when = c.at ? new Date(c.at).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        var reopen = state.canClose
+          ? ' <button type="button" class="chip chip-reopen" data-reopen-day="' + esc(c.dateKey) + '">Yeniden aç</button>'
+          : '';
         return '<span class="closed-item"><b>' + esc(c.label) + '</b> · ' + (c.rowCount || 0) + ' satır' +
-          (when ? ' · ' + esc(when) : '') + (c.by ? ' · ' + esc(c.by) : '') +
-          ' <button type="button" class="chip chip-reopen" data-reopen-day="' + esc(c.dateKey) + '">Yeniden aç</button></span>';
+          (when ? ' · ' + esc(when) : '') + (c.by ? ' · ' + esc(c.by) : '') + reopen + '</span>';
       }).join(' ');
     }
     if (closeRow || closedRow) {
@@ -427,6 +430,17 @@
     return { done: done, total: rows.length, complete: rows.length > 0 && done === rows.length };
   }
 
+  /** Sekmedeki her sevkiyat bloğunda bütün araçlar çıktıysa liste bitmiştir. */
+  function tabShipmentsDone(tab) {
+    var day = state.days.filter(function (d) { return d.dateKey === tab.dateKey; })[0];
+    if (!day) return false;
+    var blocks = (day.blocks || []).filter(function (block) {
+      var files = block.files || [];
+      return !tab.file || !files.length || files.indexOf(tab.file) >= 0;
+    });
+    return blocks.length > 0 && blocks.every(function (block) { return blockProgress(block).complete; });
+  }
+
   function numCell(value) {
     var s = String(value == null ? '' : value).trim();
     if (!s || s === '0' || s === '0.0') return '';
@@ -578,8 +592,11 @@
     $('ports').innerHTML = html;
     $('sheetTabs').innerHTML = sheetTabs().map(function (t) {
       var on = t.dateKey === state.day && (!t.file || state.file === t.file);
-      return '<button type="button" class="tab' + (on ? ' is-on' : '') + '" data-day="' + esc(t.dateKey) + '"' +
-        (t.file ? ' data-file="' + esc(t.file) + '"' : '') + '>' + esc(t.label) + '</button>';
+      var done = tabShipmentsDone(t);
+      return '<button type="button" class="tab' + (on ? ' is-on' : '') + (done ? ' is-done' : '') + '" data-day="' + esc(t.dateKey) + '"' +
+        (t.file ? ' data-file="' + esc(t.file) + '"' : '') + '>' +
+        (done ? '<span class="tab-done">tamamlandı</span>' : '') +
+        '<span class="tab-date">' + esc(t.label) + '</span></button>';
     }).join('');
   }
 

@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
 const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
+const { canManageLimanList } = require('../lib/amir-user');
 const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
 
 // Liman görevlisi / gözetmen oturum açmadan bakar: okuma uçları herkese açık,
@@ -496,6 +497,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
       version,
       sheet: sheetStampOf(state),
       canEdit: amir,
+      // Kapat / yeniden aç / listeyi kaldır: yalnız Selahattin Toker
+      canClose: canManageLimanList(req.user),
       sites: publicSites(state),
       days: amir ? days : withoutTasiyici(days),
       // Alt sekme sırası: Excel'in ilk geliş anı (soldan sağa ilk yüklenenden son yüklenene)
@@ -706,6 +709,9 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   api.delete('/liman/snapshot/:site', requireAmir, async (req, res) => {
     try {
+      if (!canManageLimanList(req.user)) {
+        return res.status(403).json({ ok: false, error: 'Listeyi kaldırmak yalnızca Selahattin Toker hesabına açıktır.' });
+      }
       const site = normalizeSite(req.params.site);
       if (!site) return res.status(400).json({ ok: false, error: 'Geçersiz yükleme yeri.' });
       const committed = await commitState((state) => {
@@ -736,12 +742,15 @@ function registerLimanRoutes(api, ctx, publicApp) {
     }
   });
 
-  // Amir: sevkiyat bitince günün listesini kapatır. Liman tarafında o gün görünmez;
+  // Selahattin Toker: sevkiyat bitince günün listesini kapatır. Liman tarafında o gün görünmez;
   // sonraki günün listesi yüklüyse o kalır, yoksa liste boş olur. Kantar aynı dosyayı
   // yeniden gönderse de gün kapalı kalır (tarih dosya adından geldiği için).
-  // Kapatmadan önce günün son hali arşive mühürlenir (sayı kontrol bunu kullanır).
+  // Kantarcı ve diğer amirler kapatamaz. Kapatmadan önce günün son hali arşive mühürlenir.
   api.put('/liman/day/:dateKey/close', requireAmir, async (req, res) => {
     try {
+      if (!canManageLimanList(req.user)) {
+        return res.status(403).json({ ok: false, error: 'Listeyi kapatmak yalnızca Selahattin Toker hesabına açıktır.' });
+      }
       const key = dayKeyParam(req);
       if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
       const by = sanitizeString((req.user && req.user.username) || '', 40);
@@ -765,6 +774,9 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   api.delete('/liman/day/:dateKey/close', requireAmir, async (req, res) => {
     try {
+      if (!canManageLimanList(req.user)) {
+        return res.status(403).json({ ok: false, error: 'Kapalı listeyi açmak yalnızca Selahattin Toker hesabına açıktır.' });
+      }
       const key = dayKeyParam(req);
       if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
       const committed = await commitState((state) => {

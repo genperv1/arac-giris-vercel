@@ -141,6 +141,54 @@ test('amir günü kapatınca liman o günü görmez; sonraki gün kalır, yenide
   assert.equal(bad.ok, false);
   const badKey = await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: 'x' });
   assert.equal(badKey.ok, false);
+  assert.equal(reopened.canClose, true);
+});
+
+test('listeyi kapatma, açma ve kaldırma yalnız Selahattin Toker hesabında', async () => {
+  const kantar = { username: 'AVDAN', role: 'admin' };
+  const h = harness(kantar);
+  await h.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '03.10.2026.xlsx',
+    blocks: [block('YD1 / LOT NO 1 / SAFİPORT', 'AVDAN')],
+  });
+
+  const denied = [
+    { username: 'saban', role: 'amir' },
+    { username: 'ugur', role: 'amir' },
+    { username: 'AVDAN', role: 'admin' },
+    { username: '1.OSB', role: 'admin' },
+  ];
+  for (const user of denied) {
+    const other = harness(user);
+    Object.assign(other.store, h.store);
+    const view = await other.call('get /liman', '1.1.1.1');
+    assert.equal(view.canClose, false, user.username);
+    const closed = await other.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+    assert.equal(closed.ok, false, user.username);
+    const reopened = await other.call('delete /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+    assert.equal(reopened.ok, false, user.username);
+    const removed = await other.call('delete /liman/snapshot/:site', '1.1.1.1', {}, { site: 'AVDAN' });
+    assert.equal(removed.ok, false, user.username);
+    const after = await other.call('get /liman', '1.1.1.1');
+    assert.deepEqual(after.days.map((d) => d.dateKey), ['2026-10-03'], user.username);
+    assert.deepEqual(after.closedDays, [], user.username);
+  }
+
+  const still = await h.call('get /liman', '1.1.1.1');
+  assert.deepEqual(still.days.map((d) => d.dateKey), ['2026-10-03']);
+  assert.deepEqual(still.closedDays, []);
+  assert.equal(still.canClose, false);
+
+  const selahattin = harness({ username: 'xxr', role: 'amir' });
+  Object.assign(selahattin.store, h.store);
+  const mine = await selahattin.call('get /liman', '1.1.1.1');
+  assert.equal(mine.canEdit, true);
+  assert.equal(mine.canClose, true);
+  const closed = await selahattin.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.deepEqual(closed.days, []);
+  assert.equal(closed.closedDays[0].by, 'xxr');
+  const opened = await selahattin.call('delete /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.deepEqual(opened.days.map((d) => d.dateKey), ['2026-10-03']);
 });
 
 test('liman okuma uçları oturumsuz çalışır (canEdit false, kapalı günler görünür)', async () => {
