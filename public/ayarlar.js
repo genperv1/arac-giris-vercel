@@ -2105,7 +2105,7 @@
       try {
         var amirRole = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
         var amirId = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-        amirSession = amirRole === 'amir' || amirId === 'xxr' || amirId === 'saban';
+        amirSession = amirRole === 'amir' || amirId === 'xxr' || amirId === 'saban' || amirId === 'ugur';
       } catch (e) { amirSession = false; }
       if (sessionOk && !amirSession) {
         try {

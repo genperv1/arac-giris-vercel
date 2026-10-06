@@ -812,7 +812,7 @@
         try {
             const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
             const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-            return role === 'amir' || id === 'xxr' || id === 'saban';
+            return role === 'amir' || id === 'xxr' || id === 'saban' || id === 'ugur';
         } catch (e) {
             return false;
         }
@@ -833,6 +833,7 @@
     function amirDisplayLabel() {
         const id = currentUserKey();
         if (id === 'saban') return 'ŞABAN LAHAÇLAR';
+        if (id === 'ugur') return 'UĞUR AKTAŞ';
         if (id === 'xxr') return 'SELAHATTİN TOKER';
         return 'GENPER · AMİR';
     }
@@ -897,9 +898,19 @@
         const upper = raw.toLocaleUpperCase('tr-TR').replace(/\s+/g, '');
         if (upper === 'AVDAN') return 'AVDAN';
         if (upper === '1.OSB' || upper === '1OSB' || upper === 'OSB') return '1.OSB';
-        if (upper === 'AMIR' || raw === 'AMİR' || upper === 'SELAHATTİN' || upper === 'SELAHATTIN') return 'AMIR';
+        if (upper === 'AMIR' || raw === 'AMİR' || upper === 'SELAHATTİN' || upper === 'SELAHATTIN' || upper === 'XXR') return 'AMIR';
         if (upper === 'SABAN' || upper === 'ŞABAN') return 'SABAN';
+        if (upper === 'UGUR' || upper === 'UĞUR') return 'UGUR';
         return '';
+    }
+
+    function canDirectMessage() {
+        const id = currentUserKey();
+        return id === 'xxr' || id === 'saban';
+    }
+
+    function isPersonPresenceKey(key) {
+        return key === 'AMIR' || key === 'SABAN' || key === 'UGUR';
     }
 
     function currentKantarSite() {
@@ -921,10 +932,13 @@
             let title = online ? 'çevrimiçi' : (p.lastSeen ? 'son görülme ' + new Date(p.lastSeen).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'çevrimdışı');
             let extra = '';
             let small = online ? 'online' : 'offline';
-            if (amir && (key === 'AVDAN' || key === '1.OSB')) {
+            const mine = presenceSiteKey(currentUserKey());
+            const kantarNudge = amir && (key === 'AVDAN' || key === '1.OSB');
+            const personDm = canDirectMessage() && isPersonPresenceKey(key) && key !== mine;
+            if (kantarNudge || personDm) {
                 if (online) {
                     cls += ' is-nudge';
-                    title = label + ' kantarını titre';
+                    title = personDm ? (label + ' özel mesaj') : (label + ' kantarını titre');
                     extra = ' role="button" tabindex="0"';
                 } else {
                     cls += ' is-nudge-off';
@@ -939,7 +953,7 @@
             return '<span class="' + cls + '" data-presence-key="' + key + '" data-online="' + (online ? '1' : '0') + '" title="' + title + '"' + extra + '><i aria-hidden="true"></i>' + label + ' <small>' + small + '</small></span>';
         }).join('');
         if (items) return items;
-        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['SELAHATTİN', 'AMIR'], ['ŞABAN', 'SABAN']].map((pair) =>
+        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['SELAHATTİN', 'AMIR'], ['ŞABAN', 'SABAN'], ['UĞUR', 'UGUR']].map((pair) =>
             '<span class="presence-item" data-presence-key="' + pair[1] + '"><i aria-hidden="true"></i>' + pair[0] + ' <small>…</small></span>'
         ).join('');
     }
@@ -978,7 +992,7 @@
     function setNudgeStatus(nudge) {
         if (!nudge || !nudge.id) return;
         const key = presenceSiteKey(nudge.target);
-        if (key !== 'AVDAN' && key !== '1.OSB') return;
+        if (key !== 'AVDAN' && key !== '1.OSB' && !isPersonPresenceKey(key)) return;
         const map = readNudgeStatus();
         const prev = map[key];
         if (prev && prev.id !== nudge.id && Number(prev.ts) > Number(nudge.ts)) return;
@@ -1045,7 +1059,17 @@
             + '.gpm-nn-ok{min-width:160px;border:0;border-radius:12px;background:#ea580c;color:#fff;font:800 17px/1 "Segoe UI",Tahoma,sans-serif;padding:14px 22px;cursor:pointer;box-shadow:0 8px 18px rgba(234,88,12,.35)}'
             + '.gpm-nn-ok:hover{background:#c2410c}'
             + '.gpm-nn-ok:focus{outline:3px solid rgba(234,88,12,.4);outline-offset:3px}'
-            + '#gpmNudgeToast{position:fixed;right:16px;bottom:20px;z-index:2147483601;background:#7c2d12;color:#fff7ed;padding:10px 14px;border-radius:10px;font:700 14px/1.35 "Segoe UI",Tahoma,sans-serif;box-shadow:0 10px 28px rgba(124,45,18,.35)}';
+            + '#gpmNudgeToast{position:fixed;right:16px;bottom:20px;z-index:2147483601;background:#7c2d12;color:#fff7ed;padding:10px 14px;border-radius:10px;font:700 14px/1.35 "Segoe UI",Tahoma,sans-serif;box-shadow:0 10px 28px rgba(124,45,18,.35)}'
+            + '#gpmDmCompose{position:fixed;inset:0;z-index:2147483603;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.45)}'
+            + '.gpm-dm-card{width:min(420px,100%);background:#fff;border-radius:18px;border-top:6px solid #1d4ed8;box-shadow:0 24px 60px rgba(0,0,0,.35);padding:22px 22px 18px;font-family:"Segoe UI",Tahoma,sans-serif}'
+            + '.gpm-dm-kicker{font-size:12px;font-weight:800;letter-spacing:.12em;color:#1e3a8a}'
+            + '.gpm-dm-who{margin:6px 0 12px;font-size:20px;font-weight:800;color:#0f172a}'
+            + '.gpm-dm-input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:12px;padding:12px 14px;font:600 16px/1.4 "Segoe UI",Tahoma,sans-serif;resize:vertical;min-height:88px}'
+            + '.gpm-dm-input:focus{outline:3px solid rgba(37,99,235,.28);border-color:#2563eb}'
+            + '.gpm-dm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}'
+            + '.gpm-dm-cancel,.gpm-dm-send{border:0;border-radius:10px;padding:12px 16px;font:800 15px/1 "Segoe UI",Tahoma,sans-serif;cursor:pointer}'
+            + '.gpm-dm-cancel{background:#e2e8f0;color:#334155}'
+            + '.gpm-dm-send{background:#1d4ed8;color:#fff}';
         document.head.appendChild(style);
     }
 
@@ -1110,8 +1134,9 @@
         } catch (e) { /* ignore */ }
     }
 
-    function flashAmirPresence() {
-        document.querySelectorAll('[data-presence-key="AMIR"]').forEach((el) => {
+    function flashAmirPresence(key) {
+        const sel = '[data-presence-key="' + (presenceSiteKey(key) || 'AMIR') + '"]';
+        document.querySelectorAll(sel).forEach((el) => {
             el.classList.remove('is-called');
             void el.offsetWidth;
             el.classList.add('is-called');
@@ -1125,8 +1150,8 @@
         if (!mine || presenceSiteKey(nudge.target) !== mine) return;
         nudgeSeen.add(nudge.id);
         if (nudge.ts) nudgeSince = Math.max(nudgeSince, Number(nudge.ts) || 0);
-        openNudgeNotice(nudge.id);
-        flashAmirPresence();
+        openNudgeNotice(nudge);
+        flashAmirPresence(nudge.fromKey || 'AMIR');
     }
 
     const NUDGE_NOTICE_TEXT = 'Evrakları sevkiyat ofisine gönderin.';
@@ -1193,9 +1218,10 @@
         document.documentElement.classList.remove('gpm-nn-open');
     }
 
-    function openNudgeNotice(id) {
+    function openNudgeNotice(nudgeOrId) {
         ensureNudgeStyle();
-        nudgeNoticeId = String(id || '');
+        const nudge = nudgeOrId && typeof nudgeOrId === 'object' ? nudgeOrId : { id: nudgeOrId };
+        nudgeNoticeId = String(nudge.id || '');
         let root = document.getElementById('gpmNudgeNotice');
         if (!root) {
             root = document.createElement('div');
@@ -1217,7 +1243,9 @@
             root.querySelector('.gpm-nn-ok').addEventListener('click', () => closeNudgeNotice(true));
             document.body.appendChild(root);
         }
-        root.querySelector('.gpm-nn-text').textContent = NUDGE_NOTICE_TEXT;
+        const fromEl = root.querySelector('.gpm-nn-from');
+        if (fromEl) fromEl.textContent = String(nudge.from || 'AMİR');
+        root.querySelector('.gpm-nn-text').textContent = String(nudge.text || NUDGE_NOTICE_TEXT);
         document.documentElement.classList.add('gpm-nn-open');
         try { root.querySelector('.gpm-nn-ok').focus({ preventScroll: true }); } catch (e) { /* ignore */ }
         if (nudgeRepeatTimer) clearInterval(nudgeRepeatTimer);
@@ -1243,9 +1271,59 @@
         });
     }
 
-    async function sendNudge(target) {
+    function closeDmComposer() {
+        const root = document.getElementById('gpmDmCompose');
+        if (root) root.remove();
+    }
+
+    function openDmComposer(key) {
+        ensureNudgeStyle();
+        closeDmComposer();
+        const who = ({ AMIR: 'SELAHATTİN TOKER', SABAN: 'ŞABAN LAHAÇLAR', UGUR: 'UĞUR AKTAŞ' })[key] || key;
+        const root = document.createElement('div');
+        root.id = 'gpmDmCompose';
+        root.setAttribute('role', 'dialog');
+        root.setAttribute('aria-modal', 'true');
+        root.setAttribute('aria-label', 'Özel mesaj');
+        root.innerHTML = ''
+            + '<form class="gpm-dm-card">'
+            + '<div class="gpm-dm-kicker">ÖZEL MESAJ</div>'
+            + '<div class="gpm-dm-who"></div>'
+            + '<textarea class="gpm-dm-input" maxlength="240" placeholder="Bildirim metni" required></textarea>'
+            + '<div class="gpm-dm-actions">'
+            + '<button type="button" class="gpm-dm-cancel">Vazgeç</button>'
+            + '<button type="submit" class="gpm-dm-send">Gönder</button>'
+            + '</div></form>';
+        root.querySelector('.gpm-dm-who').textContent = who;
+        root.addEventListener('click', (ev) => { if (ev.target === root) closeDmComposer(); });
+        root.querySelector('.gpm-dm-cancel').addEventListener('click', closeDmComposer);
+        root.querySelector('form').addEventListener('submit', (ev) => {
+            ev.preventDefault();
+            const text = root.querySelector('.gpm-dm-input').value;
+            closeDmComposer();
+            sendNudge(key, text);
+        });
+        root.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') { ev.preventDefault(); closeDmComposer(); }
+        });
+        document.body.appendChild(root);
+        try { root.querySelector('.gpm-dm-input').focus(); } catch (e) { /* ignore */ }
+    }
+
+    async function sendNudge(target, text) {
         const key = presenceSiteKey(target);
-        if (!isAmirUser() || (key !== 'AVDAN' && key !== '1.OSB')) return;
+        const person = isPersonPresenceKey(key);
+        const mine = presenceSiteKey(currentUserKey());
+        if (person) {
+            if (!canDirectMessage() || key === mine) return;
+        } else if (!isAmirUser() || (key !== 'AVDAN' && key !== '1.OSB')) {
+            return;
+        }
+        const body = String(text || '').trim();
+        if (person && !body) {
+            nudgeToast('Mesaj yazın');
+            return;
+        }
         const now = Date.now();
         if (nudgeLastSend[key] && now - nudgeLastSend[key] < NUDGE_COOLDOWN_MS) {
             nudgeToast('Biraz bekleyin');
@@ -1253,16 +1331,17 @@
         }
         markPresenceSending(key, true);
         try {
+            const payload = person ? { target: key, text: body } : { target: key };
             const res = await fetch('/api/nudge', {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target: key }),
+                body: JSON.stringify(payload),
             });
             let data = {};
             try { data = await res.json(); } catch (e) { data = {}; }
             if (res.status === 409) {
-                nudgeToast(key + ' çevrimdışı');
+                nudgeToast((person ? 'Kişi' : key) + ' çevrimdışı');
                 return;
             }
             if (res.status === 429) {
@@ -1270,31 +1349,37 @@
                 return;
             }
             if (!res.ok) {
-                nudgeToast('Çağrı gönderilemedi');
+                nudgeToast(person ? 'Mesaj gönderilemedi' : 'Çağrı gönderilemedi');
                 return;
             }
             nudgeLastSend[key] = Date.now();
-            nudgeToast(key + ' çağrıldı');
+            nudgeToast(person ? 'Mesaj gönderildi' : (key + ' çağrıldı'));
             if (data && data.nudge) {
                 setNudgeStatus(data.nudge);
                 watchNudgeStatus();
             }
         } catch (e) {
-            nudgeToast('Çağrı gönderilemedi');
+            nudgeToast(person ? 'Mesaj gönderilemedi' : 'Çağrı gönderilemedi');
         } finally {
             setTimeout(() => markPresenceSending(key, false), 400);
         }
     }
 
     function onPresenceNudgeActivate(el) {
-        if (!el || !isAmirUser()) return;
+        if (!el) return;
         const key = presenceSiteKey(el.getAttribute('data-presence-key'));
-        if (key !== 'AVDAN' && key !== '1.OSB') return;
-        if (el.classList.contains('is-nudge-off') || el.getAttribute('data-online') !== '1') {
-            nudgeToast(key + ' çevrimdışı');
+        const person = isPersonPresenceKey(key);
+        if (person) {
+            if (!canDirectMessage() || key === presenceSiteKey(currentUserKey())) return;
+        } else if (!isAmirUser() || (key !== 'AVDAN' && key !== '1.OSB')) {
             return;
         }
-        sendNudge(key);
+        if (el.classList.contains('is-nudge-off') || el.getAttribute('data-online') !== '1') {
+            nudgeToast((person ? 'Kişi' : key) + ' çevrimdışı');
+            return;
+        }
+        if (person) openDmComposer(key);
+        else sendNudge(key);
     }
 
     function bindNudgeControls() {

@@ -7,6 +7,8 @@ const path = require('path');
 const {
   normalizeTarget,
   siteFromUsername,
+  nudgeTarget,
+  inboxKeyFromUsername,
   isTargetOnline,
   createNudgeStore,
   NUDGE_TTL_MS,
@@ -20,6 +22,9 @@ test('hedef AVDAN / 1.OSB; amir kullanıcı adı hedef değildir', () => {
   assert.equal(normalizeTarget('1.osb'), '1.OSB');
   assert.equal(siteFromUsername('AVDAN'), 'AVDAN');
   assert.equal(siteFromUsername('xxr'), '');
+  assert.equal(nudgeTarget('xxr'), 'AMIR');
+  assert.equal(nudgeTarget('şaban'), 'SABAN');
+  assert.equal(inboxKeyFromUsername('ugur'), 'UGUR');
   assert.equal(isTargetOnline([{ key: 'AVDAN', online: true }], 'AVDAN'), true);
   assert.equal(isTargetOnline([{ key: '1.OSB', online: false }], '1.OSB'), false);
 });
@@ -89,7 +94,9 @@ function harness(user) {
       return [
         { key: 'AVDAN', online: this.users.includes('AVDAN') },
         { key: '1.OSB', online: this.users.includes('1.OSB') },
-        { key: 'AMIR', online: true },
+        { key: 'AMIR', online: this.users.includes('xxr') },
+        { key: 'SABAN', online: this.users.includes('saban') },
+        { key: 'UGUR', online: this.users.includes('ugur') },
       ];
     },
   };
@@ -172,6 +179,37 @@ test('kantar Tamam deyince amir okundu bilgisini alır', async () => {
   assert.equal(kantarStatus.status, 403);
 });
 
+test('selahattin ve şaban çevrimiçi herkese özel mesaj atar; uğur atamaz', async () => {
+  const saban = harness({ username: 'saban', role: 'amir' });
+  saban.presence.touch({ username: 'ugur' });
+  const missing = await saban.call('post /nudge', { body: { target: 'UGUR', text: '   ' } });
+  assert.equal(missing.status, 400);
+  assert.equal(missing.out.code, 'BAD_TEXT');
+
+  const sent = await saban.call('post /nudge', { body: { target: 'UGUR', text: 'Ofise gel' } });
+  assert.equal(sent.status, 200);
+  assert.equal(sent.out.nudge.target, 'UGUR');
+  assert.equal(sent.out.nudge.from, 'ŞABAN LAHAÇLAR');
+  assert.equal(sent.out.nudge.text, 'Ofise gel');
+
+  const self = await saban.call('post /nudge', { body: { target: 'SABAN', text: 'kendime' } });
+  assert.equal(self.status, 400);
+  assert.equal(self.out.code, 'SELF');
+
+  const ugur = harness({ username: 'ugur', role: 'amir' });
+  ugur.presence.touch({ username: 'xxr' });
+  const blocked = await ugur.call('post /nudge', { body: { target: 'AMIR', text: 'selam' } });
+  assert.equal(blocked.status, 403);
+
+  const xxr = harness({ username: 'xxr', role: 'amir' });
+  xxr.presence.touch({ username: 'saban' });
+  const reply = await xxr.call('post /nudge', { body: { target: 'ŞABAN', text: 'geliyorum' } });
+  assert.equal(reply.status, 200);
+  assert.equal(reply.out.nudge.target, 'SABAN');
+  const inbox = await xxr.call('get /nudge', { user: { username: 'saban', role: 'amir' }, query: { since: 0 } });
+  assert.equal(inbox.out.nudge.text, 'geliyorum');
+});
+
 test('kantar: titreyen, arkası bulanık, Tamam deyince kapanan evrak notu', () => {
   const sm = fs.readFileSync(path.join(__dirname, '../public/session-manager.js'), 'utf8');
   assert.match(sm, /\/api\/nudge/);
@@ -188,5 +226,26 @@ test('kantar: titreyen, arkası bulanık, Tamam deyince kapanan evrak notu', () 
   assert.match(sm, /kantar_nudge_ack/);
   assert.match(sm, /NUDGE_RING_MAX = 10/);
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
-  assert.match(giris, /session-manager\.js\?v=20261004-nudge4/);
+  assert.match(giris, /session-manager\.js\?v=20261006-ugur/);
+  assert.match(sm, /ÖZEL MESAJ/);
+  assert.match(sm, /UĞUR AKTAŞ/);
+});
+
+test('kişiye özel mesaj metin ister; kantar metinsiz evrak notu alır', () => {
+  let now = 8_000_000;
+  const store = createNudgeStore({ now: () => now, id: () => 'dm1' });
+  const online = [
+    { key: 'UGUR', online: true },
+    { key: 'AVDAN', online: true },
+  ];
+  const empty = store.send('UGUR', online, 'SELAHATTİN TOKER', '   ', 'AMIR');
+  assert.equal(empty.code, 'BAD_TEXT');
+  const sent = store.send('UGUR', online, 'SELAHATTİN TOKER', 'Kapıya gel', 'AMIR');
+  assert.equal(sent.ok, true);
+  assert.equal(sent.nudge.text, 'Kapıya gel');
+  assert.equal(sent.nudge.fromKey, 'AMIR');
+  assert.equal(store.pending('ugur', 0).text, 'Kapıya gel');
+  assert.equal(store.pending('xxr', 0), null);
+  const kantar = store.send('AVDAN', online, 'ŞABAN LAHAÇLAR');
+  assert.equal(kantar.nudge.text, 'Evrakları sevkiyat ofisine gönderin.');
 });

@@ -66,6 +66,64 @@ test('sıra başlığı 100 olan blokta dolu giden kg gelmeyen sayılmaz', () =>
   assert.deepEqual(plates, ['43AE599']);
 });
 
+test('Excel hücresi aynı irsaliyede bile günlük satırdan ezilmez', () => {
+  const parser = loadParser();
+  const title = 'YD47(M) / LOT NO 26 08 32 / HP074218 / 100 TON / SAFİPORT';
+  const blocks = [{
+    title,
+    rows: [{ sira: '1', plaka: '43AEA633', bbt: '10', net: '10.000', giden: '10.100', irsaliye: 'R01202604075' }],
+  }];
+  const rows = [{
+    sira: '1', plaka: '43AEA633', bbt: '10', netTonaj: '20.000', gidenTonaj: '20.240',
+    irsaliyeNo: 'R01202604075', headerText: title,
+  }];
+  const out = parser.syncLimanBlocksFromRows(blocks, rows);
+  assert.equal(out[0].rows[0].bbt, '10');
+  assert.equal(out[0].rows[0].net, '10.000');
+  assert.equal(out[0].rows[0].giden, '10.100');
+});
+
+test('aynı plaka iki sevkiyatta: 10 ton satırına 20 ton yazılmaz', () => {
+  const parser = loadParser();
+  const big = 'YD47(M) / LOT NO 26 08 32 / HP0004 / 20 TON / SAFİPORT';
+  const small = 'YD47(M) / LOT NO 26 08 32 / HP074218 / 100 TON / SAFİPORT';
+  const blocks = [
+    {
+      title: big,
+      rows: [{ sira: '1', plaka: '43AEA633', bbt: '20', net: '20.000', giden: '20.240', irsaliye: 'R01202604074' }],
+    },
+    {
+      title: small,
+      rows: [{ sira: '1', plaka: '43AEA633', bbt: '10', net: '10.000', giden: '10.100', irsaliye: 'R01202604075' }],
+    },
+  ];
+  const rows = [
+    { sira: '1', plaka: '43AEA633', bbt: '20', netTonaj: '20.000', gidenTonaj: '20.240', irsaliyeNo: 'R01202604074', headerText: big },
+    { sira: '1', plaka: '43AEA633', bbt: '10', netTonaj: '10.000', gidenTonaj: '10.100', irsaliyeNo: 'R01202604075', headerText: small },
+  ];
+  const out = parser.syncLimanBlocksFromRows(blocks, rows);
+  assert.equal(out[0].rows[0].net, '20.000');
+  assert.equal(out[0].rows[0].giden, '20.240');
+  assert.equal(out[1].rows[0].bbt, '10');
+  assert.equal(out[1].rows[0].net, '10.000');
+  assert.equal(out[1].rows[0].giden, '10.100');
+});
+
+test('başlıksız günlük satır başka sevkiyatın tonunu sıra no ile taşımaz', () => {
+  const parser = loadParser();
+  const small = 'YD47(M) / LOT NO 26 08 32 / 100 TON / SAFİPORT';
+  const blocks = [{
+    title: small,
+    rows: [{ sira: '1', plaka: '43AEA633', bbt: '10', net: '10.000', giden: '10.100', irsaliye: 'R01202604075' }],
+  }];
+  const rows = [
+    { sira: '1', plaka: '43AEA633', bbt: '20', netTonaj: '20.000', gidenTonaj: '20.240', headerText: '' },
+  ];
+  const out = parser.syncLimanBlocksFromRows(blocks, rows);
+  assert.equal(out[0].rows[0].net, '10.000');
+  assert.equal(out[0].rows[0].giden, '10.100');
+});
+
 test('üst sevkiyatın başlığı alttaki 10 tonu yutmaz', () => {
   const parser = loadParser();
   const big = 'YD200(M) / LOT NO 26 09 01 / HP 0,074-0,30 / 200 TON / NET 1000 KG / 400 BBT / BOOKING NO : BIG001 / YILPORT';

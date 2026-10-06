@@ -198,12 +198,12 @@ test('istemci: kantar hesabında hareketsizlik çıkışı yok; 401\'de cihazla 
   assert.match(excel, /readOk: info && typeof info\.readOk === 'boolean'/);
 
   const giris = read('GIRIS.html');
-  assert.match(giris, /session-manager\.js\?v=20261004-nudge4/);
-  assert.match(giris, /app-auth\.js\?v=1\.0\.28-20261003-renew/);
-  assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.65-20261005-pfk/);
-  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.32-20261005-ajan/);
-  assert.match(read('liman.html'), /liman\.js\?v=20261006-liman55/);
-  assert.match(read('ayarlar.html'), /ayarlar\.js\?v=20261003-cihazlar/);
+  assert.match(giris, /session-manager\.js\?v=20261006-ugur/);
+  assert.match(giris, /app-auth\.js\?v=1\.0\.30-20261006-ayni-ekran/);
+  assert.match(giris, /app-excel-ihracat\.js\?v=1\.0\.67-20261006-ayni-ekran/);
+  assert.match(giris, /ihracat-excel-source\.js\?v=1\.0\.33-20261006-ajan/);
+  assert.match(read('liman.html'), /liman\.js\?v=20261006-liman58/);
+  assert.match(read('ayarlar.html'), /ayarlar\.js\?v=20261006-cikis2/);
   assert.match(read('ayarlar.html'), /id="section-cihazlar"/);
   assert.match(read('ayarlar.js'), /'\/api\/session\/devices'/);
 });

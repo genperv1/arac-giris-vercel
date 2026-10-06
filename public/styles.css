@@ -4516,11 +4516,12 @@ html.logged-in #mainApp,
 
 .login-users {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.5rem;
 }
 
 .login-user {
+  grid-column: span 3;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4562,6 +4563,14 @@ html.logged-in #mainApp,
   color: #64748b;
 }
 
+.login-user--person {
+  grid-column: span 2;
+}
+
+.login-user--person .login-user__baret {
+  height: 5.2rem;
+}
+
 .login-user__name--person {
   font-size: 0.68rem;
   line-height: 1.2;
@@ -4579,6 +4588,24 @@ html.logged-in #mainApp,
 }
 
 .login-user.is-selected {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #3730a3;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+/* Selahattin: diğer hesaplardan ayrı dursun — yalnızca çerçeve */
+.login-user.login-user--lead {
+  border-color: #e8c56a;
+  background: linear-gradient(180deg, #fff8e8 0%, #f8fafc 52%);
+}
+
+.login-user.login-user--lead:hover {
+  border-color: #d4a017;
+  background: linear-gradient(180deg, #fff3cc 0%, #fff 55%);
+}
+
+.login-user.login-user--lead.is-selected {
   border-color: #6366f1;
   background: #eef2ff;
   color: #3730a3;
@@ -5006,6 +5033,10 @@ html.allow-ui-motion:not(.reduce-motion-os) .login-loading__spinner {
 
   .login-user__baret {
     height: 4.6rem;
+  }
+
+  .login-user--person .login-user__baret {
+    height: 3.5rem;
   }
 
   .login-user {

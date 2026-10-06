@@ -2246,6 +2246,7 @@ async function initializeApp() {
           { username: '1.OSB', envKey: 'KANTAR_1OSB_PASSWORD', role: 'admin' },
           { username: 'xxr', envKey: 'AMIR_PASSWORD', role: 'amir' },
           { username: 'saban', envKey: 'AMIR_PASSWORD', role: 'amir' },
+          { username: 'ugur', envKey: 'UGUR_PASSWORD', role: 'amir' },
         ];
         for (const { username, envKey, role } of seedUsers) {
           const password = String(process.env[envKey] || '');
@@ -2289,6 +2290,11 @@ async function initializeApp() {
           }
         } catch (e) {
           console.log('saban user setup skipped:', e && e.message ? e.message : e);
+        }
+        try {
+          await pool.query(`UPDATE users SET role = 'amir' WHERE username = 'ugur' AND COALESCE(role, '') <> 'amir'`);
+        } catch (e) {
+          console.log('ugur role setup skipped:', e && e.message ? e.message : e);
         }
       } catch (e) {
         console.error('Failed to ensure users table or create default user:', e && e.message ? e.message : e);

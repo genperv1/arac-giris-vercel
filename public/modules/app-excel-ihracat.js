@@ -1321,72 +1321,13 @@ function rememberLimanSheet(fileName, blocks) {
   try { localStorage.setItem('liman_sheet_v1', JSON.stringify(bag)); } catch (e) {}
 }
 
-function _limanSyncPlateKey(raw) {
-  return String(raw || '')
-    .replace(/[\s\-./]+/g, '')
-    .toUpperCase()
-    .replace(/İ/g, 'I');
-}
-
-/** localStorage'daki liman blokları güncel DailyStore satırlarıyla hizalanır (eski İÇERİDE notu kalmasın). */
-function syncLimanBlocksFromRows(blocks, rows) {
-  if (!Array.isArray(blocks) || !blocks.length || !Array.isArray(rows) || !rows.length) return blocks;
-  const index = new Map();
-  rows.forEach((row) => {
-    if (!row || row._ihracatEmptyBlock) return;
-    const pk = _limanSyncPlateKey(row.plaka);
-    if (!pk) return;
-    const sira = String(row.sira || '').trim();
-    const irs = String(row.irsaliyeNo || '').trim().toUpperCase();
-    const hdr = String(row.headerText || '').trim().toUpperCase();
-    const keys = [];
-    if (sira) keys.push('s|' + sira + '|' + pk);
-    if (irs) keys.push('i|' + irs + '|' + pk);
-    if (hdr) keys.push('h|' + hdr + '|' + pk);
-    keys.forEach((k) => { if (!index.has(k)) index.set(k, row); });
-  });
-  function sameHdr(row, hdr) {
-    if (!hdr) return true;
-    const rh = String(row && row.headerText || '').trim().toUpperCase();
-    return !rh || rh === hdr;
-  }
-  function matchRow(br, blockTitle) {
-    const pk = _limanSyncPlateKey(br && br.plaka);
-    if (!pk) return null;
-    const sira = String((br && br.sira) || '').trim();
-    const irs = String((br && (br.irsaliye || br.irsaliyeNo)) || '').trim().toUpperCase();
-    const hdr = String(blockTitle || '').trim().toUpperCase();
-    // Plaka tek başına yetmez: aynı araç başka sevkiyatta da varsa onun tonu bu bloğa yazılmasın.
-    const bySira = sira ? index.get('s|' + sira + '|' + pk) : null;
-    if (bySira && sameHdr(bySira, hdr)) return bySira;
-    const byIrs = irs ? index.get('i|' + irs + '|' + pk) : null;
-    if (byIrs && sameHdr(byIrs, hdr)) return byIrs;
-    return hdr ? (index.get('h|' + hdr + '|' + pk) || null) : null;
-  }
-  return blocks.map((block) => ({
-    ...block,
-    rows: (block.rows || []).map((br) => {
-      const src = matchRow(br, block.title);
-      if (!src) return br;
-      const out = { ...br };
-      const giden = String(src.gidenTonaj || '').trim();
-      let gidenKg = 0;
-      if (giden && !/^(İÇERİDE|ICERIDE|DIŞARIDA|DISARIDA)$/i.test(giden)) {
-        if (/^\d{1,3}(\.\d{3})+$/.test(giden)) gidenKg = parseInt(giden.replace(/\./g, ''), 10) || 0;
-        else {
-          const n = parseFloat(giden.replace(',', '.'));
-          if (Number.isFinite(n) && n > 0) {
-            gidenKg = (n >= 8 && n < 80 && !Number.isInteger(n)) ? Math.round(n * 1000) : n;
-          }
-        }
-      }
-      out.durum = gidenKg >= 1000 ? '' : (src.iceride ? 'İÇERİDE' : (src.disarida ? 'DIŞARIDA' : ''));
-      if (giden) out.giden = giden;
-      const net = String(src.netTonaj || src.tonajKg || '').trim();
-      if (net) out.net = net;
-      return out;
-    }),
-  }));
+/**
+ * Liman bloğu Excel sayfasından okunur ve olduğu gibi gönderilir.
+ * Günlük satırdan net, giden veya BBT kopyalanmaz: aynı plaka başka sevkiyatta
+ * farklı tonajda olabilir, o ton bu satıra yazılırsa liste bozulur.
+ */
+function syncLimanBlocksFromRows(blocks) {
+  return blocks;
 }
 
 function _limanNormHead(value) {
@@ -1503,7 +1444,7 @@ function _limanHash(text) {
 function publishLimanSnapshot(rows, meta, opts) {
   try {
     const site = limanPublishSite(rows);
-    const blocks = syncLimanBlocksFromRows(limanSheetBlocksFor(rows, meta), rows);
+    const blocks = syncLimanBlocksFromRows(limanSheetBlocksFor(rows, meta));
     const blanks = limanBlankRowsFor(rows, meta);
     const list = (Array.isArray(rows) ? rows : []).concat(blanks).slice(0, 2000).map((row) => ({
       irsaliyeNo: row && row.irsaliyeNo,
