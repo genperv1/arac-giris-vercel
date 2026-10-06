@@ -2013,8 +2013,9 @@
     async function logoutFromSettings() {
       const u = window.rpUi || {};
       let ok = false;
-      if (typeof u.confirm === 'function') ok = await u.confirm('Çıkış yapmak istediğinizden emin misiniz?');
-      else ok = confirm('Çıkış yapmak istediğinizden emin misiniz?');
+      if (typeof u.confirm === 'function') {
+        ok = await u.confirm('Çıkış yapmak istediğinizden emin misiniz?', { okLabel: 'Çıkış yap', cancelLabel: 'İptal' });
+      } else ok = confirm('Çıkış yapmak istediğinizden emin misiniz?');
       if (!ok) return;
       try { await fetch('/api/session/forget', { method: 'POST', credentials: 'include' }); } catch (e) { /* ignore */ }
       try { await fetch('/api/logout', { method: 'POST', credentials: 'include' }); } catch (e) { /* ignore */ }
