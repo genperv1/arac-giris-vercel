@@ -1276,6 +1276,26 @@ body.session-amir .app-header-ihracat-excel .status-chip--excel b {
   overflow-wrap: break-word;
 }
 
+body.session-amir .app-header-ihracat-excel .kantar-excel-sites {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.12rem;
+  height: auto;
+  white-space: normal;
+  line-height: 1.35;
+  padding-top: 0.32rem;
+  padding-bottom: 0.32rem;
+}
+
+body.session-amir .kantar-excel-line {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 body.session-amir .app-header-status .app-header-ihracat-excel__refresh {
   flex: 0 0 auto;
   width: auto;

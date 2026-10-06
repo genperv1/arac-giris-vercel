@@ -10,6 +10,7 @@ const {
   sanitizeUploadName,
   readAgentScript,
 } = require('../lib/excel-agent-store');
+const { fileLabelOf, readSettledFileLabels } = require('../lib/liman-sheet');
 
 const AGENT_PUBLIC_ORIGIN = 'https://genper.site';
 
@@ -81,7 +82,7 @@ function buildAgentInstallerBat(site, key, origin) {
  * bu yüzden `api.use(auth.verifyToken)` satırından ÖNCE kaydedilmelidir.
  */
 function registerExcelAgentRoutes(api, ctx) {
-  const { excelAgentStore, broadcastEvent, sendApiError } = ctx;
+  const { excelAgentStore, broadcastEvent, sendApiError, q } = ctx;
   const getKeys = typeof ctx.getAgentKeys === 'function' ? ctx.getAgentKeys : () => agentKeysFromEnv();
   const scriptPath = ctx.agentScriptPath;
 
@@ -115,10 +116,11 @@ function registerExcelAgentRoutes(api, ctx) {
 
   const guard = [agentLimiter, requireAgentKey];
 
-  api.get('/excel-agent/ping', guard, (req, res) => {
+  api.get('/excel-agent/ping', guard, async (req, res) => {
     const script = readAgentScript(scriptPath);
+    const dropFiles = await readSettledFileLabels(q, req.agentSite);
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ ok: true, version: script ? script.version : '', serverTime: Date.now() });
+    res.json({ ok: true, version: script ? script.version : '', serverTime: Date.now(), dropFiles });
   });
 
   api.get('/excel-agent/version', guard, (req, res) => {
@@ -148,6 +150,11 @@ function registerExcelAgentRoutes(api, ctx) {
             ok: false,
             error: { code: 'EXCEL_AGENT_BAD_NAME', message: 'Geçersiz Excel dosya adı.' },
           });
+        }
+        const dropFiles = await readSettledFileLabels(q, req.agentSite);
+        const label = fileLabelOf(fileName).toLowerCase();
+        if (label && dropFiles.some((name) => String(name).toLowerCase() === label)) {
+          return res.json({ ok: true, dropped: true, dropFiles });
         }
         const saved = await excelAgentStore.saveUpload({
           fileName,

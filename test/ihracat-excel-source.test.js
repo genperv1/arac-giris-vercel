@@ -314,7 +314,8 @@ test('Araçlar menüsünde Güncelle yok — yalnızca ana sayfa chip', () => {
 });
 
 test('header Güncelle sits under İHRACAT excel chip', () => {
-  const stackStart = uiJs.indexOf('class="app-header-ihracat-excel"');
+  const chipAt = uiJs.indexOf('id="chipIhracat"');
+  const stackStart = uiJs.lastIndexOf('class="app-header-ihracat-excel"', chipAt);
   const stackSlice = uiJs.slice(stackStart, stackStart + 1100);
   assert.ok(stackStart >= 0, 'İHRACAT + Güncelle stack yok');
   assert.match(stackSlice, /id="chipIhracat"/);
@@ -342,6 +343,23 @@ test('header Güncelle sits under İHRACAT excel chip', () => {
   assert.match(css, /\.app-header-ihracat-excel__refresh\.is-busy::after/);
   assert.match(clientCode, /chip\.closest\s*\?\s*chip\.closest\('\.js-ihracat-excel-refresh'\)/);
   assert.match(clientCode, /label\.replace\(\/\^Son Güncelleme:\\s\*\//);
+});
+
+test('Selahattin header shows kantar Excel names and has no upload', () => {
+  assert.match(uiJs, /function _kantarExcelStatusHtml\(piyText, piyCount\)/);
+  assert.match(uiJs, /id="kantarExcelIhracat"/);
+  assert.match(uiJs, /İHRACAT:/);
+  assert.match(uiJs, /_sessionIsSelahattin\(\) \? _kantarExcelStatusHtml\(_piyChipText, _piyasaCnt\)/);
+  const htmlFn = uiJs.slice(uiJs.indexOf('function _kantarExcelStatusHtml(piyText, piyCount)'), uiJs.indexOf('function _kantarExcelFileName'));
+  assert.match(htmlFn, /id="chipPiyasa"/);
+  assert.match(htmlFn, /PİYASA:/);
+  assert.match(htmlFn, /Piyasa Excel'i aç/);
+  assert.match(htmlFn, /data-kantar-line="1\.OSB"/);
+  assert.match(htmlFn, /data-kantar-line="AVDAN"/);
+  assert.match(htmlFn, /kantar-excel-line/);
+  assert.match(uiJs, /function _kantarExcelLineLabel/);
+  assert.match(css, /flex-direction:\s*column/);
+  assert.doesNotMatch(htmlFn, /Yükle|excelBlockSelect|type="file"|Güncelle|kantarExcelOsb|kantarExcelAvdan/);
 });
 
 test('reread reuses parser and replaces data without file picker', () => {

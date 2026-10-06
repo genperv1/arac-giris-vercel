@@ -303,6 +303,41 @@
     return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
   }
 
+  function excelStem(name) {
+    return String(name || '').replace(/\.(xlsx|xlsm|xlsb|xls)$/i, '').trim().toLowerCase();
+  }
+
+  /** Liman "tamamlandı" deyince bu dosya bir daha okunmaz. */
+  function dropStemSet() {
+    try {
+      var raw = JSON.parse(localStorage.getItem('liman_drop_files_v1') || '[]');
+      var set = Object.create(null);
+      (Array.isArray(raw) ? raw : []).forEach(function (n) {
+        var s = excelStem(n);
+        if (s) set[s] = true;
+      });
+      return set;
+    } catch (e) {
+      return Object.create(null);
+    }
+  }
+
+  function isDroppedSource(name) {
+    var s = excelStem(name);
+    return !!(s && dropStemSet()[s]);
+  }
+
+  function forgetDroppedSources(stems) {
+    var set = Object.create(null);
+    (stems || []).forEach(function (n) {
+      var s = excelStem(n);
+      if (s) set[s] = true;
+    });
+    Object.keys(_handlesByName).forEach(function (key) {
+      if (set[excelStem(key)]) delete _handlesByName[key];
+    });
+  }
+
   function hasLoadedExcel() {
     return loadedExcelMeta().loaded;
   }
@@ -833,9 +868,10 @@
       var entry = step.value;
       if (!entry) continue;
       if (entry.kind === 'file' && /\.(xlsx|xls|xlsm|xlsb)$/i.test(entry.name || '')) {
+        if (isDroppedSource(entry.name)) continue;
         try {
           var file = await entry.getFile();
-          if (file) files.push(file);
+          if (file && !isDroppedSource(file.name)) files.push(file);
         } catch (e) {}
       } else if (entry.kind === 'directory' && depth > 0 && entry.name !== 'node_modules') {
         var nested = await collectDirExcelFiles(entry, depth - 1);
@@ -855,7 +891,7 @@
       seen.push(handle);
       var file = null;
       try { file = await readFileFromHandle(handle); } catch (e) { file = null; }
-      if (file && !file.__missing && !file.__notSelected && file.name) files.push(file);
+      if (file && !file.__missing && !file.__notSelected && file.name && !isDroppedSource(file.name)) files.push(file);
     }
     var keys = Object.keys(_handlesByName);
     for (var i = 0; i < keys.length; i++) await take(_handlesByName[keys[i]]);
@@ -948,6 +984,9 @@
     if (res.status === 404) {
       return { __missing: true };
     }
+    if (res.status === 410) {
+      return { __settled: true };
+    }
     if (!res.ok) return { __missing: true };
     var blob = await res.blob();
     var name = '';
@@ -1009,6 +1048,7 @@
   async function resolveFileForSource(sourceName, handleFile) {
     var wanted = String(sourceName || '').trim();
     if (!wanted) return { __missing: true };
+    if (isDroppedSource(wanted)) return { __settled: true };
 
     var namedFile = null;
     var namedHandle = handleForName(wanted);
@@ -1033,6 +1073,7 @@
     // Tarayıcı dosyayı okuyamazsa sunucudaki kayıtlı yol. Ajan kopyası kullanılmaz.
     var fromBackend = null;
     try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
+    if (fromBackend && fromBackend.__settled) return fromBackend;
     var backendOk = fromBackend && !fromBackend.__missing && !fromBackend.__notSelected
       && sameExcelName(fromBackend.name, wanted);
     if (backendOk) return fromBackend;
@@ -1055,6 +1096,11 @@
       }
 
       var sources = listLoadedSourceNames();
+      sources = sources.filter(function (n) { return !isDroppedSource(n); });
+      if (!sources.length && listLoadedSourceNames().length) {
+        heartbeat(true, { ok: true });
+        return { ok: true, settled: true, msg: 'Tamamlanan listeler limanda duruyor.' };
+      }
       if (Array.isArray(onlyNames) && onlyNames.length) {
         var allow = Object.create(null);
         onlyNames.forEach(function (n) {
@@ -1082,6 +1128,7 @@
       } catch (e) {
         handleFile = null;
       }
+      if (handleFile && isDroppedSource(handleFile.name)) handleFile = null;
 
       var multi = sources.length > 1;
       var lastOk = null;
@@ -1098,6 +1145,7 @@
           if (file && belongsToOtherSource(file, sourceName, sources)) file = null;
           if (!file) file = await resolveFileForSource(sourceName, handleFile);
           if (file && belongsToOtherSource(file, sourceName, listLoadedSourceNames())) file = null;
+          if (file && file.__settled) continue;
           if (!file || file.__missing || file.__notSelected) {
             failNames.push(sourceName);
             continue;
@@ -1116,6 +1164,10 @@
       }
 
       if (!okNames.length) {
+        if (!failNames.length) {
+          heartbeat(true, { ok: true });
+          return { ok: true, settled: true, msg: 'Tamamlanan listeler limanda duruyor.' };
+        }
         if (silent) {
           return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames, silent: true };
         }
@@ -1425,6 +1477,8 @@
     adoptLoadedExcelAsSource: adoptLoadedExcelAsSource,
     hasLoadedExcel: hasLoadedExcel,
     listLoadedSourceNames: listLoadedSourceNames,
+    forgetDroppedSources: forgetDroppedSources,
+    isDroppedSource: isDroppedSource,
     pickSourcesToRefresh: pickSourcesToRefresh,
     getCachedSheetName: getCachedSheetName,
     hydrateFromBackend: hydrateFromBackend,

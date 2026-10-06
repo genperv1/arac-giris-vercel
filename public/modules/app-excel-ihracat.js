@@ -1505,6 +1505,78 @@ function _limanHash(text) {
   return (h >>> 0).toString(36);
 }
 
+const LIMAN_DROP_KEY = 'liman_drop_files_v1';
+let _applyingLimanDrops = false;
+
+function limanFileStem(name) {
+  return String(name || '').replace(/\.(xlsx|xlsm|xlsb|xls)$/i, '').trim().toLowerCase();
+}
+
+function limanDroppedStems() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIMAN_DROP_KEY) || '[]');
+    return new Set((Array.isArray(raw) ? raw : []).map(limanFileStem).filter(Boolean));
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function limanSourceDropped(name) {
+  const stem = limanFileStem(name);
+  return !!stem && limanDroppedStems().has(stem);
+}
+
+function rememberLimanDropFiles(list) {
+  const stems = limanDroppedStems();
+  (Array.isArray(list) ? list : []).forEach((name) => {
+    const stem = limanFileStem(name);
+    if (stem) stems.add(stem);
+  });
+  try { localStorage.setItem(LIMAN_DROP_KEY, JSON.stringify(Array.from(stems))); } catch (e) {}
+  return stems;
+}
+
+async function stripSettledDailySources(targets) {
+  const banned = new Set((targets || []).map((name) => String(name || '').trim()).filter(Boolean));
+  if (!banned.size) return false;
+  const rows = loadDailyShipments() || [];
+  const meta = loadDailyMeta() || {};
+  let kept = rows.filter((row) => !banned.has(String(row && row.fileName || '').trim()));
+  if (kept.length === rows.length) {
+    const only = listIhracatExcelSources();
+    if (only.length && only.every((name) => banned.has(name))) kept = [];
+    else return false;
+  }
+  if (!kept.length) return clearDailyShipments();
+  const files = normalizeIhracatMetaFiles(meta).filter((name) => !banned.has(String(name).trim()));
+  return saveDailyShipments(kept, Object.assign({}, meta, {
+    files: files.length ? files : undefined,
+    fileName: files.join(' + '),
+    count: kept.length,
+  }));
+}
+
+/** Tamamlanan Excel kantarda kalmasın: bir daha okunmaz, yerel listeden düşer. Limandaki liste durur. */
+function applyLimanDropFiles(list) {
+  const stems = rememberLimanDropFiles(list);
+  if (!stems.size) return Promise.resolve(false);
+  try {
+    if (window.IhracatExcelSource && typeof window.IhracatExcelSource.forgetDroppedSources === 'function') {
+      window.IhracatExcelSource.forgetDroppedSources(Array.from(stems));
+    }
+  } catch (e) {}
+  if (_applyingLimanDrops) return Promise.resolve(false);
+  const sources = (typeof listIhracatExcelSources === 'function' ? listIhracatExcelSources() : [])
+    .filter((name) => stems.has(limanFileStem(name)));
+  if (!sources.length) return Promise.resolve(false);
+  _applyingLimanDrops = true;
+  return Promise.resolve(stripSettledDailySources(sources)).finally(() => {
+    _applyingLimanDrops = false;
+  });
+}
+
+try { window.applyLimanDropFiles = applyLimanDropFiles; } catch (e) {}
+
 /**
  * Kantar listesini liman sayfasına gönderir.
  * Döner: { sent:false, reason } | { sent:true, ok, status, unchanged, site, error }
@@ -1513,9 +1585,9 @@ function _limanHash(text) {
 function publishLimanSnapshot(rows, meta, opts) {
   try {
     const site = limanPublishSite(rows);
-    const blocks = syncLimanBlocksFromRows(limanSheetBlocksFor(rows, meta));
+    let blocks = syncLimanBlocksFromRows(limanSheetBlocksFor(rows, meta));
     const blanks = limanBlankRowsFor(rows, meta);
-    const list = (Array.isArray(rows) ? rows : []).concat(blanks).slice(0, 2000).map((row) => ({
+    let list = (Array.isArray(rows) ? rows : []).concat(blanks).slice(0, 2000).map((row) => ({
       irsaliyeNo: row && row.irsaliyeNo,
       sira: row && row.sira,
       plaka: row && row.plaka,
@@ -1532,10 +1604,15 @@ function publishLimanSnapshot(rows, meta, opts) {
       iceride: !!(row && row.iceride),
       disarida: !!(row && row.disarida),
     }));
-    const fileName = (meta && (meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : ''))) || '';
+    let fileName = (meta && (meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : ''))) || '';
+    if (limanDroppedStems().size) {
+      list = list.filter((row) => !limanSourceDropped(row && row.fileName));
+      blocks = (blocks || []).filter((block) => !limanSourceDropped(block && block.fileName));
+      fileName = String(fileName).split(/\s+\+\s+/).map((part) => part.trim()).filter((part) => part && !limanSourceDropped(part)).join(' + ');
+    }
     // Boş liste limanı silmesin. Kantar Excel'i silse de kayıtlı kitap durur; kapatma amirde.
     if (!list.length && !(blocks && blocks.length)) {
-      return Promise.resolve({ sent: false, reason: 'empty' });
+      return Promise.resolve({ sent: false, reason: limanDroppedStems().size ? 'settled' : 'empty' });
     }
     const body = JSON.stringify({ site, fileName, rows: list, blocks });
     let sentBefore = '';
@@ -1560,6 +1637,7 @@ function publishLimanSnapshot(rows, meta, opts) {
       try { data = await res.json(); } catch (e) { data = {}; }
       if (res.ok) {
         try { localStorage.setItem('liman_last_sent_v1', stamp + '|' + Date.now()); } catch (e) {}
+        if (data && Array.isArray(data.dropFiles) && data.dropFiles.length) applyLimanDropFiles(data.dropFiles);
       }
       return {
         sent: true,
@@ -1567,6 +1645,8 @@ function publishLimanSnapshot(rows, meta, opts) {
         status: res.status,
         unchanged: !!(data && data.unchanged),
         skipped: !!(data && data.skipped),
+        settled: !!(data && data.settled),
+        dropFiles: (data && data.dropFiles) || [],
         site: (data && data.site) || site,
         error: res.ok ? '' : String((data && (data.error || data.message)) || ('HTTP ' + res.status)),
       };
@@ -1623,7 +1703,8 @@ function sendLimanHeartbeat(info) {
       let data = {};
       try { data = await res.json(); } catch (e) { data = {}; }
       if (!res.ok) console.warn('[Liman nabız] gönderilemedi:', res.status, data && data.error);
-      return { sent: true, ok: !!res.ok, status: res.status, at: data && data.at };
+      if (res.ok && data && Array.isArray(data.dropFiles) && data.dropFiles.length) applyLimanDropFiles(data.dropFiles);
+      return { sent: true, ok: !!res.ok, status: res.status, at: data && data.at, dropFiles: (data && data.dropFiles) || [] };
     }).catch((err) => ({ sent: true, ok: false, status: 0, error: (err && err.message) || 'Bağlantı yok' }));
   } catch (e) {
     return Promise.resolve({ sent: false, reason: 'error', error: e && e.message });

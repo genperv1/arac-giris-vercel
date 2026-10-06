@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
-const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf } = require('../lib/liman-sheet');
+const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, settledFileLabels } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { canManageLimanList } = require('../lib/amir-user');
 const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
@@ -620,7 +620,12 @@ function registerLimanRoutes(api, ctx, publicApp) {
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
       logEvent('heartbeat', req, { site, excel: !!body.excelLoaded, readOk });
       res.setHeader('Cache-Control', 'no-store');
-      return res.json({ ok: true, site, at: committed.at });
+      return res.json({
+        ok: true,
+        site,
+        at: committed.at,
+        dropFiles: settledFileLabels(committed.state, site),
+      });
     } catch (err) {
       logEvent('error', req, { path: 'heartbeat', error: String(err && err.message || err) });
       return sendApiError(res, err, 500, 'LIMAN_HEARTBEAT_FAILED');
@@ -648,6 +653,11 @@ function registerLimanRoutes(api, ctx, publicApp) {
         return row.irsaliyeNo || row.plaka || row.headerText;
       });
       const incomingBlocks = blocks;
+      const dropSetOf = (state) => new Set(settledFileLabels(state, site).map((label) => label.toLowerCase()));
+      const blockIsSettled = (block, state) => {
+        const label = (fileLabelOf(block && block.fileName) || fileLabelOf(fileName) || '').toLowerCase();
+        return !!(label && dropSetOf(state).has(label));
+      };
       const snapshot = {
         fileName,
         updatedAt: new Date().toISOString(),
@@ -663,44 +673,58 @@ function registerLimanRoutes(api, ctx, publicApp) {
           const snap = state.sites[other];
           if (other !== site && snap && Array.isArray(snap.blocks)) carryFrom.push(...snap.blocks);
         });
+        const activeBlocks = incomingBlocks.filter((block) => !blockIsSettled(block, state));
+        const activeRows = rows.filter((row) => !blockIsSettled(row, state));
+        // Tamamlanan Excel bir daha işlenmez: limandaki liste durur, kantar dosyayı siler.
+        if (incomingBlocks.length && !activeBlocks.length) {
+          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state, site) };
+        }
+        if (!incomingBlocks.length && rows.length && !activeRows.length) {
+          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state, site) };
+        }
         // Boş gönderim (Excel silindi) listeyi silmez. Dolu gönderim: o dosya güncellenir, yeni kitap eklenir, eksik kitap durur.
-        if (incomingBlocks.length) {
+        if (activeBlocks.length) {
           snapshot.fileName = fileName;
           snapshot.blocks = retainDroppedBooks(
             prevSiteBlocks,
-            carryTasiyici(carryFrom, incomingBlocks),
+            carryTasiyici(carryFrom, activeBlocks),
             prev && prev.fileName,
             fileName
           );
           snapshot.rows = [];
-        } else if (!rows.length) {
+        } else if (!activeRows.length) {
           snapshot.fileName = (prev && prev.fileName) || fileName;
           snapshot.blocks = prevSiteBlocks.slice();
           snapshot.rows = prev && Array.isArray(prev.rows) ? prev.rows : [];
         } else {
           snapshot.fileName = fileName;
           snapshot.blocks = [];
-          snapshot.rows = rows;
+          snapshot.rows = activeRows;
         }
         const sameContent = prev && prev.fileName === snapshot.fileName
           && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
           && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
         noteFileSeen(state, snapshot);
+        const dropFiles = settledFileLabels(state, site);
         if (sameContent) {
           state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
-          return { unchanged: true, silent: true };
+          return { unchanged: true, silent: true, dropFiles };
         }
         snapshot.receivedAt = snapshot.updatedAt;
         state.sites[site] = snapshot;
-        return { unchanged: false };
+        return { unchanged: false, dropFiles: settledFileLabels(state, site) };
       }, { silent: false });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      const dropFiles = committed.dropFiles || [];
+      if (committed.settled) {
+        return res.json({ ok: true, site, unchanged: true, settled: true, dropFiles });
+      }
       if (committed.unchanged) {
         logEvent('unchanged', req, { site, fileName, rows: snapshotRowCount(snapshot) });
-        return res.json({ ok: true, site, unchanged: true });
+        return res.json({ ok: true, site, unchanged: true, dropFiles });
       }
       logEvent('changed', req, { site, fileName, rows: snapshotRowCount(snapshot) });
-      return res.json({ ok: true, site });
+      return res.json({ ok: true, site, dropFiles });
     } catch (err) {
       logEvent('error', req, { path: 'snapshot', error: String(err && err.message || err) });
       return sendApiError(res, err, 500, 'LIMAN_SNAPSHOT_FAILED');

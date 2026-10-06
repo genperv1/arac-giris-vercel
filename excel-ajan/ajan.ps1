@@ -43,6 +43,7 @@ $script:SonrakiDeneme = [datetime]::MinValue
 $script:SertifikaAtla = $false
 $script:Dosyalar = $null
 $script:SonTarama = [datetime]::MinValue
+$script:Birak = @{}
 
 function Write-Log([string]$msg) {
   $line = '{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $msg
@@ -376,9 +377,49 @@ function Send-Excel($file, $base, $key) {
     $script:SonrakiDeneme = (Get-Date).AddSeconds(30)
     throw "Yukleme basarisiz ($($res.Code)) $($file.Name): $($res.Text)"
   }
+  if ($res.Text -match '"dropped"\s*:\s*true') {
+    Remove-BirakFile $file
+    return
+  }
   $script:Durum[$keyPath] = @{ stamp = $stamp; sha = $sha; sentAt = $nowMs }
   $kb = [math]::Round($bytes.Length / 1KB)
   Write-Log "Gonderildi: $($file.Name) ($kb KB) $env:COMPUTERNAME"
+}
+
+function Set-Birak([string]$text) {
+  $next = @{}
+  $m = [regex]::Match([string]$text, '"dropFiles"\s*:\s*\[(.*?)\]')
+  if ($m.Success) {
+    foreach ($hit in [regex]::Matches($m.Groups[1].Value, '"((?:\\.|[^"\\])*)"')) {
+      $name = [string]$hit.Groups[1].Value
+      if (-not $name) { continue }
+      $stem = [System.IO.Path]::GetFileNameWithoutExtension($name).ToLowerInvariant()
+      if ($stem) { $next[$stem] = $true }
+      $next[$name.ToLowerInvariant()] = $true
+    }
+  }
+  $script:Birak = $next
+}
+
+function Test-BirakFile($file) {
+  if (-not $script:Birak -or $script:Birak.Count -eq 0 -or -not $file) { return $false }
+  $name = ([string]$file.Name).ToLowerInvariant()
+  $stem = [System.IO.Path]::GetFileNameWithoutExtension([string]$file.Name).ToLowerInvariant()
+  return ($script:Birak.ContainsKey($name) -or $script:Birak.ContainsKey($stem))
+}
+
+function Remove-BirakFile($file) {
+  $full = [string]$file.FullName
+  try {
+    if (Test-Path -LiteralPath $full) {
+      Remove-Item -LiteralPath $full -Force -ErrorAction Stop
+      Write-Log "Tamamlandi, kantardan silindi: $($file.Name)"
+    }
+  } catch {
+    Write-LogOnce "Tamamlanan Excel silinemedi $($file.Name): $($_.Exception.Message)"
+  }
+  $keyPath = $full.ToLowerInvariant()
+  if ($script:Durum.ContainsKey($keyPath)) { $script:Durum.Remove($keyPath) }
 }
 
 function Update-Self($base, $key) {
@@ -506,22 +547,12 @@ try {
           $script:Dosyalar = @(Get-WatchExcelFiles $ayar)
         }
         $files = @($script:Dosyalar | ForEach-Object { try { [System.IO.FileInfo]::new($_.FullName) } catch { $null } } | Where-Object { $_ -and $_.Exists })
-        if ($now -ge $script:SonrakiDeneme) {
-          foreach ($file in $files) {
-            try {
-              Send-Excel $file $base $key
-            } catch {
-              Write-LogOnce $_.Exception.Message
-              break
-            }
-          }
-          Save-Durum
-        }
         if (($now - $script:SonPing).TotalSeconds -ge 60) {
           $script:SonPing = $now
           try {
             $ping = Invoke-Ajan -Method 'GET' -Url "$base/api/excel-agent/ping" -Body $null -Key $key
             if ($ping.Code -eq 200) {
+              Set-Birak ([string]$ping.Text)
               if (($now - $script:SonBaglantiLog).TotalMinutes -ge 10) {
                 $script:SonBaglantiLog = $now
                 Write-Log "Baglanti var. Izlenen Excel: $($files.Count)"
@@ -532,6 +563,21 @@ try {
           } catch {
             Write-LogOnce $_.Exception.Message
           }
+        }
+        if ($now -ge $script:SonrakiDeneme) {
+          foreach ($file in $files) {
+            try {
+              if (Test-BirakFile $file) {
+                Remove-BirakFile $file
+                continue
+              }
+              Send-Excel $file $base $key
+            } catch {
+              Write-LogOnce $_.Exception.Message
+              break
+            }
+          }
+          Save-Durum
         }
         if (($now - $script:SonGuncelleme).TotalMinutes -ge 10) {
           $script:SonGuncelleme = $now

@@ -9,6 +9,7 @@ const {
   mergeSource,
   readExcelFromStoredPath,
 } = require('../lib/ihracat-excel-source');
+const { fileLabelOf, readSettledFileLabels } = require('../lib/liman-sheet');
 
 /** Oturumdaki kantar (AVDAN / 1.OSB); amir ve diğerleri için ''. */
 function kantarSiteOf(req) {
@@ -67,6 +68,18 @@ function registerIhracatExcelRoutes(api, ctx) {
     try {
       const stored = await getStoredSource(q);
       const source = mergeSource(stored, req.body || {});
+      const site = kantarSiteOf(req);
+      const wanted = fileLabelOf((req.body && req.body.fileName) || source.fileName).toLowerCase();
+      if (site && wanted) {
+        const dropFiles = await readSettledFileLabels(q, site);
+        if (dropFiles.some((name) => String(name).toLowerCase() === wanted)) {
+          return res.status(410).json({
+            ok: false,
+            dropped: true,
+            error: { code: 'EXCEL_SETTLED', message: 'Bu sevkiyat tamamlandı. Liste limanda duruyor.' },
+          });
+        }
+      }
       if (!source.fileName && !source.filePath) {
         return res.status(400).json({
           ok: false,

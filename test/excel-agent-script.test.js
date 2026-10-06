@@ -16,6 +16,9 @@ test('ajan sunucunun bekledigi adrese yukler', () => {
   assert.match(script, /\/api\/excel-agent\/upload/);
   assert.match(script, /x-excel-agent-key/);
   assert.match(script, /\/api\/excel-agent\/ping/);
+  assert.match(script, /dropFiles/);
+  assert.match(script, /Tamamlandi, kantardan silindi/);
+  assert.match(script, /Test-BirakFile/);
   assert.match(script, /WindowStyle Hidden/);
   assert.match(script, /baslat\.bat|Startup/);
 });

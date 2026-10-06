@@ -2878,6 +2878,76 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             }
         }
 
+        /** Selahattin amir Excel yüklemez. Üst satır kantar ihracatı, alt satır açılan piyasa. */
+        function _kantarExcelStatusHtml(piyText, piyCount) {
+            const piyCls = piyCount > 0 ? 'chip-ok' : 'chip-warn';
+            return `<div class="app-header-excel-pair" id="kantarExcelStatus">
+              <div class="app-header-ihracat-excel">
+                <span id="kantarExcelIhracat" class="status-chip status-chip--excel chip-warn kantar-excel-sites" title="Kantarlarda yüklü ihracat Excel">
+                  <span class="kantar-excel-line">📄 <b data-kantar-line="1.OSB">İHRACAT: …</b></span>
+                  <span class="kantar-excel-line"><b data-kantar-line="AVDAN">AVDAN: …</b></span>
+                </span>
+              </div>
+              <div class="app-header-ihracat-excel">
+                <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${piyCls}" title="Piyasa Excel'i aç">🧾 PİYASA: <b id="chipPiyasaText">${piyText}</b></button>
+              </div>
+            </div>`;
+        }
+
+        function _kantarExcelFileName(info) {
+            if (!info) return '';
+            const snap = String(info.fileName || '').trim();
+            const beat = String(info.heartbeatFile || '').trim();
+            if (info.hasList && snap) return snap;
+            if (info.heartbeatExcel && beat) return beat;
+            if (snap) return snap;
+            return beat;
+        }
+
+        function _kantarExcelLineLabel(site, info) {
+            const name = _kantarExcelFileName(info);
+            const loaded = name ? ('Yüklü ' + name) : 'Excel yok';
+            return (site === '1.OSB' ? 'İHRACAT: 1.OSB: ' : (site + ': ')) + loaded;
+        }
+
+        function _paintKantarExcelStatus(sites) {
+            const el = document.getElementById('kantarExcelIhracat');
+            if (!el) return;
+            const parts = ['1.OSB', 'AVDAN'].map((site) => {
+                const label = _kantarExcelLineLabel(site, sites && sites[site]);
+                const node = el.querySelector('[data-kantar-line="' + site + '"]');
+                if (node) node.textContent = label;
+                return label;
+            });
+            const any = ['1.OSB', 'AVDAN'].some((site) => _kantarExcelFileName(sites && sites[site]));
+            el.className = 'status-chip status-chip--excel kantar-excel-sites ' + (any ? 'chip-ok' : 'chip-warn');
+            el.title = 'Kantar ihracat Excel — ' + parts.join(' · ');
+        }
+
+        let _kantarExcelPoll = 0;
+        async function _refreshKantarExcelStatus() {
+            if (!_sessionIsSelahattin() || !document.getElementById('kantarExcelStatus')) return;
+            try {
+                const r = await fetch('/api/liman', { credentials: 'same-origin', cache: 'no-store' });
+                if (!r.ok) return;
+                const data = await r.json();
+                _paintKantarExcelStatus(data && data.sites);
+            } catch (e) {}
+        }
+
+        function _ensureKantarExcelPoll() {
+            if (!_sessionIsSelahattin()) return;
+            _refreshKantarExcelStatus();
+            if (_kantarExcelPoll) return;
+            _kantarExcelPoll = setInterval(() => {
+                if (document.hidden) return;
+                _refreshKantarExcelStatus();
+            }, 20000);
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) _refreshKantarExcelStatus();
+            });
+        }
+
         function _appStatusMeta() {
             let userId = '-';
             let clientSite = '';
@@ -3391,7 +3461,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           </div>
         </div>
         ${(_sabanNav || _amirPiyasa) ? '' : `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>`}
-        ${_sabanNav ? '' : `<div class="app-header-excel-pair">
+        ${_sessionIsSelahattin() ? _kantarExcelStatusHtml(_piyChipText, _piyasaCnt) : ((_sabanNav || _amirPiyasa) ? '' : `<div class="app-header-excel-pair">
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
           <span class="app-header-ihracat-excel__actions">
@@ -3419,7 +3489,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           </button>` : ''}
           </span>` : ''}
         </div>
-        </div>`}
+        </div>`) }
       </div>
     </div>
   </div>
@@ -3499,6 +3569,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             // Event listener'ları ekle
             attachEventListeners();
             _appShellMounted = true;
+            try { _ensureKantarExcelPoll(); } catch (e) {}
             try { syncConnectionChip(); } catch (_) {}
             try {
               if (typeof window.__piyasaRebind === 'function') window.__piyasaRebind();

@@ -317,18 +317,18 @@ test('diğer kantarın eski İÇERİDE notu çıkmış aracı kirletmez; aynı i
   // AVDAN yeni liste: araç çıkmış, not silinmiş
   const avdan = harness({ username: 'AVDAN', role: 'admin' });
   Object.assign(avdan.store, osb.store);
-  const first = await avdan.call('put /liman/snapshot', '1.1.1.1', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('', '26000')] });
+  const first = await avdan.call('put /liman/snapshot', '1.1.1.1', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('', '500')] });
   assert.equal(first.unchanged, undefined);
   let view = await avdan.call('get /liman', '1.1.1.1');
   const row = view.days[0].blocks[0].rows[0];
   assert.equal(row.durum, '');
-  assert.equal(row.gidenTonaj, '26000');
+  assert.equal(row.gidenTonaj, '500');
   const firstUpdated = view.sites.AVDAN.updatedAt;
   assert.equal(view.sites.AVDAN.receivedAt, firstUpdated);
 
   // Aynı içerik tekrar gönderilince: updatedAt sabit, receivedAt ilerler
   await new Promise((r) => setTimeout(r, 5));
-  const again = await avdan.call('put /liman/snapshot', '1.1.1.1', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('', '26000')] });
+  const again = await avdan.call('put /liman/snapshot', '1.1.1.1', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('', '500')] });
   assert.equal(again.unchanged, true);
   view = await avdan.call('get /liman', '1.1.1.1');
   assert.equal(view.sites.AVDAN.updatedAt, firstUpdated);
@@ -579,8 +579,8 @@ test('kantar Excel silince kitap düşmez; güncelleme ve yeni kitap işlenir, b
     site: 'AVDAN',
     fileName: '03.10.2026.xlsx + 03.10.2026-YD28.xlsx',
     blocks: [
-      book('YD02 / LOT NO 1 / EVYAP', '03.10.2026.xlsx', '1000'),
-      book('YD28 / LOT NO 2 / EVYAP', '03.10.2026-YD28.xlsx', '2000'),
+      book('YD02 / LOT NO 1 / EVYAP', '03.10.2026.xlsx', '400'),
+      book('YD28 / LOT NO 2 / EVYAP', '03.10.2026-YD28.xlsx', '800'),
     ],
   });
 
@@ -594,7 +594,7 @@ test('kantar Excel silince kitap düşmez; güncelleme ve yeni kitap işlenir, b
   assert.equal(day3.blocks.length, 2);
   const kept = day3.blocks.find((b) => (b.files || []).indexOf('03.10.2026') >= 0);
   const updated = day3.blocks.find((b) => (b.files || []).indexOf('03.10.2026-YD28') >= 0);
-  assert.equal(kept.rows[0].giden, '1000');
+  assert.equal(kept.rows[0].giden, '400');
   assert.equal(updated.rows[0].giden, '26000');
 
   await call('put /liman/snapshot', '95.3.27.82', {
@@ -611,4 +611,51 @@ test('kantar Excel silince kitap düşmez; güncelleme ve yeni kitap işlenir, b
   assert.equal(wiped.unchanged, true);
   view = await call('get /liman', '1.1.1.1');
   assert.equal(view.days.length, 2);
+});
+
+test('tamamlanan Excel bir daha işlenmez; kantar silsin diye adı döner', async () => {
+  const { call } = harness({ username: 'AVDAN', role: 'admin' });
+  const book = (title, fileName, giden) => ({
+    title, liman: 'EVYAP', fileName,
+    rows: [{ sira: '1', plaka: '43RY761', giden }],
+  });
+  const first = await call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '05.10.2026.xlsx + 06.10.2026.xlsx',
+    blocks: [
+      book('YD05 / LOT NO 1 / EVYAP', '05.10.2026.xlsx', '26000'),
+      book('YD06 / LOT NO 2 / EVYAP', '06.10.2026.xlsx', ''),
+    ],
+  });
+  assert.deepEqual(first.dropFiles, ['05.10.2026']);
+
+  const again = await call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '05.10.2026.xlsx + 06.10.2026.xlsx',
+    blocks: [
+      book('YD05 / LOT NO 1 / EVYAP', '05.10.2026.xlsx', '1'),
+      book('YD06 / LOT NO 2 / EVYAP', '06.10.2026.xlsx', '500'),
+    ],
+  });
+  assert.equal(again.settled, undefined);
+  assert.ok(again.dropFiles.includes('05.10.2026'));
+  assert.equal(again.dropFiles.includes('06.10.2026'), false);
+  let view = await call('get /liman', '1.1.1.1');
+  assert.equal(view.days.find((d) => d.dateKey === '2026-10-05').blocks[0].rows[0].giden, '26000');
+  assert.equal(view.days.find((d) => d.dateKey === '2026-10-06').blocks[0].rows[0].giden, '500');
+
+  const onlyDone = await call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '05.10.2026.xlsx',
+    blocks: [book('YD05 / LOT NO 1 / EVYAP', '05.10.2026.xlsx', '9')],
+  });
+  assert.equal(onlyDone.settled, true);
+  assert.equal(onlyDone.unchanged, true);
+  view = await call('get /liman', '1.1.1.1');
+  assert.equal(view.days.find((d) => d.dateKey === '2026-10-05').blocks[0].rows[0].giden, '26000');
+  assert.equal(view.days.find((d) => d.dateKey === '2026-10-06').blocks[0].rows[0].giden, '500');
+
+  const beat = await call('put /liman/heartbeat', '95.3.27.82', { site: 'AVDAN', excelLoaded: true });
+  assert.ok(beat.dropFiles.includes('05.10.2026'));
+  assert.equal(beat.dropFiles.includes('06.10.2026'), false);
 });
