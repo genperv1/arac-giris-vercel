@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const { validatePlateFormat, compactPlate, compactRecordPlates } = require('./lib/plate-format');
 const { envNumber, resolveSecret, warnIfDefaultSecret } = require('./lib/env');
 const { applySupabaseSecurity } = require('./lib/supabase-security');
-const { createAuthSessionMiddleware } = require('./lib/auth-session');
+const { createAuthSessionMiddleware, extractAuthTokenFromRequest } = require('./lib/auth-session');
 const { createClientSiteResolver } = require('./lib/client-site');
 const {
   sanitizeString,
@@ -51,6 +51,8 @@ const { registerHealthRoutes } = require('./routes/health-routes');
 const { registerAdminBanRoutes } = require('./routes/admin-ban-routes');
 const { registerBackupRoutes } = require('./routes/backup-routes');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { isAmirIdentity } = require('./lib/amir-user');
 const { createPresence } = require('./lib/presence');
 const { createDeviceTokenStore } = require('./lib/device-tokens');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
@@ -848,10 +850,8 @@ app.use(cors(corsOptions));
 // Rate limiting with IP-based banning
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 1 * 60 * 1000);
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 620);
-const FAILED_LOGIN_THRESHOLD = Number(process.env.FAILED_LOGIN_THRESHOLD || 5); // Ban IP after N failed login attempts
-const BAN_DURATION_MS = Number(process.env.BAN_DURATION_MS || 48 * 60 * 60 * 1000); // 48 hours
-/** If true, repeated global rate-limit violations can ban an IP (legacy). Default: only 429, no ban. */
-const BAN_ON_RATE_LIMIT = String(process.env.BAN_ON_RATE_LIMIT || '').toLowerCase() === 'true';
+const FAILED_LOGIN_THRESHOLD = Number(process.env.FAILED_LOGIN_THRESHOLD || 5);
+const BAN_DURATION_MS = Number(process.env.BAN_DURATION_MS || 48 * 60 * 60 * 1000);
 
 // IP-based rate limiter with request tracking per IP
 const ipRequestCount = new Map(); // { ip: { count: number, resetTime: timestamp, failedLogins: number } }
@@ -941,8 +941,33 @@ const CLIENT_SITES_FILE = path.join(__dirname, 'client_sites.json');
 const clientSiteResolver = createClientSiteResolver(CLIENT_SITES_FILE, normalizeClientIp, isLoopbackIp);
 const resolveClientSite = (ip, role) => clientSiteResolver.resolveClientSite(ip, role);
 
+function requestPath(req) {
+  return String(req.originalUrl || req.url || '').split('?')[0];
+}
+
+function isApiPath(req) {
+  const p = requestPath(req);
+  return p === '/api' || p.startsWith('/api/');
+}
+
+function isLoginPath(req) {
+  return requestPath(req) === '/api/login';
+}
+
+/** Banlı IP'de bile amir (xxr / saban) oturumu ayarlara ulaşsın. */
+function requestHasAmirSession(req) {
+  try {
+    const token = extractAuthTokenFromRequest(req, 'auth_token');
+    if (!token) return false;
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return isAmirIdentity(decoded);
+  } catch (e) {
+    return false;
+  }
+}
+
 function isBanExemptApiPath(req) {
-  const p = String(req.originalUrl || req.url || '').split('?')[0];
+  const p = requestPath(req);
   if (
     p === '/api/settings/verify-access'
     || p.startsWith('/api/settings/bans')
@@ -1030,7 +1055,7 @@ function isIpBanned(ip) {
 }
 
 // Ban an IP address
-function banIp(ip, reason = 'Rate limit exceeded') {
+function banIp(ip, reason = 'Manuel engel') {
   try {
     const normalized = normalizeClientIp(ip);
     if (isLoopbackIp(normalized)) {
@@ -1075,12 +1100,13 @@ function unbanIp(ip) {
 async function rateLimitMiddleware(req, res, next) {
   const ip = normalizeClientIp(getClientIp(req));
   
-  // Check if IP is banned
+  // Sayfa açılır. API banlı kalır; amir oturumu ve /api/login istisnadır
+  // (xxr / saban banlı IP'den girip Ayarlar → IP engelleri'nden kaldırır).
   const banned = isIpBanned(ip);
-  if (banned && !isBanExemptApiPath(req)) {
+  if (banned && isApiPath(req) && !isBanExemptApiPath(req) && !isLoginPath(req) && !requestHasAmirSession(req)) {
     return res.status(403).json({
       ok: false,
-      error: 'IP adresiniz geçici olarak engellendi. Ayarlar > Ban bölümünden kaldırılabilir veya süre dolana kadar bekleyin.',
+      error: 'IP adresiniz geçici olarak engellendi. Amir hesabı (xxr veya saban) Ayarlar → IP engelleri bölümünden kaldırabilir.',
       code: 'IP_BANNED',
     });
   }
@@ -1103,19 +1129,8 @@ async function rateLimitMiddleware(req, res, next) {
   res.setHeader('RateLimit-Remaining', Math.max(0, RATE_LIMIT_MAX - ipData.count));
   res.setHeader('RateLimit-Reset', new Date(ipData.resetTime).toISOString());
 
-  // Check if exceeded rate limit (429 only by default; ban only if BAN_ON_RATE_LIMIT=true)
+  // İstek sınırı yalnız 429. IP ban yazılmaz (paylaşılan tesis IP'si kapanmasın).
   if (ipData.count > RATE_LIMIT_MAX) {
-    if (BAN_ON_RATE_LIMIT) {
-      ipData.failedLogins++;
-      if (ipData.failedLogins >= FAILED_LOGIN_THRESHOLD) {
-        banIp(ip, `Exceeded rate limit ${FAILED_LOGIN_THRESHOLD} times`);
-        return res.status(403).json({
-          ok: false,
-          error: 'Çok fazla istek nedeniyle IP adresiniz geçici olarak engellendi.',
-          code: 'IP_BANNED',
-        });
-      }
-    }
     return res.status(429).json({ error: `Too many requests (${ipData.count}/${RATE_LIMIT_MAX}). Try again in ${Math.ceil((ipData.resetTime - now) / 1000)} seconds.` });
   }
 
@@ -1267,6 +1282,7 @@ const routeCtx = {
   RATE_LIMIT_WINDOW_MS,
   FAILED_LOGIN_THRESHOLD,
   banIp,
+  isIpBanned,
   AUTH_COOKIE_NAME,
   AUTH_COOKIE_OPTIONS,
   JWT_SECRET,

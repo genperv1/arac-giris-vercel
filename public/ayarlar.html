@@ -42,6 +42,9 @@
     .rp-header-title { font-size: 1.125rem; font-weight: 600; color: #fff; }
     .rp-header-sub { font-size: .8125rem; color: rgba(255,255,255,.78); }
     .rp-btn-header { font-size: .8125rem; color: #fff; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.22); padding: .5rem 1rem; border-radius: 8px; cursor: pointer; }
+    .rp-btn-header--exit { background: rgba(185, 28, 28, .9); border-color: rgba(254, 202, 202, .55); }
+    .ay-nav-btn--exit { color: #b91c1c; margin-top: .35rem; }
+    .ay-nav-btn--exit:hover { background: #fef2f2; color: #991b1b; }
     .rp-page-title { font-size: 1.35rem; font-weight: 800; color: #0f172a; letter-spacing: -.02em; }
     .rp-page-desc { font-size: .8125rem; color: var(--rp-muted); margin-top: .2rem; }
 
@@ -867,7 +870,10 @@
           <div class="rp-header-sub">Yönetim Paneli</div>
         </div>
       </div>
-      <button type="button" id="backBtn" class="rp-btn-header">Ana Sayfa</button>
+      <div class="flex items-center gap-2">
+        <button type="button" id="backBtn" class="rp-btn-header">Ana Sayfa</button>
+        <button type="button" id="settingsLogoutBtn" class="rp-btn-header rp-btn-header--exit">Çıkış</button>
+      </div>
     </div>
   </header>
 
@@ -915,6 +921,9 @@
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-yedek">
             <i class="fas fa-database" aria-hidden="true"></i> Yedekleme
+          </button>
+          <button type="button" class="ay-nav-btn ay-nav-btn--exit" id="settingsLogoutSideBtn">
+            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> Çıkış
           </button>
         </div>
       </aside>
@@ -1099,7 +1108,7 @@
       <div class="ay-panel__head">
         <div>
           <h2 id="banTitle">IP engelleri (Ban)</h2>
-          <p>Hatalı giriş veya aşırı istek sonucu engellenen IP adreslerini görün, kaldırın veya manuel ekleyin.</p>
+          <p>Engellenen IP adresleri burada durur. Amir hesabı (xxr veya saban) listeden <strong>Kaldır</strong> ile açar.</p>
         </div>
       </div>
 
@@ -1107,7 +1116,7 @@
         Bu bilgisayarın IP adresi: <span class="ay-ip-mono" id="banMyIp">—</span>
         <span id="banMySiteWrap" hidden> — Konum: <strong id="banMySite">—</strong></span>.
         Kendinizi yanlışlıkla engellediyseniz listeden kaldırın veya tüm engelleri temizleyin.
-        IP banlıyken acil kurtarma: <a href="ayarlar.html#ban">ayarlar.html#ban</a> (giriş yapmadan, yalnızca ayarlar parolası).
+        Bu işlem amir hesabıyla (xxr / saban) yapılır.
       </div>
 
       <div class="ay-ban-actions">
@@ -1516,6 +1525,6 @@
   <script src="print-layout-settings.js?v=20261006-no-isg-takip"></script>
   <script src="print-layout-editor.js?v=20261005-isg-stamp"></script>
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
-  <script src="ayarlar.js?v=20261003-cihazlar"></script>
+  <script src="ayarlar.js?v=20261006-cikis"></script>
 </body>
 </html>

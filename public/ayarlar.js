@@ -2010,6 +2010,27 @@
       }
     });
 
+    async function logoutFromSettings() {
+      const u = window.rpUi || {};
+      let ok = false;
+      if (typeof u.confirm === 'function') ok = await u.confirm('Çıkış yapmak istediğinizden emin misiniz?');
+      else ok = confirm('Çıkış yapmak istediğinizden emin misiniz?');
+      if (!ok) return;
+      try { await fetch('/api/session/forget', { method: 'POST', credentials: 'include' }); } catch (e) { /* ignore */ }
+      try { await fetch('/api/logout', { method: 'POST', credentials: 'include' }); } catch (e) { /* ignore */ }
+      try {
+        localStorage.removeItem('isLoggedIn');
+        localStorage.removeItem('currentUserId');
+        localStorage.removeItem('currentUserRole');
+        localStorage.removeItem('currentClientSite');
+        localStorage.removeItem('currentClientIp');
+        document.documentElement.classList.remove('logged-in');
+      } catch (e) { /* ignore */ }
+      location.href = 'GIRIS.html';
+    }
+    document.getElementById('settingsLogoutBtn')?.addEventListener('click', logoutFromSettings);
+    document.getElementById('settingsLogoutSideBtn')?.addEventListener('click', logoutFromSettings);
+
     bindBanUi();
     bindDeviceUi();
     bindBackupUi();
@@ -2083,7 +2104,7 @@
       try {
         var amirRole = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
         var amirId = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-        amirSession = amirRole === 'amir' || amirId === 'xxr';
+        amirSession = amirRole === 'amir' || amirId === 'xxr' || amirId === 'saban';
       } catch (e) { amirSession = false; }
       if (sessionOk && !amirSession) {
         try {
@@ -2106,6 +2127,8 @@
 
       if (sessionOk && !emergency) {
         loadDashboardData();
+      } else if (sessionOk && emergency) {
+        showSection('section-ban', { updateHash: false });
       }
 
       if (window.AyarlarGate && typeof window.AyarlarGate.ensureAyarlarAccess === 'function') {

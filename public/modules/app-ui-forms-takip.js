@@ -3279,12 +3279,17 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           </summary>
           <div class="saban-liste__menu saban-liste__menu--end">
             <button type="button" id="ayarlarMenuButton" class="saban-liste__item" title="Ayarlar"><i class="fas fa-cog" aria-hidden="true"></i> Ayarlar</button>
+            <button type="button" id="ipBanMenuButton" class="saban-liste__item" title="IP engelini kaldır"><i class="fas fa-ban" aria-hidden="true"></i> IP engeli</button>
             <button type="button" id="logoutButton" class="saban-liste__item saban-liste__item--exit" title="Çıkış"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> Çıkış</button>
           </div>
         </details>` : `
         <button type="button" id="ayarlarMenuButton" class="amir-nav-btn amir-nav-btn--settings" title="Ayarlar">
           <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-cog ayarlar-gear"></i></span>
           <span class="amir-nav-btn__copy"><b>Ayarlar</b></span>
+        </button>
+        <button type="button" id="ipBanMenuButton" class="amir-nav-btn" title="IP engelini kaldır">
+          <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-ban"></i></span>
+          <span class="amir-nav-btn__copy"><b>IP engeli</b></span>
         </button>
         <button type="button" id="logoutButton" class="amir-nav-btn amir-nav-btn--exit" title="Çıkış">
           <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-sign-out-alt"></i></span>

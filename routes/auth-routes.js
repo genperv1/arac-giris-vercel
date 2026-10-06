@@ -38,6 +38,7 @@ function registerAuthRoutes(api, ctx) {
     RATE_LIMIT_WINDOW_MS,
     FAILED_LOGIN_THRESHOLD,
     banIp,
+    isIpBanned,
     AUTH_COOKIE_NAME,
     AUTH_COOKIE_OPTIONS,
     JWT_SECRET,
@@ -100,22 +101,40 @@ function registerAuthRoutes(api, ctx) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
 
+      const banned = typeof isIpBanned === 'function' && isIpBanned(ip);
+      const amirAttempt = isAmirIdentity({ username });
+      if (banned && !amirAttempt) {
+        return res.status(403).json({
+          ok: false,
+          error: 'IP adresiniz geçici olarak engellendi. Amir hesabı (xxr veya saban) Ayarlar → IP engelleri bölümünden kaldırabilir.',
+          code: 'IP_BANNED',
+        });
+      }
+
       const r = await auth.authenticateUser(username, password);
       if (!r.ok) {
         const ipData = ipRequestCount.get(ip) || { count: 0, resetTime: Date.now() + RATE_LIMIT_WINDOW_MS, failedLogins: 0 };
         ipData.failedLogins++;
         ipRequestCount.set(ip, ipData);
 
-        if (ipData.failedLogins >= FAILED_LOGIN_THRESHOLD) {
+        if (!banned && ipData.failedLogins >= FAILED_LOGIN_THRESHOLD) {
           banIp(ip, `Failed login attempts exceeded (${ipData.failedLogins})`);
           return res.status(403).json({
             ok: false,
-            error: 'Çok sayıda hatalı giriş nedeniyle IP adresiniz geçici olarak engellendi. Ayarlar > Ban bölümünden kaldırılabilir.',
+            error: 'Çok sayıda hatalı giriş nedeniyle IP adresiniz geçici olarak engellendi. Amir hesabı (xxr veya saban) Ayarlar → IP engelleri bölümünden kaldırabilir.',
             code: 'IP_BANNED',
           });
         }
 
         return res.status(401).json({ ok: false, error: 'invalid credentials' });
+      }
+
+      if (banned && !isAmirIdentity(r.user)) {
+        return res.status(403).json({
+          ok: false,
+          error: 'IP adresiniz geçici olarak engellendi. Amir hesabı (xxr veya saban) Ayarlar → IP engelleri bölümünden kaldırabilir.',
+          code: 'IP_BANNED',
+        });
       }
 
       const ipData = ipRequestCount.get(ip);

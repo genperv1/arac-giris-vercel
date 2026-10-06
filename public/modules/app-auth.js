@@ -327,7 +327,26 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                         }
                     }
                 } catch (e) {
-                    console.warn('Ayarlar açılamadı', e);
+                    location.href = 'ayarlar.html';
+                }
+            });
+
+            document.getElementById('ipBanMenuButton')?.addEventListener('click', async (ev) => {
+                ev.preventDefault();
+                if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                const target = 'ayarlar.html#ban';
+                try {
+                    if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                        window.SessionManager.openAppPage(target);
+                    } else {
+                        location.href = target;
+                    }
+                } catch (e) {
+                    location.href = target;
                 }
             });
 
@@ -1276,7 +1295,7 @@ async function login() {
         if (loginError) {
           let msg = j && j.error ? j.error : 'Giriş başarısız';
           if (j && (j.code === 'IP_BANNED' || /engellendi|banned/i.test(msg))) {
-            msg += ' — Acil kurtarma: ayarlar.html#ban (ayarlar parolası ile IP engelini kaldırın).';
+            msg = 'IP engellendi. Amir hesabı (xxr veya saban) ile girip Ayarlar → IP engelleri bölümünden kaldırın.';
           }
           loginError.textContent = msg;
           loginError.classList.remove('hidden');
