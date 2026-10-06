@@ -192,6 +192,19 @@
     return g >= 1000;
   }
 
+  /**
+   * Liman / gözetmen panosu: GİDEN TONAJ doluysa araç çıkmıştır (SARILDI).
+   * Nakliye bekleyenlerdeki "BBT×1000 kopyası" elemesi burada uygulanmaz;
+   * 24 BBT ve 24.000 kg gerçek çıkıştır. Küçük BBT kopyası (24) ve içerde notu çıkış sayılmaz.
+   */
+  function isLimanRowDeparted(row) {
+    if (!row) return false;
+    const raw = String(row.gidenTonaj || row.giden || '').trim();
+    if (!raw || raw === '0') return false;
+    if (isGidenAllocatedNote(raw)) return false;
+    return parseKg(raw) >= 1000;
+  }
+
   function collectPlanBbtCandidates(text) {
     const cleaned = String(text || '').replace(/\d+\s*BBT\s+PLAKA\s*VER[^\n]*/gi, '');
     const out = [];
@@ -1529,12 +1542,13 @@
       if (!valid(r.ts, meta)) return;
       const d = r.data || {};
       const yd = printReportYdKey(r);
+      const excelDate = reportExcelDateKey(r);
       const seen = new Set();
       [r.plaka, d.plaka, d.plate, d.cekiciPlaka, d.dorsePlaka].forEach((raw) => {
         const pk = plateKey(raw);
         if (!pk || seen.has(pk)) return;
         seen.add(pk);
-        slots.push({ pk, yd, ts: r.ts, used: false });
+        slots.push({ pk, yd, ts: r.ts, used: false, excelDate });
       });
     });
     return slots;
@@ -1569,6 +1583,12 @@
       if (!isValidPlateCell(plaka)) return working;
       const slot = slots.find((s) => {
         if (!printSlotMatchesRow(s, working)) return false;
+        // Baskı hangi Excel gününden alındıysa yalnız o güne yazılır.
+        // Aynı plaka ertesi gün aynı YD'ye tekrar yazılınca eski form "İÇERİDE" yapmasın.
+        if (s.excelDate) {
+          const rowDay = itemExcelDateKey(working, meta);
+          if (rowDay && s.excelDate !== rowDay) return false;
+        }
         if (opts && opts.forPending && s.ts) {
           return printReportValidForPending(s.ts, meta, working);
         }
@@ -3404,6 +3424,7 @@
     extractYdLabel,
     isValidPlateCell,
     isRowDeparted,
+    isLimanRowDeparted,
     applyLiveDepartedMarks,
     printReportValidForMeta,
     printReportValidForBalance,

@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
 const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
-const { printHistoryListColumns, printHistoryKantarSelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
+const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
 
 // Liman görevlisi / gözetmen oturum açmadan bakar: okuma uçları herkese açık,
 // çıkış akışı en fazla bu kadar geriye gider.
@@ -40,6 +40,7 @@ function departedDataFields(d, inst) {
     lotNo: d.lotNo || '',
     yuklemeNotu: d.yuklemeNotu || '',
     excelFileName: d.excelFileName || '',
+    excelDateKey: d.excelDateKey || '',
     basimYeri: d.basimYeri || '',
     sofor: d.sofor || '',
     iletisim: d.iletisim || '',
@@ -464,12 +465,36 @@ function registerLimanRoutes(api, ctx, publicApp) {
     }));
   }
 
+  /** Liste içeriği (giden tonaj / durum). Nabız bu damgayı değiştirmez; liman sayfası bunu izler. */
+  function sheetStampOf(state) {
+    const sites = {};
+    SITES.forEach((site) => {
+      const snap = state && state.sites && state.sites[site];
+      if (!snap) return;
+      sites[site] = {
+        fileName: snap.fileName || '',
+        blocks: snap.blocks || [],
+        rows: snap.rows || [],
+      };
+    });
+    return crypto.createHash('sha1').update(JSON.stringify(sites)).digest('hex').slice(0, 12);
+  }
+
+  function noStore(res) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+    res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+  }
+
   function viewFor(req, state) {
     const amir = isAmirUser(req);
     const days = openDays(state);
     return {
       ok: true,
       version,
+      sheet: sheetStampOf(state),
       canEdit: amir,
       sites: publicSites(state),
       days: amir ? days : withoutTasiyici(days),
@@ -494,7 +519,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   reader.get(readPrefix + '/liman', attachOptionalUser, async (req, res) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      noStore(res);
       return res.json(viewFor(req, await readState()));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_READ_FAILED');
@@ -503,15 +528,15 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   reader.get(readPrefix + '/liman/version', async (req, res) => {
     try {
-      await loadRaw();
+      const state = await readState();
       // Son takip formu baskısı: değişince liman sayfası aracı hemen İÇERİDE gösterir
       let lastPrint = null;
       try {
         const pr = await q('SELECT MAX(tarih) AS t FROM print_history');
         lastPrint = (pr.rows[0] && pr.rows[0].t != null) ? String(pr.rows[0].t) : null;
       } catch (_) { /* baskı bilgisi yoksa yalnız liste sürümü */ }
-      res.setHeader('Cache-Control', 'no-store');
-      return res.json({ v: version, p: lastPrint });
+      noStore(res);
+      return res.json({ v: version, p: lastPrint, s: sheetStampOf(state) });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_VERSION_FAILED');
     }
@@ -527,7 +552,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       let since = Number(req.query && req.query.since);
       if (!Number.isFinite(since) || since <= 0 || now - since > DEPARTED_MAX_WINDOW_MS) since = now - 3 * 24 * 60 * 60 * 1000;
       const r = await q(
-        'SELECT ' + printHistoryListColumns(true) + ', ' + printHistoryKantarSelect() +
+        'SELECT ' + printHistoryListColumns(true) + ', ' + printHistoryKantarSelect() + ', ' + printHistoryExcelDaySelect() +
         ' FROM print_history WHERE tarih >= $1 ORDER BY tarih DESC LIMIT $2',
         [since, DEPARTED_MAX_ROWS]
       );
@@ -536,6 +561,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
         try {
           const m = mapPrintHistoryRowToReport(row, { slim: true });
           const d = m.data || {};
+          if (!d.excelDateKey && row.excel_date_key) d.excelDateKey = String(row.excel_date_key);
+          if (!d.excelFileName && row.excel_file_name) d.excelFileName = String(row.excel_file_name);
           const inst = typeof formatReportInstant === 'function' ? formatReportInstant(m.ts) : { tarih: '', saat: '' };
           out.push({
             type: 'PRINT',
@@ -548,7 +575,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
           });
         } catch (_) { /* bozuk satır atlanır */ }
       });
-      res.setHeader('Cache-Control', 'no-store');
+      noStore(res);
       return res.json(out);
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DEPARTED_FAILED');

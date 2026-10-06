@@ -973,6 +973,14 @@ body.kiosk-mode .vehicle-card__value{
   line-height: 1;
 }
 
+.app-header-amir-mark--name {
+  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  line-height: 1.15;
+  text-align: center;
+  max-width: 8.5rem;
+}
+
 .app-header-menus {
   flex: 1;
   min-width: 0;
@@ -1096,11 +1104,18 @@ html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
   flex-direction: column;
   gap: 0.3rem;
   flex: 0 0 auto;
+  align-items: center;
 }
 
 .status-stack__row {
   display: inline-flex;
   gap: 0.4rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-stack__row--top {
+  flex-wrap: wrap;
 }
 
 .status-chip.presence-chip {
@@ -1203,6 +1218,10 @@ body.session-amir .app-header-status {
     linear-gradient(165deg, #292524 0%, #1c1917 100%);
   border: 1px solid rgba(231, 194, 122, 0.35);
   box-shadow: inset 0 1px 0 rgba(255, 237, 213, 0.12);
+}
+
+body.session-amir .app-header-status--centered {
+  justify-content: center;
 }
 
 body.session-amir .app-header-status > .status-chip {
@@ -1467,6 +1486,187 @@ body.session-amir .app-header-piyasa-clear {
 
 .amir-nav-btn__icon--liman {
   color: #99f6e4;
+}
+
+.app-nav--saban {
+  overflow: visible;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(22rem, 2.8fr) auto;
+  align-items: stretch;
+}
+
+.app-nav--saban > .amir-nav-btn:not(.amir-nav-btn--settings):not(.amir-nav-btn--exit),
+.app-nav--saban > .saban-liste:not(.saban-hesap),
+.app-nav--saban > .saban-piyasa-slot {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 3rem;
+}
+
+.saban-liste {
+  position: relative;
+}
+
+.saban-liste > summary {
+  width: 100%;
+  height: 100%;
+  min-height: 3rem;
+  list-style: none;
+  box-sizing: border-box;
+}
+
+.saban-liste > summary::-webkit-details-marker {
+  display: none;
+}
+
+.saban-liste__menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 80;
+  min-width: 12.5rem;
+  padding: 0.35rem;
+  border-radius: 12px;
+  background: #1c1917;
+  border: 1px solid rgba(231, 194, 122, 0.35);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.saban-liste__item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #fff7ed;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saban-liste__item:hover,
+.saban-liste__item:focus-visible {
+  background: rgba(255, 237, 213, 0.08);
+  outline: none;
+}
+
+.saban-liste__menu--end {
+  left: auto;
+  right: 0;
+}
+
+.saban-liste__item--exit {
+  color: #fecaca;
+}
+
+.saban-hesap > summary {
+  width: auto;
+  min-width: 6.5rem;
+}
+
+.saban-piyasa-slot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.4rem;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.55), rgba(28, 25, 23, 0.4));
+  box-sizing: border-box;
+}
+
+.amir-nav-btn__icon--excel {
+  color: #bbf7d0;
+  background: rgba(21, 128, 61, 0.55);
+  font-size: 1.05rem;
+}
+
+button.amir-nav-btn__icon--excel {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+button.amir-nav-btn__icon--excel:hover,
+button.amir-nav-btn__icon--excel:focus-visible {
+  filter: brightness(1.15);
+  outline: none;
+}
+
+.saban-piyasa-slot__label {
+  display: none;
+}
+
+.saban-piyasa-slot .amir-nav-btn__copy {
+  flex: 0 1 auto;
+  min-width: 7.6rem;
+}
+
+.saban-piyasa-slot #chipPiyasa {
+  display: block;
+  width: 100%;
+  margin: 0.12rem 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #d6d3d1;
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.saban-piyasa-slot #chipPiyasa b {
+  font-weight: 500;
+}
+
+.saban-piyasa-slot__actions {
+  display: flex;
+  gap: 0.28rem;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.saban-piyasa-slot__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  min-height: 1.85rem;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 247, 237, 0.12);
+  color: #fff7ed;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.28rem 0.55rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.saban-piyasa-slot__btn span {
+  display: inline;
+}
+
+.saban-piyasa-slot__btn i {
+  font-size: 0.75rem;
+}
+
+.saban-piyasa-slot__btn--wipe {
+  background: rgba(127, 29, 29, 0.55);
+  color: #fecaca;
 }
 
 .app-nav--amir .iht-radar--menu {
@@ -4316,7 +4516,7 @@ html.logged-in #mainApp,
 
 .login-users {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
 }
 
@@ -4360,6 +4560,13 @@ html.logged-in #mainApp,
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #64748b;
+}
+
+.login-user__name--person {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  text-align: center;
 }
 
 .login-user.is-selected .login-user__name small {

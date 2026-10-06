@@ -1130,8 +1130,16 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "GIRIS.html"));
 });
 
-app.get("/liman", (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
+function setPublicNoStore(res) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+}
+
+app.get(["/liman", "/liman.html"], (req, res) => {
+  setPublicNoStore(res);
   res.sendFile(path.join(__dirname, "public", "liman.html"));
 });
 
@@ -1142,8 +1150,8 @@ app.use(
     lastModified: true,
     setHeaders: (res, filePath) => {
       const lower = String(filePath || '').toLowerCase();
-      if (/\.html?$/.test(lower)) {
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      if (/\.html?$/.test(lower) || /[/\\]liman\.js$/.test(lower) || /[/\\]nakliye-bekleyen-core\.js$/.test(lower)) {
+        setPublicNoStore(res);
         return;
       }
       if (STATIC_MAX_AGE_SEC > 0 && /\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot|webmanifest)$/.test(lower)) {
@@ -2221,6 +2229,7 @@ async function initializeApp() {
           { username: 'AVDAN', envKey: 'KANTAR_AVDAN_PASSWORD', role: 'admin' },
           { username: '1.OSB', envKey: 'KANTAR_1OSB_PASSWORD', role: 'admin' },
           { username: 'xxr', envKey: 'AMIR_PASSWORD', role: 'amir' },
+          { username: 'saban', envKey: 'AMIR_PASSWORD', role: 'amir' },
         ];
         for (const { username, envKey, role } of seedUsers) {
           const password = String(process.env[envKey] || '');
@@ -2244,6 +2253,26 @@ async function initializeApp() {
           await pool.query('DELETE FROM users WHERE username = $1', ['GENPER']);
         } catch (e) {
           console.log('GENPER user removal skipped:', e && e.message ? e.message : e);
+        }
+        try {
+          const sabanRow = await pool.query('SELECT id FROM users WHERE username = $1', ['saban']);
+          if (!sabanRow.rows[0]) {
+            const src = await pool.query('SELECT password_hash FROM users WHERE username = $1', ['xxr']);
+            const hash = src.rows[0] && src.rows[0].password_hash;
+            if (hash) {
+              const id = String(Date.now()) + Math.random().toString(16).slice(2);
+              await pool.query(
+                `INSERT INTO users(id, username, password_hash, role, meta, created_at)
+                 VALUES($1,$2,$3,$4,$5,$6)`,
+                [id, 'saban', hash, 'amir', JSON.stringify({ role: 'amir' }), Date.now()]
+              );
+              console.log('User ensured: saban (aynı amir şifresi)');
+            }
+          } else {
+            await pool.query(`UPDATE users SET role = 'amir' WHERE username = 'saban' AND COALESCE(role, '') <> 'amir'`);
+          }
+        } catch (e) {
+          console.log('saban user setup skipped:', e && e.message ? e.message : e);
         }
       } catch (e) {
         console.error('Failed to ensure users table or create default user:', e && e.message ? e.message : e);

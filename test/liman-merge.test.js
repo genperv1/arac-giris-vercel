@@ -107,6 +107,19 @@ test('aynı günün Avdan ve 1.OSB sayfaları tek Excel olur', () => {
   assert.equal(days[0].blocks[1].rows[1].plaka, '');
 });
 
+test('sıra nosuz kopya aynı plakanın tonunu ikiye katlamaz', () => {
+  const title = 'YD20(M) / LOT NO 26 08 26 / 10 TON / DP WORLD';
+  const days = daysFromSheetState({
+    sites: {
+      AVDAN: { fileName: '06.10.2026.xlsx', blocks: [{ title, rows: [{ sira: '1', plaka: '43AAA01', net: '10000', bbt: '10' }] }] },
+      '1.OSB': { fileName: '06.10.2026.xlsx', blocks: [{ title, rows: [{ sira: '', plaka: '43AAA01', net: '10000', bbt: '10' }] }] },
+    },
+    notes: {},
+  });
+  assert.equal(days[0].blocks[0].rows.length, 1);
+  assert.equal(days[0].blocks[0].rows[0].net, '10000');
+});
+
 test('aynı blok iki kantarda doluysa sıra bazında birleşir', () => {
   const title = 'YD20(M) / LOT NO 26 08 26 / 500 TON / DP WORLD';
   const days = daysFromSheetState({

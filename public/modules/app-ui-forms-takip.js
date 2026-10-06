@@ -3214,13 +3214,24 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const _totalVehicleCount = (state.vehicles || []).length;
             const _statusMeta = _appStatusMeta();
             const _amirPiyasa = _sessionIsAmir();
+            const _amirMark = _amirPiyasa ? String(_statusMeta.userLabel || '') : '';
+            const _sabanNav = (function () {
+                try {
+                    if (window.SessionManager && typeof window.SessionManager.isSabanUser === 'function') {
+                        return !!window.SessionManager.isSabanUser();
+                    }
+                    return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'saban';
+                } catch (e) {
+                    return false;
+                }
+            })();
             try { document.body.classList.toggle('session-amir', !!_amirPiyasa); } catch (e) {}
             if (_amirPiyasa) state.showForm = false;
             const _piyasaExcelMenu = _amirPiyasa
               ? '<section class="app-excel-suite__group app-excel-suite__group--piyasa"><div class="app-excel-suite__head"><span class="app-excel-suite__badge">PİYASA</span><span class="app-excel-suite__hint">İç piyasa Excel</span></div><div class="app-excel-suite__actions"><button type="button" id="piyasaExcelUploadButtonTop" class="app-excel-tile app-excel-tile--load" title="PİYASA Excel Yükle"><span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-file-invoice"></i></span><span class="app-excel-tile__copy"><b>Yükle</b><small>Excel seç</small></span></button><button type="button" id="piyasaExcelClearButtonTop" class="app-excel-tile app-excel-tile--wipe" title="PİYASA Excel Sil"><span class="app-excel-tile__icon" aria-hidden="true"><i class="fas fa-trash-alt"></i></span><span class="app-excel-tile__copy"><b>Sil</b><small>Listeyi temizle</small></span></button></div></section>'
               : '';
             const _navHtml = _amirPiyasa ? `
-      <nav class="app-nav app-nav--amir" aria-label="Amir menü">
+      <nav class="app-nav app-nav--amir${_sabanNav ? ' app-nav--saban' : ''}" aria-label="Amir menü">
         <button type="button" id="raporlarLinkGunluk" class="amir-nav-btn" title="Günlük Raporlar">
           <span class="amir-nav-btn__icon amir-nav-btn__icon--report" aria-hidden="true"><i class="fas fa-file-alt"></i></span>
           <span class="amir-nav-btn__copy"><b>Günlük Raporlar</b><small>Yazdırma listesi</small></span>
@@ -3229,6 +3240,29 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           <span class="amir-nav-btn__icon amir-nav-btn__icon--market" aria-hidden="true"><i class="fas fa-bullhorn"></i></span>
           <span class="amir-nav-btn__copy"><b>Piyasa Çıkanlar</b><small>Çıkan araçlar</small></span>
         </button>
+        ${_sabanNav ? `
+        <details class="saban-liste">
+          <summary class="amir-nav-btn" title="İhracat Takip ve Liman">
+            <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-list"></i></span>
+            <span class="amir-nav-btn__copy"><b>Liste</b><small>Takip · Liman</small></span>
+          </summary>
+          <div class="saban-liste__menu">
+            <button type="button" id="ihracatTakipMenuButton" class="saban-liste__item" title="İhracat Excel ve Operasyon Formülleri"><i class="fas fa-ship" aria-hidden="true"></i> İhracat Takip</button>
+            <button type="button" id="limanMenuButton" class="saban-liste__item" title="Liman — birleşik ihracat listesi"><i class="fas fa-anchor" aria-hidden="true"></i> Liman</button>
+          </div>
+        </details>
+        <div class="saban-piyasa-slot" title="Piyasa Excel">
+          <button type="button" id="piyasaExcelOpenButton" class="amir-nav-btn__icon amir-nav-btn__icon--excel" title="Yüklü Piyasa Excel'i aç" aria-label="Yüklü Piyasa Excel'i aç"><i class="fas fa-file-excel" aria-hidden="true"></i></button>
+          <span class="amir-nav-btn__copy">
+            <b>Piyasa Excel</b>
+            <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}"><b id="chipPiyasaText">${_piyChipText}</b></button>
+          </span>
+          <span class="saban-piyasa-slot__actions">
+            <button type="button" id="piyasaExcelUploadButtonTop" class="saban-piyasa-slot__btn" title="Piyasa Excel yükle"><i class="fas fa-file-import" aria-hidden="true"></i><span>Yükle</span></button>
+            <button type="button" id="excelPiyasaRefreshButtonChip" class="saban-piyasa-slot__btn ${(_piyasaCnt>0)?'':'hidden'}" title="Yüklü piyasa Excel dosyasını yeniden oku"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>Güncelle</span></button>
+            ${(_piyasaCnt>0) ? `<button type="button" id="piyasaExcelClearButtonTop" class="saban-piyasa-slot__btn saban-piyasa-slot__btn--wipe" title="Piyasa Excel sil"><i class="fas fa-trash-alt" aria-hidden="true"></i><span>Sil</span></button>` : ''}
+          </span>
+        </div>` : `
         <button type="button" id="ihracatTakipMenuButton" class="amir-nav-btn amir-nav-btn--ship" title="İhracat Excel ve Operasyon Formülleri">
           <span class="iht-radar iht-radar--menu" aria-hidden="true"><span class="iht-radar__sweep"></span><span class="iht-radar__ring"></span><span class="iht-radar__ring iht-radar__ring--2"></span><span class="iht-radar__core"><i class="fas fa-ship"></i></span></span>
           <span class="amir-nav-btn__copy"><b>İhracat Takip</b><small>İhracat Excel ve Operasyon Formülleri</small></span>
@@ -3236,7 +3270,18 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <button type="button" id="limanMenuButton" class="amir-nav-btn amir-nav-btn--liman" title="Liman — birleşik ihracat listesi">
           <span class="amir-nav-btn__icon amir-nav-btn__icon--liman" aria-hidden="true"><i class="fas fa-anchor"></i></span>
           <span class="amir-nav-btn__copy"><b>Liman</b><small>Birleşik liste</small></span>
-        </button>
+        </button>`}
+        ${_sabanNav ? `
+        <details class="saban-liste saban-hesap">
+          <summary class="amir-nav-btn" title="Ayarlar ve çıkış">
+            <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-cog ayarlar-gear"></i></span>
+            <span class="amir-nav-btn__copy"><b>Menü</b></span>
+          </summary>
+          <div class="saban-liste__menu saban-liste__menu--end">
+            <button type="button" id="ayarlarMenuButton" class="saban-liste__item" title="Ayarlar"><i class="fas fa-cog" aria-hidden="true"></i> Ayarlar</button>
+            <button type="button" id="logoutButton" class="saban-liste__item saban-liste__item--exit" title="Çıkış"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> Çıkış</button>
+          </div>
+        </details>` : `
         <button type="button" id="ayarlarMenuButton" class="amir-nav-btn amir-nav-btn--settings" title="Ayarlar">
           <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-cog ayarlar-gear"></i></span>
           <span class="amir-nav-btn__copy"><b>Ayarlar</b></span>
@@ -3244,7 +3289,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <button type="button" id="logoutButton" class="amir-nav-btn amir-nav-btn--exit" title="Çıkış">
           <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-sign-out-alt"></i></span>
           <span class="amir-nav-btn__copy"><b>Çıkış</b></span>
-        </button>
+        </button>`}
       </nav>` : `
       <nav class="app-nav" aria-label="Ana menü">
         <button id="toggleFormButton" class="app-nav-btn app-nav-btn--primary app-nav-btn--always">
@@ -3324,23 +3369,26 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                     <div class="app-sticky-top">
                     <header class="app-header mb-3" role="banner">
   <div class="app-header-toolbar">
-    <button type="button" class="app-header-brand${_amirPiyasa ? ' app-header-brand--amir' : ''}" id="appHeaderRefreshBtn" title="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile (sunucusuz)'}" aria-label="${_amirPiyasa ? 'GENPER · AMİR' : 'Listeyi yenile'}">
-      <img class="app-header-logo${_amirPiyasa ? ' app-header-logo--amir' : ''}" src="${_amirPiyasa ? '/logo-amir.png?v=20260929b' : '/logo.png'}" alt="${_amirPiyasa ? 'GENPER · AMİR' : 'Logo'}" />
-      ${_amirPiyasa ? '<span class="app-header-amir-mark">AMİR</span>' : ''}
+    <button type="button" class="app-header-brand${_amirPiyasa ? ' app-header-brand--amir' : ''}" id="appHeaderRefreshBtn" title="${_amirPiyasa ? _amirMark : 'Listeyi yenile (sunucusuz)'}" aria-label="${_amirPiyasa ? _amirMark : 'Listeyi yenile'}">
+      <img class="app-header-logo${_amirPiyasa ? ' app-header-logo--amir' : ''}" src="${_amirPiyasa ? '/logo-amir.png?v=20260929b' : '/logo.png'}" alt="${_amirPiyasa ? _amirMark : 'Logo'}" />
+      ${_amirPiyasa ? `<span class="app-header-amir-mark app-header-amir-mark--name">${_amirMark}</span>` : ''}
     </button>
     <div class="app-header-menus">
       ${_navHtml}
-      <div class="app-header-status" id="quickStatusRow">
-        <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
+      <div class="app-header-status${_sabanNav ? ' app-header-status--centered' : ''}" id="quickStatusRow">
         <div class="status-stack">
+          <div class="status-stack__row status-stack__row--top">
+            <span class="status-chip presence-chip" id="chipPresence" title="Kim çevrimiçi">${(window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') ? SessionManager.presenceChipHtml(SessionManager.getPresence()) : ''}</span>
+          </div>
           <div class="status-stack__row">
+            <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
             <span class="status-chip" id="chipUserLabel" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b id="chipUserLabelValue">${_statusMeta.userLabel}</b></span>
             <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
+            ${_sabanNav ? `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>` : ''}
           </div>
-          <span class="status-chip presence-chip" id="chipPresence" title="Kim çevrimiçi">${(window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') ? SessionManager.presenceChipHtml(SessionManager.getPresence()) : ''}</span>
         </div>
-        <span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>
-        <div class="app-header-ihracat-excel">
+        ${_sabanNav ? '' : `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>`}
+        ${_sabanNav ? '' : `<div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
           <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${(!_amirPiyasa && _excelCnt>0)?'':'hidden'}" title="${(typeof listIhracatExcelSources === 'function' && listIhracatExcelSources().length > 1) ? 'Yüklü Excel dosyalarından hangilerinin güncelleneceğini seç' : 'Yüklü İhracat Excel dosyasını yeniden oku'}">
             <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
@@ -3362,7 +3410,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             <i class="fas fa-trash-alt" aria-hidden="true"></i>
             <span>Sil</span>
           </button>` : ''}
-        </div>
+        </div>`}
       </div>
     </div>
   </div>

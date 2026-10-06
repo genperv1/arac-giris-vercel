@@ -23,8 +23,13 @@
     toastTimer = setTimeout(function () { el.style.display = 'none'; }, 2400);
   }
 
+  function freshUrl(path) {
+    var join = path.indexOf('?') >= 0 ? '&' : '?';
+    return path + join + '_=' + Date.now();
+  }
+
   async function api(path, options) {
-    var res = await fetch(path, Object.assign({ credentials: 'same-origin' }, options || {}));
+    var res = await fetch(freshUrl(path), Object.assign({ credentials: 'same-origin', cache: 'no-store' }, options || {}));
     var data = await res.json().catch(function () { return {}; });
     if (!res.ok) throw new Error(data.error || 'İstek olmadı');
     return data;
@@ -36,6 +41,7 @@
     if (gen != null && gen !== viewGeneration) return;
     state.days = data.days || [];
     state.version = data.version || '';
+    if (data.sheet) state.sheetStamp = data.sheet;
     state.canEdit = !!data.canEdit;
     state.sites = data.sites || {};
     state.closedDays = Array.isArray(data.closedDays) ? data.closedDays : [];
@@ -312,7 +318,7 @@
       (block.rows || []).forEach(function (row) {
         var plaka = String(row.plaka || '').replace(/\s+/g, '');
         if (!plaka) return;
-        if (row._printedInside || /^İÇERİDE$/i.test(String(row.durum || '').trim())) inside += 1;
+        if (!rowDeparted(row) && (row._printedInside || /^İÇERİDE$/i.test(String(row.durum || '').trim()))) inside += 1;
         if (!String(row.irsaliye || row.irsaliyeNo || '').trim()) noIrs += 1;
       });
     });
@@ -395,16 +401,24 @@
     return seen;
   }
 
+  function limanGidenKg(raw) {
+    var s = String(raw || '').trim();
+    if (!s || /^(İÇERİDE|ICERIDE|DIŞARIDA|DISARIDA)$/i.test(s)) return 0;
+    if (/^\d{1,3}(\.\d{3})+$/.test(s)) return parseInt(s.replace(/\./g, ''), 10) || 0;
+    if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) {
+      var grouped = parseFloat(s.replace(/\./g, '').replace(',', '.'));
+      return isFinite(grouped) ? grouped : 0;
+    }
+    var n = parseFloat(s.replace(',', '.'));
+    if (!isFinite(n) || n <= 0) return 0;
+    if (n >= 8 && n < 80 && n !== Math.floor(n)) return Math.round(n * 1000);
+    return n;
+  }
+
   function rowDeparted(row) {
     if (!row) return false;
-    // Baskı işareti çıkış sayılmaz. Yalnız Excel giden tonajı.
-    var probe = row;
-    if (!String(row.gidenTonaj || '').trim() && String(row.giden || '').trim()) {
-      probe = Object.assign({}, row, { gidenTonaj: row.giden });
-    }
-    var core = window.NakliyeBekleyenCore;
-    if (core && typeof core.isRowDeparted === 'function') return !!core.isRowDeparted(probe);
-    return Number(String(probe.gidenTonaj || '').replace(/\./g, '').replace(',', '.')) >= 1000;
+    // Baskı işareti çıkış sayılmaz. Excel giden tonajı doluysa araç çıkmıştır.
+    return limanGidenKg(row.gidenTonaj || row.giden) >= 1000;
   }
 
   function blockProgress(block) {
@@ -932,7 +946,7 @@
     var gen = ++viewGeneration;
     var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
     // Oturumsuz çıkış akışı (liman görevlisi giriş yapmaz)
-    var res = await fetch('/api/liman/departed?since=' + since, { credentials: 'same-origin', cache: 'no-store' });
+    var res = await fetch(freshUrl('/api/liman/departed?since=' + since), { credentials: 'same-origin', cache: 'no-store' });
     if (gen !== viewGeneration) return;
     state.reports = res.ok ? await res.json() : (state.reports || []);
     var data = await api('/api/liman');
@@ -966,12 +980,14 @@
             return outside;
           }
           if (rowDeparted(base)) {
+            var departedDurum = (/^(İÇERİDE|DIŞARIDA)$/i.test(baseDurum)) ? '' : baseDurum;
             var departed = Object.assign({}, row, {
               gidenTonaj: base.gidenTonaj,
               giden: base.giden,
-              durum: baseDurum,
+              durum: departedDurum,
             });
             delete departed._nbLiveDeparted;
+            delete departed._printedInside;
             return departed;
           }
           var inside = Object.assign({}, row, {
@@ -1090,18 +1106,22 @@
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) checkForChange(true);
     });
+    window.addEventListener('pageshow', function (ev) {
+      if (ev && ev.persisted) checkForChange(true);
+    });
     window.addEventListener('offline', function () { setLive(false); });
     window.addEventListener('online', function () { checkForChange(true); });
   }
 
-  var CHECK_MS = 8 * 1000;           // kantar yeni liste gönderdi mi (hafif istek)
-  var FULL_MS = 5 * 60 * 1000;       // çıkış (sarıldı) durumu için raporları yeniden çek
+  var CHECK_MS = 3 * 1000;           // kantar yeni liste gönderdi mi (hafif istek)
+  var FULL_MS = 15 * 1000;           // çıkış (sarıldı) ve baskı için tam yenileme
   var lastCheck = 0;
   var lastFull = 0;
   var checking = false;
   async function checkForChange(force) {
-    if (checking || document.hidden) return;
-    if (!force && Date.now() - lastCheck < 7000) return;
+    if (checking) return;
+    if (!force && document.hidden) return;
+    if (!force && Date.now() - lastCheck < 2000) return;
     var active = document.activeElement;
     if (active && active.matches && active.matches('[data-note]')) return;
     checking = true;
@@ -1113,12 +1133,11 @@
       }
       var info = await api('/api/liman/version');
       var printed = info && info.p != null && state.printMark != null && info.p !== state.printMark;
+      var sheetChanged = info && info.s && state.sheetStamp && info.s !== state.sheetStamp;
+      var versionChanged = info && info.v && state.version && info.v !== state.version;
       if (info && info.p != null) state.printMark = info.p;
-      if (printed) {
-        await guncelle();
-        return;
-      }
-      if (info && info.v && info.v !== state.version) {
+      if (info && info.s && !state.sheetStamp) state.sheetStamp = info.s;
+      if (printed || sheetChanged || versionChanged) {
         await guncelle();
         return;
       }

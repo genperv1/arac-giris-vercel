@@ -1084,46 +1084,17 @@ function _todayKeyTR() {
 }
 
 function findShipmentHeaderText(grid, rowIdx) {
-  // En yakın BOOKING/NET başlığı; yoksa YD + en büyük BBT satırı (LOT planı)
-  const start = Math.max(0, rowIdx - 25);
-  let bestYdBbt = '';
-  let bestYdBbtN = 0;
-
-  for (let r = rowIdx; r >= start; r--) {
+  // Bu tablonun hemen üstündeki sevkiyat. Üst bloğun BOOKING'i daha büyük diye onu alma.
+  const start = Math.max(0, rowIdx - 14);
+  for (let r = rowIdx - 1; r >= start; r--) {
     const row = grid[r] || [];
-    const maxC = Math.min(row.length, 80);
-
-    for (let c = 0; c < maxC; c++) {
-      const v = row[c];
-      if (v === null || v === undefined || v === '') continue;
-
-      const s = String(v).trim();
-      if (!s.includes('/')) continue;
-
-      if (
-        /NET\s*\d+\s*KG/i.test(s) ||
-        /BOOKING\s*NO/i.test(s) ||
-        /GEM[İI]\s*DETAYI/i.test(s)
-      ) {
-        return s;
-      }
-
-      if (/\bYD\d{1,4}/i.test(s) && /\d+\s*BBT\b/i.test(s)) {
-        let mx = 0;
-        const re = /(\d+)\s*BBT\b/gi;
-        let m;
-        while ((m = re.exec(s))) {
-          const n = parseInt(m[1], 10);
-          if (Number.isFinite(n) && n > mx) mx = n;
-        }
-        if (mx > bestYdBbtN || (mx === bestYdBbtN && s.length > bestYdBbt.length)) {
-          bestYdBbtN = mx;
-          bestYdBbt = s;
-        }
-      }
-    }
+    const rowText = typeof _rowToText === 'function' ? _rowToText(row) : '';
+    if (/\b(TOPLAM|KALAN)\b/i.test(rowText) && !/ARA\s+TOPLAM/i.test(rowText)) break;
+    if (typeof isIhracatBlockHeaderRow === 'function' && isIhracatBlockHeaderRow(row)) break;
+    const main = _pickIhracatMainHeaderCell(row);
+    if (main) return main;
   }
-  return bestYdBbt;
+  return '';
 }
 
 function colIndexToLetter(idx) {
@@ -1372,20 +1343,25 @@ function syncLimanBlocksFromRows(blocks, rows) {
     if (sira) keys.push('s|' + sira + '|' + pk);
     if (irs) keys.push('i|' + irs + '|' + pk);
     if (hdr) keys.push('h|' + hdr + '|' + pk);
-    keys.push('p|' + pk);
     keys.forEach((k) => { if (!index.has(k)) index.set(k, row); });
   });
+  function sameHdr(row, hdr) {
+    if (!hdr) return true;
+    const rh = String(row && row.headerText || '').trim().toUpperCase();
+    return !rh || rh === hdr;
+  }
   function matchRow(br, blockTitle) {
     const pk = _limanSyncPlateKey(br && br.plaka);
     if (!pk) return null;
     const sira = String((br && br.sira) || '').trim();
     const irs = String((br && (br.irsaliye || br.irsaliyeNo)) || '').trim().toUpperCase();
     const hdr = String(blockTitle || '').trim().toUpperCase();
-    return index.get('s|' + sira + '|' + pk)
-      || (irs ? index.get('i|' + irs + '|' + pk) : null)
-      || (hdr ? index.get('h|' + hdr + '|' + pk) : null)
-      || index.get('p|' + pk)
-      || null;
+    // Plaka tek başına yetmez: aynı araç başka sevkiyatta da varsa onun tonu bu bloğa yazılmasın.
+    const bySira = sira ? index.get('s|' + sira + '|' + pk) : null;
+    if (bySira && sameHdr(bySira, hdr)) return bySira;
+    const byIrs = irs ? index.get('i|' + irs + '|' + pk) : null;
+    if (byIrs && sameHdr(byIrs, hdr)) return byIrs;
+    return hdr ? (index.get('h|' + hdr + '|' + pk) || null) : null;
   }
   return blocks.map((block) => ({
     ...block,
@@ -1393,8 +1369,18 @@ function syncLimanBlocksFromRows(blocks, rows) {
       const src = matchRow(br, block.title);
       if (!src) return br;
       const out = { ...br };
-      out.durum = src.iceride ? 'İÇERİDE' : (src.disarida ? 'DIŞARIDA' : '');
       const giden = String(src.gidenTonaj || '').trim();
+      let gidenKg = 0;
+      if (giden && !/^(İÇERİDE|ICERIDE|DIŞARIDA|DISARIDA)$/i.test(giden)) {
+        if (/^\d{1,3}(\.\d{3})+$/.test(giden)) gidenKg = parseInt(giden.replace(/\./g, ''), 10) || 0;
+        else {
+          const n = parseFloat(giden.replace(',', '.'));
+          if (Number.isFinite(n) && n > 0) {
+            gidenKg = (n >= 8 && n < 80 && !Number.isInteger(n)) ? Math.round(n * 1000) : n;
+          }
+        }
+      }
+      out.durum = gidenKg >= 1000 ? '' : (src.iceride ? 'İÇERİDE' : (src.disarida ? 'DIŞARIDA' : ''));
       if (giden) out.giden = giden;
       const net = String(src.netTonaj || src.tonajKg || '').trim();
       if (net) out.net = net;
@@ -1426,7 +1412,7 @@ function _limanBlockSideInfo(grid, headerRowIdx, headerText) {
   const from = Math.max(0, headerRowIdx - 8);
   const to = Math.min(grid.length - 1, headerRowIdx + 40);
   for (let rr = from; rr <= to; rr++) {
-    if (rr > headerRowIdx + 1 && isIhracatBlockHeaderRow(grid[rr] || [])) break;
+    if (rr > headerRowIdx + 1 && (isIhracatBlockHeaderRow(grid[rr] || []) || _pickIhracatMainHeaderCell(grid[rr] || []))) break;
     const row = grid[rr] || [];
     for (let c = 0; c < row.length; c++) {
       const field = labels[_limanNormHead(row[c])];
@@ -3424,6 +3410,10 @@ function resolveIhracatBlockCols(headerRow) {
   return out;
 }
 
+function _rowHasPlateToken(row) {
+  return (row || []).some((v) => /^\d{2}[A-Z]{1,3}\d{2,5}$/.test(String(v || '').replace(/[\s\-]/g, '').toUpperCase()));
+}
+
 function isIhracatBlockHeaderRow(row) {
   if (rowHasTonajColumnHeader(row)) return true;
   const rowText = _rowToText(row).toUpperCase();
@@ -3442,6 +3432,8 @@ function _pickIhracatMainHeaderCell(row) {
     const s = String(v ?? '').trim();
     if (!s || !/\bYD\d{1,4}/i.test(s) || !s.includes('/')) continue;
     const isBooking = /BOOKING\s*NO/i.test(s) || /NET\s*\d+\s*KG/i.test(s);
+    const hasLot = /LOT\s*NO/i.test(s);
+    const hasTon = /\b\d+(?:[.,]\d+)?\s*TON\b/i.test(s);
     let maxBbt = 0;
     const re = /(\d+)\s*BBT\b/gi;
     let m;
@@ -3449,8 +3441,9 @@ function _pickIhracatMainHeaderCell(row) {
       const n = parseInt(m[1], 10);
       if (Number.isFinite(n) && n > maxBbt) maxBbt = n;
     }
-    if (!isBooking && maxBbt <= 0) continue;
-    const score = (isBooking ? 100000 : 0) + maxBbt;
+    // 10 TON / LOT satırı da başlıktır. Yalnız BOOKING olan üst sevkiyat bu bloğu yutmasın.
+    if (!isBooking && maxBbt <= 0 && !hasLot && !hasTon) continue;
+    const score = (isBooking ? 100000 : 0) + (hasLot ? 10000 : 0) + (hasTon ? 1000 : 0) + maxBbt;
     if (score > bestScore || (score === bestScore && s.length > best.length)) {
       bestScore = score;
       best = s;
@@ -3757,31 +3750,23 @@ function parseIhracatBlockMeta(grid, tableHeaderRowIdx) {
   };
 
   const above = [];
-  for (let rr = tableHeaderRowIdx - 1; rr >= Math.max(0, tableHeaderRowIdx - 8); rr--) {
+  for (let rr = tableHeaderRowIdx - 1; rr >= Math.max(0, tableHeaderRowIdx - 14); rr--) {
     const row = grid[rr] || [];
     const text = _rowToText(row);
     if (!text) continue;
+    // Üst sevkiyatın TOPLAM / kolon satırı bu bloğun başlığı değildir.
+    if (/\b(TOPLAM|KALAN)\b/i.test(text) && !/ARA\s+TOPLAM/i.test(text)) break;
+    if (isIhracatBlockHeaderRow(row)) break;
     above.unshift({ rr, row, text });
   }
 
+  // En yakın YD satırı. Üstteki sevkiyatın daha yüksek BBT/BOOKING skoru 10 tonu 20 tona çevirmesin.
   let mainItem = null;
-  let bestMainScore = -1;
-  for (const item of above) {
-    const main = _pickIhracatMainHeaderCell(item.row);
+  for (let i = above.length - 1; i >= 0; i--) {
+    const main = _pickIhracatMainHeaderCell(above[i].row);
     if (!main) continue;
-    const isBooking = /BOOKING\s*NO/i.test(main) || /NET\s*\d+\s*KG/i.test(main);
-    let maxBbt = 0;
-    const re = /(\d+)\s*BBT\b/gi;
-    let m;
-    while ((m = re.exec(main))) {
-      const n = parseInt(m[1], 10);
-      if (Number.isFinite(n) && n > maxBbt) maxBbt = n;
-    }
-    const score = (isBooking ? 100000 : 0) + maxBbt;
-    if (score > bestMainScore) {
-      bestMainScore = score;
-      mainItem = { ...item, main };
-    }
+    mainItem = { ...above[i], main };
+    break;
   }
 
   if (mainItem) {
@@ -4237,6 +4222,8 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
       const rawA0 = String(d[0] || '').trim();
       const rowTextUpper = _rowToText(d).toUpperCase();
       if (rr > r + 1 && isIhracatBlockHeaderRow(d)) break;
+      // Sonraki sevkiyatın YD başlığı. Veri satırında plaka varsa başlık sanma.
+      if (rr > r + 1 && !_rowHasPlateToken(d) && _pickIhracatMainHeaderCell(d)) break;
       if (/\bTOPLAM\b/.test(rowTextUpper) && !/ARA\s+TOPLAM/.test(rowTextUpper)) {
         blockTotals = parseIhracatBlockToplamRow(d, blockCols);
         limanSheetBlock.toplam = blockTotals;

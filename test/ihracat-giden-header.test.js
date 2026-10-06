@@ -65,3 +65,35 @@ test('sıra başlığı 100 olan blokta dolu giden kg gelmeyen sayılmaz', () =>
   );
   assert.deepEqual(plates, ['43AE599']);
 });
+
+test('üst sevkiyatın başlığı alttaki 10 tonu yutmaz', () => {
+  const parser = loadParser();
+  const big = 'YD200(M) / LOT NO 26 09 01 / HP 0,074-0,30 / 200 TON / NET 1000 KG / 400 BBT / BOOKING NO : BIG001 / YILPORT';
+  const small = 'YD107(M) / LOT NO 26 09 23 / HP 0,074-0,30 / 10 TON / YILPORT';
+  const cols = ['', 'PLAKA', 'BBT', 'ÇUVAL', 'PALET', 'BOŞ BBT', 'BOŞ ÇUVAL', 'NET TONAJ', 'O.GR. TONAJ', 'GİDEN TONAJ', 'FARK', 'YÜKLEME YERİ'];
+  const grid = [
+    [big],
+    cols,
+    ['1', '43AAA01', 10, '', '', '', '', 10000, 10100, 10000, '', 'AVDAN'],
+    ['', 'TOPLAM', 10, '', '', '', '', 10000, 10100, 10000],
+    ['', 'KALAN'],
+    [small],
+    cols,
+    ['1', '43BBB02', 10, '', '', '', '', 10000, 10200, '', '', 'AVDAN'],
+    ['', 'TOPLAM', 10, '', '', '', '', 10000, 10200, ''],
+  ];
+  const parsed = parseGrid(parser, grid);
+  assert.equal(parsed.ok, true, parsed.msg);
+  const rows = (parsed.rows || []).filter((r) => r.plaka);
+  const a = rows.find((r) => String(r.plaka).replace(/\s+/g, '').includes('43AAA01'));
+  const b = rows.find((r) => String(r.plaka).replace(/\s+/g, '').includes('43BBB02'));
+  assert.ok(a && b);
+  assert.match(a.headerText, /200 TON/);
+  assert.match(b.headerText, /10 TON/);
+  assert.doesNotMatch(b.headerText, /200 TON/);
+  assert.equal(String(a.netTonaj), '10000');
+  assert.equal(String(b.netTonaj), '10000');
+  const ten = rows.filter((r) => /10 TON/.test(r.headerText) && !/200 TON/.test(r.headerText));
+  const sum = ten.reduce((s, r) => s + Number(r.netTonaj || 0), 0);
+  assert.equal(sum, 10000);
+});

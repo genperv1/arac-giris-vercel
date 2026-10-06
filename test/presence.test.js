@@ -10,12 +10,17 @@ test('AVDAN, 1.OSB ve amir çevrimiçi / çevrimdışı görünür', () => {
   p.touch({ username: 'AVDAN', role: 'admin' });
   p.touch({ username: 'xxr', role: 'amir' });
   let snap = p.snapshot();
-  assert.deepEqual(snap.map((s) => [s.label, s.online]), [['AVDAN', true], ['1.OSB', false], ['AMİR', true]]);
+  assert.deepEqual(snap.map((s) => [s.label, s.online]), [['AVDAN', true], ['1.OSB', false], ['SELAHATTİN', true], ['ŞABAN', false]]);
+
+  p.touch({ username: 'saban', role: 'amir' });
+  snap = p.snapshot();
+  assert.equal(snap[2].online, true);
+  assert.equal(snap[3].online, true);
 
   now += ONLINE_WINDOW_MS + 1;
   p.touch({ username: '1.OSB', role: 'admin' });
   snap = p.snapshot();
-  assert.deepEqual(snap.map((s) => s.online), [false, true, false]);
+  assert.deepEqual(snap.map((s) => s.online), [false, true, false, false]);
   assert.ok(snap[0].lastSeen);
 
   p.remove('1.OSB');

@@ -41,6 +41,17 @@ test('isRowDeparted — BBT/net copy is not departed; equal kg is departed', () 
   assert.equal(core.isRowDeparted({ gidenTonaj: '1250', netTonaj: '1250' }), true);
 });
 
+test('isLimanRowDeparted — dolu giden tonaj çıkıştır, BBT kopyası ve içerde notu değil', () => {
+  assert.equal(core.isLimanRowDeparted({ gidenTonaj: '24000', bbt: '24' }), true);
+  assert.equal(core.isLimanRowDeparted({ giden: '26.450', bbt: '26' }), true);
+  assert.equal(core.isLimanRowDeparted({ gidenTonaj: '26,45' }), true);
+  assert.equal(core.isLimanRowDeparted({ gidenTonaj: '25000' }), true);
+  assert.equal(core.isLimanRowDeparted({ gidenTonaj: '24', bbt: '24' }), false);
+  assert.equal(core.isLimanRowDeparted({ gidenTonaj: 'İÇERİDE' }), false);
+  assert.equal(core.isLimanRowDeparted({ gidenTonaj: '' }), false);
+  assert.equal(core.isLimanRowDeparted({ gidenTonaj: '0' }), false);
+});
+
 test('analyzeBlock — no plate, plan from header', () => {
   const item = core.analyzeBlock([
     { blockKey: 'X', blockHeaderRow: 10, headerText: 'YD235 / 20 BBT', ydKey: 'YD235', _ihracatEmptyBlock: true },
@@ -2378,6 +2389,42 @@ test('applyLiveDepartedMarks — forExcelDay ignores next-day print', () => {
   assert.ok(core.isRowDeparted(wide[0]));
   const tight = core.applyLiveDepartedMarks(rows, meta, reports, { forExcelDay: true });
   assert.equal(core.isRowDeparted(tight[0]), false);
+});
+
+test('applyLiveDepartedMarks — eski Excel gününün baskısı sonraki listenin aynı plakasını içeride yapmaz', () => {
+  const meta = { dateKey: '2026-10-05', fileName: '05.10.2026.xlsx' };
+  const rows = [
+    {
+      plaka: '43AK877',
+      bbt: '24',
+      netTonaj: '30000',
+      gidenTonaj: '',
+      headerText: 'YD15(M) / LOT NO 26 07 30',
+      ydKey: 'YD15',
+      irsaliyeNo: 'R01 202604091',
+    },
+  ];
+  const reports = [
+    {
+      type: 'PRINT',
+      ts: new Date('2026-10-05T05:03:00+03:00').getTime(),
+      plaka: '43AK877',
+      data: {
+        plaka: '43AK877',
+        firma: 'YD15(M) / LOT NO 26 07 30',
+        ydKey: 'YD15',
+        excelFileName: '03.10.2026.xlsx',
+        excelDateKey: '2026-10-03',
+        yuklemeNotu: 'İrsaliye No: R01 202604062',
+      },
+    },
+  ];
+  const out = core.applyLiveDepartedMarks(rows, meta, reports, { forPending: true });
+  assert.equal(out[0]._nbLiveDeparted, undefined);
+  assert.equal(core.isRowDeparted(out[0]), false);
+
+  const sameDay = core.applyLiveDepartedMarks(rows, { dateKey: '2026-10-03', fileName: '03.10.2026.xlsx' }, reports, { forPending: true });
+  assert.equal(sameDay[0]._nbLiveDeparted, true);
 });
 
 test('çıkan planı geçse bile sarı satırda plan üstü yazılmaz', () => {

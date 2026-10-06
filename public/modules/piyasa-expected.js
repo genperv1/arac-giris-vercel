@@ -646,7 +646,7 @@
       }).join('');
       overlay.innerHTML = ''
         + '<div style="width:min(520px,96vw);margin-top:8vh;background:#fff;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.2);overflow:hidden;">'
-        + '<div style="padding:14px 16px;font-weight:800;border-bottom:1px solid #eee;">Gelen araç</div>'
+        + '<div style="padding:14px 16px;font-weight:800;border-bottom:1px solid #eee;">Gelecek araçlar</div>'
         + '<div style="padding:8px 16px 14px;">' + rows + '</div>'
         + '<div style="display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid #eee;">'
         + '<button type="button" id="piyasaExpectedSkip" style="border:0;background:#e5e7eb;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700;">Vazgeç</button>'
@@ -870,7 +870,7 @@
       + '<div class="gea-head">'
       + '<div class="gea-head-main">'
       + '<div class="gea-mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 7h11v8H3V7z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 10h3.2L20 13v2h-6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.4" fill="currentColor"/><circle cx="17" cy="17.5" r="1.4" fill="currentColor"/></svg></div>'
-      + '<div><div class="gea-title">Gelen araç</div>'
+      + '<div><div class="gea-title">Gelecek araçlar</div>'
       + '<div class="gea-sub">WhatsApp metnini yapıştır. Sipariş, yüklü Excel’in tamamında aranır.</div></div>'
       + '</div>'
       + '<button type="button" id="piyasaExpectedX" class="gea-x" aria-label="Kapat">×</button>'
@@ -1038,9 +1038,9 @@
         const missing = platesMissingFromRegistry(fresh.map((row) => row.cekici), registryVehicles());
         if (missing.length) {
           const lines = missing.map((plate) => formatPlateShow(plate)).join('\n');
-          alert('Gelen araç kaydedildi.\n\nSistemde kayıtlı değil:\n' + lines);
+          alert('Gelecek araçlar kaydedildi.\n\nSistemde kayıtlı değil:\n' + lines);
         } else if (typeof toast === 'function') {
-          toast('Gelen araç kaydedildi.', 'success');
+          toast('Gelecek araçlar kaydedildi.', 'success');
         }
       } catch (e) {
         if (typeof toast === 'function') toast('Kayıt yazılamadı.', 'warn');

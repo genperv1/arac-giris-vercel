@@ -64,7 +64,7 @@
             <option value="Yİ-HP">Yİ-HP</option>
           </select>
           <div class="piyasa-tool-actions">
-            ${clientIsAmir() ? '<button type="button" id="piyasaExpectedBtn" class="piyasa-tool-btn is-expected" title="WhatsApp’tan gelecek araç"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7h11v8H3V7z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 10h3.2L20 13v2h-6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7" cy="17.5" r="1.4" fill="currentColor"/><circle cx="17" cy="17.5" r="1.4" fill="currentColor"/></svg><span>Gelen araç</span></button>' : ''}
+            ${clientIsAmir() ? '<button type="button" id="piyasaExpectedBtn" class="piyasa-tool-btn is-expected" title="Gelecek araçlar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h9v7H4V7z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M13 10h2.4L18 12.4V14h-5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="7.2" cy="16.6" r="1.3" fill="currentColor"/><circle cx="15.4" cy="16.6" r="1.3" fill="currentColor"/><path d="M19 5.2l2.2 2.2L19 9.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Gelecek araçlar</span></button>' : ''}
             <button type="button" id="piyasaCustomerListBtn" class="piyasa-tool-btn is-customers" title="Sabit müşteri/bayi listesi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9" cy="8" r="2.4" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 17.5c.6-2.2 2.4-3.5 4.5-3.5s3.9 1.3 4.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="16.2" cy="8.5" r="1.8" stroke="currentColor" stroke-width="1.7"/><path d="M16 14c1.6.2 2.9 1.2 3.5 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Müşteri listesi</span></button>
             <div id="piyasaCount" class="piyasa-tool-count"></div>
           </div>
@@ -203,11 +203,22 @@
             border-color: #d6d3d1;
           }
           #piyasaOrderPickerOverlay .piyasa-tool-btn.is-expected {
-            background: #c2410c;
-            border-color: #c2410c;
-            color: #fff;
+            height: 40px;
+            padding: 0 16px;
+            border-radius: 999px;
+            border: 2px solid #fbbf24;
+            background: #1c1917;
+            color: #fde68a;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.28);
           }
-          #piyasaOrderPickerOverlay .piyasa-tool-btn.is-expected:hover { background: #9a3412; }
+          #piyasaOrderPickerOverlay .piyasa-tool-btn.is-expected:hover {
+            background: #292524;
+            color: #fffbeb;
+            border-color: #fde68a;
+          }
           #piyasaOrderPickerOverlay .piyasa-tool-btn.is-customers {
             background: #0f766e;
             border-color: #0f766e;
@@ -1541,8 +1552,14 @@
     if (!document.__piyasaDelegatedBound) {
       document.__piyasaDelegatedBound = true;
       document.addEventListener('click', (e)=>{
-        const target = e.target.closest('#piyasaExcelUploadButtonTop, #piyasaExcelClearButtonTop, #excelPiyasaRefreshButtonChip');
+        const target = e.target.closest('#piyasaExcelOpenButton, #piyasaExcelUploadButtonTop, #piyasaExcelClearButtonTop, #excelPiyasaRefreshButtonChip');
         if (!target) return;
+        if (target.id === 'piyasaExcelOpenButton') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof window.piyasaShowOrdersModal === 'function') window.piyasaShowOrdersModal();
+          return;
+        }
         if (target.id === 'piyasaExcelUploadButtonTop'){
           e.preventDefault();
           e.stopPropagation();

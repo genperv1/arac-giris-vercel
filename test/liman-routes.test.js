@@ -392,6 +392,13 @@ test('departed akışı liman görevlisine şoför adı ve telefonu da verir', (
   assert.equal(out.sofor, 'Ali');
   assert.equal(out.iletisim, '555');
   assert.equal(out.saat, '10:00');
+  const stamped = departedDataFields({
+    plaka: '43AK877',
+    excelFileName: '03.10.2026.xlsx',
+    excelDateKey: '2026-10-03',
+  }, { tarih: '05.10.2026', saat: '05:03:51' });
+  assert.equal(stamped.excelDateKey, '2026-10-03');
+  assert.equal(stamped.excelFileName, '03.10.2026.xlsx');
 });
 
 test('çakışan liman yazımı 409 döner', async () => {

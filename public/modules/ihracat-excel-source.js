@@ -1,7 +1,7 @@
 /**
  * İhracat Excel kaynağı: ilk seçimde dosya konumunu saklar,
  * kullanıcı “Güncelle”ye basınca yeniden okur.
- * Kantar oturumunda dosya 30 sn'de bir yoklanır, kaydedildiyse hemen okunur;
+ * Kantar oturumunda dosya 8 sn'de bir yoklanır, kaydedildiyse hemen okunur;
  * ayrıca açılıştan 15 sn sonra ve 10 dakikada bir sessiz otomatik güncelleme dener:
  * dosya izni zaten verilmişse (veya sunucu dosyayı görüyorsa) okur, liman listesine gönderir;
  * izin yoksa hiçbir pencere / uyarı açmadan sessizce geçer.
@@ -17,7 +17,7 @@
   var MSG_CLEARED = 'İhracat Excel silindi. Güncellemek için önce dosyayı tekrar yükleyin.';
   var AUTO_REFRESH_MS = 10 * 60 * 1000;
   var FIRST_REFRESH_MS = 15 * 1000;
-  var WATCH_MS = 30 * 1000;
+  var WATCH_MS = 8 * 1000;
   var _busy = false;
   var _silentRun = false;
   var _silentPermMissing = false;
@@ -1288,7 +1288,7 @@
   var _agentSeen = Object.create(null);
   var _autoReadOk = false;
 
-  /** Excel Ajanı yeni kopya yüklediyse (SSE kaçsa da) 30 sn içinde yeniden oku. */
+  /** Excel Ajanı yeni kopya yüklediyse (SSE kaçsa da) birkaç saniye içinde yeniden oku. */
   async function agentCopyChanged() {
     var sources = [];
     try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }

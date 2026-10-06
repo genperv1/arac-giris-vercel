@@ -818,7 +818,22 @@
         }
     }
 
+    function currentUserKey() {
+        try {
+            return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function isSabanUser() {
+        return currentUserKey() === 'saban';
+    }
+
     function amirDisplayLabel() {
+        const id = currentUserKey();
+        if (id === 'saban') return 'ŞABAN LAHAÇLAR';
+        if (id === 'xxr') return 'SELAHATTİN TOKER';
         return 'GENPER · AMİR';
     }
 
@@ -882,7 +897,8 @@
         const upper = raw.toLocaleUpperCase('tr-TR').replace(/\s+/g, '');
         if (upper === 'AVDAN') return 'AVDAN';
         if (upper === '1.OSB' || upper === '1OSB' || upper === 'OSB') return '1.OSB';
-        if (upper === 'AMIR' || raw === 'AMİR') return 'AMIR';
+        if (upper === 'AMIR' || raw === 'AMİR' || upper === 'SELAHATTİN' || upper === 'SELAHATTIN') return 'AMIR';
+        if (upper === 'SABAN' || upper === 'ŞABAN') return 'SABAN';
         return '';
     }
 
@@ -923,7 +939,7 @@
             return '<span class="' + cls + '" data-presence-key="' + key + '" data-online="' + (online ? '1' : '0') + '" title="' + title + '"' + extra + '><i aria-hidden="true"></i>' + label + ' <small>' + small + '</small></span>';
         }).join('');
         if (items) return items;
-        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['AMİR', 'AMIR']].map((pair) =>
+        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['SELAHATTİN', 'AMIR'], ['ŞABAN', 'SABAN']].map((pair) =>
             '<span class="presence-item" data-presence-key="' + pair[1] + '"><i aria-hidden="true"></i>' + pair[0] + ' <small>…</small></span>'
         ).join('');
     }
@@ -1391,6 +1407,7 @@
         hideSessionBanner,
         requireValidSession,
         isAmirUser,
+        isSabanUser,
         amirDisplayLabel,
         withSessionCheck,
         addSessionCheckToButton,
