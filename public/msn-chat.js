@@ -3,6 +3,7 @@
 (function () {
     const SYNC_KEY = 'gpm_chat_sync_v1';
     const UNREAD_KEY = 'gpm_chat_unread_v1';
+    const REPLY_KEY = 'gpm_chat_reply_v1';
     const POLL_MS = 30 * 1000;
     const FRESH_MS = 20 * 1000;
 
@@ -44,7 +45,63 @@
     }
 
     function isKantar(key) {
-        return key === 'AVDAN' || key === '1.OSB';
+        const k = siteKey(key);
+        return k === 'AVDAN' || k === '1.OSB';
+    }
+
+    function isAmirKey(key) {
+        const k = siteKey(key);
+        return k === 'AMIR' || k === 'SABAN' || k === 'UGUR';
+    }
+
+    function avatarSrc(key) {
+        const k = siteKey(key);
+        if (k === 'AVDAN') return '/login-baret-avdan.png?v=20261003c';
+        if (k === '1.OSB') return '/login-baret-osb.png?v=20261003c';
+        return '/login-baret-amir.png?v=20261003c';
+    }
+
+    function loadReply() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(REPLY_KEY) || '{}');
+            window.__gpmChatReply = raw && typeof raw === 'object' ? raw : {};
+        } catch (e) {
+            window.__gpmChatReply = {};
+        }
+    }
+
+    function saveReply() {
+        try { localStorage.setItem(REPLY_KEY, JSON.stringify(window.__gpmChatReply || {})); } catch (e) { /* ignore */ }
+    }
+
+    function mayReply(peer) {
+        if (!isKantar(myKey()) || !isAmirKey(peer)) return true;
+        const key = siteKey(peer);
+        return !!(window.__gpmChatReply && window.__gpmChatReply[key]);
+    }
+
+    function markReply(peer) {
+        const key = siteKey(peer);
+        if (!key) return;
+        const map = window.__gpmChatReply || (window.__gpmChatReply = {});
+        if (map[key]) return;
+        map[key] = 1;
+        saveReply();
+        const win = windows.get(key);
+        if (win) paintCompose(win);
+        refreshChips();
+    }
+
+    function applyReplyPeers(list) {
+        const map = {};
+        (list || []).forEach((k) => {
+            const key = siteKey(k);
+            if (key) map[key] = 1;
+        });
+        window.__gpmChatReply = map;
+        saveReply();
+        windows.forEach((win) => paintCompose(win));
+        refreshChips();
     }
 
     function readSync() {
@@ -158,48 +215,56 @@
         const style = document.createElement('style');
         style.id = 'gpmMsnStyle';
         style.textContent = ''
-            + '#gpmMsnDock{position:fixed;right:12px;bottom:12px;z-index:2147483000;display:flex;flex-direction:row-reverse;align-items:flex-end;gap:8px;pointer-events:none;max-width:calc(100vw - 16px)}'
-            + '.gpm-msn{pointer-events:auto;position:relative;width:280px;height:360px;display:flex;flex-direction:column;background:#fff;border:1px solid #163e73;border-radius:8px 8px 4px 4px;box-shadow:3px 6px 18px rgba(10,30,70,.35);font-family:Tahoma,"Segoe UI",sans-serif;overflow:hidden}'
+            + '#gpmMsnDock{position:fixed;right:16px;bottom:16px;z-index:2147483000;display:flex;flex-direction:row-reverse;align-items:flex-end;gap:12px;pointer-events:none;max-width:calc(100vw - 24px)}'
+            + '.gpm-msn{pointer-events:auto;position:relative;width:340px;height:480px;display:flex;flex-direction:column;background:#fff;border:1px solid #e2e8f0;border-radius:18px;box-shadow:0 22px 50px rgba(15,23,42,.16),0 2px 8px rgba(15,23,42,.06);font-family:"Segoe UI",system-ui,sans-serif;overflow:hidden}'
             + '.gpm-msn.is-min{height:auto}'
-            + '.gpm-msn.is-min .gpm-msn-log,.gpm-msn.is-min .gpm-msn-tools,.gpm-msn.is-min .gpm-msn-compose,.gpm-msn.is-min .gpm-msn-quick{display:none}'
-            + '.gpm-msn-bar{display:flex;align-items:center;gap:8px;padding:6px 8px;color:#fff;background:linear-gradient(#8ec4ef,#2d6cb8 42%,#163e73);cursor:pointer;user-select:none}'
-            + '.gpm-msn-ava{width:28px;height:28px;border-radius:4px;background:#0b3a6e;display:flex;align-items:center;justify-content:center;font:700 13px Tahoma,sans-serif;flex:none;border:1px solid rgba(255,255,255,.35)}'
+            + '.gpm-msn.is-min .gpm-msn-log,.gpm-msn.is-min .gpm-msn-tools,.gpm-msn.is-min .gpm-msn-compose,.gpm-msn.is-min .gpm-msn-quick,.gpm-msn.is-min .gpm-msn-emoji-pop,.gpm-msn.is-min .gpm-msn-lock{display:none}'
+            + '.gpm-msn-bar{display:flex;align-items:center;gap:10px;padding:12px 12px 10px;background:#fff;border-bottom:1px solid #eef2f7;cursor:pointer;user-select:none}'
+            + '.gpm-msn-ava{width:44px;height:44px;border-radius:999px;overflow:hidden;flex:none;background:#f1f5f9;box-shadow:0 0 0 2px #fff,0 0 0 3px #c7d2fe}'
+            + '.gpm-msn-ava img{width:100%;height:140%;object-fit:cover;object-position:center 0;display:block;transform:translateY(-6%)}'
             + '.gpm-msn-id{flex:1;min-width:0}'
-            + '.gpm-msn-id b{display:block;font-size:13px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
-            + '.gpm-msn-id small{display:flex;align-items:center;gap:4px;font-size:10px;opacity:.9;font-weight:400}'
-            + '.gpm-msn-dot{width:8px;height:8px;border-radius:99px;background:#94a3b8;display:inline-block}'
-            + '.gpm-msn.is-on .gpm-msn-dot{background:#4ade80;box-shadow:0 0 0 2px rgba(74,222,128,.35)}'
-            + '.gpm-msn-min,.gpm-msn-x{border:0;background:transparent;color:#fff;width:22px;height:18px;cursor:pointer;font:700 14px/1 Tahoma,sans-serif;border-radius:3px}'
-            + '.gpm-msn-min:hover,.gpm-msn-x:hover{background:rgba(255,255,255,.18)}'
-            + '.gpm-msn-log{flex:1;overflow:auto;padding:8px 10px;background:#fff}'
-            + '.gpm-msn-row{margin:0 0 8px}'
-            + '.gpm-msn-row .who{font:700 12px/1.3 Tahoma,sans-serif}'
-            + '.gpm-msn-row.me .who{color:#1a5196}'
-            + '.gpm-msn-row.them .who{color:#9f1239}'
-            + '.gpm-msn-row .time{font-weight:400;color:#94a3b8;margin-left:6px;font-size:10px}'
-            + '.gpm-msn-row .txt{font:12.5px/1.35 Tahoma,sans-serif;color:#111;white-space:pre-wrap;word-break:break-word}'
-            + '.gpm-msn-sys{font:italic 11px/1.3 Tahoma,sans-serif;color:#64748b;margin:0 0 8px}'
-            + '.gpm-msn-read{margin-top:2px;font:700 10px Tahoma,sans-serif;color:#15803d;text-align:right}'
-            + '.gpm-msn-tools{display:flex;gap:8px;padding:2px 8px 0;background:#f4f8fc}'
-            + '.gpm-msn-buzz,.gpm-msn-quick-btn{border:0;background:transparent;color:#163e73;font:700 11px Tahoma,sans-serif;cursor:pointer;padding:4px 0}'
-            + '.gpm-msn-buzz:hover,.gpm-msn-quick-btn:hover{text-decoration:underline}'
-            + '.gpm-msn-quick{display:none;position:absolute;left:6px;right:6px;bottom:78px;max-height:190px;overflow:auto;background:#fff;border:1px solid #b9cbe0;border-radius:6px;box-shadow:0 8px 18px rgba(10,30,70,.22);padding:6px;z-index:2}'
-            + '.gpm-msn.is-quick .gpm-msn-quick{display:block}'
-            + '.gpm-msn.is-min .gpm-msn-quick{display:none}'
-            + '.gpm-msn-emoji{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}'
-            + '.gpm-msn-emoji button,.gpm-msn-quick-list button{border:1px solid #d5e3f2;background:#f8fbff;border-radius:4px;cursor:pointer;font:12px Tahoma,sans-serif}'
-            + '.gpm-msn-emoji button{width:28px;height:28px;font-size:16px;padding:0}'
+            + '.gpm-msn-id b{display:block;font-size:14px;font-weight:700;letter-spacing:-.01em;line-height:1.2;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+            + '.gpm-msn-id small{display:flex;align-items:center;gap:5px;margin-top:2px;font-size:11px;color:#64748b;font-weight:600}'
+            + '.gpm-msn-dot{width:8px;height:8px;border-radius:99px;background:#cbd5e1;display:inline-block}'
+            + '.gpm-msn.is-on .gpm-msn-dot{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.18)}'
+            + '.gpm-msn-min,.gpm-msn-x{border:1px solid #e2e8f0;background:#f8fafc;color:#475569;width:28px;height:28px;cursor:pointer;font:700 16px/1 "Segoe UI",sans-serif;border-radius:9px}'
+            + '.gpm-msn-min:hover,.gpm-msn-x:hover{background:#eef2ff;border-color:#c7d2fe;color:#3730a3}'
+            + '.gpm-msn-log{flex:1;overflow:auto;padding:14px 12px;background:linear-gradient(180deg,#f8fafc,#f1f5f9)}'
+            + '.gpm-msn-row{display:flex;flex-direction:column;align-items:flex-start;margin:0 0 8px;max-width:100%}'
+            + '.gpm-msn-row.me{align-items:flex-end}'
+            + '.gpm-msn-bubble{max-width:80%;padding:8px 11px 5px;border-radius:16px}'
+            + '.gpm-msn-row.them .gpm-msn-bubble{background:#fff;color:#0f172a;border:1px solid #e2e8f0;border-bottom-left-radius:5px;box-shadow:0 1px 2px rgba(15,23,42,.04)}'
+            + '.gpm-msn-row.me .gpm-msn-bubble{background:linear-gradient(180deg,#4f46e5,#4338ca);color:#fff;border-bottom-right-radius:5px}'
+            + '.gpm-msn-row .time{display:block;margin-top:2px;font-size:10px;font-weight:600;text-align:right;opacity:.72}'
+            + '.gpm-msn-row .txt{font-size:13.5px;line-height:1.4;white-space:pre-wrap;word-break:break-word}'
+            + '.gpm-msn-sys{align-self:center;font:600 11px/1.35 "Segoe UI",sans-serif;color:#64748b;background:#e2e8f0;border-radius:999px;padding:4px 10px;margin:0 auto 8px;width:fit-content}'
+            + '.gpm-msn-read{margin-top:2px;font:700 10px "Segoe UI",sans-serif;color:#16a34a;text-align:right}'
+            + '.gpm-msn-tools{display:flex;gap:6px;padding:8px 10px 0;background:#fff}'
+            + '.gpm-msn-buzz,.gpm-msn-quick-btn{border:1px solid #e2e8f0;background:#f8fafc;color:#334155;font:600 12px/1 "Segoe UI",sans-serif;cursor:pointer;padding:7px 11px;border-radius:999px}'
+            + '.gpm-msn-buzz:hover,.gpm-msn-quick-btn:hover{background:#eef2ff;border-color:#c7d2fe;color:#3730a3}'
+            + '.gpm-msn-quick{display:none;position:absolute;left:10px;right:10px;bottom:112px;max-height:220px;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 16px 36px rgba(15,23,42,.14);padding:6px;z-index:3}'
+            + '.gpm-msn.is-quick:not(.is-min) .gpm-msn-quick{display:block}'
+            + '.gpm-msn-emoji-pop{display:none;position:absolute;right:10px;bottom:64px;width:188px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 16px 36px rgba(15,23,42,.14);padding:8px;gap:2px;flex-wrap:wrap;z-index:4}'
+            + '.gpm-msn.is-emoji:not(.is-min) .gpm-msn-emoji-pop{display:flex}'
+            + '.gpm-msn-emoji-pop button{width:32px;height:32px;border:0;background:transparent;border-radius:8px;cursor:pointer;font-size:18px;padding:0}'
+            + '.gpm-msn-emoji-pop button:hover{background:#eef2ff}'
             + '.gpm-msn-quick-list{display:flex;flex-direction:column;gap:4px}'
-            + '.gpm-msn-quick-list button{text-align:left;padding:6px 8px;color:#0f172a}'
-            + '.gpm-msn-quick-list button:hover,.gpm-msn-emoji button:hover{background:#e8f1fb}'
-            + '.gpm-msn-compose{display:flex;gap:6px;padding:6px;background:#f4f8fc;border-top:1px solid #d5e3f2}'
-            + '.gpm-msn-compose textarea{flex:1;resize:none;height:46px;border:1px solid #b9cbe0;border-radius:3px;padding:4px 6px;font:12.5px/1.35 Tahoma,sans-serif}'
-            + '.gpm-msn-compose textarea:focus{outline:2px solid rgba(45,108,184,.35);border-color:#2d6cb8}'
-            + '.gpm-msn-compose button{border:0;background:#163e73;color:#fff;border-radius:3px;padding:0 10px;font:700 12px Tahoma,sans-serif;cursor:pointer}'
-            + '.gpm-msn-compose button:hover{background:#1d4f8f}'
+            + '.gpm-msn-quick-list button{text-align:left;padding:8px 10px;color:#0f172a;border:0;background:#f8fafc;border-radius:10px;cursor:pointer;font:600 12.5px/1.3 "Segoe UI",sans-serif}'
+            + '.gpm-msn-quick-list button:hover{background:#eef2ff;color:#3730a3}'
+            + '.gpm-msn-lock{display:none;margin:0;padding:14px 12px;background:#fff;border-top:1px solid #eef2f7;color:#64748b;font:600 12.5px/1.4 "Segoe UI",sans-serif;text-align:center}'
+            + '.gpm-msn.is-locked .gpm-msn-lock{display:block}'
+            + '.gpm-msn.is-locked .gpm-msn-tools,.gpm-msn.is-locked .gpm-msn-compose,.gpm-msn.is-locked .gpm-msn-quick,.gpm-msn.is-locked .gpm-msn-emoji-pop{display:none}'
+            + '.gpm-msn-compose{display:flex;gap:8px;align-items:flex-end;padding:8px 10px 12px;background:#fff}'
+            + '.gpm-msn-compose textarea{flex:1;resize:none;height:42px;border:1px solid #e2e8f0;border-radius:12px;padding:10px 12px;font:13.5px/1.35 "Segoe UI",sans-serif;background:#f8fafc;color:#0f172a}'
+            + '.gpm-msn-compose textarea:focus{outline:2px solid rgba(79,70,229,.28);border-color:#6366f1;background:#fff}'
+            + '.gpm-msn-actions{display:flex;gap:6px;align-items:center}'
+            + '.gpm-msn-emoji-btn{width:40px;height:40px;border:1px solid #e2e8f0;background:#fff;border-radius:12px;cursor:pointer;font-size:18px;padding:0;line-height:1}'
+            + '.gpm-msn-emoji-btn:hover,.gpm-msn.is-emoji .gpm-msn-emoji-btn{background:#eef2ff;border-color:#c7d2fe}'
+            + '.gpm-msn-send{height:40px;border:0;background:#4f46e5;color:#fff;border-radius:12px;padding:0 14px;font:700 13px/1 "Segoe UI",sans-serif;cursor:pointer}'
+            + '.gpm-msn-send:hover{background:#4338ca}'
             + '#gpmMsnBadge{position:fixed;left:16px;bottom:16px;z-index:2147483200;display:flex;flex-direction:column;gap:6px;align-items:flex-start}'
-            + '.gpm-msn-badge{border:0;background:#dc2626;color:#fff;font:800 15px/1 Tahoma,sans-serif;border-radius:999px;padding:10px 14px;cursor:pointer;box-shadow:0 6px 16px rgba(220,38,38,.45)}'
-            + '.gpm-msn-badge:hover{background:#b91c1c}'
+            + '.gpm-msn-badge{border:0;background:#4f46e5;color:#fff;font:700 14px/1 "Segoe UI",sans-serif;border-radius:999px;padding:10px 14px;cursor:pointer;box-shadow:0 8px 20px rgba(79,70,229,.35)}'
+            + '.gpm-msn-badge:hover{background:#4338ca}'
             + '@media (max-width:640px){#gpmMsnDock{left:8px;right:8px;flex-direction:column-reverse}.gpm-msn{width:100%}}';
         document.head.appendChild(style);
     }
@@ -264,23 +329,23 @@
     }
 
     function appendLine(win, msg) {
+        const mine = msg.from === myKey();
         const row = document.createElement('div');
-        row.className = 'gpm-msn-row ' + (msg.from === myKey() ? 'me' : 'them');
+        row.className = 'gpm-msn-row ' + (mine ? 'me' : 'them');
         row.setAttribute('data-id', String(msg.id || ''));
         row.setAttribute('data-ts', String(Number(msg.ts) || 0));
-        const who = document.createElement('div');
-        who.className = 'who';
-        who.appendChild(document.createTextNode(personName(msg.from) + ' diyor:'));
-        const time = document.createElement('span');
-        time.className = 'time';
-        time.textContent = clock(msg.ts);
-        who.appendChild(time);
+        const bubble = document.createElement('div');
+        bubble.className = 'gpm-msn-bubble';
         const body = document.createElement('div');
         body.className = 'txt';
         body.textContent = msg.text;
-        row.appendChild(who);
-        row.appendChild(body);
-        if (msg.from === myKey() && msg.readAt) stampRead(row);
+        const time = document.createElement('span');
+        time.className = 'time';
+        time.textContent = clock(msg.ts);
+        bubble.appendChild(body);
+        bubble.appendChild(time);
+        row.appendChild(bubble);
+        if (mine && msg.readAt) stampRead(row);
         win.log.appendChild(row);
         scrollLog(win);
     }
@@ -355,6 +420,7 @@
         const peer = from === mine ? to : from;
         const win = windows.get(peer);
         if (win && !hasLine(win, id)) appendLine(win, msg);
+        if (to === mine && from && from !== mine) markReply(from);
         if (seen.has(id)) return;
         remember(id);
         writeSync(msg.ts);
@@ -396,6 +462,11 @@
                 systemLine(win, 'Biraz bekleyin');
                 return false;
             }
+            if (res.status === 403 && data.code === 'NO_OPEN') {
+                systemLine(win, 'Amir yazınca cevap verebilirsiniz');
+                paintCompose(win);
+                return false;
+            }
             if (!res.ok || !data.message) {
                 systemLine(win, 'Gönderilemedi');
                 return false;
@@ -408,20 +479,56 @@
         }
     }
 
+    function paintCompose(win) {
+        if (!win || !win.el) return;
+        const locked = !mayReply(win.peer);
+        win.el.classList.toggle('is-locked', locked);
+        if (locked) {
+            win.el.classList.remove('is-quick');
+            win.el.classList.remove('is-emoji');
+        }
+        if (win.input) win.input.disabled = locked;
+    }
+
+    function denyClosed(win) {
+        if (mayReply(win.peer)) return false;
+        systemLine(win, 'Amir yazınca cevap verebilirsiniz');
+        paintCompose(win);
+        return true;
+    }
+
     async function send(win) {
+        if (denyClosed(win)) return;
         const text = String(win.input.value || '').trim();
         if (!text) return;
         win.input.value = '';
+        win.el.classList.remove('is-emoji');
         const ok = await postChat(win, text);
         if (!ok) win.input.value = text;
     }
 
     function sendQuick(win, text) {
+        if (denyClosed(win)) return;
         win.el.classList.remove('is-quick');
         postChat(win, text);
     }
 
+    function insertEmoji(win, item) {
+        const el = win.input;
+        if (!el || el.disabled) return;
+        const start = el.selectionStart == null ? el.value.length : el.selectionStart;
+        const end = el.selectionEnd == null ? el.value.length : el.selectionEnd;
+        el.value = el.value.slice(0, start) + item + el.value.slice(end);
+        const pos = start + item.length;
+        win.el.classList.remove('is-emoji');
+        try {
+            el.focus();
+            el.setSelectionRange(pos, pos);
+        } catch (e) { /* ignore */ }
+    }
+
     async function titret(win) {
+        if (denyClosed(win)) return;
         shake(win.el);
         if (isKantar(win.peer) && isAmir()) {
             try {
@@ -457,14 +564,15 @@
     const QUICK_EMOJI = ['👍', '✅', '📞', '⏰', '🚛', '📄', '👋', '🙏'];
 
     function fillQuick(win) {
-        const emojiBox = win.el.querySelector('.gpm-msn-emoji');
         const list = win.el.querySelector('.gpm-msn-quick-list');
+        const emojiPop = win.el.querySelector('.gpm-msn-emoji-pop');
         QUICK_EMOJI.forEach((item) => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.textContent = item;
-            btn.addEventListener('click', () => sendQuick(win, item));
-            emojiBox.appendChild(btn);
+            btn.title = item;
+            btn.addEventListener('click', () => insertEmoji(win, item));
+            emojiPop.appendChild(btn);
         });
         QUICK_TEXT.forEach((item) => {
             const btn = document.createElement('button');
@@ -489,15 +597,17 @@
         el.setAttribute('data-peer', peer);
         el.innerHTML = ''
             + '<div class="gpm-msn-bar">'
-            + '<div class="gpm-msn-ava"></div>'
+            + '<div class="gpm-msn-ava"><img alt=""></div>'
             + '<div class="gpm-msn-id"><b></b><small><i class="gpm-msn-dot"></i><span class="gpm-msn-status"></span></small></div>'
-            + '<button type="button" class="gpm-msn-min" title="Küçült">_</button>'
+            + '<button type="button" class="gpm-msn-min" title="Küçült">–</button>'
             + '<button type="button" class="gpm-msn-x" title="Kapat">×</button>'
             + '</div>'
             + '<div class="gpm-msn-log"></div>'
-            + '<div class="gpm-msn-quick"><div class="gpm-msn-emoji"></div><div class="gpm-msn-quick-list"></div></div>'
+            + '<div class="gpm-msn-quick"><div class="gpm-msn-quick-list"></div></div>'
+            + '<div class="gpm-msn-emoji-pop"></div>'
             + '<div class="gpm-msn-tools"><button type="button" class="gpm-msn-quick-btn">Hazır</button><button type="button" class="gpm-msn-buzz">Titret</button></div>'
-            + '<form class="gpm-msn-compose"><textarea maxlength="400" placeholder="Mesaj yazın"></textarea><button type="submit">Gönder</button></form>';
+            + '<p class="gpm-msn-lock">Amir yazınca cevap verebilirsiniz</p>'
+            + '<form class="gpm-msn-compose"><textarea maxlength="400" placeholder="Mesaj yazın"></textarea><div class="gpm-msn-actions"><button type="button" class="gpm-msn-emoji-btn" title="Emoji">😊</button><button type="submit" class="gpm-msn-send">Gönder</button></div></form>';
         const win = {
             peer: peer,
             el: el,
@@ -506,7 +616,9 @@
             status: el.querySelector('.gpm-msn-status'),
             loaded: false,
         };
-        el.querySelector('.gpm-msn-ava').textContent = personName(peer).slice(0, 1);
+        const ava = el.querySelector('.gpm-msn-ava img');
+        ava.src = avatarSrc(peer);
+        ava.alt = personName(peer);
         el.querySelector('.gpm-msn-id b').textContent = personName(peer);
         paintStatus(win);
         el.querySelector('.gpm-msn-bar').addEventListener('click', (ev) => {
@@ -528,8 +640,14 @@
         el.querySelector('.gpm-msn-buzz').addEventListener('click', () => titret(win));
         fillQuick(win);
         el.querySelector('.gpm-msn-quick-btn').addEventListener('click', () => {
+            el.classList.remove('is-emoji');
             el.classList.toggle('is-quick');
         });
+        el.querySelector('.gpm-msn-emoji-btn').addEventListener('click', () => {
+            el.classList.remove('is-quick');
+            el.classList.toggle('is-emoji');
+        });
+        paintCompose(win);
         el.querySelector('form').addEventListener('submit', (ev) => {
             ev.preventDefault();
             send(win);
@@ -568,6 +686,8 @@
         const peer = siteKey(key);
         const mine = myKey();
         if (!peer || !mine || peer === mine) return null;
+        const incoming = !!(opts && (opts.buzz || opts.force));
+        if (!incoming && !mayReply(peer)) return null;
         window.__gpmChatPending = '';
         let win = windows.get(peer);
         if (!win) win = create(peer);
@@ -578,6 +698,7 @@
         if (opts && opts.buzz) systemLine(win, personName(peer) + ' sizi titretti');
         focusInput(win);
         await loadHistory(win);
+        paintCompose(win);
         clearUnread(peer);
         ackRead(peer);
         return win;
@@ -594,6 +715,7 @@
             });
             if (!res.ok) return;
             const data = await res.json();
+            if (Array.isArray(data.replyPeers)) applyReplyPeers(data.replyPeers);
             (data.messages || []).forEach((m) => ingest(m, true));
         } catch (e) { /* ignore */ }
         finally { pulling = false; }
@@ -622,6 +744,7 @@
     function boot() {
         loadSeen();
         loadUnread();
+        loadReply();
         ensureStyle();
         bindSse();
         refreshChips();

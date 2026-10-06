@@ -187,6 +187,12 @@ html.logged-in body {
   word-break: break-word;
 }
 
+.header-note__by {
+  color: #000;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
 html:not(.reduce-motion-os) .header-note__marquee {
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 18px), transparent);
   mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 18px), transparent);

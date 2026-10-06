@@ -78,6 +78,12 @@ const {
 const { isVehicleWrite, invalidateVehicleListCache } = require('./lib/vehicle-list-cache');
 const { plateNormSql, PLATE_NORM_SQL, PLATE_NORM_SQL_PH } = require('./lib/plate-norm-sql');
 const { signatureRowToSrc } = require('./lib/signature-helpers');
+const {
+  readHeaderNoteItems,
+  headerNoteTexts,
+  assignHeaderNoteAuthors,
+  headerNotePayload,
+} = require('./lib/header-note');
 const { createPiyasaServerApi } = require('./lib/piyasa-server');
 const { formatReportInstant, istanbulMinutesFromTs } = require('./lib/report-format');
 const printSpoolWatch = require('./lib/print-spool-watch');
@@ -1432,39 +1438,13 @@ api.get("/kv/:key", async (req, res) => {
 });
 
 const HEADER_NOTE_KEY = 'header_note_v1';
-const HEADER_NOTE_LINE_MAX = 240;
-const HEADER_NOTE_COUNT = 3;
-
-function normalizeHeaderNotes(list) {
-  const out = [];
-  (Array.isArray(list) ? list : []).forEach((item) => {
-    if (out.length >= HEADER_NOTE_COUNT) return;
-    const text = sanitizeString(item || '', HEADER_NOTE_LINE_MAX);
-    if (text) out.push(text);
-  });
-  return out;
-}
-
-function readHeaderNotes(raw) {
-  if (raw == null || raw === '') return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return normalizeHeaderNotes(parsed);
-    if (parsed && typeof parsed === 'object') {
-      if (Array.isArray(parsed.notes)) return normalizeHeaderNotes(parsed.notes);
-      return normalizeHeaderNotes(parsed.text ? [parsed.text] : []);
-    }
-    if (typeof parsed === 'string') return normalizeHeaderNotes([parsed]);
-  } catch (e) {}
-  const plain = sanitizeString(String(raw), HEADER_NOTE_LINE_MAX);
-  return plain ? [plain] : [];
-}
 
 api.get('/header-note', async (req, res) => {
   try {
     const r = await q('SELECT value FROM kv_store WHERE key = $1', [HEADER_NOTE_KEY]);
-    const notes = readHeaderNotes(r.rows[0] && r.rows[0].value);
-    res.json({ ok: true, notes, text: notes[0] || '' });
+    const items = readHeaderNoteItems(r.rows[0] && r.rows[0].value);
+    const body = headerNotePayload(items, '', 0);
+    res.json({ ok: true, notes: body.notes.map((item) => item.text), authors: body.authors, text: body.text });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -1473,22 +1453,21 @@ api.get('/header-note', async (req, res) => {
 api.post('/header-note', requireAmir, async (req, res) => {
   try {
     const body = req.body || {};
-    const notes = normalizeHeaderNotes(Array.isArray(body.notes) ? body.notes : [body.text]);
-    const payload = JSON.stringify({
-      notes,
-      text: notes[0] || '',
-      updatedAt: Date.now(),
-      updatedBy: String((req.user && req.user.username) || ''),
-    });
+    const incoming = headerNoteTexts(Array.isArray(body.notes) ? body.notes : [body.text]);
+    const prev = await q('SELECT value FROM kv_store WHERE key = $1', [HEADER_NOTE_KEY]);
+    const previous = readHeaderNoteItems(prev.rows[0] && prev.rows[0].value);
+    const username = String((req.user && req.user.username) || '');
+    const items = assignHeaderNoteAuthors(incoming, previous, username);
+    const payload = headerNotePayload(items, username, Date.now());
     await q(
       `
       INSERT INTO kv_store(key, value)
       VALUES($1,$2)
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `,
-      [HEADER_NOTE_KEY, payload]
+      [HEADER_NOTE_KEY, JSON.stringify(payload)]
     );
-    res.json({ ok: true, notes, text: notes[0] || '' });
+    res.json({ ok: true, notes: payload.notes.map((item) => item.text), authors: payload.authors, text: payload.text });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

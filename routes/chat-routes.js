@@ -27,6 +27,9 @@ function registerChatRoutes(api, ctx) {
     if (result.code === 'SELF') {
       return res.status(400).json({ ok: false, code: 'SELF', error: 'Kendinize mesaj gönderilemez' });
     }
+    if (result.code === 'NO_OPEN') {
+      return res.status(403).json({ ok: false, code: 'NO_OPEN', error: 'Amir yazınca cevap verebilirsiniz' });
+    }
     return res.status(400).json({ ok: false, code: result.code || 'BAD_TARGET', error: 'Hedef bulunamadı' });
   }
 
@@ -91,7 +94,11 @@ function registerChatRoutes(api, ctx) {
       touchPresence(req);
       const since = Number((req.query && req.query.since) || 0);
       res.setHeader('Cache-Control', 'no-store');
-      return res.json({ ok: true, messages: store.inbox(mine(req), since) });
+      return res.json({
+        ok: true,
+        messages: store.inbox(mine(req), since),
+        replyPeers: typeof store.replyPeers === 'function' ? store.replyPeers(mine(req)) : [],
+      });
     } catch (err) {
       return sendApiError(res, err, 500, 'CHAT_INBOX_FAILED');
     }

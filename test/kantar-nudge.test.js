@@ -231,7 +231,10 @@ test('kantar: titreyen, arkası bulanık, Tamam deyince kapanan evrak notu', () 
   assert.match(sm, /is-chat/);
   const msn = fs.readFileSync(path.join(__dirname, '../public/msn-chat.js'), 'utf8');
   assert.match(msn, /gpmMsnDock/);
-  assert.match(msn, /diyor:/);
+  assert.match(msn, /gpm-msn-bubble/);
+  assert.match(msn, /login-baret-amir\.png/);
+  assert.match(msn, /gpm-msn-emoji-btn/);
+  assert.match(msn, /NO_OPEN|mayReply/);
   assert.match(msn, /Titret/);
   assert.match(msn, /gpmMsnBadge/);
   assert.match(msn, /okundu/);

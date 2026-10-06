@@ -2608,11 +2608,42 @@ function _escapeHeaderNote(s) {
     .replace(/"/g, '&quot;');
 }
 
+function _headerNoteText(item) {
+  if (item && typeof item === 'object') return String(item.text || '').trim();
+  return String(item || '').trim();
+}
+
 function _headerNoteLines(list) {
   return (Array.isArray(list) ? list : [])
-    .map((s) => String(s || '').trim())
+    .map(_headerNoteText)
     .filter(Boolean)
     .slice(0, HEADER_NOTE_LIMIT);
+}
+
+function _headerNoteRecordsFromApi(data) {
+  const notes = Array.isArray(data && data.notes) ? data.notes : (data && data.text ? [data.text] : []);
+  const authors = Array.isArray(data && data.authors) ? data.authors : [];
+  return notes.map((item, index) => {
+    if (item && typeof item === 'object') {
+      return {
+        text: String(item.text || '').trim(),
+        author: String(item.author || authors[index] || '').trim(),
+      };
+    }
+    return {
+      text: String(item || '').trim(),
+      author: String(authors[index] || '').trim(),
+    };
+  }).filter((item) => item.text).slice(0, HEADER_NOTE_LIMIT);
+}
+
+function _headerNoteAuthorLabel(author) {
+  const id = String(author || '').trim().toLowerCase();
+  if (id === 'saban') return 'ŞABAN LAHAÇLAR';
+  if (id === 'ugur') return 'UĞUR AKTAŞ';
+  if (id === 'xxr') return 'SELAHATTİN TOKER';
+  if (!id) return '';
+  return id.toLocaleUpperCase('tr-TR');
 }
 
 function _tuneHeaderNoteMarquee() {
@@ -2634,13 +2665,19 @@ function _tuneHeaderNoteMarquee() {
   });
 }
 
-function _headerNoteBanner(text) {
+function _headerNoteBanner(item) {
+  const text = _headerNoteText(item);
+  const label = _headerNoteAuthorLabel(item && item.author);
   const safe = _escapeHeaderNote(text);
-  return `<div class="header-note" role="note"><span class="header-note__icon" aria-hidden="true"><i class="fas fa-exclamation"></i></span><span class="header-note__marquee"><span class="header-note__text" title="${safe}">${safe}</span></span></div>`;
+  const mark = label
+    ? ' <span class="header-note__by">★ ' + _escapeHeaderNote(label) + ' ★</span>'
+    : '';
+  const title = _escapeHeaderNote(label ? text + ' ★ ' + label + ' ★' : text);
+  return `<div class="header-note" role="note"><span class="header-note__icon" aria-hidden="true"><i class="fas fa-exclamation"></i></span><span class="header-note__marquee"><span class="header-note__text" title="${title}">${safe}${mark}</span></span></div>`;
 }
 
 function _headerNoteHtml() {
-  const saved = _headerNoteLines(_headerNotes);
+  const saved = _headerNoteRecordsFromApi({ notes: _headerNotes });
   const amir = _headerNoteIsAmir();
   if (!amir) {
     if (!saved.length) return '';
@@ -2687,8 +2724,7 @@ async function _loadHeaderNote(force) {
     if (!r.ok) return;
     const j = await r.json();
     if (rev !== _headerNoteRev) return;
-    const notes = Array.isArray(j && j.notes) ? j.notes : (j && j.text ? [j.text] : []);
-    _headerNotes = _headerNoteLines(notes);
+    _headerNotes = _headerNoteRecordsFromApi(j);
   } catch (e) {}
 }
 
@@ -2716,8 +2752,8 @@ async function _saveHeaderNote(lines) {
       return;
     }
     _headerNoteRev += 1;
-    _headerNotes = _headerNoteLines(Array.isArray(j.notes) ? j.notes : notes);
-    _headerNoteDrafts = _headerNotes.slice();
+    _headerNotes = _headerNoteRecordsFromApi(j.notes ? j : { notes });
+    _headerNoteDrafts = _headerNoteLines(_headerNotes);
     _headerNoteFetchedAt = Date.now();
     _headerNoteEditing = false;
     _headerNoteError = '';

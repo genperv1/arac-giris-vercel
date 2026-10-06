@@ -19,7 +19,7 @@ test('yazışma yalnız iki kişi arasında durur, eski satır düşer', () => {
   assert.equal(store.post('xxr', 'saban', '   ').code, 'BAD_TEXT');
   assert.equal(store.post('xxr', 'yok', 'a').code, 'BAD_TARGET');
 
-  const cool = store.post('AVDAN', 'AMIR', 'hemen');
+  const cool = store.post('AVDAN', '1.OSB', 'hemen');
   assert.equal(cool.ok, true);
   const blocked = store.post('AVDAN', '1.OSB', 'üst üste');
   assert.equal(blocked.code, 'COOLDOWN');
@@ -110,23 +110,38 @@ function harness(user) {
   return { call, events };
 }
 
-test('kantar amire yazar, başkası o konuşmayı görmez, mesaj yalnız ikisine gider', async () => {
+test('kantar amire sıfırdan yazamaz; amir açınca cevap gider, başkası görmez', async () => {
   const h = harness({ username: 'AVDAN', role: 'admin' });
+  const closed = await h.call('post /chat', { body: { to: 'SELAHATTİN', text: 'evrak yolda' } });
+  assert.equal(closed.status, 403);
+  assert.equal(closed.out.code, 'NO_OPEN');
+
+  const buzz = await h.call('post /chat/buzz', { body: { to: 'AMIR' } });
+  assert.equal(buzz.status, 403);
+  assert.equal(buzz.out.code, 'NO_OPEN');
+
+  const opened = await h.call('post /chat', { user: { username: 'xxr', role: 'amir' }, body: { to: 'AVDAN', text: 'evrak?' } });
+  assert.equal(opened.status, 200);
+  assert.equal(opened.out.message.from, 'AMIR');
+
   const sent = await h.call('post /chat', { body: { to: 'SELAHATTİN', text: 'evrak yolda' } });
   assert.equal(sent.status, 200);
   assert.equal(sent.out.message.from, 'AVDAN');
   assert.equal(sent.out.message.to, 'AMIR');
-  assert.deepEqual(h.events[0].keys, ['AVDAN', 'AMIR']);
-  assert.equal(h.events[0].type, 'chat_message');
+  const msgEv = h.events.filter((e) => e.type === 'chat_message');
+  assert.deepEqual(msgEv[msgEv.length - 1].keys, ['AVDAN', 'AMIR']);
 
   const mine = await h.call('get /chat', { query: { peer: 'AMIR' } });
-  assert.equal(mine.out.messages[0].text, 'evrak yolda');
+  assert.equal(mine.out.messages[1].text, 'evrak yolda');
 
   const other = await h.call('get /chat', { user: { username: '1.OSB', role: 'admin' }, query: { peer: 'AMIR' } });
   assert.equal(other.out.messages.length, 0);
 
   const inbox = await h.call('get /chat/inbox', { user: { username: 'xxr', role: 'amir' }, query: { since: 0 } });
-  assert.equal(inbox.out.messages[0].text, 'evrak yolda');
+  assert.equal(inbox.out.messages.some((m) => m.text === 'evrak yolda'), true);
+
+  const peers = await h.call('get /chat/inbox', { query: { since: 0 } });
+  assert.deepEqual(peers.out.replyPeers, ['AMIR']);
 
   const self = await h.call('post /chat', { user: { username: 'saban', role: 'amir' }, body: { to: 'SABAN', text: 'x' } });
   assert.equal(self.status, 400);
