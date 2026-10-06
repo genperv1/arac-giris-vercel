@@ -226,9 +226,11 @@ test('kantar: titreyen, arkası bulanık, Tamam deyince kapanan evrak notu', () 
   assert.match(sm, /kantar_nudge_ack/);
   assert.match(sm, /NUDGE_RING_MAX = 10/);
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
-  assert.match(giris, /session-manager\.js\?v=20261006-ugur/);
+  assert.match(giris, /session-manager\.js\?v=20261006-gonderen/);
   assert.match(sm, /ÖZEL MESAJ/);
   assert.match(sm, /UĞUR AKTAŞ/);
+  assert.match(sm, /gönderdi/);
+  assert.match(sm, /kullanıcısına gönderildi/);
 });
 
 test('kişiye özel mesaj metin ister; kantar metinsiz evrak notu alır', () => {

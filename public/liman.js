@@ -588,26 +588,32 @@
     return isFinite(at) ? at : Infinity;
   }
 
+  /** Sekme etiketindeki gün: "03.10.2026-YD28" → 2026-10-03. Tarihi olmayan en sonda. */
+  function tabDateKey(label) {
+    var m = String(label || '').match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    return m ? (m[3] + '-' + m[2] + '-' + m[1]) : '9999-99-99';
+  }
+
   /**
-   * Alt sekmeler (Excel sayfaları gibi): soldan sağa ilk yüklenen Excel'den son yüklenene.
-   * Aynı tarihli 2. Excel ayrı sekme olur; sırası bilinmeyen sekme tarih sırasıyla sona gelir.
+   * Alt sekmeler soldan sağa: yeni yükleme ilk liste, eski yükleme sağda.
+   * Aynı günde son yüklenen solda, ilk yüklenen sağda kalır.
    */
   function sheetTabs() {
     var tabs = [];
     state.days.forEach(function (d, di) {
       var files = filesOf(d);
       if (files.length < 2) {
-        tabs.push({ dateKey: d.dateKey, file: '', label: d.label, at: fileSeenAt(files[0]), idx: tabs.length, di: di });
+        tabs.push({ dateKey: d.dateKey, file: '', label: d.label, at: fileSeenAt(files[0]), day: tabDateKey(d.label), idx: tabs.length, di: di });
         return;
       }
       files.forEach(function (f) {
-        tabs.push({ dateKey: d.dateKey, file: f, label: f, at: fileSeenAt(f), idx: tabs.length, di: di });
+        tabs.push({ dateKey: d.dateKey, file: f, label: f, at: fileSeenAt(f), day: tabDateKey(f), idx: tabs.length, di: di });
       });
     });
     return tabs.sort(function (a, b) {
-      if (a.at !== b.at) return a.at < b.at ? -1 : 1;
-      if (a.di !== b.di) return b.di - a.di;
-      return a.idx - b.idx;
+      if (a.day !== b.day) return a.day > b.day ? -1 : 1;
+      if (a.at !== b.at) return a.at > b.at ? -1 : 1;
+      return b.idx - a.idx;
     });
   }
 
@@ -1113,7 +1119,7 @@
     window.addEventListener('online', function () { checkForChange(true); });
   }
 
-  var CHECK_MS = 3 * 1000;           // kantar yeni liste gönderdi mi (hafif istek)
+  var CHECK_MS = 2 * 1000;           // kantar yeni liste gönderdi mi (hafif istek)
   var FULL_MS = 15 * 1000;           // çıkış (sarıldı) ve baskı için tam yenileme
   var lastCheck = 0;
   var lastFull = 0;
@@ -1121,7 +1127,7 @@
   async function checkForChange(force) {
     if (checking) return;
     if (!force && document.hidden) return;
-    if (!force && Date.now() - lastCheck < 2000) return;
+    if (!force && Date.now() - lastCheck < 1500) return;
     var active = document.activeElement;
     if (active && active.matches && active.matches('[data-note]')) return;
     checking = true;

@@ -16,31 +16,9 @@ function kantarSiteOf(req) {
   return name === 'AVDAN' || name === '1.OSB' ? name : '';
 }
 
-/** Ajan kopyası yalnız aynı kantarınki kullanılır: diğer kantarın aynı adlı Excel'i okunmaz. */
-async function readNewestExcel(source, excelAgentStore, site) {
-  let local = null;
-  let localErr = null;
-  try {
-    local = await readExcelFromStoredPath(source);
-  } catch (err) {
-    localErr = err;
-  }
-  let uploaded = null;
-  if (excelAgentStore && source.fileName && site) {
-    try {
-      uploaded = await excelAgentStore.getUpload(source.fileName, site);
-    } catch (_) {
-      uploaded = null;
-    }
-  }
-  if (local && uploaded) {
-    const sameName = String(local.fileName).toLowerCase() === String(uploaded.fileName).toLowerCase();
-    if (!sameName) return local;
-    return Number(uploaded.mtime) > Number(local.mtime) ? uploaded : local;
-  }
-  if (local) return local;
-  if (uploaded) return uploaded;
-  throw localErr;
+/** Güncelle seçilen Excel dosyasını okur. Ajanın yüklediği kopya karışmasın diye kullanılmaz. */
+async function readNewestExcel(source) {
+  return readExcelFromStoredPath(source);
 }
 
 function registerIhracatExcelRoutes(api, ctx) {
@@ -98,7 +76,7 @@ function registerIhracatExcelRoutes(api, ctx) {
           },
         });
       }
-      const read = await readNewestExcel(source, excelAgentStore, kantarSiteOf(req));
+      const read = await readNewestExcel(source);
       try {
         const patch = {
           fileName: read.fileName,

@@ -240,13 +240,13 @@ test('findExcelByFileName rejects path traversal names', async () => {
   assert.equal(found, '');
 });
 
-test('client refresh: manual button + silent auto refresh + 30 sn file stamp watch (kantar only)', () => {
+test('client refresh: manual button + silent auto refresh + file stamp watch (kantar only)', () => {
   assert.match(clientCode, /AUTO_REFRESH_MS = 10 \* 60 \* 1000/);
   assert.match(clientCode, /FIRST_REFRESH_MS = 15 \* 1000/);
-  assert.match(clientCode, /WATCH_MS = 30 \* 1000/);
+  assert.match(clientCode, /WATCH_MS = 8 \* 1000/);
   assert.match(clientCode, /setInterval\s*\(/);
-  // ilk otomatik güncelleme + Excel Ajanı olayı (debounce) + SyncManager bekleme
-  assert.equal((clientCode.match(/setTimeout\s*\(/g) || []).length, 3);
+  // ilk otomatik güncelleme; ajan olayı yok
+  assert.equal((clientCode.match(/setTimeout\s*\(/g) || []).length, 1);
   assert.doesNotMatch(clientCode, /fs\.watch/);
   const watchFn = clientCode.slice(
     clientCode.indexOf('async function grantedStamp'),
@@ -290,7 +290,8 @@ test('client refresh: manual button + silent auto refresh + 30 sn file stamp wat
   assert.match(refreshFn, /resolveFileForSource/);
   assert.match(refreshFn, /listLoadedSourceNames/);
   assert.match(clientCode, /fileFromBackendReread/);
-  assert.match(clientCode, /pickNewerExcelFile/);
+  assert.match(clientCode, /if \(handleOk\) return namedFile/);
+  assert.doesNotMatch(clientCode, /agent-files|onAgentUpload|pickNewerExcelFile/);
   assert.match(clientCode, /sameExcelName/);
   assert.match(clientCode, /clearPath/);
   const busyPos = refreshFn.indexOf('setRefreshBusy(true)');

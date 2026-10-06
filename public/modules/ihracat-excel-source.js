@@ -1,7 +1,7 @@
 /**
  * İhracat Excel kaynağı: ilk seçimde dosya konumunu saklar,
  * kullanıcı “Güncelle”ye basınca yeniden okur.
- * Kantar oturumunda dosya 8 sn'de bir yoklanır, kaydedildiyse hemen okunur;
+ * Kantar oturumunda seçilen dosya 8 sn'de bir yoklanır, kaydedildiyse hemen okunur;
  * ayrıca açılıştan 15 sn sonra ve 10 dakikada bir sessiz otomatik güncelleme dener:
  * dosya izni zaten verilmişse (veya sunucu dosyayı görüyorsa) okur, liman listesine gönderir;
  * izin yoksa hiçbir pencere / uyarı açmadan sessizce geçer.
@@ -975,21 +975,6 @@
     });
   }
 
-  function fileStamp(file) {
-    if (!file || file.__missing || file.__notSelected || file.__cancelled) return -1;
-    var n = Number(file.lastModified);
-    return Number.isFinite(n) ? n : -1;
-  }
-
-  function pickNewerExcelFile(a, b) {
-    var okA = fileStamp(a) >= 0;
-    var okB = fileStamp(b) >= 0;
-    if (okA && okB) return fileStamp(b) >= fileStamp(a) ? b : a;
-    if (okA) return a;
-    if (okB) return b;
-    return a || b;
-  }
-
   async function readStoredExcelFile() {
     var handle = _liveHandle;
     if (!handle || typeof handle.getFile !== 'function') {
@@ -1043,15 +1028,13 @@
       }
     }
     if (handleOk) namedFile = aliasFileToSource(namedFile, wanted);
+    if (handleOk) return namedFile;
 
-    // Sunucu yerel dosyayı (localhost) ya da Excel Ajanı'nın yüklediği kopyayı verebilir
+    // Tarayıcı dosyayı okuyamazsa sunucudaki kayıtlı yol. Ajan kopyası kullanılmaz.
     var fromBackend = null;
     try { fromBackend = await fileFromBackendReread(wanted); } catch (e) { fromBackend = null; }
     var backendOk = fromBackend && !fromBackend.__missing && !fromBackend.__notSelected
       && sameExcelName(fromBackend.name, wanted);
-
-    if (backendOk && handleOk) return pickNewerExcelFile(namedFile, fromBackend);
-    if (handleOk) return namedFile;
     if (backendOk) return fromBackend;
     return { __missing: true };
   }
@@ -1269,7 +1252,6 @@
       var r = await refreshFromStored(null, null, null, { silent: true });
       if (r && r.ok) {
         read = { ok: true };
-        _autoReadOk = true;
         try { console.info('[İhracat Excel] otomatik güncellendi:', (r.okNames || []).join(', ')); } catch (e2) {}
       } else if (r && r.code === 'EXCEL_FILE_NOT_FOUND') {
         read = { ok: false, reason: _silentPermMissing ? 'permission' : 'not-found' };
@@ -1285,43 +1267,6 @@
   /** Kaydedilen Excel'i fark etmek için yalnız dosya damgası (tarih + boyut) okunur; izin penceresi açılmaz. */
   var _watchStamps = Object.create(null);
   var _watchBusy = false;
-  var _agentSeen = Object.create(null);
-  var _autoReadOk = false;
-
-  /** Excel Ajanı yeni kopya yüklediyse (SSE kaçsa da) birkaç saniye içinde yeniden oku. */
-  async function agentCopyChanged() {
-    var sources = [];
-    try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
-    if (!sources.length) return false;
-    var res;
-    try {
-      res = await fetch('/api/ihracat-excel/agent-files', { credentials: 'include', cache: 'no-store' });
-    } catch (e) { return false; }
-    if (!res.ok) return false;
-    var data = null;
-    try { data = await res.json(); } catch (e) { return false; }
-    var files = data && Array.isArray(data.files) ? data.files : [];
-    var nextSeen = Object.assign({}, _agentSeen);
-    var changed = false;
-    files.forEach(function (f) {
-      var name = String((f && f.fileName) || '').trim();
-      if (!name || !sources.some(function (n) { return sameExcelName(n, name); })) return;
-      var key = name.toLowerCase();
-      var stamp = String(f.uploadedAt || 0) + ':' + String(f.size || 0) + ':' + String(f.mtime || 0);
-      if (!nextSeen[key]) {
-        nextSeen[key] = stamp;
-        if (!_autoReadOk) changed = true;
-        return;
-      }
-      if (nextSeen[key] !== stamp) {
-        nextSeen[key] = stamp;
-        changed = true;
-      }
-    });
-    if (changed && (_busy || _picking)) return false;
-    _agentSeen = nextSeen;
-    return changed;
-  }
 
   async function grantedStamp(handle) {
     if (!handle || typeof handle.getFile !== 'function' || typeof handle.queryPermission !== 'function') return '';
@@ -1350,9 +1295,7 @@
         if (_watchStamps[key] && _watchStamps[key] !== stamp) changed = true;
         _watchStamps[key] = stamp;
       }
-      var agentChanged = false;
-      try { agentChanged = await agentCopyChanged(); } catch (e2) { agentChanged = false; }
-      if (changed || agentChanged) {
+      if (changed) {
         try { console.info('[İhracat Excel] dosya kaydedildi, liste yeniden okunuyor'); } catch (e) {}
         await autoRefreshTick();
       }
@@ -1399,39 +1342,6 @@
       if (ev && ev.persisted) wakeTick();
     });
   }
-  /** Excel Ajanı kantar PC'sinden yeni Excel yükleyince 10 dk beklemeden yeniden oku. */
-  var AGENT_EVENT_DEBOUNCE_MS = 3000;
-  var _agentEventTimer = null;
-
-  function onAgentUpload(data) {
-    var name = String((data && data.fileName) || '').trim();
-    if (!name) return;
-    var me = '';
-    try { me = String(localStorage.getItem('currentUserId') || '').trim().toUpperCase(); } catch (e) { me = ''; }
-    if (data.site && me && String(data.site).toUpperCase() !== me) return;
-    var sources = [];
-    try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
-    var wanted = sources.some(function (n) { return sameExcelName(n, name); });
-    if (!wanted) return;
-    clearTimeout(_agentEventTimer);
-    _agentEventTimer = setTimeout(function () {
-      try { console.info('[İhracat Excel] Excel Ajanı yeni dosya yükledi:', name); } catch (e) {}
-      autoRefreshTick().catch(function () {});
-    }, AGENT_EVENT_DEBOUNCE_MS);
-  }
-
-  function bindAgentUploadEvents(tries) {
-    if (/\/liman(\.html)?$/i.test(String(location.pathname || ''))) return;
-    if (window.SyncManager && typeof window.SyncManager.on === 'function') {
-      window.SyncManager.on('ihracat_excel_uploaded', onAgentUpload);
-      return;
-    }
-    if ((tries || 0) < 50) setTimeout(function () { bindAgentUploadEvents((tries || 0) + 1); }, 200);
-  }
-
-  try { bindAgentUploadEvents(0); } catch (e) {}
-
-
   try {
     window.addEventListener('daily-store-ready', function () {
       adoptLoadedExcelAsSource();

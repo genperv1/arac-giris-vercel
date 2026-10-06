@@ -913,6 +913,16 @@
         return key === 'AMIR' || key === 'SABAN' || key === 'UGUR';
     }
 
+    function presencePersonName(key) {
+        return ({ AMIR: 'SELAHATTİN TOKER', SABAN: 'ŞABAN LAHAÇLAR', UGUR: 'UĞUR AKTAŞ' })[presenceSiteKey(key)] || '';
+    }
+
+    function nudgeSenderName(nudge) {
+        const from = String((nudge && nudge.from) || '').trim();
+        if (from) return from;
+        return presencePersonName(nudge && nudge.fromKey) || 'AMİR';
+    }
+
     function currentKantarSite() {
         try {
             return presenceSiteKey(localStorage.getItem('currentUserId'));
@@ -1054,7 +1064,7 @@
             + 'html.gpm-nn-open,html.gpm-nn-open body{overflow:hidden}'
             + '.gpm-nn-card{width:min(460px,100%);background:#fff;border-radius:18px;border-top:6px solid #ea580c;box-shadow:0 24px 60px rgba(0,0,0,.35);padding:26px 26px 22px;text-align:center;font-family:"Segoe UI",Tahoma,sans-serif}'
             + '.gpm-nn-icon{width:64px;height:64px;margin:0 auto 10px;border-radius:999px;background:#fff7ed;color:#ea580c;display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 0 0 6px rgba(234,88,12,.12)}'
-            + '.gpm-nn-from{font-size:12px;font-weight:800;letter-spacing:.14em;color:#9a3412}'
+            + '.gpm-nn-from{font-size:20px;font-weight:800;letter-spacing:.01em;color:#9a3412;line-height:1.3}'
             + '.gpm-nn-text{margin:8px 0 20px;font-size:22px;line-height:1.35;font-weight:800;color:#1c1917}'
             + '.gpm-nn-ok{min-width:160px;border:0;border-radius:12px;background:#ea580c;color:#fff;font:800 17px/1 "Segoe UI",Tahoma,sans-serif;padding:14px 22px;cursor:pointer;box-shadow:0 8px 18px rgba(234,88,12,.35)}'
             + '.gpm-nn-ok:hover{background:#c2410c}'
@@ -1243,9 +1253,10 @@
             root.querySelector('.gpm-nn-ok').addEventListener('click', () => closeNudgeNotice(true));
             document.body.appendChild(root);
         }
+        const sender = nudgeSenderName(nudge);
         const fromEl = root.querySelector('.gpm-nn-from');
-        if (fromEl) fromEl.textContent = String(nudge.from || 'AMİR');
-        root.querySelector('.gpm-nn-text').textContent = String(nudge.text || NUDGE_NOTICE_TEXT);
+        if (fromEl) fromEl.textContent = sender + ' gönderdi';
+        root.querySelector('.gpm-nn-text').textContent = sender + ': ' + String(nudge.text || NUDGE_NOTICE_TEXT);
         document.documentElement.classList.add('gpm-nn-open');
         try { root.querySelector('.gpm-nn-ok').focus({ preventScroll: true }); } catch (e) { /* ignore */ }
         if (nudgeRepeatTimer) clearInterval(nudgeRepeatTimer);
@@ -1279,7 +1290,7 @@
     function openDmComposer(key) {
         ensureNudgeStyle();
         closeDmComposer();
-        const who = ({ AMIR: 'SELAHATTİN TOKER', SABAN: 'ŞABAN LAHAÇLAR', UGUR: 'UĞUR AKTAŞ' })[key] || key;
+        const who = presencePersonName(key) || key;
         const root = document.createElement('div');
         root.id = 'gpmDmCompose';
         root.setAttribute('role', 'dialog');
@@ -1353,7 +1364,8 @@
                 return;
             }
             nudgeLastSend[key] = Date.now();
-            nudgeToast(person ? 'Mesaj gönderildi' : (key + ' çağrıldı'));
+            const who = presencePersonName(key) || key;
+            nudgeToast(person ? (who + ' kullanıcısına gönderildi') : (key + ' çağrıldı'));
             if (data && data.nudge) {
                 setNudgeStatus(data.nudge);
                 watchNudgeStatus();

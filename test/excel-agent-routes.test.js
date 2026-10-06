@@ -89,18 +89,19 @@ test('yükleme anahtarın kantarına yazılır; anahtar yoksa / yanlışsa redde
   assert.equal((await call(off, req('kisa'))).status, 503);
 });
 
-test('Güncelle yalnız kendi kantarının ajan kopyasını okur', async () => {
+test('Güncelle ajan kopyasını okumaz', async () => {
   assert.equal(kantarSiteOf({ user: { username: 'avdan' } }), 'AVDAN');
   assert.equal(kantarSiteOf({ user: { username: 'xxr' } }), '');
-  const asked = [];
+  let asked = 0;
   const store = {
-    getUpload: async (name, site) => {
-      asked.push(site);
-      return site === 'AVDAN' ? { fileName: name, buf: Buffer.from('a'), mtime: new Date() } : null;
+    getUpload: async () => {
+      asked += 1;
+      return { fileName: '03.10.2026.xlsx', buf: Buffer.from('eski'), mtime: new Date() };
     },
   };
-  const read = await readNewestExcel({ fileName: '03.10.2026.xlsx' }, store, 'AVDAN');
-  assert.equal(read.fileName, '03.10.2026.xlsx');
-  await assert.rejects(() => readNewestExcel({ fileName: '03.10.2026.xlsx' }, store, ''));
-  assert.deepEqual(asked, ['AVDAN']);
+  await assert.rejects(
+    () => readNewestExcel({ fileName: 'ajan-kullanilmaz-yok.xlsx' }, store, 'AVDAN'),
+    (err) => err && err.code === 'EXCEL_FILE_NOT_FOUND'
+  );
+  assert.equal(asked, 0);
 });

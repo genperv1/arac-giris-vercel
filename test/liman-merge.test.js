@@ -107,6 +107,35 @@ test('aynı günün Avdan ve 1.OSB sayfaları tek Excel olur', () => {
   assert.equal(days[0].blocks[1].rows[1].plaka, '');
 });
 
+test('son Güncelle eski yüksek tonajı ezer', () => {
+  const title = 'YD47(M) / LOT NO 26 08 32 / 100 TON / SAFİPORT';
+  const rowOld = { sira: '1', plaka: '43AEA633', bbt: '10', net: '20000', giden: '20240', sofor: 'RAMAZAN HORATA' };
+  const rowNew = { sira: '1', plaka: '43AEA633', bbt: '10', net: '10000', giden: '10100', sofor: 'RAMAZAN HORATA' };
+  const days = daysFromSheetState({
+    sites: {
+      AVDAN: {
+        fileName: '06.10.2026.xlsx',
+        updatedAt: '2026-10-06T08:00:00.000Z',
+        blocks: [{ title, toplam: { netTonaj: '20000', gidenTonaj: '20240' }, rows: [rowOld] }],
+      },
+      '1.OSB': {
+        fileName: '06.10.2026.xlsx',
+        updatedAt: '2026-10-06T09:05:00.000Z',
+        blocks: [{ title, toplam: { netTonaj: '10000', gidenTonaj: '10100' }, rows: [rowNew] }],
+      },
+    },
+    notes: {},
+  });
+  const row = days[0].blocks[0].rows[0];
+  assert.equal(row.net, '10000');
+  assert.equal(row.giden, '10100');
+  assert.equal(row.netTonaj, '10000');
+  assert.equal(row.gidenTonaj, '10100');
+  assert.equal(days[0].blocks[0].toplam.netTonaj, '10000');
+  assert.equal(days[0].blocks[0].toplam.gidenTonaj, '10100');
+  assert.equal(row.updatedAt, undefined);
+});
+
 test('sıra nosuz kopya aynı plakanın tonunu ikiye katlamaz', () => {
   const title = 'YD20(M) / LOT NO 26 08 26 / 10 TON / DP WORLD';
   const days = daysFromSheetState({
