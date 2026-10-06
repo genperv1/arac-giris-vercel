@@ -155,3 +155,61 @@ test('üst sevkiyatın başlığı alttaki 10 tonu yutmaz', () => {
   const sum = ten.reduce((s, r) => s + Number(r.netTonaj || 0), 0);
   assert.equal(sum, 10000);
 });
+
+function limanRowsFromParse(parser, grid, fileName) {
+  const store = {};
+  parser.localStorage = {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    setItem(k, v) { store[k] = String(v); },
+    removeItem(k) { delete store[k]; },
+  };
+  parser.XLSX = { utils: { sheet_to_json() { return grid; } } };
+  const parsed = parser.parseIhracatRowsFromWorkbook({ Sheets: { S: {} }, SheetNames: ['S'] }, 'S', { fileName });
+  assert.equal(parsed.ok, true, parsed.msg);
+  const bag = JSON.parse(store.liman_sheet_v1 || '{}');
+  const blocks = bag[fileName] || [];
+  return blocks.reduce((acc, block) => acc.concat(block.rows || []), []);
+}
+
+test('KANTAR ÇIKIŞ tarihi ve saati liman satırına yazılır, kantar giriş yazılmaz', () => {
+  const parser = loadParser();
+  const yd = 'YD10(G) / LOT NO 26 04 13 / 40 BBT / SAFİPORT';
+  const grid = [
+    ['İHRACAT TAKİP LİSTESİ'],
+    ['AKYÜZ', yd],
+    ['', 'LİMAN DOLUM TARİHİ : 05.10.2026 PAZARTESİ'],
+    ['', '100', 'PLAKA', 'BBT', 'ÇUVAL', 'PALET', 'BOŞ BBT', 'BOŞ ÇUVAL', 'NET TONAJ', 'O.GR. TONAJ', 'GİDEN TONAJ', 'FARK', '', 'YÜKLEME YERİ', 'KANTAR GİRİŞ', 'KANTAR ÇIKIŞ'],
+    ['R01202610051', '1', '43AD5408', 20, '', '', '', '', 25, 25.3, 25.1, '', '', 'AVDAN', '5 Ekim 2026 4:43', '5 Ekim 2026 5:10'],
+    ['', '', 'TOPLAM', 20],
+  ];
+  const rows = limanRowsFromParse(parser, grid, '05.10.2026.xlsx');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].plaka.replace(/\s+/g, ''), '43AD5408');
+  assert.equal(rows[0].kantarCikis, '05.10.2026 05:10');
+  assert.equal(rows[0].bbt, '20');
+});
+
+test('başlık yoksa S sütunundaki çıkış saati okunur, tonaj sayı sayılmaz', () => {
+  const parser = loadParser();
+  const yd = 'YD10(G) / LOT NO 26 04 13 / 40 BBT / SAFİPORT';
+  const serial = Date.UTC(2026, 9, 5, 17, 31) / 86400000 + 25569;
+  const data = ['R01202610052', '2', '43ADT557', 20, '', '', '', '', 25, 25.1, '', '', '', 'AVDAN'];
+  while (data.length < 18) data.push('');
+  data[18] = serial;
+  const grid = [
+    ['İHRACAT TAKİP LİSTESİ'],
+    ['AKYÜZ', yd],
+    ['', 'LİMAN DOLUM TARİHİ : 05.10.2026 PAZARTESİ'],
+    ['', '100', 'PLAKA', 'BBT', 'ÇUVAL', 'PALET', 'BOŞ BBT', 'BOŞ ÇUVAL', 'NET TONAJ', 'O.GR. TONAJ', 'GİDEN TONAJ', 'FARK', '', 'YÜKLEME YERİ'],
+    data,
+    ['', '', 'TOPLAM', 20],
+  ];
+  const rows = limanRowsFromParse(parser, grid, '05.10.2026-s.xlsx');
+  assert.equal(rows[0].kantarCikis, '05.10.2026 17:31');
+  const tonaj = data.slice();
+  tonaj[18] = 25.1;
+  grid[4] = tonaj;
+  const plain = limanRowsFromParse(parser, grid, '05.10.2026-tonaj.xlsx');
+  assert.equal(plain[0].kantarCikis, '');
+  assert.equal(plain[0].net, '25');
+});

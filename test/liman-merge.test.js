@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mergeLimanState } = require('../lib/liman-merge');
-const { daysFromSheetState, rowsToBlocks, retainDroppedBooks, mergeRows, mergeTransientDurum } = require('../lib/liman-sheet');
+const { daysFromSheetState, rowsToBlocks, retainDroppedBooks, mergeRows, mergeTransientDurum, sanitizeBlocks } = require('../lib/liman-sheet');
 
 function row(patch) {
   return Object.assign({
@@ -227,6 +227,48 @@ test('mergeRows — bir kantar DIŞARIDA diğeri stale İÇERİDE ise DIŞARIDA 
   ]);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].durum, 'DIŞARIDA');
+});
+
+test('kantar çıkış tarihi iki kantarda kalır; daha yeni saat eskisinin yerini alır', () => {
+  const title = 'YD10(G) / LOT NO 26 04 13 / SAFİPORT';
+  const blocks = sanitizeBlocks([{
+    title,
+    rows: [{ sira: '1', plaka: '43AD5408', bbt: '20', kantarCikis: '05.10.2026 05:10' }],
+  }]);
+  assert.equal(blocks[0].rows[0].kantarCikis, '05.10.2026 05:10');
+  assert.equal(blocks[0].rows[0].bbt, '20');
+  const days = daysFromSheetState({
+    sites: {
+      AVDAN: {
+        fileName: '05.10.2026.xlsx',
+        updatedAt: '2026-10-05T10:00:00.000Z',
+        blocks: [{ title, rows: [{ sira: '1', plaka: '43AD5408', kantarCikis: '05.10.2026 05:10', bbt: '20' }] }],
+      },
+      '1.OSB': {
+        fileName: '05.10.2026.xlsx',
+        updatedAt: '2026-10-05T11:00:00.000Z',
+        blocks: [{ title, rows: [{ sira: '1', plaka: '43AD5408', kantarCikis: '05.10.2026 06:40', bbt: '20' }] }],
+      },
+    },
+    notes: {},
+  });
+  assert.equal(days[0].blocks[0].rows[0].kantarCikis, '05.10.2026 06:40');
+  const kept = daysFromSheetState({
+    sites: {
+      AVDAN: {
+        fileName: '05.10.2026.xlsx',
+        updatedAt: '2026-10-05T10:00:00.000Z',
+        blocks: [{ title, rows: [{ sira: '1', plaka: '43AD5408', kantarCikis: '05.10.2026 05:10' }] }],
+      },
+      '1.OSB': {
+        fileName: '05.10.2026.xlsx',
+        updatedAt: '2026-10-05T12:00:00.000Z',
+        blocks: [{ title, rows: [{ sira: '1', plaka: '43AD5408', kantarCikis: '' }] }],
+      },
+    },
+    notes: {},
+  });
+  assert.equal(kept[0].blocks[0].rows[0].kantarCikis, '05.10.2026 05:10');
 });
 
 test('eski satır kaydı Excel bloğuna çevrilir', () => {

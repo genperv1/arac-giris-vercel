@@ -258,7 +258,7 @@
             display: block;
             -webkit-line-clamp: unset;
             max-height: none;
-            overflow: visible;
+            overflow: hidden;
             white-space: pre-wrap;
           }
           #piyasaOrderPickerOverlay .piyasa-aciklama-cell[data-aciklama-toggle="1"] { cursor: pointer; }
@@ -1164,7 +1164,6 @@
       const key = o.__archiveKey || `${week ?? ''}:${sheet ?? ''}:${o.__idx}`;
       map.set(key, {
         sipNo: String(o.sipNo || '').trim(),
-        aciklama: String(o.aciklama || '').trim(),
         usedAt: o.usedAt || null,
         usedPlate: o.usedPlate || null,
         printCount: o.printCount || 0,
@@ -1188,7 +1187,6 @@
       const prev = map.get(key);
       if (!prev) return;
       if (!String(o.sipNo || '').trim() && prev.sipNo) o.sipNo = prev.sipNo;
-      if (!String(o.aciklama || '').trim() && prev.aciklama) o.aciklama = prev.aciklama;
       if (typeof mergeOrderPersistedFields === 'function') mergeOrderPersistedFields(o, prev);
     };
     for (const o of state.orders || []) apply(o, state.week, state.sheet);

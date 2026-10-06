@@ -2870,6 +2870,14 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             }
         }
 
+        function _sessionIsSelahattin() {
+            try {
+                return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
+            } catch (e) {
+                return false;
+            }
+        }
+
         function _appStatusMeta() {
             let userId = '-';
             let clientSite = '';
@@ -3092,7 +3100,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const refreshChip = document.getElementById('excelIhracatRefreshButtonChip');
             if (refreshChip) refreshChip.classList.toggle('hidden', _sessionIsAmir() || !_excelCnt);
             const piyasaRefreshChip = document.getElementById('excelPiyasaRefreshButtonChip');
-            if (piyasaRefreshChip) piyasaRefreshChip.classList.toggle('hidden', !_sessionIsAmir() || !_piyasaCnt);
+            if (piyasaRefreshChip) piyasaRefreshChip.classList.toggle('hidden', _sessionIsSelahattin() || !_sessionIsAmir() || !_piyasaCnt);
             const piyChip = document.getElementById('chipPiyasa');
             const piyText = document.getElementById('chipPiyasaText');
             if (piyChip) {
@@ -3214,6 +3222,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const _totalVehicleCount = (state.vehicles || []).length;
             const _statusMeta = _appStatusMeta();
             const _amirPiyasa = _sessionIsAmir();
+            const _piyasaHeaderActions = _amirPiyasa && !_sessionIsSelahattin();
             const _amirMark = _amirPiyasa ? String(_statusMeta.userLabel || '') : '';
             const _sabanNav = (function () {
                 try {
@@ -3279,17 +3288,12 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           </summary>
           <div class="saban-liste__menu saban-liste__menu--end">
             <button type="button" id="ayarlarMenuButton" class="saban-liste__item" title="Ayarlar"><i class="fas fa-cog" aria-hidden="true"></i> Ayarlar</button>
-            <button type="button" id="ipBanMenuButton" class="saban-liste__item" title="IP engelini kaldır"><i class="fas fa-ban" aria-hidden="true"></i> IP engeli</button>
             <button type="button" id="logoutButton" class="saban-liste__item saban-liste__item--exit" title="Çıkış"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> Çıkış</button>
           </div>
         </details>` : `
         <button type="button" id="ayarlarMenuButton" class="amir-nav-btn amir-nav-btn--settings" title="Ayarlar">
           <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-cog ayarlar-gear"></i></span>
           <span class="amir-nav-btn__copy"><b>Ayarlar</b></span>
-        </button>
-        <button type="button" id="ipBanMenuButton" class="amir-nav-btn" title="IP engelini kaldır">
-          <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-ban"></i></span>
-          <span class="amir-nav-btn__copy"><b>IP engeli</b></span>
         </button>
         <button type="button" id="logoutButton" class="amir-nav-btn amir-nav-btn--exit" title="Çıkış">
           <span class="amir-nav-btn__icon" aria-hidden="true"><i class="fas fa-sign-out-alt"></i></span>
@@ -3379,35 +3383,42 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             <span class="status-chip presence-chip" id="chipPresence" title="Kim çevrimiçi">${(window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') ? SessionManager.presenceChipHtml(SessionManager.getPresence()) : ''}</span>
           </div>
           <div class="status-stack__row">
+            ${(!_sabanNav && _amirPiyasa) ? `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>` : ''}
             <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
             <span class="status-chip" id="chipUserLabel" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b id="chipUserLabelValue">${_statusMeta.userLabel}</b></span>
             <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
             ${_sabanNav ? `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>` : ''}
           </div>
         </div>
-        ${_sabanNav ? '' : `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>`}
-        ${_sabanNav ? '' : `<div class="app-header-ihracat-excel">
+        ${(_sabanNav || _amirPiyasa) ? '' : `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>`}
+        ${_sabanNav ? '' : `<div class="app-header-excel-pair">
+        <div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
+          <span class="app-header-ihracat-excel__actions">
           <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${(!_amirPiyasa && _excelCnt>0)?'':'hidden'}" title="${(typeof listIhracatExcelSources === 'function' && listIhracatExcelSources().length > 1) ? 'Yüklü Excel dosyalarından hangilerinin güncelleneceğini seç' : 'Yüklü İhracat Excel dosyasını yeniden oku'}">
             <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
             <span>Güncelle</span>
             <span id="excelIhracatLastUpdateChip" class="app-header-ihracat-excel__when hidden" title="İhracat Excel son okuma zamanı"></span>
           </button>
+          </span>
         </div>
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">🧾 PİYASA: <b id="chipPiyasaText">${_piyChipText}</b></button>
-          ${_amirPiyasa ? `<button type="button" id="piyasaExcelUploadButtonTop" class="status-chip app-header-ihracat-excel__refresh" title="PİYASA Excel yükle">
+          ${_piyasaHeaderActions ? `<span class="app-header-ihracat-excel__actions">
+          <button type="button" id="piyasaExcelUploadButtonTop" class="status-chip app-header-ihracat-excel__refresh" title="PİYASA Excel yükle">
             <i class="fas fa-file-import" aria-hidden="true"></i>
             <span>Yükle</span>
-          </button>` : ''}
-          <button type="button" id="excelPiyasaRefreshButtonChip" class="status-chip app-header-ihracat-excel__refresh ${(_amirPiyasa && _piyasaCnt>0)?'':'hidden'}" title="Yüklü Piyasa Excel dosyasını yeniden oku">
+          </button>
+          <button type="button" id="excelPiyasaRefreshButtonChip" class="status-chip app-header-ihracat-excel__refresh ${(_piyasaCnt>0)?'':'hidden'}" title="Yüklü Piyasa Excel dosyasını yeniden oku">
             <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
             <span>Güncelle</span>
           </button>
-          ${(_amirPiyasa && _piyasaCnt>0) ? `<button type="button" id="piyasaExcelClearButtonTop" class="status-chip app-header-piyasa-clear" title="PİYASA Excel sil">
+          ${(_piyasaCnt>0) ? `<button type="button" id="piyasaExcelClearButtonTop" class="status-chip app-header-piyasa-clear" title="PİYASA Excel sil">
             <i class="fas fa-trash-alt" aria-hidden="true"></i>
             <span>Sil</span>
           </button>` : ''}
+          </span>` : ''}
+        </div>
         </div>`}
       </div>
     </div>

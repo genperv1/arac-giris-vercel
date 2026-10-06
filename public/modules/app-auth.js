@@ -331,25 +331,6 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 }
             });
 
-            document.getElementById('ipBanMenuButton')?.addEventListener('click', async (ev) => {
-                ev.preventDefault();
-                if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
-                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
-                    const isValidSession = await window.SessionManager.requireValidSession();
-                    if (!isValidSession) return;
-                }
-                const target = 'ayarlar.html#ban';
-                try {
-                    if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
-                        window.SessionManager.openAppPage(target);
-                    } else {
-                        location.href = target;
-                    }
-                } catch (e) {
-                    location.href = target;
-                }
-            });
-
             // 📝 Manuel Takip Formu (araç seçmeden)
             document.getElementById('manualTakipFormButton')?.addEventListener('click', async () => {
                 // ✅ Oturum kontrolü

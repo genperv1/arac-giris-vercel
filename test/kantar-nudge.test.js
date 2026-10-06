@@ -227,7 +227,15 @@ test('kantar: titreyen, arkası bulanık, Tamam deyince kapanan evrak notu', () 
   assert.match(sm, /NUDGE_RING_MAX = 10/);
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
   assert.match(giris, /session-manager\.js\?v=20261006-gonderen/);
-  assert.match(sm, /ÖZEL MESAJ/);
+  assert.match(sm, /msn-chat\.js/);
+  assert.match(sm, /is-chat/);
+  const msn = fs.readFileSync(path.join(__dirname, '../public/msn-chat.js'), 'utf8');
+  assert.match(msn, /gpmMsnDock/);
+  assert.match(msn, /diyor:/);
+  assert.match(msn, /Titret/);
+  assert.match(msn, /gpmMsnBadge/);
+  assert.match(msn, /okundu/);
+  assert.match(msn, /Hazır/);
   assert.match(sm, /UĞUR AKTAŞ/);
   assert.match(sm, /gönderdi/);
   assert.match(sm, /kullanıcısına gönderildi/);

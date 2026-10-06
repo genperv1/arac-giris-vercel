@@ -782,24 +782,39 @@
     }
   }
 
+  function sheetOriginRow(ws) {
+    try {
+      const ref = ws && ws['!ref'];
+      if (!ref || typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.utils.decode_range) return 0;
+      const range = XLSX.utils.decode_range(ref);
+      return Number.isFinite(range.s.r) ? range.s.r : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   /** Excel'de kullanıcının görmediği (gizli) satırları at — sheet ne gösteriyorsa o yüklenir. */
   function filterHiddenRowsAoA(ws, table) {
     const src = table || [];
+    const origin = sheetOriginRow(ws);
+    const stamp = (row, i) => {
+      if (row && typeof row === 'object') row._excelRowNum = origin + i + 1;
+      return row;
+    };
     try {
       const rowsMeta = ws && ws['!rows'];
       if (!rowsMeta || !Array.isArray(rowsMeta)) {
+        for (let i = 0; i < src.length; i++) stamp(src[i], i);
         return { table: src, hiddenSkipped: 0, visibilityApplied: false };
       }
       const out = [];
       let hiddenSkipped = 0;
       for (let i = 0; i < src.length; i++) {
-        if (isExcelRowHidden(ws, i)) {
+        if (isExcelRowHidden(ws, origin + i)) {
           hiddenSkipped++;
           continue;
         }
-        const row = src[i];
-        if (row && typeof row === 'object') row._excelRowNum = i + 1;
-        out.push(row);
+        out.push(stamp(src[i], i));
       }
       return { table: out, hiddenSkipped, visibilityApplied: true };
     } catch (e) {
@@ -827,7 +842,8 @@
   function parseSheetSmart(ws){
     // Bazı dosyalarda başlık satırı 1. satır değildir (üstte boş/sabit satırlar olabilir).
     // Yalnızca Excel'de görünen satırlar okunur (gizli satırlar atılır).
-    const fullTable = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    const fullTable = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true });
+    const sheetOrigin = sheetOriginRow(ws);
     const visibility = filterHiddenRowsAoA(ws, fullTable);
     const table = visibility.table;
     const expected = ['SİRA','SIRA','SEVK','FİRMA','FIRMA','SİP NO','SIP NO','FİRMA ADI','FIRMA ADI','MALZEME','YÜKLEME TÜRÜ','YUKLEME TURU','AÇIKLAMA','ACIKLAMA','İL','IL','LOT NO','LOT','MİKTAR','MIKTAR','MİKTAR DANE','MIKTAR DANE','MIKTARDANE','MİKTARDANE','SEVKİYAT TİPİ','SEVKIYAT TIPI'];
@@ -902,7 +918,9 @@
         : (r + 1);
       obj._excelRowNum = excelRowNum;
       if (aciklamaColIndex >= 0) {
-        obj._aciklamaRenk = aciklamaFillHex(sheetCellAt(ws, excelRowNum - 1, aciklamaColIndex));
+        const shown = aciklamaCellAsShown(ws, fullTable, sheetOrigin, excelRowNum, aciklamaColIndex, row[aciklamaColIndex]);
+        obj._aciklamaCell = shown.text;
+        obj._aciklamaRenk = shown.renk;
       }
       out.push(obj);
     }
@@ -1097,24 +1115,52 @@
     return typeof fn === 'function' ? !!fn(iso, now) : false;
   }
 
+  function isAciklamaHeaderName(hk) {
+    const n = foldHeaderKey(hk);
+    return n === 'ACIKLAMA' || n.startsWith('ACIKLAMA ');
+  }
+
+  function isLegacyNoteHeaderName(hk) {
+    const n = foldHeaderKey(hk);
+    return n === 'NOT' || n === 'YUKLEME NOTU' || n === 'YUKLEME NOT';
+  }
+
+  /**
+   * AÇIKLAMA sütunu varsa yalnızca o hücre. Boşsa yan sütun (KONTROL, V, başka NOT) yazılmaz.
+   * Sütun yoksa eski şablon: NOT / YÜKLEME NOTU, o da yoksa başlıksız V.
+   */
   function pickAciklama(r) {
-    let v = pick(r, ['AÇIKLAMA', 'ACIKLAMA', 'NOT', 'YÜKLEME NOTU', 'YUKLEME NOTU', 'AÇIKLAMA 1', 'ACIKLAMA 1']);
-    if (v) return v;
-    try {
-      for (const hk of Object.keys(r || {})) {
-        if (String(hk).charAt(0) === '_') continue;
-        const nk = normKey(hk);
-        if (!nk) continue;
-        if (nk.includes('ACIKLAMA') || (nk.includes('NOT') && !nk.includes('SN'))) {
-          const val = String(r[hk] ?? '').trim();
-          if (val) return val;
-        }
-      }
-      // Başlıksız V sütunu (__COL_21) — bazı piyasa şablonlarında açıklama burada
-      const colV = r['__COL_21'];
-      if (colV != null && String(colV).trim()) return String(colV).trim();
-    } catch (e) { /* ignore */ }
+    if (r && Object.prototype.hasOwnProperty.call(r, '_aciklamaCell')) {
+      return r._aciklamaCell == null ? '' : String(r._aciklamaCell);
+    }
+    const keys = Object.keys(r || {});
+    const acikKey = keys.find((hk) => String(hk).charAt(0) !== '_' && isAciklamaHeaderName(hk));
+    if (acikKey) return r[acikKey] == null ? '' : String(r[acikKey]);
+    const noteKey = keys.find((hk) => String(hk).charAt(0) !== '_' && isLegacyNoteHeaderName(hk));
+    if (noteKey) return r[noteKey] == null ? '' : String(r[noteKey]);
+    const colV = r && r['__COL_21'];
+    if (colV != null && String(colV).trim()) return String(colV);
     return '';
+  }
+
+  /** Birleşik hücrenin görünen metni. Başka sütundan taşan birleştirme açıklamaya yazılmaz. */
+  function aciklamaCellAsShown(ws, fullTable, origin, excelRowNum, colIndex, ownValue) {
+    const own = ownValue == null ? '' : ownValue;
+    const zeroRow = excelRowNum - 1;
+    const merges = ws && ws['!merges'];
+    if (!Array.isArray(merges) || colIndex < 0 || zeroRow < 0) {
+      return { text: own, renk: aciklamaFillHex(sheetCellAt(ws, zeroRow, colIndex)) };
+    }
+    for (const m of merges) {
+      if (!m || !m.s || !m.e) continue;
+      if (zeroRow < m.s.r || zeroRow > m.e.r || colIndex < m.s.c || colIndex > m.e.c) continue;
+      if (m.s.c !== colIndex) return { text: '', renk: '' };
+      const srcIdx = m.s.r - origin;
+      const srcRow = (srcIdx >= 0 && fullTable && srcIdx < fullTable.length) ? fullTable[srcIdx] : null;
+      const text = (srcRow && srcRow[colIndex] != null) ? srcRow[colIndex] : (m.s.r === zeroRow ? own : '');
+      return { text, renk: aciklamaFillHex(sheetCellAt(ws, m.s.r, colIndex)) };
+    }
+    return { text: own, renk: aciklamaFillHex(sheetCellAt(ws, zeroRow, colIndex)) };
   }
 
   function excelRowNumber(parseMeta, dataRowIndex, rawRow) {
@@ -1171,7 +1217,7 @@
       if (!sevkiyatTipi) sevkiyatTipi = inferSevkiyatTipiFromFirma(firmaCode);
       const fiiliSevk = readFiiliSevkCikis(pickFiiliSevkRaw(r));
       const siraNo = pickSiraNo(r);
-      let aciklama = String(pickAciklama(r) || '').trim();
+      let aciklama = String(pickAciklama(r) || '').replace(/\r\n/g, '\n').trim();
       let aciklamaRenk = String(r._aciklamaRenk || '').trim();
       if (!aciklama || /^#?[0-9A-Fa-f]{6}$/.test(aciklama)) {
         aciklama = '';

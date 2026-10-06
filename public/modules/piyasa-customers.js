@@ -284,10 +284,10 @@
       <div style="background:#fff;border-radius:14px;max-width:min(96vw,560px);width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden;">
         <div style="padding:14px 16px;border-bottom:1px solid #eee;">
           <div style="font-weight:900;font-size:16px;">Excel'den müşteri listesi</div>
-          <div style="font-size:12px;color:#666;margin-top:4px;">${escapeHtml(parsed.fileName || 'Excel')} · tüm kitaplar tek liste olarak kaydedilir</div>
+          <div style="font-size:12px;color:#666;margin-top:4px;">${escapeHtml(parsed.fileName || 'Excel')} · mevcut listeye eklenir</div>
         </div>
         <div style="padding:14px 16px;">
-          <p style="margin:0 0 10px;font-size:13px;color:#334155;">Haftalık sipariş kitapları atlanır. Bayi / müşteri sayfaları birleştirilip mevcut listenin yerine yazılır.</p>
+          <p style="margin:0 0 10px;font-size:13px;color:#334155;">Haftalık sipariş kitapları atlanır. Dosyadaki kod varsa o müşteri güncellenir, yeni kod eklenir. Dosyada olmayan kayıtlar (GP veya HP) listede kalır.</p>
           <div style="max-height:220px;overflow:auto;border:1px solid #eee;border-radius:10px;">
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead>
@@ -299,7 +299,8 @@
               <tbody>${sheetRows || '<tr><td colspan="2" style="padding:12px;text-align:center;color:#666;">Sayfa bulunamadı</td></tr>'}</tbody>
             </table>
           </div>
-          <div style="margin-top:12px;font-size:14px;font-weight:800;">Toplam ${parsed.customers.length} kayıt</div>
+          <div style="margin-top:12px;font-size:14px;font-weight:800;">Dosyada ${parsed.customers.length} kayıt</div>
+          <div style="margin-top:6px;font-size:13px;color:#334155;">Yeni: <b>${Number(parsed.merge && parsed.merge.added) || 0}</b> · Güncellenecek: <b>${Number(parsed.merge && parsed.merge.updated) || 0}</b> · Duracak: <b>${Number(parsed.merge && parsed.merge.kept) || 0}</b> · Toplam: <b>${parsed.merge && parsed.merge.customers ? parsed.merge.customers.length : parsed.customers.length}</b></div>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #eee;">
           <button type="button" id="piyasaCustExcelCancel" style="border:0;background:#eee;border-radius:8px;padding:9px 14px;cursor:pointer;">İptal</button>
@@ -318,8 +319,10 @@
       if (!pwdOk) return;
       btn.disabled = true;
       try {
-        await savePiyasaCustomers(parsed.customers, parsed.fileName || 'excel', { allowEmpty: false });
-        toast(`✅ Müşteri listesi kaydedildi (${parsed.customers.length} kayıt)`, 'success');
+        const merged = (parsed.merge && parsed.merge.customers) || parsed.customers;
+        await savePiyasaCustomers(merged, parsed.fileName || 'excel', { allowEmpty: false });
+        const m = parsed.merge || {};
+        toast(`✅ Müşteri listesi güncellendi (yeni ${m.added || 0}, güncellenen ${m.updated || 0}, duran ${m.kept || 0}, toplam ${merged.length})`, 'success');
         close();
         if (typeof onSaved === 'function') onSaved();
       } catch (err) {
@@ -346,6 +349,18 @@
       const wb = XLSX.read(ab, { type: 'array' });
       const parsed = parsePiyasaCustomersWorkbook(wb);
       parsed.fileName = String(file.name || 'piyasa-musteri.xlsx');
+      let existing = [];
+      try {
+        const loaded = await loadPiyasaCustomers(true);
+        existing = Array.isArray(loaded) ? loaded.slice() : [];
+      } catch (e) {
+        existing = [];
+      }
+      if (!existing.length) {
+        _loadCustomersFromLocalCache();
+        existing = (_customerStore.customers || []).slice();
+      }
+      parsed.merge = mergePiyasaCustomerLists(existing, parsed.customers);
       if (loading && typeof hidePiyasaExcelLoading === 'function') hidePiyasaExcelLoading();
       loading = null;
       if (!parsed.customers.length) {
@@ -359,6 +374,59 @@
     } finally {
       if (loading && typeof hidePiyasaExcelLoading === 'function') hidePiyasaExcelLoading();
     }
+  }
+
+  /**
+   * Excel müşteri aktarımı listeyi silmez.
+   * Aynı kod güncellenir, yeni kod eklenir, dosyada olmayan kayıt durur.
+   */
+  function mergePiyasaCustomerLists(existing, incoming) {
+    const byKey = new Map();
+    const order = [];
+    const takeExisting = (raw) => {
+      const c = _normalizeCustomerEntry(raw, order.length);
+      if (!c) return;
+      const key = normFirmaKodKey(c.kod);
+      if (!key || byKey.has(key)) return;
+      byKey.set(key, c);
+      order.push(key);
+    };
+    const seenIncoming = new Set();
+    let added = 0;
+    let updated = 0;
+    for (const raw of existing || []) takeExisting(raw);
+    for (const raw of incoming || []) {
+      const c = _normalizeCustomerEntry(raw, order.length);
+      if (!c) continue;
+      const key = normFirmaKodKey(c.kod);
+      if (!key || seenIncoming.has(key)) continue;
+      seenIncoming.add(key);
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, c);
+        order.push(key);
+        added += 1;
+        continue;
+      }
+      byKey.set(key, {
+        id: prev.id || c.id,
+        kod: c.kod || prev.kod,
+        ad: c.ad,
+        urunTipi: c.urunTipi,
+        sektor: c.sektor,
+        il: c.il,
+        adres: c.adres,
+        ambalaj: c.ambalaj,
+      });
+      updated += 1;
+    }
+    const customers = order.map((key) => byKey.get(key));
+    return {
+      customers,
+      added,
+      updated,
+      kept: customers.length - added - updated,
+    };
   }
 
   function normFirmaKodKey(kod) {

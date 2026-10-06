@@ -34,7 +34,7 @@ const {
   maybeLogVehicleEdit,
   upsertVehicleRecord,
 } = require('./lib/vehicle-helpers');
-const { broadcastEvent, broadcastReportUpdate, registerSseRoutes } = require('./lib/sse');
+const { broadcastEvent, broadcastReportUpdate, broadcastToUsers, registerSseRoutes } = require('./lib/sse');
 const { deleteCikanlarForPrintHistory } = require('./lib/piyasa-cikanlar');
 const { registerAuthRoutes } = require('./routes/auth-routes');
 const { registerOzmalRoutes, registerDriverAuthRoutes } = require('./routes/ozmal-routes');
@@ -58,6 +58,7 @@ const { createDeviceTokenStore } = require('./lib/device-tokens');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerKantarNudgeRoutes } = require('./routes/kantar-nudge-routes');
+const { registerChatRoutes } = require('./routes/chat-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
 const { registerIsgRoutes } = require('./routes/isg-routes');
@@ -1259,6 +1260,7 @@ const routeCtx = {
   VEH_LIST_KEYSET_BATCH,
   PG_STATEMENT_TIMEOUT,
   broadcastEvent,
+  broadcastToUsers,
   broadcastReportUpdate,
   piyasaServer,
   normPlateForLookup,
@@ -1397,6 +1399,7 @@ registerIhracatExcelRoutes(api, routeCtx);
 registerPiyasaRoutes(api, routeCtx);
 registerAmirNoticeRoutes(api, routeCtx);
 registerKantarNudgeRoutes(api, routeCtx);
+registerChatRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
 // Liman okuma uçları (GET /api/liman, /version, /departed) oturumsuz: app'e bağlanır, '/api' router'ından önce eşleşir.

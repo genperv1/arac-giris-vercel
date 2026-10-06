@@ -329,6 +329,14 @@ test('header Güncelle sits under İHRACAT excel chip', () => {
     /id="excelIhracatLastUpdateChip"/
   );
   assert.match(css, /\.app-header-ihracat-excel\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(css, /body\.session-amir \.app-header-excel-pair\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(uiJs, /class="app-header-excel-pair"/);
+  const amirExcelLabel = css.slice(
+    css.indexOf('body.session-amir .app-header-ihracat-excel .status-chip--excel b'),
+    css.indexOf('body.session-amir .app-header-status .app-header-ihracat-excel__refresh')
+  );
+  assert.doesNotMatch(amirExcelLabel, /text-overflow:\s*ellipsis/);
+  assert.match(amirExcelLabel, /overflow-wrap:\s*break-word/);
   assert.match(css, /\.app-header-status\s*\{[^}]*flex-wrap:\s*nowrap/);
   assert.match(css, /@keyframes ihracat-refresh-fill/);
   assert.match(css, /\.app-header-ihracat-excel__refresh\.is-busy::after/);

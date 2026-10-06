@@ -909,6 +909,22 @@
         return id === 'xxr' || id === 'saban';
     }
 
+    function canOpenChat(key) {
+        const mine = presenceSiteKey(currentUserKey());
+        const peer = presenceSiteKey(key);
+        if (!mine || !peer || mine === peer) return false;
+        return true;
+    }
+
+    function chatUnreadCount(key) {
+        try {
+            const n = window.__gpmChatUnread && window.__gpmChatUnread[presenceSiteKey(key)];
+            return n > 0 ? n : 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
     function isPersonPresenceKey(key) {
         return key === 'AMIR' || key === 'SABAN' || key === 'UGUR';
     }
@@ -933,7 +949,6 @@
 
     /** Tek chip: "AVDAN ● · 1.OSB ○ · AMİR ●" — amir online tesise basınca titre */
     function presenceChipHtml(list) {
-        const amir = isAmirUser();
         const items = (list || []).map((p) => {
             const key = presenceSiteKey(p && (p.key || p.label));
             const online = !!(p && p.online);
@@ -942,20 +957,18 @@
             let title = online ? 'çevrimiçi' : (p.lastSeen ? 'son görülme ' + new Date(p.lastSeen).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'çevrimdışı');
             let extra = '';
             let small = online ? 'online' : 'offline';
-            const mine = presenceSiteKey(currentUserKey());
-            const kantarNudge = amir && (key === 'AVDAN' || key === '1.OSB');
-            const personDm = canDirectMessage() && isPersonPresenceKey(key) && key !== mine;
-            if (kantarNudge || personDm) {
-                if (online) {
-                    cls += ' is-nudge';
-                    title = personDm ? (label + ' özel mesaj') : (label + ' kantarını titre');
-                    extra = ' role="button" tabindex="0"';
-                } else {
-                    cls += ' is-nudge-off';
-                    title = label + ' çevrimdışı';
+            if (canOpenChat(key)) {
+                cls += ' is-chat';
+                title = label + ' ile yazış';
+                extra = ' role="button" tabindex="0"';
+                const unread = chatUnreadCount(key);
+                if (unread) {
+                    cls += ' is-unread';
+                    small = unread + ' yeni';
+                    title = unread + ' yeni mesaj · ' + label;
                 }
                 const status = nudgeStatusLabel(key);
-                if (status) {
+                if (status && !unread) {
                     small = status;
                     title += ' · ' + status;
                 }
@@ -963,9 +976,14 @@
             return '<span class="' + cls + '" data-presence-key="' + key + '" data-online="' + (online ? '1' : '0') + '" title="' + title + '"' + extra + '><i aria-hidden="true"></i>' + label + ' <small>' + small + '</small></span>';
         }).join('');
         if (items) return items;
-        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['SELAHATTİN', 'AMIR'], ['ŞABAN', 'SABAN'], ['UĞUR', 'UGUR']].map((pair) =>
-            '<span class="presence-item" data-presence-key="' + pair[1] + '"><i aria-hidden="true"></i>' + pair[0] + ' <small>…</small></span>'
-        ).join('');
+        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['SELAHATTİN', 'AMIR'], ['ŞABAN', 'SABAN'], ['UĞUR', 'UGUR']].map((pair) => {
+            const chat = canOpenChat(pair[1]);
+            const unread = chat ? chatUnreadCount(pair[1]) : 0;
+            const cls = 'presence-item' + (chat ? ' is-chat' : '') + (unread ? ' is-unread' : '');
+            const extra = chat ? ' role="button" tabindex="0"' : '';
+            const small = unread ? (unread + ' yeni') : '…';
+            return '<span class="' + cls + '" data-presence-key="' + pair[1] + '" title="' + (chat ? (pair[0] + ' ile yazış') : '') + '"' + extra + '><i aria-hidden="true"></i>' + pair[0] + ' <small>' + small + '</small></span>';
+        }).join('');
     }
 
     const NUDGE_COOLDOWN_MS = 8 * 1000;
@@ -1052,10 +1070,12 @@
         const style = document.createElement('style');
         style.id = 'gpmNudgeStyle';
         style.textContent = ''
-            + '.presence-item.is-nudge{cursor:pointer;user-select:none}'
-            + '.presence-item.is-nudge:hover{filter:brightness(1.18)}'
-            + '.presence-item.is-nudge:focus{outline:2px solid rgba(134,239,172,.7);outline-offset:2px}'
+            + '.presence-item.is-nudge,.presence-item.is-chat{cursor:pointer;user-select:none}'
+            + '.presence-item.is-nudge:hover,.presence-item.is-chat:hover{filter:brightness(1.18)}'
+            + '.presence-item.is-nudge:focus,.presence-item.is-chat:focus{outline:2px solid rgba(134,239,172,.7);outline-offset:2px}'
             + '.presence-item.is-nudge-off{cursor:not-allowed}'
+            + '.presence-item.is-unread small{color:#ea580c;font-weight:800}'
+            + 'body.session-amir .presence-item.is-unread small{color:#fdba74}'
             + '.presence-item.is-sending{animation:gpm-nudge-pulse .45s ease}'
             + '.presence-item.is-called{animation:gpm-nudge-called .85s ease}'
             + '@keyframes gpm-nudge-pulse{0%,100%{transform:scale(1)}40%{transform:scale(1.08)}}'
@@ -1069,17 +1089,7 @@
             + '.gpm-nn-ok{min-width:160px;border:0;border-radius:12px;background:#ea580c;color:#fff;font:800 17px/1 "Segoe UI",Tahoma,sans-serif;padding:14px 22px;cursor:pointer;box-shadow:0 8px 18px rgba(234,88,12,.35)}'
             + '.gpm-nn-ok:hover{background:#c2410c}'
             + '.gpm-nn-ok:focus{outline:3px solid rgba(234,88,12,.4);outline-offset:3px}'
-            + '#gpmNudgeToast{position:fixed;right:16px;bottom:20px;z-index:2147483601;background:#7c2d12;color:#fff7ed;padding:10px 14px;border-radius:10px;font:700 14px/1.35 "Segoe UI",Tahoma,sans-serif;box-shadow:0 10px 28px rgba(124,45,18,.35)}'
-            + '#gpmDmCompose{position:fixed;inset:0;z-index:2147483603;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.45)}'
-            + '.gpm-dm-card{width:min(420px,100%);background:#fff;border-radius:18px;border-top:6px solid #1d4ed8;box-shadow:0 24px 60px rgba(0,0,0,.35);padding:22px 22px 18px;font-family:"Segoe UI",Tahoma,sans-serif}'
-            + '.gpm-dm-kicker{font-size:12px;font-weight:800;letter-spacing:.12em;color:#1e3a8a}'
-            + '.gpm-dm-who{margin:6px 0 12px;font-size:20px;font-weight:800;color:#0f172a}'
-            + '.gpm-dm-input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:12px;padding:12px 14px;font:600 16px/1.4 "Segoe UI",Tahoma,sans-serif;resize:vertical;min-height:88px}'
-            + '.gpm-dm-input:focus{outline:3px solid rgba(37,99,235,.28);border-color:#2563eb}'
-            + '.gpm-dm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}'
-            + '.gpm-dm-cancel,.gpm-dm-send{border:0;border-radius:10px;padding:12px 16px;font:800 15px/1 "Segoe UI",Tahoma,sans-serif;cursor:pointer}'
-            + '.gpm-dm-cancel{background:#e2e8f0;color:#334155}'
-            + '.gpm-dm-send{background:#1d4ed8;color:#fff}';
+            + '#gpmNudgeToast{position:fixed;right:16px;bottom:20px;z-index:2147483601;background:#7c2d12;color:#fff7ed;padding:10px 14px;border-radius:10px;font:700 14px/1.35 "Segoe UI",Tahoma,sans-serif;box-shadow:0 10px 28px rgba(124,45,18,.35)}';
         document.head.appendChild(style);
     }
 
@@ -1282,43 +1292,22 @@
         });
     }
 
-    function closeDmComposer() {
-        const root = document.getElementById('gpmDmCompose');
-        if (root) root.remove();
+    function ensureMsnScript() {
+        if (document.getElementById('gpmMsnScript')) return;
+        const s = document.createElement('script');
+        s.id = 'gpmMsnScript';
+        s.src = '/msn-chat.js?v=20261006-msn3';
+        s.async = true;
+        document.head.appendChild(s);
     }
 
-    function openDmComposer(key) {
-        ensureNudgeStyle();
-        closeDmComposer();
-        const who = presencePersonName(key) || key;
-        const root = document.createElement('div');
-        root.id = 'gpmDmCompose';
-        root.setAttribute('role', 'dialog');
-        root.setAttribute('aria-modal', 'true');
-        root.setAttribute('aria-label', 'Özel mesaj');
-        root.innerHTML = ''
-            + '<form class="gpm-dm-card">'
-            + '<div class="gpm-dm-kicker">ÖZEL MESAJ</div>'
-            + '<div class="gpm-dm-who"></div>'
-            + '<textarea class="gpm-dm-input" maxlength="240" placeholder="Bildirim metni" required></textarea>'
-            + '<div class="gpm-dm-actions">'
-            + '<button type="button" class="gpm-dm-cancel">Vazgeç</button>'
-            + '<button type="submit" class="gpm-dm-send">Gönder</button>'
-            + '</div></form>';
-        root.querySelector('.gpm-dm-who').textContent = who;
-        root.addEventListener('click', (ev) => { if (ev.target === root) closeDmComposer(); });
-        root.querySelector('.gpm-dm-cancel').addEventListener('click', closeDmComposer);
-        root.querySelector('form').addEventListener('submit', (ev) => {
-            ev.preventDefault();
-            const text = root.querySelector('.gpm-dm-input').value;
-            closeDmComposer();
-            sendNudge(key, text);
-        });
-        root.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Escape') { ev.preventDefault(); closeDmComposer(); }
-        });
-        document.body.appendChild(root);
-        try { root.querySelector('.gpm-dm-input').focus(); } catch (e) { /* ignore */ }
+    function openMsnChat(key) {
+        window.__gpmChatPending = key;
+        if (window.MsnChat && typeof window.MsnChat.open === 'function') {
+            window.MsnChat.open(key);
+            return;
+        }
+        ensureMsnScript();
     }
 
     async function sendNudge(target, text) {
@@ -1380,18 +1369,8 @@
     function onPresenceNudgeActivate(el) {
         if (!el) return;
         const key = presenceSiteKey(el.getAttribute('data-presence-key'));
-        const person = isPersonPresenceKey(key);
-        if (person) {
-            if (!canDirectMessage() || key === presenceSiteKey(currentUserKey())) return;
-        } else if (!isAmirUser() || (key !== 'AVDAN' && key !== '1.OSB')) {
-            return;
-        }
-        if (el.classList.contains('is-nudge-off') || el.getAttribute('data-online') !== '1') {
-            nudgeToast((person ? 'Kişi' : key) + ' çevrimdışı');
-            return;
-        }
-        if (person) openDmComposer(key);
-        else sendNudge(key);
+        if (!canOpenChat(key)) return;
+        openMsnChat(key);
     }
 
     function bindNudgeControls() {
@@ -1405,7 +1384,7 @@
         });
         document.addEventListener('keydown', (ev) => {
             if (ev.key !== 'Enter' && ev.key !== ' ') return;
-            const el = ev.target && ev.target.closest && ev.target.closest('.presence-item.is-nudge');
+            const el = ev.target && ev.target.closest && ev.target.closest('.presence-item.is-chat');
             if (!el) return;
             ev.preventDefault();
             onPresenceNudgeActivate(el);
@@ -1491,6 +1470,8 @@
     window.SessionManager = {
         startPresence,
         startNudge,
+        sendKantarNudge: function (key) { sendNudge(key); },
+        presencePersonName,
         getPresence,
         presenceChipHtml,
         markSessionValid,
@@ -1529,7 +1510,10 @@
         bindHomeNavigation();
         bindAppPageNavigation();
         bindNudgeControls();
-        if (isLikelyLoggedIn()) startNudge();
+        if (isLikelyLoggedIn()) {
+            startNudge();
+            ensureMsnScript();
+        }
     }
 
     if (document.readyState === 'loading') {

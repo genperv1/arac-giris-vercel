@@ -25,6 +25,10 @@
     /* Bilgisayar: sayfa ortalanır; küçük sayı sütunları (çuval, palet, boş bbt/çuval ≤ 2 hane, yükleme yeri ≤ 5 karakter) dar tutulur */
     .sheet { min-width: 980px; max-width: 1360px; margin: 0 auto; }
     table.grid th.c-sira, table.grid td.c-sira { width: 30px; }
+    table.grid th.c-plaka, table.grid td.c-plaka { width: 96px; }
+    table.grid th.c-sofor, table.grid td.c-sofor { width: 132px; max-width: 132px; white-space: normal; line-height: 1.15; overflow-wrap: anywhere; }
+    table.grid th.c-tel, table.grid td.c-tel { width: 118px; }
+    table.grid th.c-cikis, table.grid td.c-cikis { width: 118px; font-size: .78rem; font-variant-numeric: tabular-nums; }
     table.grid th.c-nar, table.grid td.c-nar { width: 44px; padding-left: 2px; padding-right: 2px; }
     table.grid th.c-bbt, table.grid td.c-bbt { width: 46px; }
     table.grid th.c-ton, table.grid td.c-ton { width: 66px; }
@@ -64,7 +68,7 @@
     .meta th, .meta td { border: 1px solid #b7d7b0; padding: 4px 6px; text-align: left; }
     .meta th { width: 92px; background: #c6e0b4; }
     .note-line { margin: 0; padding: 4px 10px; background: #fff7ed; color: #9a3412; font-size: .8rem; font-weight: 700; }
-    table.grid { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    table.grid { width: auto; border-collapse: collapse; font-size: .84rem; }
     table.grid th, table.grid td { border: 1px solid #b0b0b0; padding: 4px 6px; white-space: nowrap; }
     table.grid th { background: #1f4e2a; color: #fff; font-weight: 700; text-align: center; font-size: .75rem; }
     table.grid td { text-align: center; background: #fff; }
@@ -112,7 +116,7 @@
     .blok.is-done .blok-title { background: #bbf7d0; }
     .blok.is-done table.grid td { background: #f0fdf4; }
     .rownote { display: block; color: #9f1239; font-size: .72rem; font-weight: 700; white-space: normal; }
-    .rownote input { width: 140px; border: 1px solid #fecdd3; font: inherit; font-size: .72rem; }
+    .rownote input { width: 96px; border: 1px solid #fecdd3; font: inherit; font-size: .72rem; }
     .title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .presence-chip { display: inline-flex; gap: 12px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 4px 12px; font-size: .78rem; }
     .presence-item { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; opacity: .65; }
@@ -175,6 +179,7 @@
         grid-template-areas:
           "sira plaka durum"
           "sira sofor tel"
+          "sira cikis cikis"
           "sira nums nums";
         align-items: center;
         gap: 2px 8px;
@@ -204,6 +209,29 @@
         background: #166534; color: #fff; font-weight: 700; font-size: .9rem; white-space: nowrap;
       }
       table.grid td.c-tel:empty { display: none; }
+      table.grid td.c-sofor { max-width: none; width: auto; white-space: normal; }
+      table.grid td.c-cikis {
+        grid-area: cikis;
+        display: block;
+        width: auto;
+        max-width: none;
+        font-size: .84rem;
+        font-weight: 800;
+        color: #14532d;
+        letter-spacing: 0;
+      }
+      table.grid td.c-cikis:not(:empty)::before {
+        content: "Çıkış ";
+        color: #64748b;
+        font-weight: 700;
+        font-size: .74rem;
+      }
+      table.grid td.c-cikis:empty::before {
+        content: "Çıkış —";
+        color: #94a3b8;
+        font-weight: 700;
+        font-size: .74rem;
+      }
       table.grid td.c-min { display: none; }
       table.grid td.c-sum { grid-area: nums; display: block; font-size: .74rem; color: #475569; margin-top: 2px; }
       table.grid td.c-sum:empty { display: none; }
@@ -246,6 +274,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
-  <script src="liman.js?v=20261006-liman61"></script>
+  <script src="liman.js?v=20261006-liman63-mobil"></script>
 </body>
 </html>

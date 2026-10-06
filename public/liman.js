@@ -495,7 +495,7 @@
         esc(text || '—') + '<small>hesap: ' + esc(calcText) + '</small></td>';
     }).join('');
     return '<tr class="tot ' + cls + '"><td colspan="2">' + label + '</td>' + cells +
-      '<td colspan="4" class="left tot-extra">' + (extra || '') + '</td></tr>';
+      '<td colspan="5" class="left tot-extra">' + (extra || '') + '</td></tr>';
   }
 
   function totalsFoot(block, rows, compare) {
@@ -683,6 +683,7 @@
         // Çıkmış araçta Excel'in eski "İÇERİDE / DIŞARIDA" notu gösterilmez; durum tek: SARILDI
         var durum = out ? 'SARILDI' : String(row.durum || '').trim();
         // Telefon görünümü için kısa özet (masaüstünde gizli)
+        var cikis = String(row.kantarCikis || '').trim();
         var sum = [
           ['BBT', numCell(row.bbt)],
           ['NET', numCell(row.net)],
@@ -706,6 +707,7 @@
           '<td class="c-min c-yer">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
           '<td class="left c-sofor">' + esc(row.sofor || '') + '</td>' +
           '<td class="c-tel">' + telCell(row.telefon) + '</td>' +
+          '<td class="c-cikis">' + esc(cikis) + '</td>' +
           tasCell +
           '<td class="c-sum">' + sum + '</td>' +
           '</tr>';
@@ -744,7 +746,7 @@
           '<th class="c-sira"></th><th class="c-plaka">PLAKA</th><th class="c-bbt">BBT</th>' +
           '<th class="c-nar">ÇUVAL</th><th class="c-nar">PALET</th><th class="c-nar">BOŞ<br>BBT</th><th class="c-nar">BOŞ<br>ÇUVAL</th>' +
           '<th class="c-ton">NET</th><th class="c-ton">GİDEN</th><th class="c-durum">DURUM</th><th class="c-yer">YÜKLEME<br>YERİ</th>' +
-          '<th class="c-sofor">ŞOFÖR</th><th class="c-tel">TELEFON</th>' +
+          '<th class="c-sofor">ŞOFÖR</th><th class="c-tel">TELEFON</th><th class="c-cikis">ÇIKIŞ</th>' +
           (rowTasiyici ? '<th class="c-tas"></th>' : '') +
         '</tr></thead><tbody>' + rows + '</tbody>' + totalsFoot(block, block.rows || [], state.canEdit && !state.plate) + '</table></section>';
     }).join('') + '</div>';
@@ -823,6 +825,7 @@
           '<td>' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
           '<td class="l sof">' + esc(row.sofor || '') + '</td>' +
           '<td>' + esc(row.telefon || '') + '</td>' +
+          '<td>' + esc(String(row.kantarCikis || '').trim()) + '</td>' +
           '<td>' + esc(durum) + '</td>' +
           '<td class="not"></td>' +
           '</tr>';
@@ -832,13 +835,13 @@
         (meta ? '<div class="p-meta">' + meta + '</div>' : '') +
         '<table><thead><tr>' +
           '<th>✓</th><th>#</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ<br>BBT</th><th>BOŞ<br>ÇUVAL</th>' +
-          '<th>NET</th><th>YÜKL.<br>YERİ</th><th>ŞOFÖR</th><th>TELEFON</th>' +
+          '<th>NET</th><th>YÜKL.<br>YERİ</th><th>ŞOFÖR</th><th>TELEFON</th><th>ÇIKIŞ</th>' +
           '<th>DURUM</th><th>NOT</th>' +
         '</tr></thead><tbody>' + tr + '</tbody>' +
         '<tfoot><tr><td></td><td colspan="2" class="l">TOPLAM · ' + rows.length + ' araç</td>' +
           '<td>' + esc(fmtTotal(t.bbt)) + '</td><td>' + esc(fmtTotal(t.cuval)) + '</td><td>' + esc(fmtTotal(t.palet)) + '</td>' +
           '<td>' + esc(fmtTotal(t.bosBbt)) + '</td><td>' + esc(fmtTotal(t.bosCuval)) + '</td><td>' + esc(fmtTotal(t.net)) + '</td>' +
-          '<td colspan="5"></td></tr></tfoot>' +
+          '<td colspan="6"></td></tr></tfoot>' +
         '</table></div>';
     }).join('');
     return '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Liman ' + esc(tab.label) + '</title>' +

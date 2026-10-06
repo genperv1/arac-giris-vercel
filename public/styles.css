@@ -265,106 +265,6 @@ html:not(.reduce-motion-os) .header-note__text {
   font-weight: 700;
 }
 
-.xls-tip {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  width: 100%;
-  min-width: 0;
-  padding: 0.65rem 0.8rem 0.7rem;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #1e293b;
-}
-
-.xls-tip__label {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: #217346;
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.xls-tip__row {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-.xls-tip__mark {
-  flex-shrink: 0;
-  width: 1.7rem;
-  height: 1.7rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: #217346;
-  color: #fff;
-  font-size: 0.85rem;
-}
-
-.xls-tip__day {
-  flex-shrink: 0;
-  margin-left: auto;
-  max-width: 46%;
-  padding: 0.18rem 0.55rem;
-  border-radius: 999px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  color: #0f172a;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1.3;
-}
-
-.xls-tip__text {
-  margin: 0;
-  max-width: 68rem;
-  color: #475569;
-  font-size: 0.84rem;
-  font-weight: 500;
-  line-height: 1.4;
-}
-
-.xls-tip__combo {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.28rem;
-}
-
-.xls-tip__kbd {
-  display: inline-flex;
-  align-items: center;
-  min-width: 1.5rem;
-  justify-content: center;
-  padding: 0.12rem 0.4rem;
-  border-radius: 5px;
-  border: 1px solid #cbd5e1;
-  border-bottom-width: 2px;
-  background: #fff;
-  color: #0f172a;
-  font-family: inherit;
-  font-size: 0.75rem;
-  font-weight: 800;
-  line-height: 1.3;
-}
-
-.xls-tip__plus {
-  color: #64748b;
-  font-size: 0.68rem;
-  font-weight: 800;
-}
-
-@media (max-width: 720px) {
-  .xls-tip__day {
-    max-width: 100%;
-  }
-}
-
 #excelDateWarnContainer .excel-date-warn {
   flex: 1 1 220px;
   min-width: 0;
@@ -999,6 +899,14 @@ body.kiosk-mode .vehicle-card__value{
   overflow-x: auto;
 }
 
+.app-header-excel-pair {
+  display: contents;
+}
+
+.app-header-ihracat-excel__actions {
+  display: contents;
+}
+
 .app-header-ihracat-excel {
   display: inline-flex;
   flex-direction: column;
@@ -1194,6 +1102,10 @@ body.session-amir .app-header {
   box-shadow: 0 14px 36px rgba(124, 45, 18, 0.1);
 }
 
+body.session-amir .app-header:has(.saban-liste[open]) {
+  overflow: visible;
+}
+
 body.session-amir .app-header::before {
   content: "";
   position: absolute;
@@ -1206,12 +1118,12 @@ body.session-amir .app-header::before {
 
 body.session-amir .app-header-status {
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   width: 100%;
   min-width: 0;
   gap: 0.4rem;
   padding: 0.35rem;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 14px;
   background:
     radial-gradient(120% 140% at 100% 0%, rgba(234, 88, 12, 0.16), transparent 46%),
@@ -1272,30 +1184,96 @@ body.session-amir .app-header-status .status-chip.chip-alert b {
   color: #ffedd5;
 }
 
-body.session-amir .app-header-ihracat-excel {
-  flex: 1 1 auto;
+body.session-amir .app-header-excel-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.28rem;
+  flex: 1 1 100%;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+}
+
+body.session-amir .app-header-status:not(.app-header-status--centered) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 0.55rem;
+  row-gap: 0.28rem;
+}
+
+body.session-amir .app-header-status:not(.app-header-status--centered) > .status-stack,
+body.session-amir .app-header-status:not(.app-header-status--centered) > .app-header-excel-pair {
+  display: contents;
+}
+
+body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row--top {
+  grid-column: 1;
+  grid-row: 1;
+  justify-content: flex-start;
+}
+
+body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row:not(.status-stack__row--top) {
+  grid-column: 1;
+  grid-row: 2;
+  justify-content: flex-start;
+}
+
+body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:first-child {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:last-child {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+body.session-amir .app-header-ihracat-excel {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
 }
 
+body.session-amir .app-header-ihracat-excel__actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+body.session-amir .app-header-ihracat-excel__actions:empty,
+body.session-amir .app-header-ihracat-excel__actions:not(:has(:not(.hidden))) {
+  display: none;
+}
+
 body.session-amir .app-header-ihracat-excel .status-chip--excel {
-  flex: 1 1 auto;
+  flex: 1 1 12rem;
   width: auto;
-  min-width: 0;
+  min-width: min(100%, 12rem);
   max-width: 100%;
-  overflow: hidden;
+  height: auto;
+  overflow: visible;
+  white-space: normal;
 }
 
 body.session-amir .app-header-ihracat-excel .status-chip--excel b {
-  display: block;
+  display: inline;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 body.session-amir .app-header-status .app-header-ihracat-excel__refresh {
@@ -1328,6 +1306,19 @@ body.session-amir .app-header-piyasa-clear {
 }
 
 @media (max-width: 720px) {
+  body.session-amir .app-header-status:not(.app-header-status--centered) {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row--top,
+  body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row:not(.status-stack__row--top),
+  body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:first-child,
+  body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:last-child {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
   body.session-amir .app-header-status {
     flex-wrap: wrap;
     overflow: visible;
@@ -1343,6 +1334,7 @@ body.session-amir .app-header-piyasa-clear {
     gap: 0.2rem;
   }
 
+  body.session-amir .app-header-excel-pair,
   body.session-amir .app-header-ihracat-excel {
     flex: 1 1 100%;
     width: 100%;
@@ -1717,6 +1709,9 @@ body.kiosk-mode .app-nav--amir #raporlarLinkGunluk {
   .app-nav--amir {
     flex-wrap: nowrap;
     overflow: hidden;
+  }
+  .app-nav--saban {
+    overflow: visible;
   }
   .amir-nav-btn,
   .amir-nav-btn--settings,
@@ -4394,7 +4389,7 @@ html.logged-in #mainApp,
   max-height: 5.5rem;
   object-fit: contain;
   margin-bottom: 1.25rem;
-  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
+  filter: brightness(0) invert(1) drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
 }
 
 .login-screen__hero-title {
