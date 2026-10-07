@@ -168,10 +168,11 @@ function limanRowsFromParse(parser, grid, fileName) {
   assert.equal(parsed.ok, true, parsed.msg);
   const bag = JSON.parse(store.liman_sheet_v1 || '{}');
   const blocks = bag[fileName] || [];
+  parser.__limanBlocks = blocks;
   return blocks.reduce((acc, block) => acc.concat(block.rows || []), []);
 }
 
-test('KANTAR ÇIKIŞ tarihi ve saati liman satırına yazılır, kantar giriş yazılmaz', () => {
+test('KANTAR ÇIKIŞ, kantar giriş, o.gr, fark ve liman dolum tarihi liman satırına yazılır', () => {
   const parser = loadParser();
   const yd = 'YD10(G) / LOT NO 26 04 13 / 40 BBT / SAFİPORT';
   const grid = [
@@ -179,14 +180,18 @@ test('KANTAR ÇIKIŞ tarihi ve saati liman satırına yazılır, kantar giriş y
     ['AKYÜZ', yd],
     ['', 'LİMAN DOLUM TARİHİ : 05.10.2026 PAZARTESİ'],
     ['', '100', 'PLAKA', 'BBT', 'ÇUVAL', 'PALET', 'BOŞ BBT', 'BOŞ ÇUVAL', 'NET TONAJ', 'O.GR. TONAJ', 'GİDEN TONAJ', 'FARK', '', 'YÜKLEME YERİ', 'KANTAR GİRİŞ', 'KANTAR ÇIKIŞ'],
-    ['R01202610051', '1', '43AD5408', 20, '', '', '', '', 25, 25.3, 25.1, '', '', 'AVDAN', '5 Ekim 2026 4:43', '5 Ekim 2026 5:10'],
+    ['R01202610051', '1', '43AD5408', 20, '', '', '', '', 25, 25.3, 25.1, -120, '', 'AVDAN', '5 Ekim 2026 4:43', '5 Ekim 2026 5:10'],
     ['', '', 'TOPLAM', 20],
   ];
   const rows = limanRowsFromParse(parser, grid, '05.10.2026.xlsx');
   assert.equal(rows.length, 1);
   assert.equal(rows[0].plaka.replace(/\s+/g, ''), '43AD5408');
   assert.equal(rows[0].kantarCikis, '05.10.2026 05:10');
+  assert.equal(rows[0].kantarGiris, '05.10.2026 04:43');
+  assert.equal(rows[0].ogr, '25.3');
+  assert.equal(rows[0].fark, '-120');
   assert.equal(rows[0].bbt, '20');
+  assert.equal(parser.__limanBlocks[0].dolum, '05.10.2026 PAZARTESİ');
 });
 
 test('başlık yoksa S sütunundaki çıkış saati okunur, tonaj sayı sayılmaz', () => {

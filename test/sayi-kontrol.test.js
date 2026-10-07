@@ -40,6 +40,30 @@ test('compareField bbt exact, kg/ton/cuval tolerances', () => {
   assert.equal(api.compareField(27200, 27232, 'kg').ok, false);
   assert.equal(api.compareField(1080, 1081, 'cuval').ok, true);
   assert.equal(api.compareField(1080, 1082, 'cuval').ok, false);
+  assert.equal(api.compareField(1081, 1080, 'cuval').ok, false);
+});
+
+test('Medlog Gebze Depo matches Yılport without error', () => {
+  assert.equal(api.compareText('MEDLOG GEBZE DEPO', 'YILPORT', 'cari').ok, true);
+  assert.equal(api.compareText('Yılport', 'Medlog Gebze Depo', 'cari').ok, true);
+  assert.equal(api.compareText('DEPO;MEDLOG LİMAN YILPORT', 'MEDLOG GEBZE DEPO', 'cari').ok, true);
+  assert.equal(api.compareText('MEDLOG GEBZE DEPO', 'GEMPORT', 'cari').ok, false);
+  assert.equal(api.compareText('YILPORT GEMLİK', 'MEDLOG GEBZE DEPO', 'cari').ok, false);
+});
+
+test('Excel +1 cuval per vehicle is not a mismatch; shortfall is', () => {
+  assert.equal(api.cuvalWithinTolerance(1080, 1081, 1), true);
+  assert.equal(api.cuvalWithinTolerance(1081, 1080, 1), false);
+  assert.equal(api.cuvalWithinTolerance(3240, 3243, 3), true);
+  assert.equal(api.cuvalWithinTolerance(3240, 3239, 3), false);
+  assert.equal(api.cuvalWithinTolerance(3240, 3244, 3), false);
+  const cmp = api.compareLinePair(
+    { irsaliye: 'R1', plaka: '43ADR754', tasiyici: 'AKYÜZ', teslimCari: 'MEDLOG GEBZE DEPO', ob1: 27000, kantar: 27540, sofor: 'ÖMER', gsm: '543', bbt: 20, cuval: 1080 },
+    { irsaliye: 'R1', plaka: '43ADR754', tasiyici: 'AKYÜZ', teslimCari: 'YILPORT', ob1: 27000, kantar: 27540, sofor: 'ÖMER', gsm: '543', bbt: 20, cuval: 1081 }
+  );
+  assert.equal(cmp.fields.teslimCari.ok, true);
+  assert.equal(cmp.fields.cuval.ok, true);
+  assert.equal(cmp.ok, true);
 });
 
 test('compareText sofor exact, gsm exact', () => {

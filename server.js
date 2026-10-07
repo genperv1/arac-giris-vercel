@@ -2226,7 +2226,7 @@ async function initializeApp() {
         const seedUsers = [
           { username: 'AVDAN', envKey: 'KANTAR_AVDAN_PASSWORD', role: 'admin' },
           { username: '1.OSB', envKey: 'KANTAR_1OSB_PASSWORD', role: 'admin' },
-          { username: 'xxr', envKey: 'AMIR_PASSWORD', role: 'amir' },
+          { username: 'xxr', envKey: 'XXR_PASSWORD', role: 'amir' },
           { username: 'saban', envKey: 'AMIR_PASSWORD', role: 'amir' },
           { username: 'ugur', envKey: 'UGUR_PASSWORD', role: 'amir' },
         ];

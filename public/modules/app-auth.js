@@ -1387,6 +1387,7 @@ async function validateToken(_afterRenew) {
 
   syncLoginFlag(false);
   try { localStorage.removeItem('isLoggedIn'); } catch(e){}
+  try { window.dispatchEvent(new CustomEvent('gpm-session-closed')); } catch (e) {}
   clearAuthUser();
   clearClientSiteInfo();
   try { document.documentElement.classList.remove('logged-in'); } catch(e){}
@@ -1502,6 +1503,7 @@ function startSessionMonitoring() {
           await showSessionExpiredModal();
           syncLoginFlag(false);
           try { localStorage.removeItem('isLoggedIn'); } catch (e) {}
+          try { window.dispatchEvent(new CustomEvent('gpm-session-closed')); } catch (e) {}
           clearAuthUser();
           clearClientSiteInfo();
           try { document.documentElement.classList.remove('logged-in'); } catch (e) {}
@@ -1562,6 +1564,7 @@ function startSessionMonitoring() {
       
       // Clear localStorage
       localStorage.removeItem('isLoggedIn');
+      try { window.dispatchEvent(new CustomEvent('gpm-session-closed')); } catch (e) {}
       clearAuthUser();
       clearClientSiteInfo();
       
@@ -1666,6 +1669,7 @@ function stopSessionMonitoring() {
           
           // 5. Clear localStorage
           localStorage.removeItem('isLoggedIn');
+          try { window.dispatchEvent(new CustomEvent('gpm-session-closed')); } catch (e) {}
           clearAuthUser();
           clearClientSiteInfo();
           console.log('localStorage temizlendi');

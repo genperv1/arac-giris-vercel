@@ -233,9 +233,14 @@ test('kantar çıkış tarihi iki kantarda kalır; daha yeni saat eskisinin yeri
   const title = 'YD10(G) / LOT NO 26 04 13 / SAFİPORT';
   const blocks = sanitizeBlocks([{
     title,
-    rows: [{ sira: '1', plaka: '43AD5408', bbt: '20', kantarCikis: '05.10.2026 05:10' }],
+    dolum: '05.10.2026 PAZARTESİ',
+    rows: [{ sira: '1', plaka: '43AD5408', bbt: '20', ogr: '25.3', fark: '-120', kantarGiris: '05.10.2026 04:43', kantarCikis: '05.10.2026 05:10' }],
   }]);
   assert.equal(blocks[0].rows[0].kantarCikis, '05.10.2026 05:10');
+  assert.equal(blocks[0].rows[0].kantarGiris, '05.10.2026 04:43');
+  assert.equal(blocks[0].rows[0].ogr, '25.3');
+  assert.equal(blocks[0].rows[0].fark, '-120');
+  assert.equal(blocks[0].dolum, '05.10.2026 PAZARTESİ');
   assert.equal(blocks[0].rows[0].bbt, '20');
   const days = daysFromSheetState({
     sites: {

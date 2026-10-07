@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
-const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, settledFileLabels, withoutSettledFiles } = require('../lib/liman-sheet');
+const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, dateKeyFromFileName, labelFromDateKey, settledFileLabels, withoutSettledFiles } = require('../lib/liman-sheet');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { canManageLimanList } = require('../lib/amir-user');
 const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
@@ -225,7 +225,18 @@ function registerLimanRoutes(api, ctx, publicApp) {
       const entry = raw[key] && typeof raw[key] === 'object' ? raw[key] : {};
       const at = Date.parse(entry.at || '') || 0;
       if (at && now - at > CLOSED_DAY_TTL_MS) return;
-      out[key] = { at: entry.at || '', by: String(entry.by || '').slice(0, 40) };
+      const files = [];
+      (Array.isArray(entry.files) ? entry.files : []).forEach((name) => {
+        const label = fileLabelOf(name) || String(name || '').trim().slice(0, 80);
+        if (label && files.indexOf(label) < 0) files.push(label);
+      });
+      out[key] = {
+        at: entry.at || '',
+        by: String(entry.by || '').slice(0, 40),
+        label: String(entry.label || '').slice(0, 40),
+        rowCount: Math.max(0, Math.round(Number(entry.rowCount) || 0)),
+        files: files.slice(0, 30),
+      };
     });
     return out;
   }
@@ -242,15 +253,63 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   function closedDayList(state) {
     const closed = closedDays(state);
-    return daysFromSheetState(state)
-      .filter((day) => closed[day.dateKey])
-      .map((day) => ({
-        dateKey: day.dateKey,
-        label: day.label,
-        rowCount: day.blocks.reduce((sum, block) => sum + ((block.rows && block.rows.length) || 0), 0),
-        at: closed[day.dateKey].at || '',
-        by: closed[day.dateKey].by || '',
-      }));
+    const live = {};
+    daysFromSheetState(state).forEach((day) => { live[day.dateKey] = day; });
+    return Object.keys(closed).filter((key) => DAY_KEY_RE.test(key)).sort().reverse().map((key) => {
+      const day = live[key];
+      const meta = closed[key] || {};
+      const rowCount = day
+        ? day.blocks.reduce((sum, block) => sum + ((block.rows && block.rows.length) || 0), 0)
+        : (Number(meta.rowCount) || 0);
+      return {
+        dateKey: key,
+        label: (day && day.label) || meta.label || labelFromDateKey(key),
+        rowCount,
+        at: meta.at || '',
+        by: meta.by || '',
+      };
+    });
+  }
+
+  /** Kapalı günün bloklarını canlı listeden çıkarır; dosya adları kapalı kalır, kantar geri yazamaz. */
+  function suppressDay(state, key, by) {
+    const prev = closedDays(state)[key] || {};
+    const day = daysFromSheetState(state).find((item) => item.dateKey === key);
+    const files = [];
+    const add = (label) => { if (label && files.indexOf(label) < 0) files.push(label); };
+    (prev.files || []).forEach(add);
+    if (day) (day.blocks || []).forEach((block) => (block.files || []).forEach(add));
+    const rowCount = day
+      ? day.blocks.reduce((sum, block) => sum + ((block.rows && block.rows.length) || 0), 0)
+      : (Number(prev.rowCount) || 0);
+    state.closedDays = Object.assign({}, closedDays(state), {
+      [key]: {
+        at: new Date().toISOString(),
+        by: by || prev.by || '',
+        label: (day && day.label) || prev.label || labelFromDateKey(key),
+        rowCount,
+        files,
+      },
+    });
+    SITES.forEach((site) => {
+      const snap = state.sites[site];
+      if (!snap) return;
+      const hidden = (block) => (dateKeyFromFileName((block && block.fileName) || snap.fileName || '') || 'tarihsiz') === key;
+      if (Array.isArray(snap.blocks)) snap.blocks = snap.blocks.filter((block) => !hidden(block));
+      if (Array.isArray(snap.rows)) snap.rows = snap.rows.filter((row) => !hidden(row));
+      snap.fileName = withoutSettledFiles(snap.fileName || '', files);
+    });
+  }
+
+  function blockIsClosed(block, state, fallbackFile) {
+    const label = (fileLabelOf(block && block.fileName) || fileLabelOf(fallbackFile) || '').toLowerCase();
+    const closed = closedDays(state);
+    if (label) {
+      const named = Object.keys(closed).some((key) => (closed[key].files || []).some((file) => String(file).toLowerCase() === label));
+      if (named) return true;
+    }
+    const dateKey = dateKeyFromFileName((block && block.fileName) || fallbackFile || '');
+    return !!(dateKey && closed[dateKey]);
   }
 
   async function readKvJson(key) {
@@ -525,10 +584,41 @@ function registerLimanRoutes(api, ctx, publicApp) {
   const reader = publicApp || api;
   const readPrefix = publicApp ? '/api' : '';
 
+  async function attachArchive(view) {
+    if (!view || !view.canClose) return view;
+    const idx = (await readKvJson(ARCHIVE_INDEX_KEY)).value || {};
+    view.archive = Object.keys(idx).filter((key) => DAY_KEY_RE.test(key)).sort().reverse().map((key) => {
+      const s = idx[key] || {};
+      return {
+        dateKey: s.dateKey || key,
+        label: s.label || labelFromDateKey(key),
+        closedAt: s.closedAt || '',
+        closedBy: s.closedBy || '',
+        rowCount: s.rowCount || 0,
+        blockCount: s.blockCount || 0,
+      };
+    });
+    return view;
+  }
+
+  async function clearArchive(key) {
+    await q(
+      `INSERT INTO kv_store(key, value) VALUES($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [ARCHIVE_PREFIX + key, '']
+    );
+    await updateKvJson(ARCHIVE_INDEX_KEY, (idx) => {
+      const next = idx && typeof idx === 'object' ? Object.assign({}, idx) : {};
+      if (!next[key]) return undefined;
+      delete next[key];
+      return next;
+    });
+  }
+
   reader.get(readPrefix + '/liman', attachOptionalUser, async (req, res) => {
     try {
       noStore(res);
-      return res.json(viewFor(req, await readState()));
+      return res.json(await attachArchive(viewFor(req, await readState())));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_READ_FAILED');
     }
@@ -679,8 +769,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
           const snap = state.sites[other];
           if (other !== site && snap && Array.isArray(snap.blocks)) carryFrom.push(...snap.blocks);
         });
-        const activeBlocks = incomingBlocks.filter((block) => !blockIsSettled(block, state));
-        const activeRows = rows.filter((row) => !blockIsSettled(row, state));
+        const activeBlocks = incomingBlocks.filter((block) => !blockIsSettled(block, state) && !blockIsClosed(block, state, fileName));
+        const activeRows = rows.filter((row) => !blockIsSettled(row, state) && !blockIsClosed(row, state, fileName));
         // Tamamlanan Excel bir daha işlenmez: limandaki liste durur, kantar dosyayı siler.
         if (incomingBlocks.length && !activeBlocks.length) {
           return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state) };
@@ -776,10 +866,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
     }
   });
 
-  // Selahattin Toker: sevkiyat bitince günün listesini kapatır. Liman tarafında o gün görünmez;
-  // sonraki günün listesi yüklüyse o kalır, yoksa liste boş olur. Kantar aynı dosyayı
-  // yeniden gönderse de gün kapalı kalır (tarih dosya adından geldiği için).
-  // Kantarcı ve diğer amirler kapatamaz. Kapatmadan önce günün son hali arşive mühürlenir.
+  // Selahattin Toker: sevkiyat bitince günü kapatır. Son hali arşive mühürlenir,
+  // canlı listeden düşer. Kantar aynı Excel'i tekrar gönderse de limanda açılmaz.
   api.put('/liman/day/:dateKey/close', requireAmir, async (req, res) => {
     try {
       if (!canManageLimanList(req.user)) {
@@ -791,21 +879,20 @@ function registerLimanRoutes(api, ctx, publicApp) {
       const archived = await archiveDay(await readState(), key, by);
       if (!archived) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
       const committed = await commitState((state) => {
-        if (!daysFromSheetState(state).some((day) => day.dateKey === key)) {
+        if (!daysFromSheetState(state).some((day) => day.dateKey === key) && !closedDays(state)[key]) {
           return { shortCircuit: true, missing: true };
         }
-        state.closedDays = Object.assign({}, closedDays(state), {
-          [key]: { at: new Date().toISOString(), by },
-        });
+        suppressDay(state, key, by);
       });
       if (committed.missing) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
-      return res.json(viewFor(req, committed.state));
+      return res.json(await attachArchive(viewFor(req, committed.state)));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DAY_CLOSE_FAILED');
     }
   });
 
+  // Kapanan gün limanda yeniden açılmaz. Eski istemci bu ucu çağırırsa liste geri gelmez.
   api.delete('/liman/day/:dateKey/close', requireAmir, async (req, res) => {
     try {
       if (!canManageLimanList(req.user)) {
@@ -813,15 +900,32 @@ function registerLimanRoutes(api, ctx, publicApp) {
       }
       const key = dayKeyParam(req);
       if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
-      const committed = await commitState((state) => {
-        const next = Object.assign({}, closedDays(state));
-        delete next[key];
-        state.closedDays = next;
-      });
-      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
-      return res.json(viewFor(req, committed.state));
+      return res.status(409).json({ ok: false, error: 'Kapanan liste yeniden açılmaz. Arşivden silinebilir.' });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DAY_REOPEN_FAILED');
+    }
+  });
+
+  /** Açık listeyi arşive koymadan siler. Kantar aynı dosyayı gönderse de limanda görünmez. */
+  api.delete('/liman/day/:dateKey', requireAmir, async (req, res) => {
+    try {
+      if (!canManageLimanList(req.user)) {
+        return res.status(403).json({ ok: false, error: 'Listeyi silmek yalnızca Selahattin Toker hesabına açıktır.' });
+      }
+      const key = dayKeyParam(req);
+      if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const by = sanitizeString((req.user && req.user.username) || '', 40);
+      const committed = await commitState((state) => {
+        const exists = daysFromSheetState(state).some((day) => day.dateKey === key) || closedDays(state)[key];
+        if (!exists) return { shortCircuit: true, missing: true };
+        suppressDay(state, key, by);
+      });
+      if (committed.missing) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      await clearArchive(key);
+      return res.json(await attachArchive(viewFor(req, committed.state)));
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_DAY_DELETE_FAILED');
     }
   });
 
@@ -842,6 +946,30 @@ function registerLimanRoutes(api, ctx, publicApp) {
       return res.json({ ok: true, days });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_LIST_FAILED');
+    }
+  });
+
+  api.delete('/liman/archive/:dateKey', requireAmir, async (req, res) => {
+    try {
+      if (!canManageLimanList(req.user)) {
+        return res.status(403).json({ ok: false, error: 'Arşivi silmek yalnızca Selahattin Toker hesabına açıktır.' });
+      }
+      const key = dayKeyParam(req);
+      if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const rec = (await readKvJson(ARCHIVE_PREFIX + key)).value;
+      const idx = (await readKvJson(ARCHIVE_INDEX_KEY)).value || {};
+      if (!rec && !idx[key]) return res.status(404).json({ ok: false, error: 'Bu gün arşivde yok.' });
+      const by = sanitizeString((req.user && req.user.username) || '', 40);
+      const committed = await commitState((state) => {
+        if (daysFromSheetState(state).some((day) => day.dateKey === key) || closedDays(state)[key]) {
+          suppressDay(state, key, by);
+        }
+      });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      await clearArchive(key);
+      return res.json(await attachArchive(viewFor(req, committed.state)));
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_DELETE_FAILED');
     }
   });
 

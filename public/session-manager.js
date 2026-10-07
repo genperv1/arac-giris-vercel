@@ -262,6 +262,12 @@
         stopSessionKeepAlive();
     }
 
+    /** Yerel oturum kapandı: araç giriş bildirimi aynı anda kalksın. */
+    function forgetLocalLogin() {
+        try { localStorage.removeItem('isLoggedIn'); } catch (e) { /* ignore */ }
+        try { window.dispatchEvent(new CustomEvent('gpm-session-closed')); } catch (e) { /* ignore */ }
+    }
+
     // Oturum süresi dolu uyarısını göster
     function showSessionExpiredModal() {
         if (!shouldPromptSessionExpired()) return;
@@ -646,7 +652,7 @@
         if (!isValid) {
             const shouldNotify = shouldPromptSessionExpired();
             invalidateSession();
-            try { localStorage.removeItem('isLoggedIn'); } catch (e) { /* ignore */ }
+            forgetLocalLogin();
             if (shouldNotify && !isLimanViewerPage()) {
                 showSessionExpiredModal();
             }
@@ -768,7 +774,7 @@
                 if (!isValid) {
                     const shouldNotify = shouldPromptSessionExpired();
                     invalidateSession();
-                    try { localStorage.removeItem('isLoggedIn'); } catch (e) { /* ignore */ }
+                    forgetLocalLogin();
                     if (shouldNotify) {
                         showSessionExpiredModal();
                     }
@@ -1301,7 +1307,7 @@
         if (document.getElementById('gpmMsnScript')) return;
         const s = document.createElement('script');
         s.id = 'gpmMsnScript';
-        s.src = '/msn-chat.js?v=20261007-chat1';
+        s.src = '/msn-chat.js?v=20261007-chat2';
         s.async = true;
         document.head.appendChild(s);
     }

@@ -1098,8 +1098,13 @@
       var sources = listLoadedSourceNames();
       sources = sources.filter(function (n) { return !isDroppedSource(n); });
       if (!sources.length && listLoadedSourceNames().length) {
+        try {
+          if (typeof window.applyLimanDropFiles === 'function') {
+            window.applyLimanDropFiles(listLoadedSourceNames());
+          }
+        } catch (e) {}
         heartbeat(true, { ok: true });
-        return { ok: true, settled: true, msg: 'Tamamlanan listeler limanda duruyor.' };
+        return { ok: true, settled: true, msg: 'Tamamlanan liste kantardan silindi. Limanda duruyor.' };
       }
       if (Array.isArray(onlyNames) && onlyNames.length) {
         var allow = Object.create(null);
@@ -1165,8 +1170,13 @@
 
       if (!okNames.length) {
         if (!failNames.length) {
+          try {
+            if (typeof window.applyLimanDropFiles === 'function') {
+              window.applyLimanDropFiles(listLoadedSourceNames());
+            }
+          } catch (e) {}
           heartbeat(true, { ok: true });
-          return { ok: true, settled: true, msg: 'Tamamlanan listeler limanda duruyor.' };
+          return { ok: true, settled: true, msg: 'Tamamlanan liste kantardan silindi. Limanda duruyor.' };
         }
         if (silent) {
           return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames, silent: true };

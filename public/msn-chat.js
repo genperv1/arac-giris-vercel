@@ -197,8 +197,9 @@
         if (!bar) {
             bar = document.createElement('div');
             bar.id = 'gpmMsnBadge';
-            document.body.appendChild(bar);
         }
+        const host = dock();
+        if (bar.parentNode !== host) host.prepend(bar);
         bar.textContent = '';
         keys.forEach((key) => {
             const btn = document.createElement('button');
@@ -262,7 +263,7 @@
             + '.gpm-msn-emoji-btn:hover,.gpm-msn.is-emoji .gpm-msn-emoji-btn{background:#eef2ff;border-color:#c7d2fe}'
             + '.gpm-msn-send{height:40px;border:0;background:#4f46e5;color:#fff;border-radius:12px;padding:0 14px;font:700 13px/1 "Segoe UI",sans-serif;cursor:pointer}'
             + '.gpm-msn-send:hover{background:#4338ca}'
-            + '#gpmMsnBadge{position:fixed;left:16px;bottom:16px;z-index:2147483200;display:flex;flex-direction:column;gap:6px;align-items:flex-start}'
+            + '#gpmMsnBadge{position:relative;z-index:1;display:flex;flex-direction:column;gap:6px;align-items:flex-end;pointer-events:auto}'
             + '.gpm-msn-badge{border:0;background:#4f46e5;color:#fff;font:700 14px/1 "Segoe UI",sans-serif;border-radius:999px;padding:10px 14px;cursor:pointer;box-shadow:0 8px 20px rgba(79,70,229,.35)}'
             + '.gpm-msn-badge:hover{background:#4338ca}'
             + '@media (max-width:640px){#gpmMsnDock{left:8px;right:8px;flex-direction:column-reverse}.gpm-msn{width:100%}}';
@@ -590,6 +591,12 @@
         try { win.input.focus(); } catch (e) { /* ignore */ }
     }
 
+    function placeWindow(host, el) {
+        const badge = host.querySelector('#gpmMsnBadge');
+        if (badge) host.insertBefore(el, badge.nextSibling);
+        else host.insertBefore(el, host.firstChild);
+    }
+
     function create(peer) {
         ensureStyle();
         const el = document.createElement('section');
@@ -664,7 +671,7 @@
             }
         });
         const host = dock();
-        host.insertBefore(el, host.firstChild);
+        placeWindow(host, el);
         windows.set(peer, win);
         while (windows.size > 3) {
             const oldest = host.lastElementChild;
@@ -691,7 +698,7 @@
         window.__gpmChatPending = '';
         let win = windows.get(peer);
         if (!win) win = create(peer);
-        else dock().insertBefore(win.el, dock().firstChild);
+        else placeWindow(dock(), win.el);
         win.el.classList.remove('is-min');
         paintStatus(win);
         if (opts && opts.shake) shake(win.el);

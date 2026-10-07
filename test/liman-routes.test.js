@@ -91,7 +91,7 @@ test('kantar kullanıcı adı IP\'den önce gelir', async () => {
   assert.equal(put.site, 'AVDAN');
 });
 
-test('amir günü kapatınca liman o günü görmez; sonraki gün kalır, yeniden açılabilir', async () => {
+test('amir günü kapatınca arşive gider; kantar tekrar gönderse de limanda açılmaz', async () => {
   const kantar = { username: 'AVDAN', role: 'admin' };
   const amir = { username: 'xxr', role: 'amir' };
   const h = harness(kantar);
@@ -112,6 +112,8 @@ test('amir günü kapatınca liman o günü görmez; sonraki gün kalır, yenide
   assert.equal(closed.closedDays.length, 1);
   assert.equal(closed.closedDays[0].label, '03.10.2026');
   assert.equal(closed.closedDays[0].by, 'xxr');
+  assert.equal(closed.archive.length, 1);
+  assert.equal(closed.archive[0].label, '03.10.2026');
 
   // Kantar aynı dosyayı yeniden gönderse de gün kapalı kalır; kantar kapalı listeyi görmez
   const k2 = harness(kantar);
@@ -130,18 +132,44 @@ test('amir günü kapatınca liman o günü görmez; sonraki gün kalır, yenide
   const allClosed = await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-04' });
   assert.deepEqual(allClosed.days, []);
   assert.equal(allClosed.closedDays.length, 2);
+  assert.equal(allClosed.archive.length, 2);
 
-  // Yeniden aç
+  // Kapanan gün yeniden açılmaz; kantar gönderse de liste geri gelmez
   const reopened = await a2.call('delete /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
-  assert.deepEqual(reopened.days.map((d) => d.dateKey), ['2026-10-03']);
-  assert.deepEqual(reopened.closedDays.map((c) => c.dateKey), ['2026-10-04']);
+  assert.equal(reopened.ok, false);
+  const k3 = harness(kantar);
+  Object.assign(k3.store, a2.store);
+  await k3.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '03.10.2026.xlsx',
+    blocks: [block('YD1 / LOT NO 1 / SAFİPORT', 'AVDAN')],
+  });
+  view = await k3.call('get /liman', '1.1.1.1');
+  assert.deepEqual(view.days, []);
+
+  // Arşivden silinince orada da durmaz, limanda yine açılmaz
+  const a3 = harness(amir);
+  Object.assign(a3.store, k3.store);
+  const removed = await a3.call('delete /liman/archive/:dateKey', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.equal(removed.ok, true);
+  assert.deepEqual(removed.archive.map((d) => d.dateKey), ['2026-10-04']);
+  const k4 = harness(kantar);
+  Object.assign(k4.store, a3.store);
+  await k4.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '03.10.2026.xlsx',
+    blocks: [block('YD1 / LOT NO 1 / SAFİPORT', 'AVDAN')],
+  });
+  const a4 = harness(amir);
+  Object.assign(a4.store, k4.store);
+  view = await a4.call('get /liman', '1.1.1.1');
+  assert.deepEqual(view.days, []);
+  assert.ok(!view.archive.some((d) => d.dateKey === '2026-10-03'));
 
   // Olmayan gün / bozuk anahtar reddedilir
   const bad = await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-12-31' });
   assert.equal(bad.ok, false);
   const badKey = await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: 'x' });
   assert.equal(badKey.ok, false);
-  assert.equal(reopened.canClose, true);
+  assert.equal(allClosed.canClose, true);
 });
 
 test('listeyi kapatma, açma ve kaldırma yalnız Selahattin Toker hesabında', async () => {
@@ -188,7 +216,13 @@ test('listeyi kapatma, açma ve kaldırma yalnız Selahattin Toker hesabında', 
   assert.deepEqual(closed.days, []);
   assert.equal(closed.closedDays[0].by, 'xxr');
   const opened = await selahattin.call('delete /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
-  assert.deepEqual(opened.days.map((d) => d.dateKey), ['2026-10-03']);
+  assert.equal(opened.ok, false);
+  const stay = await selahattin.call('get /liman', '1.1.1.1');
+  assert.deepEqual(stay.days, []);
+  assert.equal(stay.archive[0].dateKey, '2026-10-03');
+  const wiped = await selahattin.call('delete /liman/day/:dateKey', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.deepEqual(wiped.days, []);
+  assert.deepEqual(wiped.archive, []);
 });
 
 test('liman okuma uçları oturumsuz çalışır (canEdit false, kapalı günler görünür)', async () => {
@@ -537,7 +571,7 @@ test('kapatılan gün arşive mühürlenir; kantar yeni dosyaya geçse de arşiv
   assert.equal(missing.ok, false);
 });
 
-test('kapandıktan sonra kantar farklı liste gönderirse arşiv "değişti" görünür; yeniden kapatınca güncellenir', async () => {
+test('kapanan günün arşivi kantarın sonraki gönderimiyle değişmez ve limanda açılmaz', async () => {
   const kantar = { username: 'AVDAN', role: 'admin' };
   const amir = { username: 'xxr', role: 'amir' };
   const mk = (giden) => ({
@@ -556,17 +590,13 @@ test('kapandıktan sonra kantar farklı liste gönderirse arşiv "değişti" gö
   await k2.call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [mk('27540')] });
   const a2 = harness(amir);
   Object.assign(a2.store, k2.store);
-  let list = await a2.call('get /liman/archive', '1.1.1.1');
-  assert.equal(list.days[0].changedSinceClose, true);
-
-  await a2.call('delete /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
-  await a2.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
-  list = await a2.call('get /liman/archive', '1.1.1.1');
+  const view = await a2.call('get /liman', '1.1.1.1');
+  assert.deepEqual(view.days, []);
+  const list = await a2.call('get /liman/archive', '1.1.1.1');
   assert.equal(list.days[0].changedSinceClose, false);
-  // İçerik değişti: eski kontrol sonucu geçersiz
-  assert.equal(list.days[0].check, null);
+  assert.equal(list.days[0].check.status, 'bad');
   const rec = await a2.call('get /liman/archive/:dateKey', '1.1.1.1', {}, { dateKey: '2026-10-03' });
-  assert.equal(rec.day.blocks[0].rows[0].giden, '27540');
+  assert.equal(rec.day.blocks[0].rows[0].giden, '');
 });
 
 test('kantar Excel silince kitap düşmez; güncelleme ve yeni kitap işlenir, boş gönderim silmez', async () => {

@@ -1417,6 +1417,21 @@ function _limanCikisCol(headerRow) {
   return named !== undefined ? named : LIMAN_CIKIS_COL;
 }
 
+function _limanGirisCol(headerRow) {
+  return _limanHeaderCol(headerRow, /KANTAR\s*GIRIS|GIRIS\s*TARIH/);
+}
+
+/** "LİMAN DOLUM TARİHİ : 07.10.2026 ÇARŞAMBA" satırı, Excel'deki yeşil şerit. */
+function _limanBlockDolum(grid, headerRowIdx) {
+  const from = Math.max(0, headerRowIdx - 10);
+  for (let rr = headerRowIdx; rr >= from; rr--) {
+    const text = _rowToText(grid[rr] || []).replace(/\s+/g, ' ').trim();
+    const m = text.match(/L[Iİ]MAN\s*DOLUM\s*TAR[Iİ]H[Iİ]\s*[:.]?\s*(.+)/i);
+    if (m && m[1]) return m[1].replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+  return '';
+}
+
 function _limanPad2(n) {
   return String(n).padStart(2, '0');
 }
@@ -1473,7 +1488,7 @@ function _limanCikisFromSheet(ws, excelRow, colIndex, gridValue) {
   return formatLimanCikis(gridValue);
 }
 
-function _limanSheetRow(d, parseCols, blockCols, yuklemeCol, soforCol, telefonCol, cikisText) {
+function _limanSheetRow(d, parseCols, blockCols, yuklemeCol, soforCol, telefonCol, cikisText, girisText) {
   const cell = (idx) => (idx === undefined || idx === null || d[idx] == null ? '' : String(d[idx]).trim());
   const sira = cell(blockCols.sirano);
   const plaka = cell(blockCols.plaka);
@@ -1489,12 +1504,15 @@ function _limanSheetRow(d, parseCols, blockCols, yuklemeCol, soforCol, telefonCo
     bosBbt: _nz(d[blockCols.bosBbt]),
     bosCuval: _nz(d[blockCols.bosCuval]),
     net: _nz(d[blockCols.netTonaj]),
+    ogr: _nz(d[blockCols.ogrTonaj]),
     giden: _nz(d[blockCols.gidenTonaj]),
+    fark: _nz(d[blockCols.fark]),
     yukleme: yuklemeCol !== undefined ? (_normalizeYuklemeYeri(d[yuklemeCol]) || cell(yuklemeCol)) : '',
     sofor: cell(soforCol),
     telefon: cell(telefonCol),
     irsaliye,
     durum: _rowHasInsideNote(d) ? 'İÇERİDE' : (_rowHasOutsideNote(d) ? 'DIŞARIDA' : ''),
+    kantarGiris: girisText || '',
     kantarCikis: cikisText || '',
   };
 }
@@ -1536,19 +1554,37 @@ function rememberLimanDropFiles(list) {
   return stems;
 }
 
+function collectLimanDropStems(targets) {
+  const bannedStems = new Set();
+  const add = (name) => {
+    splitIhracatFileNames(name).forEach((part) => {
+      const stem = limanFileStem(part);
+      if (stem) bannedStems.add(stem);
+    });
+  };
+  (targets || []).forEach(add);
+  limanDroppedStems().forEach((stem) => { if (stem) bannedStems.add(stem); });
+  return bannedStems;
+}
+
+/** Limanda tamamlanan Excel kantardaki yüklü listeden de düşer. Ad uzantısı farklı olsa da eşleşir. */
 async function stripSettledDailySources(targets) {
-  const banned = new Set((targets || []).map((name) => String(name || '').trim()).filter(Boolean));
-  if (!banned.size) return false;
+  const bannedStems = collectLimanDropStems(targets);
+  if (!bannedStems.size) return false;
   const rows = loadDailyShipments() || [];
   const meta = loadDailyMeta() || {};
-  let kept = rows.filter((row) => !banned.has(String(row && row.fileName || '').trim()));
-  if (kept.length === rows.length) {
-    const only = listIhracatExcelSources();
-    if (only.length && only.every((name) => banned.has(name))) kept = [];
-    else return false;
-  }
+  const sourceNames = listIhracatExcelSources();
+  const allSourcesDropped = sourceNames.length > 0 && sourceNames.every((name) => bannedStems.has(limanFileStem(name)));
+  if (allSourcesDropped) return clearDailyShipments();
+  const kept = rows.filter((row) => {
+    const parts = splitIhracatFileNames(row && row.fileName);
+    if (!parts.length) return true;
+    return !parts.every((part) => bannedStems.has(limanFileStem(part)));
+  });
+  const prevFiles = normalizeIhracatMetaFiles(meta);
+  const files = prevFiles.filter((name) => !bannedStems.has(limanFileStem(name)));
+  if (kept.length === rows.length && files.length === prevFiles.length) return false;
   if (!kept.length) return clearDailyShipments();
-  const files = normalizeIhracatMetaFiles(meta).filter((name) => !banned.has(String(name).trim()));
   return saveDailyShipments(kept, Object.assign({}, meta, {
     files: files.length ? files : undefined,
     fileName: files.join(' + '),
@@ -1556,7 +1592,7 @@ async function stripSettledDailySources(targets) {
   }));
 }
 
-/** Tamamlanan Excel kantarda kalmasın: bir daha okunmaz, yerel listeden düşer. Limandaki liste durur. */
+/** Tamamlanan Excel kantarda kalmasın: bir daha okunmaz, yüklü listeden silinir. Limandaki liste durur. */
 function applyLimanDropFiles(list) {
   const stems = rememberLimanDropFiles(list);
   if (!stems.size) return Promise.resolve(false);
@@ -1566,11 +1602,16 @@ function applyLimanDropFiles(list) {
     }
   } catch (e) {}
   if (_applyingLimanDrops) return Promise.resolve(false);
+  _applyingLimanDrops = true;
   const sources = (typeof listIhracatExcelSources === 'function' ? listIhracatExcelSources() : [])
     .filter((name) => stems.has(limanFileStem(name)));
-  if (!sources.length) return Promise.resolve(false);
-  _applyingLimanDrops = true;
-  return Promise.resolve(stripSettledDailySources(sources)).finally(() => {
+  const targets = sources.length ? sources : Array.from(stems);
+  return Promise.resolve(stripSettledDailySources(targets)).then((changed) => {
+    if (changed && typeof window.showToast === 'function') {
+      window.showToast('Tamamlanan liste kantardan silindi. Limanda duruyor.', 'success');
+    }
+    return !!changed;
+  }).finally(() => {
     _applyingLimanDrops = false;
   });
 }
@@ -4162,9 +4203,11 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     const limanSoforCol = _limanHeaderCol(row, /^(SOFOR|SURUCU)/);
     const limanTelefonCol = _limanHeaderCol(row, /^TELEFON|^TEL\b/);
     const limanCikisCol = _limanCikisCol(row);
+    const limanGirisCol = _limanGirisCol(row);
     const limanSheetBlock = Object.assign({
       title: headerText,
       liman: sevkYeri,
+      dolum: _limanBlockDolum(grid, r),
       note: '',
       fileName: String(fileLabel || '').trim(),
       rows: [],
@@ -4210,7 +4253,8 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
       }
       const limanRow = _limanSheetRow(
         d, parseCols, blockCols, yuklemeCol, limanSoforCol, limanTelefonCol,
-        _limanCikisFromSheet(ws, rr + 1, limanCikisCol, d[limanCikisCol])
+        _limanCikisFromSheet(ws, rr + 1, limanCikisCol, d[limanCikisCol]),
+        _limanCikisFromSheet(ws, rr + 1, limanGirisCol, limanGirisCol == null ? '' : d[limanGirisCol])
       );
       if (limanRow) {
         limanRow.tasiyici = rowTasiyici || '';

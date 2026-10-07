@@ -3,7 +3,7 @@
   'use strict';
 
   var KG_TOLERANCE = 0; // kg/kantar/ton: tolerans yok
-  var CUVAL_TOLERANCE = 1; // sadece çuval ±1
+  var CUVAL_TOLERANCE = 1; // Excel araç başına en fazla +1 çuval; eksik (−1) kırmızı
 
   function trimStr(value) {
     return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -816,6 +816,34 @@
     return { ok: false, mode: '', items: [], blocks: [], error: 'Rapor formatı tanınmadı. Netsis Excel veya Güncel / F358 yükleyin.' };
   }
 
+  /** Medlog Gebze Depo ile Yılport aynı teslim yeri (Gemlik ayrı kalır). */
+  function isMedlogGebzeDepo(folded) {
+    return folded.indexOf('medlog') >= 0 && folded.indexOf('gebze') >= 0;
+  }
+
+  function isYilportNotGemlik(folded) {
+    return folded.indexOf('yilport') >= 0 && folded.indexOf('gemlik') < 0;
+  }
+
+  function sameMedlogGebzeYilport(a, b) {
+    if (!a || !b) return false;
+    var aMed = isMedlogGebzeDepo(a);
+    var bMed = isMedlogGebzeDepo(b);
+    var aYil = isYilportNotGemlik(a);
+    var bYil = isYilportNotGemlik(b);
+    return (aMed && bYil) || (bMed && aYil) || (aMed && bMed);
+  }
+
+  /** Excel (sağ) araç başına en fazla +1 çuval fazla olabilir. Eksik fark kırmızı. */
+  function cuvalWithinTolerance(left, right, slots) {
+    var L = Math.round(Number(left) || 0);
+    var R = Math.round(Number(right) || 0);
+    var n = Number(slots);
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    var extra = R - L;
+    return extra >= 0 && extra <= CUVAL_TOLERANCE * n;
+  }
+
   function compareField(a, b, kind) {
     var left = Number(a);
     var right = Number(b);
@@ -835,7 +863,7 @@
         left: left,
         right: right,
         delta: delta,
-        ok: Math.abs(Math.round(left) - Math.round(right)) <= CUVAL_TOLERANCE
+        ok: cuvalWithinTolerance(left, right, 1)
       };
     }
     var tol = kind === 'ton' ? KG_TOLERANCE / 1000 : KG_TOLERANCE;
@@ -865,6 +893,10 @@
     } else if (kind === 'cari') {
       L = foldTr(L);
       R = foldTr(R);
+      // Medlog Gebze Depo ↔ Yılport
+      if (sameMedlogGebzeYilport(L, R)) {
+        return { left: trimStr(a), right: trimStr(b), ok: true };
+      }
       // Dp World Liman ↔ DP WORLD
       if (L && R && (L.indexOf(R) >= 0 || R.indexOf(L) >= 0)) {
         return { left: trimStr(a), right: trimStr(b), ok: true };
@@ -1645,7 +1677,8 @@
       var totKantN = sumField(blk.lines, 'left', 'kantar');
       var totKantE = sumField(blk.lines, 'right', 'kantar');
       var bbtOk = Math.round(totBbtN) === Math.round(totBbtE);
-      var cuvalOk = Math.abs(Math.round(totCuvalN) - Math.round(totCuvalE)) <= CUVAL_TOLERANCE;
+      var cuvalSlots = (blk.lines || []).filter(function (ln) { return ln.left && ln.right; }).length;
+      var cuvalOk = cuvalWithinTolerance(totCuvalN, totCuvalE, cuvalSlots);
       var ob1Ok = Math.abs(totOb1N - totOb1E) <= KG_TOLERANCE;
       var kantOk = Math.abs(totKantN - totKantE) <= KG_TOLERANCE;
       var totalsBad = !(bbtOk && cuvalOk && ob1Ok && kantOk);
@@ -2153,6 +2186,7 @@
     itemsFromGuncel: itemsFromGuncel,
     itemsFromF358Rows: itemsFromF358Rows,
     compareField: compareField,
+    cuvalWithinTolerance: cuvalWithinTolerance,
     compareText: compareText,
     compareLinePair: compareLinePair,
     diffReports: diffReports,

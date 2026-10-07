@@ -13,6 +13,7 @@
   const chimeNodes = [];
   let titleBase = '';
   let titleShown = 0;
+  let sessionConfirmed = false;
   const CLIENT_KEY = 'amirNoticeClientId';
   const POLL_MS = 5000;
 
@@ -40,6 +41,60 @@
     } catch (e) {
       return false;
     }
+  }
+
+  function loginScreenVisible() {
+    try {
+      if (document.documentElement.classList.contains('logged-in')) return false;
+      const loginScreen = document.getElementById('loginScreen');
+      if (!loginScreen) return false;
+      const style = window.getComputedStyle(loginScreen);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** localStorage rolü çıkıştan sonra da kalabiliyor; mesaj yalnız açık oturumda. */
+  function sessionOpen() {
+    try {
+      if (localStorage.getItem('isLoggedIn') !== 'true') return false;
+      if (window.isLoggedIn === false) return false;
+      if (loginScreenVisible()) return false;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function canShow() {
+    return sessionOpen() && isAmir() && sessionConfirmed;
+  }
+
+  function forgetUnacked(items) {
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      if (item && item.id) seen.delete(item.id);
+    });
+  }
+
+  function holdNotice() {
+    forgetUnacked(openItems);
+    forgetUnacked(queue);
+    queue.length = 0;
+    openItems = [];
+    const root = document.getElementById('amirGirisNotice');
+    if (root) {
+      try { root.remove(); } catch (e) {}
+    }
+    showing = false;
+    closing = false;
+    stopChimes();
+    if (titleShown) paintTitleCount(0);
+  }
+
+  function onSessionClosed() {
+    sessionConfirmed = false;
+    holdNotice();
   }
 
   function showPlate(raw) {
@@ -105,7 +160,7 @@
   }
 
   function syncTabCount() {
-    if (!isAmir()) {
+    if (!canShow()) {
       if (titleShown) paintTitleCount(0);
       return;
     }
@@ -113,7 +168,7 @@
   }
 
   function enqueue(items) {
-    if (!isAmir()) return;
+    if (!canShow()) return;
     const fresh = [];
     (Array.isArray(items) ? items : [items]).forEach((item) => {
       if (!item || !item.id || !item.text || seen.has(item.id)) return;
@@ -272,7 +327,11 @@
   }
 
   function pump() {
-    if (showing || closing || !queue.length || !isAmir()) return;
+    if (!canShow()) {
+      holdNotice();
+      return;
+    }
+    if (showing || closing || !queue.length) return;
     openItems = queue.splice(0, queue.length);
     showing = true;
     ensureNoticeStyle();
@@ -329,8 +388,8 @@
   }
 
   async function pull() {
-    if (!isAmir()) {
-      syncTabCount();
+    if (!sessionOpen() || !isAmir()) {
+      onSessionClosed();
       return;
     }
     if (pulling) return;
@@ -340,7 +399,16 @@
         credentials: 'include',
         cache: 'no-store',
       });
+      if (res.status === 401 || res.status === 403) {
+        onSessionClosed();
+        return;
+      }
       if (!res.ok) return;
+      if (!sessionOpen() || !isAmir()) {
+        onSessionClosed();
+        return;
+      }
+      sessionConfirmed = true;
       const data = await res.json();
       enqueue(data && data.items);
     } catch (e) {}
@@ -360,6 +428,11 @@
         body: JSON.stringify({ plate, firma, malzeme }),
       });
       if (!res.ok) return;
+      if (!sessionOpen() || !isAmir()) {
+        onSessionClosed();
+        return;
+      }
+      sessionConfirmed = true;
       const data = await res.json();
       if (data && data.notice) enqueue([data.notice]);
     } catch (e) {}
@@ -383,6 +456,22 @@
   }
 
   function boot() {
+    if (!boot.sessionWatch) {
+      boot.sessionWatch = true;
+      window.addEventListener('gpm-session-closed', onSessionClosed);
+      window.addEventListener('gpm-session-renewed', () => { pull(); });
+      window.addEventListener('storage', (e) => {
+        if (!e.key || e.key === 'isLoggedIn' || e.key === 'currentUserRole' || e.key === 'currentUserId') {
+          if (!sessionOpen() || !isAmir()) onSessionClosed();
+        }
+      });
+      try {
+        const obs = new MutationObserver(() => {
+          if (!sessionOpen()) onSessionClosed();
+        });
+        obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+      } catch (e) {}
+    }
     if (window.SyncManager && typeof window.SyncManager.on === 'function' && !boot.sse) {
       boot.sse = true;
       window.SyncManager.on('amir_giris', (data) => enqueue([data]));

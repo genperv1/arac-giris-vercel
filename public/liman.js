@@ -46,6 +46,7 @@
     state.canClose = !!data.canClose;
     state.sites = data.sites || {};
     state.closedDays = Array.isArray(data.closedDays) ? data.closedDays : [];
+    if (Array.isArray(data.archive)) state.archive = data.archive;
     state.events = Array.isArray(data.events) ? data.events : [];
     state.fileOrder = data.fileOrder && typeof data.fileOrder === 'object' ? data.fileOrder : {};
     if (!state.days.some(function (d) { return d.dateKey === state.day; })) {
@@ -154,28 +155,29 @@
         }).join('') + '</ul></details>';
     }
 
-    // Sevkiyat bitince listeyi yalnız Selahattin Toker kapatır; liman tarafı o günü görmez.
+    // Sevkiyat bitince listeyi yalnız Selahattin Toker kapatır: arşive gider, limanda bir daha açılmaz.
     var day = activeDay();
     var closeRow = '';
     if (state.canClose && day) {
-      closeRow = '<span class="close-day-text">Sevkiyat bitti mi? Liman görevlisi bu listeyi artık görmesin:</span>' +
-        '<button type="button" class="btn btn-close-day" data-close-day="' + esc(day.dateKey) + '">' + esc(day.label) + ' listesini kapat</button>';
+      closeRow = '<span class="close-day-text">Sevkiyat bitti mi?</span>' +
+        '<button type="button" class="btn btn-close-day" data-close-day="' + esc(day.dateKey) + '">' + esc(day.label) + ' listesini kapat</button>' +
+        '<button type="button" class="btn btn-delete-day" data-delete-day="' + esc(day.dateKey) + '">Sil</button>';
     }
-    var closedRow = '';
-    if (state.closedDays.length) {
-      closedRow = '<span class="closed-label">Kapalı listeler:</span> ' + state.closedDays.map(function (c) {
-        var when = c.at ? new Date(c.at).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-        var reopen = state.canClose
-          ? ' <button type="button" class="chip chip-reopen" data-reopen-day="' + esc(c.dateKey) + '">Yeniden aç</button>'
-          : '';
-        return '<span class="closed-item"><b>' + esc(c.label) + '</b> · ' + (c.rowCount || 0) + ' satır' +
-          (when ? ' · ' + esc(when) : '') + (c.by ? ' · ' + esc(c.by) : '') + reopen + '</span>';
+    var archiveRow = '';
+    if (state.canClose) {
+      var items = (state.archive || []).map(function (c) {
+        var when = c.closedAt ? new Date(c.closedAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        return '<span class="archive-item"><b>' + esc(c.label || c.dateKey) + '</b> · ' + (c.rowCount || 0) + ' satır' +
+          (when ? ' · ' + esc(when) : '') + (c.closedBy ? ' · ' + esc(c.closedBy) : '') +
+          ' <button type="button" class="chip chip-delete" data-delete-archive="' + esc(c.dateKey) + '">Sil</button></span>';
       }).join(' ');
+      archiveRow = '<span class="archive-label">Arşiv</span> ' +
+        (items || '<span class="archive-empty">Kapatılan liste burada durur.</span>');
     }
-    if (closeRow || closedRow) {
+    if (closeRow || archiveRow) {
       html += '<div class="known admin-days">' +
         (closeRow ? '<div class="close-day-row">' + closeRow + '</div>' : '') +
-        (closedRow ? '<div class="closed-days-row">' + closedRow + '</div>' : '') +
+        (archiveRow ? '<div class="archive-row">' + archiveRow + '</div>' : '') +
         '</div>';
     }
     box.innerHTML = html;
@@ -344,29 +346,47 @@
     var warnings = closeWarnings(day);
     var msg = label + ' listesi kapatılsın mı?\n\n' +
       (warnings.length ? 'DİKKAT:\n' + warnings.join('\n') + '\n\n' : 'Kontrol: içeride / irsaliyesiz / gelmeyen araç yok.\n\n') +
-      'Listenin son hali arşive alınır; sayı kontrolde Excel yerine bu kullanılır.\n' +
-      'Liman görevlisi bu listeyi artık görmeyecek. Sonraki günün listesi yüklüyse o gösterilir, yoksa liste boş kalır.';
+      'Liste kapanır ve Arşiv\'e gider. Liman tarafında bir daha açılmaz.\n' +
+      'Sayı kontrol bu arşiv kopyasını kullanır.';
     if (!window.confirm(msg)) return;
     if (btn) btn.disabled = true;
+    var gen = ++viewGeneration;
     try {
-      applyView(await api('/api/liman/day/' + encodeURIComponent(dateKey) + '/close', { method: 'PUT' }));
-      toast(label + ' listesi kapatıldı, arşive alındı');
+      applyView(await api('/api/liman/day/' + encodeURIComponent(dateKey) + '/close', { method: 'PUT' }), gen);
+      toast(label + ' listesi kapatıldı, Arşiv\'e alındı');
     } catch (err) {
       if (btn) btn.disabled = false;
       toast(err.message || 'Liste kapatılamadı');
     }
   }
 
-  async function reopenDay(dateKey, btn) {
+  async function deleteDay(dateKey, btn) {
+    var day = state.days.filter(function (d) { return d.dateKey === dateKey; })[0];
+    var label = day ? day.label : dateKey;
+    if (!window.confirm(label + ' listesi silinsin mi?\n\nArşive gitmez. Liman tarafında da görünmez, kantar tekrar gönderse de açılmaz.')) return;
     if (btn) btn.disabled = true;
+    var gen = ++viewGeneration;
     try {
-      applyView(await api('/api/liman/day/' + encodeURIComponent(dateKey) + '/close', { method: 'DELETE' }));
-      state.day = dateKey;
-      render();
-      toast('Liste yeniden açıldı');
+      applyView(await api('/api/liman/day/' + encodeURIComponent(dateKey), { method: 'DELETE' }), gen);
+      toast(label + ' listesi silindi');
     } catch (err) {
       if (btn) btn.disabled = false;
-      toast(err.message || 'Liste açılamadı');
+      toast(err.message || 'Liste silinemedi');
+    }
+  }
+
+  async function deleteArchive(dateKey, btn) {
+    var item = (state.archive || []).filter(function (d) { return d.dateKey === dateKey; })[0];
+    var label = item ? (item.label || dateKey) : dateKey;
+    if (!window.confirm(label + ' arşivden silinsin mi?\n\nGeri gelmez. Liman listesine de dönmez.')) return;
+    if (btn) btn.disabled = true;
+    var gen = ++viewGeneration;
+    try {
+      applyView(await api('/api/liman/archive/' + encodeURIComponent(dateKey), { method: 'DELETE' }), gen);
+      toast(label + ' arşivden silindi');
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      toast(err.message || 'Arşiv silinemedi');
     }
   }
 
@@ -786,92 +806,245 @@
   }
 
   var PRINT_CSS =
-    '@page { size: A4 portrait; margin: 8mm; }' +
-    '* { box-sizing: border-box; color: #000; -webkit-text-fill-color: #000; }' +
+    '@page { size: A4 landscape; margin: 5mm; }' +
+    '* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     'html, body { margin: 0; padding: 0; background: #fff; }' +
-    'body { font-family: Arial, "Segoe UI", sans-serif; color: #000; font-size: 11pt; font-weight: 700; -webkit-font-smoothing: none; }' +
-    '#wrap { display: flex; justify-content: center; }' +
-    '#pg { width: 733px; flex: 0 0 auto; }' +
-    '.p-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 8px; }' +
-    '.p-head h1 { margin: 0; font-size: 18pt; font-weight: 700; -webkit-text-stroke: 0.35px #000; }' +
-    '.p-head span { font-size: 10pt; font-weight: 700; }' +
-    '.p-blok { margin-bottom: 12px; break-inside: avoid; page-break-inside: avoid; }' +
-    '.p-title { font-weight: 700; font-size: 12.5pt; padding: 4px 6px; border: 1.5px solid #000; border-bottom: 0; -webkit-text-stroke: 0.3px #000; }' +
-    '.p-meta { font-size: 10.5pt; font-weight: 700; padding: 3px 6px; border: 1.5px solid #000; border-bottom: 0; }' +
-    '.p-meta b { margin-left: 10px; }' +
-    '.p-meta b:first-child { margin-left: 0; }' +
-    'table { width: 100%; border-collapse: collapse; }' +
-    'tr { break-inside: avoid; page-break-inside: avoid; }' +
-    'th, td, h1, span, b, div { color: #000; }' +
-    'th, td { border: 1.5px solid #000; padding: 4px 3px; text-align: center; white-space: nowrap; font-weight: 700; -webkit-text-stroke: 0.25px #000; }' +
-    'th { font-size: 9pt; background: #fff; }' +
-    'td.l { text-align: left; }' +
+    'body { font-family: Arial, Calibri, "Segoe UI", sans-serif; color: #000; }' +
+    '.page { width: 1088px; height: 752px; overflow: hidden; page-break-after: always; break-after: page; }' +
+    '.page:last-child { page-break-after: auto; break-after: auto; }' +
+    '.fit { width: 1088px; }' +
+    '.xb { border: 1.5px solid #000; margin: 0 0 8px; background: #fff; break-inside: avoid; page-break-inside: avoid; }' +
+    '.xb:last-child { margin-bottom: 0; }' +
+    '.xh { display: flex; align-items: stretch; border-bottom: 1.5px solid #000; }' +
+    '.xcarrier { background: #92d050; color: #000; font-weight: 800; font-size: 8pt; display: flex; align-items: center; justify-content: center; text-align: center; padding: 2px 4px; min-width: 42px; max-width: 62px; border-right: 1.5px solid #000; line-height: 1.1; }' +
+    '.xmid { flex: 1; min-width: 0; padding: 3px 6px 4px; }' +
+    '.xtitle { font-weight: 800; font-size: 8.5pt; line-height: 1.25; }' +
+    '.xsip { font-weight: 700; font-size: 8pt; color: #9b1c1c; -webkit-text-fill-color: #9b1c1c; margin-top: 2px; }' +
+    '.xdolum { margin-top: 3px; background: #00b050; color: #fff; -webkit-text-fill-color: #fff; font-weight: 800; font-size: 8.5pt; display: inline-block; padding: 1px 8px; }' +
+    '.xside { border-collapse: collapse; height: 100%; }' +
+    '.xside th { background: #92d050; border: 1px solid #000; border-top: 0; border-right: 0; font-size: 6.5pt; font-weight: 800; padding: 3px 4px; max-width: 86px; line-height: 1.15; vertical-align: middle; }' +
+    'table.xgrid { width: 100%; border-collapse: collapse; table-layout: fixed; }' +
+    'table.xgrid th, table.xgrid td { border: 1px solid #000; text-align: center; font-weight: 700; font-size: 7.5pt; padding: 2px 1px; line-height: 1.15; white-space: nowrap; }' +
+    'table.xgrid th { background: #fff2cc; font-size: 6.4pt; }' +
+    'td.ton { background: #f8cbad; }' +
+    'td.fark.is-neg { background: #c6efce; }' +
+    'td.fark.is-pos { background: #e7e6e6; }' +
+    'td.yer, td.sof { color: #c00000; -webkit-text-fill-color: #c00000; font-weight: 800; }' +
     'td.sof { white-space: normal; }' +
-    'td.plk { font-size: 13pt; letter-spacing: .02em; }' +
-    'td.chk { width: 28px; padding: 2px; }' +
-    '.box { display: inline-block; width: 18px; height: 18px; border: 2px solid #000; vertical-align: middle; }' +
-    'td.not { min-width: 50px; }' +
-    'tfoot td { background: #fff; }';
+    'td.tel { color: #1d4ed8; -webkit-text-fill-color: #1d4ed8; font-size: 6.5pt; }' +
+    'td.plk { font-weight: 800; letter-spacing: .01em; }' +
+    'td.irs, td.saat { font-size: 6.4pt; }' +
+    'td.chk { padding: 1px; }' +
+    '.box { display: inline-block; width: 12px; height: 12px; border: 1.5px solid #000; vertical-align: middle; }' +
+    'tr.tot td { background: #ffff00; font-weight: 800; }' +
+    'tr.kal td { background: #fff2cc; }' +
+    'td.lab { text-align: left; padding-left: 4px; }' +
+    '.xnote { font-size: 8pt; font-weight: 800; color: #9b1c1c; -webkit-text-fill-color: #9b1c1c; padding: 2px 4px; }' +
+    'col.c-chk { width: 2.6%; } col.c-irs { width: 8.4%; } col.c-sira { width: 2.8%; } col.c-plk { width: 7.6%; }' +
+    'col.c-q { width: 3.6%; } col.c-ton { width: 5.6%; } col.c-fark { width: 4.2%; }' +
+    'col.c-yer { width: 5.8%; } col.c-sof { width: 9.4%; } col.c-tel { width: 8.8%; } col.c-saat { width: 9.6%; }';
 
-  function printTabHtml(tab) {
-    var now = new Date().toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    var body = tab.blocks.map(function (block) {
-      var rows = block.rows || [];
-      var meta = [
-        ['LİMAN', block.liman || block.port],
-        ['GEMİ', block.gemi],
-        ['BOOKING', block.booking],
-        ['SEVK', block.sevk],
-      ].filter(function (p) { return String(p[1] || '').trim(); }).map(function (p) {
-        return '<b>' + p[0] + ':</b> ' + esc(p[1]);
-      }).join(' ');
-      var t = blockTotals(rows).toplam;
-      var tr = rows.map(function (row) {
-        var out = rowDeparted(row);
-        var durum = out ? 'SARILDI' : String(row.durum || '').trim();
-        return '<tr' + (out ? ' class="out"' : '') + '>' +
-          '<td class="chk"><span class="box"></span></td>' +
-          '<td>' + esc(row.sira || '') + '</td>' +
-          '<td class="l plk">' + esc(String(row.plaka || '').trim() || '—') + '</td>' +
-          '<td>' + esc(numCell(row.bbt)) + '</td>' +
-          '<td>' + esc(numCell(row.cuval)) + '</td>' +
-          '<td>' + esc(numCell(row.palet)) + '</td>' +
-          '<td>' + esc(numCell(row.bosBbt)) + '</td>' +
-          '<td>' + esc(numCell(row.bosCuval)) + '</td>' +
-          '<td>' + esc(numCell(row.net)) + '</td>' +
-          '<td>' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
-          '<td class="l sof">' + esc(row.sofor || '') + '</td>' +
-          '<td>' + esc(row.telefon || '') + '</td>' +
-          '<td>' + esc(String(row.kantarCikis || '').trim()) + '</td>' +
-          '<td>' + esc(durum) + '</td>' +
-          '<td class="not"></td>' +
-          '</tr>';
-      }).join('');
-      return '<div class="p-blok">' +
-        '<div class="p-title">' + esc(block.title || '') + '</div>' +
-        (meta ? '<div class="p-meta">' + meta + '</div>' : '') +
-        '<table><thead><tr>' +
-          '<th>✓</th><th>#</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ<br>BBT</th><th>BOŞ<br>ÇUVAL</th>' +
-          '<th>NET</th><th>YÜKL.<br>YERİ</th><th>ŞOFÖR</th><th>TELEFON</th><th>ÇIKIŞ</th>' +
-          '<th>DURUM</th><th>NOT</th>' +
-        '</tr></thead><tbody>' + tr + '</tbody>' +
-        '<tfoot><tr><td></td><td colspan="2" class="l">TOPLAM · ' + rows.length + ' araç</td>' +
-          '<td>' + esc(fmtTotal(t.bbt)) + '</td><td>' + esc(fmtTotal(t.cuval)) + '</td><td>' + esc(fmtTotal(t.palet)) + '</td>' +
-          '<td>' + esc(fmtTotal(t.bosBbt)) + '</td><td>' + esc(fmtTotal(t.bosCuval)) + '</td><td>' + esc(fmtTotal(t.net)) + '</td>' +
-          '<td colspan="6"></td></tr></tfoot>' +
-        '</table></div>';
-    }).join('');
-    return '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Liman ' + esc(tab.label) + '</title>' +
-      '<style>' + PRINT_CSS + '</style></head><body><div id="wrap"><div id="pg">' +
-      '<div class="p-head"><h1>İhracat Takip Listesi · ' + esc(tab.label) + '</h1><span>Yazdırma: ' + esc(now) + '</span></div>' +
-      body + '</div></div></body></html>';
+  function printTon(value) {
+    var s = String(value == null ? '' : value).trim();
+    if (!s || s === '0' || s === '0.0' || s === '0,0' || s === '0.00') return '';
+    var n = parseNum(s);
+    if (!isFinite(n) || n === 0) return s;
+    if (Math.abs(n) >= 1000) return n.toLocaleString('tr-TR', { maximumFractionDigits: 3 });
+    return n.toFixed(3);
   }
 
-  // A4 dikey, 8 mm kenar: yazdırılabilir alan 194 × 281 mm (96 dpi)
-  var PAGE_W_PX = 733;
-  var PAGE_H_PX = 1040;
+  function printFark(value, keepZero) {
+    var s = String(value == null ? '' : value).trim();
+    if (!s) return '';
+    var n = parseNum(s);
+    if (!isFinite(n)) return s;
+    if (n === 0) return keepZero ? '0' : '';
+    if (Math.abs(n) >= 20 || Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
+    return n.toFixed(3);
+  }
 
-  /** Alttaki sekmede seçili liste tek A4 sayfaya sığacak kadar küçültülüp yazdırılır. */
+  function printQty(value, keepZero) {
+    var s = String(value == null ? '' : value).trim();
+    if (!s) return keepZero ? '0' : '';
+    var n = parseNum(s);
+    if (n === 0) return keepZero ? '0' : '';
+    if (Number.isInteger(n)) return String(n);
+    return fmtTotal(n);
+  }
+
+  function printLot(block) {
+    var lot = String(block.lot || '').trim();
+    if (lot) return lot;
+    var m = String(block.title || '').match(/LOT\s*NO\s*([^/]+)/i);
+    return m ? m[1].trim() : '';
+  }
+
+  function printDolum(block) {
+    var d = String(block.dolum || '').trim();
+    if (!d) {
+      var sevk = String(block.sevk || '').trim();
+      if (/\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(sevk)) d = sevk;
+    }
+    if (!d) {
+      var m = String(block.title || '').match(/L[İI]MAN\s*DOLUM\s*TAR[İI]H[İI]\s*[:.]?\s*([^/]+)/i);
+      if (m) d = m[1].trim();
+    }
+    return d
+      .replace(/^L[İI]MAN\s*DOLUM\s*TAR[İI]H[İI]\s*[:.]?\s*/i, '')
+      .replace(/^(?:SEVK\.?\s*)?S?\.?\s*TAR[İI]H[İI]\s*[:.]?\s*/i, '')
+      .trim();
+  }
+
+  function printSideHtml(block) {
+    var lot = printLot(block);
+    var cells = ['<th>YÜKLENEN LOT NO' + (lot ? ':<br>' + esc(lot) : '') + '</th>'];
+    [block.booking, block.liman || block.port, block.gemi, block.tasiyici].forEach(function (v) {
+      var s = String(v || '').trim();
+      if (s) cells.push('<th>' + esc(s) + '</th>');
+    });
+    cells.push('<th>TEDARİKÇİYE<br>GÖNDERİLDİ Mİ?</th>');
+    cells.push('<th>PERFORMANSA<br>İŞLENDİ Mİ?</th>');
+    return '<table class="xside"><tr>' + cells.join('') + '</tr></table>';
+  }
+
+  function printFarkCls(value) {
+    var s = String(value == null ? '' : value).trim();
+    if (!s) return '';
+    var n = parseNum(s);
+    if (!n) return '';
+    return n < 0 ? ' is-neg' : ' is-pos';
+  }
+
+  function printDataRow(row) {
+    var fark = printFark(row.fark, false);
+    return '<tr>' +
+      '<td class="chk"><span class="box"></span></td>' +
+      '<td class="irs">' + esc(row.irsaliye || row.irsaliyeNo || '') + '</td>' +
+      '<td>' + esc(row.sira || '') + '</td>' +
+      '<td class="plk">' + esc(String(row.plaka || '').trim()) + '</td>' +
+      '<td>' + esc(printQty(row.bbt, false)) + '</td>' +
+      '<td>' + esc(printQty(row.cuval, false)) + '</td>' +
+      '<td>' + esc(printQty(row.palet, false)) + '</td>' +
+      '<td>' + esc(printQty(row.bosBbt, false)) + '</td>' +
+      '<td>' + esc(printQty(row.bosCuval, false)) + '</td>' +
+      '<td class="ton">' + esc(printTon(row.net || row.netTonaj)) + '</td>' +
+      '<td class="ton">' + esc(printTon(row.ogr)) + '</td>' +
+      '<td class="ton">' + esc(printTon(row.giden || row.gidenTonaj)) + '</td>' +
+      '<td class="fark' + printFarkCls(row.fark) + '">' + esc(fark) + '</td>' +
+      '<td class="yer">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
+      '<td class="sof">' + esc(row.sofor || '') + '</td>' +
+      '<td class="tel">' + esc(row.telefon || '') + '</td>' +
+      '<td class="saat">' + esc(row.kantarCikis || '') + '</td>' +
+      '</tr>';
+  }
+
+  function printSumOf(rows, key) {
+    var n = 0;
+    var any = false;
+    rows.forEach(function (row) {
+      var raw = key === 'giden' ? (row.giden || row.gidenTonaj) : row[key];
+      if (String(raw == null ? '' : raw).trim() === '') return;
+      any = true;
+      n += parseNum(raw);
+    });
+    return any ? n : null;
+  }
+
+  function printMetric(kind, excelRaw, calc) {
+    var has = excelRaw != null && String(excelRaw).trim() !== '';
+    if (kind === 'ton') return printTon(has ? excelRaw : calc);
+    if (kind === 'fark') {
+      if (has) return printFark(excelRaw, true);
+      return calc == null ? '' : printFark(calc, true);
+    }
+    if (has) return printQty(excelRaw, true);
+    if (calc == null) return '';
+    return printQty(calc, true);
+  }
+
+  function printFootRow(label, cls, excel, rows, kalan) {
+    var calc = kalan ? blockTotals(rows).kalan : blockTotals(rows).toplam;
+    var spec = [
+      ['qty', 'bbt', excel && excel.bbt, calc.bbt],
+      ['qty', 'cuval', excel && excel.cuval, calc.cuval],
+      ['qty', 'palet', excel && excel.palet, calc.palet],
+      ['qty', 'bosBbt', excel && excel.bosBbt, calc.bosBbt],
+      ['qty', 'bosCuval', excel && excel.bosCuval, calc.bosCuval],
+      ['ton', 'net', excel && excel.netTonaj, kalan ? null : calc.net],
+      ['ton', 'ogr', excel && excel.ogrTonaj, kalan ? null : printSumOf(rows, 'ogr')],
+      ['ton', 'giden', excel && excel.gidenTonaj, kalan ? null : calc.giden],
+      ['fark', 'fark', excel && excel.fark, kalan ? null : printSumOf(rows, 'fark')],
+    ];
+    var cells = spec.map(function (item) {
+      var shown = printMetric(item[0], item[2], item[3]);
+      var clsName = item[0] === 'ton' ? ' class="ton"' : (item[0] === 'fark' ? ' class="fark' + printFarkCls(item[2] != null && String(item[2]).trim() !== '' ? item[2] : item[3]) + '"' : '');
+      return '<td' + clsName + '>' + esc(shown) + '</td>';
+    }).join('');
+    return '<tr class="' + cls + '"><td class="lab" colspan="4">' + label + '</td>' + cells + '<td colspan="4"></td></tr>';
+  }
+
+  function printBlockHtml(block, allBlocks) {
+    var tasiyici = String(block.tasiyici || '').trim();
+    var sip = String(block.sip || '').trim();
+    var dolum = printDolum(block);
+    var rows = block.rows || [];
+    var counts = {};
+    (allBlocks || [block]).forEach(function (b) {
+      var seen = {};
+      (b.rows || []).forEach(function (row) {
+        var k = plateKeyOf(row.plaka);
+        if (!k || seen[k]) return;
+        seen[k] = true;
+        counts[k] = (counts[k] || 0) + 1;
+      });
+    });
+    var multi = [];
+    rows.forEach(function (row) {
+      var p = String(row.plaka || '').trim();
+      var k = plateKeyOf(p);
+      if (k && counts[k] > 1 && multi.indexOf(p) < 0) multi.push(p);
+    });
+    var note = String(block.note || '').trim();
+    var extra = '';
+    if (multi.length) extra += '<div class="xnote">ÇİFT MALZEMELİ ARAÇ: ' + esc(multi.join(', ')) + '</div>';
+    if (note) extra += '<div class="xnote">MALZEME İLE İLGİLİ NOT: ' + esc(note) + '</div>';
+    return '<section class="xb">' +
+      '<div class="xh">' +
+        (tasiyici ? '<div class="xcarrier">' + esc(tasiyici) + '</div>' : '') +
+        '<div class="xmid">' +
+          '<div class="xtitle">' + esc(block.title || '') + '</div>' +
+          (sip ? '<div class="xsip">NETSİS SİPARİŞ NO : ' + esc(sip) + '</div>' : '') +
+          (dolum ? '<div class="xdolum">LİMAN DOLUM TARİHİ : ' + esc(dolum) + '</div>' : '') +
+        '</div>' +
+        printSideHtml(block) +
+      '</div>' +
+      '<table class="xgrid"><colgroup>' +
+        '<col class="c-chk"><col class="c-irs"><col class="c-sira"><col class="c-plk">' +
+        '<col class="c-q"><col class="c-q"><col class="c-q"><col class="c-q"><col class="c-q">' +
+        '<col class="c-ton"><col class="c-ton"><col class="c-ton"><col class="c-fark">' +
+        '<col class="c-yer"><col class="c-sof"><col class="c-tel"><col class="c-saat">' +
+      '</colgroup><thead><tr>' +
+        '<th>✓</th><th>İRSALİYE</th><th>#</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ<br>BBT</th><th>BOŞ<br>ÇUVAL</th>' +
+        '<th>NET<br>TONAJ</th><th>O.GR.<br>TONAJ</th><th>GİDEN<br>TONAJ</th><th>FARK</th>' +
+        '<th>YÜKLEME<br>YERİ</th><th>ŞOFÖR ADI<br>SOYADI</th><th>TELEFON</th><th>KANTAR<br>ÇIKIŞ</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(printDataRow).join('') +
+      '</tbody><tfoot>' +
+      printFootRow('TOPLAM', 'tot', block.toplam, rows, false) +
+      printFootRow('KALAN', 'kal', block.kalan, rows, true) +
+      '</tfoot></table>' + extra + '</section>';
+  }
+
+  function printShell(title, body) {
+    return '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>' + esc(title) + '</title>' +
+      '<style>' + PRINT_CSS + '</style></head><body>' + body + '</body></html>';
+  }
+
+  // A4 yatay, 5 mm kenar: yazdırılabilir alan yaklaşık 287 × 200 mm (96 dpi)
+  var PAGE_W_PX = 1088;
+  var PAGE_H_PX = 752;
+
+  /** Alttaki sekmede seçili liste: A4 yatay, Excel düzeni. Sığan bloklar aynı sayfada, tek bloksa sayfayı doldurur. */
   async function printCurrent() {
     var day = activeDay();
     var blocks = (day ? fileBlocks(day) : []).filter(function (block) {
@@ -884,31 +1057,73 @@
     await printTab({ label: currentTabLabel() + (state.port ? ' · ' + state.port : ''), blocks: blocks });
   }
 
-  /**
-   * Sayfaya sığmıyorsa liste orantılı küçültülür; okunmaz olmasın diye en fazla %80'e.
-   * Yine sığmayan uzun liste sonraki sayfaya geçer (blok bölünmez); #wrap ortalar.
-   */
-  function fitPage(page) {
-    var scale = Math.min(PAGE_W_PX / Math.max(page.scrollWidth, 1), PAGE_H_PX / Math.max(page.scrollHeight, 1), 1);
-    scale = Math.max(scale, 0.8);
-    if (scale < 1) page.style.zoom = String(Math.floor(scale * 1000) / 1000);
+  function packPrintGroups(heights) {
+    var pages = [];
+    var i = 0;
+    while (i < heights.length) {
+      var group = [i];
+      var used = heights[i];
+      var j = i + 1;
+      if (heights[i] <= PAGE_H_PX) {
+        while (j < heights.length && used + heights[j] <= PAGE_H_PX) {
+          group.push(j);
+          used += heights[j];
+          j++;
+        }
+      }
+      pages.push(group);
+      i = group[group.length - 1] + 1;
+    }
+    return pages;
+  }
+
+  function fitPrintPage(page) {
+    var fit = page.querySelector('.fit');
+    if (!fit) return;
+    fit.style.zoom = '1';
+    fit.style.width = PAGE_W_PX + 'px';
+    var layoutH = fit.scrollHeight || 1;
+    if (layoutH <= PAGE_H_PX) return;
+    var zoom = PAGE_H_PX / layoutH;
+    if (zoom < 0.22) zoom = 0.22;
+    fit.style.zoom = String(Math.round(zoom * 1000) / 1000);
   }
 
   async function printTab(tab) {
+    var blocks = tab.blocks || [];
     var oldTitle = document.title;
     var frame = document.createElement('iframe');
     frame.setAttribute('aria-hidden', 'true');
-    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:' + PAGE_W_PX + 'px;height:' + PAGE_H_PX + 'px;border:0;opacity:1;visibility:visible;';
+    frame.style.cssText = 'position:fixed;left:-12000px;top:0;width:' + (PAGE_W_PX + 24) + 'px;height:3200px;border:0;opacity:1;visibility:visible;';
     document.body.appendChild(frame);
     try {
       var doc = frame.contentWindow.document;
+      var measureBody = '<div id="measure" style="width:' + PAGE_W_PX + 'px">' +
+        blocks.map(function (block) { return printBlockHtml(block, blocks); }).join('') + '</div>';
       doc.open();
-      doc.write(printTabHtml(tab));
+      doc.write(printShell(tab.label, measureBody));
       doc.close();
-      await new Promise(function (r) { setTimeout(r, 150); });
-      fitPage(doc.getElementById('pg'));
+      await new Promise(function (r) { setTimeout(r, 80); });
+      var nodes = doc.querySelectorAll('#measure .xb');
+      var heights = [];
+      nodes.forEach(function (el) {
+        var style = frame.contentWindow.getComputedStyle(el);
+        heights.push(el.offsetHeight + (parseFloat(style.marginBottom) || 0));
+      });
+      var groups = packPrintGroups(heights);
+      var pages = groups.map(function (group) {
+        return '<div class="page"><div class="fit">' + group.map(function (idx) {
+          return printBlockHtml(blocks[idx], blocks);
+        }).join('') + '</div></div>';
+      }).join('');
+      doc.open();
+      doc.write(printShell('Liman ' + tab.label, pages));
+      doc.close();
+      await new Promise(function (r) { setTimeout(r, 80); });
+      doc.querySelectorAll('.page').forEach(fitPrintPage);
+      frame.style.height = (PAGE_H_PX * Math.max(groups.length, 1) + 40) + 'px';
       document.title = 'Liman ' + tab.label;
-      await new Promise(function (r) { setTimeout(r, 100); });
+      await new Promise(function (r) { setTimeout(r, 60); });
       frame.contentWindow.focus();
       frame.contentWindow.print();
       await new Promise(function (r) { setTimeout(r, 400); });
@@ -1067,9 +1282,14 @@
       closeDay(closeBtn.getAttribute('data-close-day') || '', closeBtn);
       return;
     }
-    var reopenBtn = ev.target.closest('[data-reopen-day]');
-    if (reopenBtn) {
-      reopenDay(reopenBtn.getAttribute('data-reopen-day') || '', reopenBtn);
+    var deleteBtn = ev.target.closest('[data-delete-day]');
+    if (deleteBtn) {
+      deleteDay(deleteBtn.getAttribute('data-delete-day') || '', deleteBtn);
+      return;
+    }
+    var archiveDel = ev.target.closest('[data-delete-archive]');
+    if (archiveDel) {
+      deleteArchive(archiveDel.getAttribute('data-delete-archive') || '', archiveDel);
       return;
     }
     var dayBtn = ev.target.closest('[data-day]');

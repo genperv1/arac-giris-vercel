@@ -59,10 +59,13 @@
     .admin-days { display: flex; flex-direction: column; gap: 8px; }
     .close-day-row, .closed-days-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .btn-close-day { background: #b91c1c; padding: 6px 12px; font-size: .8rem; }
-    .btn-close-day:disabled { opacity: .55; cursor: default; }
-    .closed-label { font-weight: 700; color: #7f1d1d; }
-    .closed-item { background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 3px 8px; }
-    .chip-reopen { padding: 3px 9px; font-size: .74rem; background: #dcfce7; color: #14532d; }
+    .btn-delete-day { background: #7f1d1d; padding: 6px 12px; font-size: .8rem; }
+    .btn-close-day:disabled, .btn-delete-day:disabled { opacity: .55; cursor: default; }
+    .archive-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .archive-label { font-weight: 800; color: #1e3a8a; letter-spacing: .02em; }
+    .archive-empty { color: #64748b; }
+    .archive-item { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 3px 8px; }
+    .chip-delete { padding: 3px 9px; font-size: .74rem; background: #fee2e2; color: #991b1b; }
     .blok-head { display: grid; grid-template-columns: 1.4fr .9fr; gap: 0; border-bottom: 1px solid #9ccc9c; }
     .blok-title { margin: 0; padding: 8px 10px; background: #e2efda; font-size: .92rem; line-height: 1.35; font-weight: 700; }
     .meta { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -265,7 +268,7 @@
       <div class="ports">
         <div id="ports"></div>
         <input id="plate" class="search" type="search" placeholder="Plaka ara" />
-        <button type="button" class="btn btn-print" data-print-current title="Alttaki sekmede seçili liste yazdırılır">Yazdır</button>
+        <button type="button" class="btn btn-print" data-print-current title="Seçili liste A4 yatay, Excel düzeninde yazdırılır">Yazdır</button>
         <span class="live" id="liveDot" title="Liste kendiliğinden yenilenir"><i aria-hidden="true"></i><span>Canlı</span></span>
       </div>
     </div>
@@ -277,6 +280,6 @@
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
-  <script src="liman.js?v=20261006-liman-tamamlandi"></script>
+  <script src="liman.js?v=20261007-liman-tik"></script>
 </body>
 </html>
