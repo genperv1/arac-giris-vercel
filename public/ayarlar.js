@@ -19,7 +19,7 @@
 
   const AY_SECTIONS = [
     'section-plaka', 'section-pasif', 'section-eksik', 'section-ozmal',
-    'section-imza', 'section-yazdir', 'section-ban', 'section-cihazlar', 'section-yedek',
+    'section-imza', 'section-yazdir', 'section-ban', 'section-cihazlar', 'section-yazisma', 'section-yedek',
   ];
 
   const SECTION_META = {
@@ -62,6 +62,11 @@
       title: 'Kantar cihazları',
       desc: 'Kantar hesaplarının hatırlanan bilgisayarları — oturum şifresiz yenilenir; şüpheli cihazı düşürün.',
       hash: 'cihazlar',
+    },
+    'section-yazisma': {
+      title: 'Yazışmalar',
+      desc: 'Amir ve kantar mesajlarını silin. Açık pencereler de temizlenir, yazışma sıfırdan başlar.',
+      hash: 'yazisma',
     },
     'section-yedek': {
       title: 'Yedekleme',
@@ -1920,6 +1925,56 @@
     document.getElementById('clearReportsBtn')?.addEventListener('click', handleClearAllReports);
   }
 
+  function clearChatBrowser(clearedAt) {
+    const stamp = String(Number(clearedAt) || 0);
+    if (stamp === '0') return;
+    try {
+      localStorage.removeItem('gpm_chat_sync_v1');
+      localStorage.removeItem('gpm_chat_unread_v1');
+      localStorage.removeItem('gpm_chat_reply_v1');
+      localStorage.removeItem('gpm_chat_seen_v1');
+      localStorage.setItem('gpm_chat_cleared_v1', stamp);
+    } catch (e) { /* ignore */ }
+    try {
+      if (window.MsnChat && typeof window.MsnChat.wipe === 'function') window.MsnChat.wipe(stamp);
+    } catch (e) { /* ignore */ }
+  }
+
+  async function handleClearChat() {
+    const u = window.rpUi || {};
+    let ok = false;
+    const ask = 'Tüm yazışmalar silinecek. Açık ekranlardaki mesajlar da gider ve sohbet sıfırdan başlar. Devam edilsin mi?';
+    if (typeof u.confirm === 'function') ok = await u.confirm(ask);
+    else ok = confirm(ask);
+    if (!ok) return;
+
+    const btn = document.getElementById('chatClearBtn');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await apiFetch('/api/chat/clear', { method: 'POST', body: '{}' });
+      let data = {};
+      try { data = await r.json(); } catch (e) { data = {}; }
+      if (r.status === 403) {
+        toast('Bu işlem yalnız amir hesabıyla yapılır.', true);
+        return;
+      }
+      if (!r.ok || !data.ok) {
+        toast('Yazışmalar silinemedi.', true);
+        return;
+      }
+      clearChatBrowser(data.clearedAt);
+      toast('Yazışmalar silindi. Yeni mesaj sıfırdan başlar.');
+    } catch (e) {
+      toast('Yazışmalar silinemedi.', true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function bindClearChatUi() {
+    document.getElementById('chatClearBtn')?.addEventListener('click', handleClearChat);
+  }
+
   function setupEmergencyBanOnly() {
     AY_SECTIONS.forEach((id) => {
       if (id === 'section-ban') return;
@@ -2043,6 +2098,7 @@
       console.warn('print layout editor bind', e);
     }
     bindClearReportsUi();
+    bindClearChatUi();
     bindIncompleteUi();
     bindPasifUi();
     bindOzmalUi();
@@ -2063,6 +2119,8 @@
       'section-ozmal': 'section-ozmal',
       ban: 'section-ban',
       'section-ban': 'section-ban',
+      yazisma: 'section-yazisma',
+      'section-yazisma': 'section-yazisma',
       yedek: 'section-yedek',
       'section-yedek': 'section-yedek',
       yazdir: 'section-yazdir',

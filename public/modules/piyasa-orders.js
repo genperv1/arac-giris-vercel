@@ -319,7 +319,7 @@
 
     let events = [];
     try {
-      const r = await fetch('/api/reports?limit=10000&_=' + Date.now(), {
+      const r = await fetch('/api/reports?slim=1&limit=10000&_=' + Date.now(), {
         method: 'GET',
         credentials: 'include',
         headers: { 'Cache-Control': 'no-store' },

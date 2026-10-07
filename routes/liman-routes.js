@@ -13,6 +13,9 @@ const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDayS
 // çıkış akışı en fazla bu kadar geriye gider.
 const DEPARTED_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const DEPARTED_MAX_ROWS = 3000;
+const STAMP_REFRESH_MS = 120000;
+const PRINT_MARK_TTL_MS = 20000;
+const DEPARTED_CACHE_MS = 20000;
 
 const STATE_KEY = 'liman_state_v1';
 const MAX_ROWS = 2000;
@@ -22,7 +25,7 @@ const DAY_KEY_RE = /^(\d{4}-\d{2}-\d{2}|tarihsiz)$/;
 // Kapatılan günün mühürlü kopyası. Canlı liste kantar Excel silince düşmez; amir kapatır. Sayı kontrol mühürlü kopyayı kullanır.
 const ARCHIVE_PREFIX = 'liman_archive_v1:';
 const ARCHIVE_INDEX_KEY = 'liman_archive_index_v1';
-const ARCHIVE_ROW_FIELDS = ['sira', 'plaka', 'bbt', 'cuval', 'palet', 'bosBbt', 'bosCuval', 'net', 'giden', 'yukleme', 'sofor', 'telefon', 'irsaliye', 'tasiyici', 'note'];
+const ARCHIVE_ROW_FIELDS = ['sira', 'plaka', 'bbt', 'cuval', 'palet', 'bosBbt', 'bosCuval', 'net', 'ogr', 'giden', 'fark', 'yukleme', 'sofor', 'telefon', 'irsaliye', 'tasiyici', 'note', 'kantarGiris', 'kantarCikis'];
 const CHECK_SUMMARY_FIELDS = ['matchedOk', 'matchedBad', 'onlyLeft', 'onlyRight', 'total', 'lineOk', 'lineBad', 'lineOnlyLeft', 'lineOnlyRight'];
 const DEFAULT_SITE_IPS = {
   AVDAN: ['95.3.27.82'],
@@ -136,6 +139,12 @@ function registerLimanRoutes(api, ctx, publicApp) {
   // Bellekte tutulur; okumada DB de bakılır (localhost + canlı aynı veritabanını kullanınca eski liste kalmasın).
   let cachedRaw = null;
   let version = '';
+  let sheetStamp = '';
+  let heartbeatStamp = '';
+  let stampsLoadedAt = 0;
+  let stampsPromise = null;
+  let printMarkCache = { at: 0, value: null };
+  let departedCache = { key: '', at: 0, body: null };
 
   async function loadRaw() {
     const r = await q('SELECT value FROM kv_store WHERE key = $1', [STATE_KEY]);
@@ -189,9 +198,11 @@ function registerLimanRoutes(api, ctx, publicApp) {
     const applied = !!(r && ((r.rowCount > 0) || (r.rows && r.rows.length)));
     if (!applied) {
       cachedRaw = null;
+      stampsLoadedAt = 0;
       return { ok: false, conflict: true };
     }
     cachedRaw = raw;
+    rememberStamps(state);
     if (!(opts && opts.silent)) version = String(Date.now());
     return { ok: true };
   }
@@ -358,7 +369,11 @@ function registerLimanRoutes(api, ctx, publicApp) {
       gemi: block.gemi || '',
       booking: block.booking || '',
       sevk: block.sevk || '',
+      dolum: block.dolum || '',
       sip: block.sip || '',
+      note: block.note || '',
+      tolerans: block.tolerans || '',
+      exportLine: block.exportLine || '',
       tasiyici: block.tasiyici || '',
       yd: block.yd || '',
       lot: block.lot || '',
@@ -533,6 +548,39 @@ function registerLimanRoutes(api, ctx, publicApp) {
     }));
   }
 
+  function rememberStamps(state) {
+    sheetStamp = sheetStampOf(state);
+    heartbeatStamp = heartbeatStampOf(state);
+    stampsLoadedAt = Date.now();
+  }
+
+  async function ensureStamps() {
+    const fresh = stampsLoadedAt && (Date.now() - stampsLoadedAt < STAMP_REFRESH_MS) && version !== '';
+    if (fresh) return;
+    if (!stampsPromise) {
+      stampsPromise = (async () => {
+        rememberStamps(await readState());
+      })().finally(() => { stampsPromise = null; });
+    }
+    await stampsPromise;
+  }
+
+  function printMarkTtl() {
+    const n = Number(process.env.LIMAN_PRINT_MARK_MS);
+    return Number.isFinite(n) && n >= 0 ? n : PRINT_MARK_TTL_MS;
+  }
+
+  async function lastPrintMark() {
+    if (printMarkCache.at && Date.now() - printMarkCache.at < printMarkTtl()) return printMarkCache.value;
+    let lastPrint = null;
+    try {
+      const pr = await q('SELECT MAX(tarih) AS t FROM print_history');
+      lastPrint = (pr.rows[0] && pr.rows[0].t != null) ? String(pr.rows[0].t) : null;
+    } catch (_) { /* baskı bilgisi yoksa yalnız liste sürümü */ }
+    printMarkCache = { at: Date.now(), value: lastPrint };
+    return lastPrint;
+  }
+
   /** Liste içeriği (giden tonaj / durum). Nabız bu damgayı değiştirmez; liman sayfası bunu izler. */
   function sheetStampOf(state) {
     const sites = {};
@@ -548,6 +596,11 @@ function registerLimanRoutes(api, ctx, publicApp) {
     return crypto.createHash('sha1').update(JSON.stringify(sites)).digest('hex').slice(0, 12);
   }
 
+  /** Kantar nabzı. Liste damgasını değiştirmez; amir ekranındaki Excel durumu bunu izler. */
+  function heartbeatStampOf(state) {
+    return crypto.createHash('sha1').update(JSON.stringify(heartbeats(state))).digest('hex').slice(0, 12);
+  }
+
   function noStore(res) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     res.setHeader('Pragma', 'no-cache');
@@ -557,12 +610,14 @@ function registerLimanRoutes(api, ctx, publicApp) {
   }
 
   function viewFor(req, state) {
+    rememberStamps(state);
     const amir = isAmirUser(req);
     const days = openDays(state);
     return {
       ok: true,
       version,
-      sheet: sheetStampOf(state),
+      sheet: sheetStamp,
+      h: heartbeatStamp,
       canEdit: amir,
       // Kapat / yeniden aç / listeyi kaldır: yalnız Selahattin Toker
       canClose: canManageLimanList(req.user),
@@ -672,15 +727,10 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   reader.get(readPrefix + '/liman/version', async (req, res) => {
     try {
-      const state = await readState();
-      // Son takip formu baskısı: değişince liman sayfası aracı hemen İÇERİDE gösterir
-      let lastPrint = null;
-      try {
-        const pr = await q('SELECT MAX(tarih) AS t FROM print_history');
-        lastPrint = (pr.rows[0] && pr.rows[0].t != null) ? String(pr.rows[0].t) : null;
-      } catch (_) { /* baskı bilgisi yoksa yalnız liste sürümü */ }
+      await ensureStamps();
+      const lastPrint = await lastPrintMark();
       noStore(res);
-      return res.json({ v: version, p: lastPrint, s: sheetStampOf(state) });
+      return res.json({ v: version, p: lastPrint, s: sheetStamp, h: heartbeatStamp });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_VERSION_FAILED');
     }
@@ -695,6 +745,12 @@ function registerLimanRoutes(api, ctx, publicApp) {
       const now = Date.now();
       let since = Number(req.query && req.query.since);
       if (!Number.isFinite(since) || since <= 0 || now - since > DEPARTED_MAX_WINDOW_MS) since = now - 3 * 24 * 60 * 60 * 1000;
+      const printMark = await lastPrintMark();
+      const cacheKey = Math.floor(since / (60 * 60 * 1000)) + ':' + (printMark || '');
+      if (departedCache.key === cacheKey && Date.now() - departedCache.at < DEPARTED_CACHE_MS && Array.isArray(departedCache.body)) {
+        noStore(res);
+        return res.json(departedCache.body);
+      }
       const r = await q(
         'SELECT ' + printHistoryListColumns(true) + ', ' + printHistoryKantarSelect() + ', ' + printHistoryExcelDaySelect() +
         ' FROM print_history WHERE tarih >= $1 ORDER BY tarih DESC LIMIT $2',
@@ -719,6 +775,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
           });
         } catch (_) { /* bozuk satır atlanır */ }
       });
+      departedCache = { key: cacheKey, at: Date.now(), body: out };
       noStore(res);
       return res.json(out);
     } catch (err) {

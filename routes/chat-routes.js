@@ -1,6 +1,6 @@
 'use strict';
 
-const { createChatStore } = require('../lib/chat-store');
+const { createChatStore, CHAT_KEYS } = require('../lib/chat-store');
 const { inboxKeyFromUsername, isKantarTarget } = require('../lib/kantar-nudge');
 
 function registerChatRoutes(api, ctx) {
@@ -98,11 +98,30 @@ function registerChatRoutes(api, ctx) {
         ok: true,
         messages: store.inbox(mine(req), since),
         replyPeers: typeof store.replyPeers === 'function' ? store.replyPeers(mine(req)) : [],
+        clearedAt: typeof store.clearedAt === 'function' ? store.clearedAt() : 0,
       });
     } catch (err) {
       return sendApiError(res, err, 500, 'CHAT_INBOX_FAILED');
     }
   });
+
+  if (typeof ctx.requireAmir === 'function') {
+    api.post('/chat/clear', ctx.requireAmir, (req, res) => {
+      try {
+        touchPresence(req);
+        const result = typeof store.clear === 'function' ? store.clear() : { ok: false };
+        if (!result.ok) return res.status(500).json({ ok: false, error: 'Yazışmalar silinemedi' });
+        try {
+          if (typeof broadcastToUsers === 'function') {
+            broadcastToUsers('chat_cleared', { clearedAt: result.clearedAt }, CHAT_KEYS);
+          }
+        } catch (e) { /* ignore */ }
+        return res.json({ ok: true, clearedAt: result.clearedAt });
+      } catch (err) {
+        return sendApiError(res, err, 500, 'CHAT_CLEAR_FAILED');
+      }
+    });
+  }
 
   api.get('/chat', requireValidSession, (req, res) => {
     try {
@@ -110,7 +129,11 @@ function registerChatRoutes(api, ctx) {
       const peer = sanitizeString((req.query && req.query.peer) || '', 20);
       const since = Number((req.query && req.query.since) || 0);
       res.setHeader('Cache-Control', 'no-store');
-      return res.json({ ok: true, messages: store.history(mine(req), peer, since) });
+      return res.json({
+        ok: true,
+        messages: store.history(mine(req), peer, since),
+        clearedAt: typeof store.clearedAt === 'function' ? store.clearedAt() : 0,
+      });
     } catch (err) {
       return sendApiError(res, err, 500, 'CHAT_READ_FAILED');
     }

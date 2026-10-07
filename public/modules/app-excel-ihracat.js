@@ -1360,7 +1360,10 @@ function _limanBlockSideInfo(grid, headerRowIdx, headerText) {
       if (!field || out[field]) continue;
       for (let k = c + 1; k < Math.min(row.length, c + 4); k++) {
         const val = String(row[k] == null ? '' : row[k]).trim();
-        if (val) { out[field] = val; break; }
+        if (!val) continue;
+        if (field === 'sevk' && /S\.?\s*TAR/i.test(val)) continue;
+        out[field] = val;
+        break;
       }
     }
   }
@@ -1374,7 +1377,37 @@ function _limanBlockSideInfo(grid, headerRowIdx, headerText) {
     if (m) out.gemi = m[1].trim();
   }
   out.sip = _limanBlockSip(grid, headerRowIdx, headerText);
+  out.tolerans = _limanBlockTolerans(grid, headerRowIdx);
+  out.exportLine = _limanBlockExportLine(grid, headerRowIdx);
   return out;
+}
+
+function _limanBlockExportLine(grid, headerRowIdx) {
+  const from = Math.max(0, headerRowIdx - 12);
+  for (let rr = headerRowIdx; rr >= from; rr--) {
+    const row = grid[rr] || [];
+    if (rr < headerRowIdx && typeof isIhracatBlockHeaderRow === 'function' && isIhracatBlockHeaderRow(row)) break;
+    for (let c = 0; c < row.length; c++) {
+      const text = String(row[c] == null ? '' : row[c]).replace(/\s*\n\s*/g, ' ').trim();
+      if (/EXPORT\s*REF/i.test(text)) return text.slice(0, 500);
+    }
+  }
+  return '';
+}
+
+function _limanBlockTolerans(grid, headerRowIdx) {
+  const from = Math.max(0, headerRowIdx - 8);
+  for (let rr = headerRowIdx - 1; rr >= from; rr--) {
+    const row = grid[rr] || [];
+    for (let c = 0; c < row.length; c++) {
+      const head = _limanNormHead(row[c]);
+      if (!/MAX/.test(head) || !/TOLERANS/.test(head)) continue;
+      const raw = (grid[rr + 1] || [])[c];
+      const n = Number(String(raw == null ? '' : raw).replace(/\s/g, '').replace(',', '.').replace(/^\+/, ''));
+      if (Number.isFinite(n) && n > 0) return String(Math.round(n));
+    }
+  }
+  return '';
 }
 
 /** Sayı kontrol Netsis raporunu bu numarayla eşler; önceki bloğun numarası sızmasın diye yukarı doğru en yakını alınır. */
@@ -1423,11 +1456,19 @@ function _limanGirisCol(headerRow) {
 
 /** "LİMAN DOLUM TARİHİ : 07.10.2026 ÇARŞAMBA" satırı, Excel'deki yeşil şerit. */
 function _limanBlockDolum(grid, headerRowIdx) {
-  const from = Math.max(0, headerRowIdx - 10);
+  const from = Math.max(0, headerRowIdx - 12);
+  const re = /L[Iİ]MAN\s*DOLUM\s*TAR[Iİ]H[Iİ]\s*[:.]?\s*(.+)/i;
   for (let rr = headerRowIdx; rr >= from; rr--) {
-    const text = _rowToText(grid[rr] || []).replace(/\s+/g, ' ').trim();
-    const m = text.match(/L[Iİ]MAN\s*DOLUM\s*TAR[Iİ]H[Iİ]\s*[:.]?\s*(.+)/i);
-    if (m && m[1]) return m[1].replace(/\s+/g, ' ').trim().slice(0, 80);
+    const row = grid[rr] || [];
+    if (rr < headerRowIdx && typeof isIhracatBlockHeaderRow === 'function' && isIhracatBlockHeaderRow(row)) break;
+    for (let c = 0; c < row.length; c++) {
+      const text = String(row[c] == null ? '' : row[c]).replace(/\s+/g, ' ').trim();
+      const m = text.match(re);
+      if (!m || !m[1]) continue;
+      const dolum = m[1].replace(/\s+/g, ' ').trim();
+      if (/S\.?\s*TAR/i.test(dolum)) continue;
+      return dolum.slice(0, 80);
+    }
   }
   return '';
 }
@@ -1497,7 +1538,7 @@ function _limanSheetRow(d, parseCols, blockCols, yuklemeCol, soforCol, telefonCo
   if (/^(SIRA|SIRANO|PLAKA)$/i.test(_limanNormHead(plaka))) return null;
   return {
     sira,
-    plaka: plaka ? normPlate(plaka) || plaka : '',
+    plaka: plaka,
     bbt: _nz(d[blockCols.bbt]),
     cuval: _nz(d[blockCols.cuval]),
     palet: _nz(d[blockCols.palet]),
@@ -2885,6 +2926,74 @@ function _refreshExcelDateWarnBanner(force) {
   _loadHeaderNote(!!force).then(() => _paintHeaderNote(false));
 }
 
+function _piyasaExcelUpdatedIso() {
+  try {
+    const st = window.__PIYASA_STATE__;
+    if (st && st.excelUpdatedAt) return String(st.excelUpdatedAt);
+  } catch (e) {}
+  try {
+    const raw = localStorage.getItem('piyasa_state_v1');
+    if (!raw) return '';
+    const piy = JSON.parse(raw) || {};
+    return String(piy.excelUpdatedAt || '');
+  } catch (e) {
+    return '';
+  }
+}
+
+function _istanbulClockFields(iso) {
+  const dt = new Date(iso);
+  if (isNaN(dt.getTime())) return null;
+  const bag = {};
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(dt).forEach((p) => { bag[p.type] = p.value; });
+  if (!bag.hour || !bag.minute || !bag.day || !bag.month || !bag.year) return null;
+  return bag;
+}
+
+function _piyasaUpdateClockParts(iso) {
+  const when = _istanbulClockFields(iso);
+  if (!when) return null;
+  const now = _istanbulClockFields(new Date().toISOString());
+  const sameDay = now && when.day === now.day && when.month === now.month && when.year === now.year;
+  const clock = when.hour + ':' + when.minute;
+  return {
+    label: sameDay ? ('GÜNCELLEME ' + clock) : ('GÜNCELLEME ' + when.day + '.' + when.month + ' ' + clock),
+    full: when.day + '.' + when.month + '.' + when.year + ' ' + clock,
+  };
+}
+
+function _piyasaUpdateClockMarkup() {
+  const parts = _piyasaUpdateClockParts(_piyasaExcelUpdatedIso());
+  if (!parts) return '<b class="piyasa-update-clock" id="chipPiyasaUpdatedAt" hidden></b>';
+  return `<b class="piyasa-update-clock" id="chipPiyasaUpdatedAt" title="${_escapeHeaderNote('Piyasa Excel güncelleme saati: ' + parts.full)}">${_escapeHeaderNote(parts.label)}</b>`;
+}
+
+function _paintPiyasaUpdateClock() {
+  const parts = _piyasaUpdateClockParts(_piyasaExcelUpdatedIso());
+  document.querySelectorAll('.piyasa-update-clock').forEach((el) => {
+    if (!parts) {
+      el.textContent = '';
+      el.hidden = true;
+      el.removeAttribute('title');
+      return;
+    }
+    el.hidden = false;
+    el.textContent = parts.label;
+    el.title = 'Piyasa Excel güncelleme saati: ' + parts.full;
+  });
+}
+
+try { window.piyasaUpdateClockMarkup = _piyasaUpdateClockMarkup; } catch (e) {}
+try { window.paintPiyasaUpdateClock = _paintPiyasaUpdateClock; } catch (e) {}
+
 // PİYASA modülü gibi dış modüller Excel yükleyince, header'daki yazıları anında güncellemek için
 function refreshHeaderExcelInfo(){
   try {
@@ -2914,6 +3023,7 @@ function refreshHeaderExcelInfo(){
       if (weekWarn) chipPiy.title += ' — Hafta uyumsuzluğu olabilir';
     }
     if (chipPiyText) chipPiyText.textContent = _buildPiyasaChipText(info);
+    _paintPiyasaUpdateClock();
     try {
       const ihrChip = document.getElementById('chipIhracat');
       if (ihrChip && (info.warnings || []).length) ihrChip.classList.add('chip-alert');
@@ -4204,6 +4314,11 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
     const limanTelefonCol = _limanHeaderCol(row, /^TELEFON|^TEL\b/);
     const limanCikisCol = _limanCikisCol(row);
     const limanGirisCol = _limanGirisCol(row);
+    // Sağ taraftaki SIRANO formül sütunu (V) değil, plakanın hemen solu (B) sıra numarasıdır.
+    const limanCols = Object.assign({}, blockCols);
+    if (limanCols.plaka > 0 && (limanCols.sirano == null || limanCols.sirano > limanCols.plaka)) {
+      limanCols.sirano = limanCols.plaka - 1;
+    }
     const limanSheetBlock = Object.assign({
       title: headerText,
       liman: sevkYeri,
@@ -4252,7 +4367,7 @@ function parseIhracatRowsFromWorkbook(wb, sheetName, opts) {
         continue;
       }
       const limanRow = _limanSheetRow(
-        d, parseCols, blockCols, yuklemeCol, limanSoforCol, limanTelefonCol,
+        d, parseCols, limanCols, yuklemeCol, limanSoforCol, limanTelefonCol,
         _limanCikisFromSheet(ws, rr + 1, limanCikisCol, d[limanCikisCol]),
         _limanCikisFromSheet(ws, rr + 1, limanGirisCol, limanGirisCol == null ? '' : d[limanGirisCol])
       );

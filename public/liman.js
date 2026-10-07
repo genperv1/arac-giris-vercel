@@ -42,6 +42,7 @@
     state.days = data.days || [];
     state.version = data.version || '';
     if (data.sheet) state.sheetStamp = data.sheet;
+    if (data.h) state.heartStamp = data.h;
     state.canEdit = !!data.canEdit;
     state.canClose = !!data.canClose;
     state.sites = data.sites || {};
@@ -166,7 +167,7 @@
     var archiveRow = '';
     if (state.canClose) {
       var files = state.archive || [];
-      var open = state.archiveOpen !== false;
+      var open = state.archiveOpen === true;
       var items = files.map(function (c) {
         var when = c.closedAt ? new Date(c.closedAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
         return '<div class="archive-file">' +
@@ -1201,7 +1202,6 @@
     if (gen !== viewGeneration) return;
     applyView(data, gen);
     lastCheck = Date.now();
-    lastFull = Date.now();
   }
 
   function applyMarks() {
@@ -1295,7 +1295,7 @@
       return;
     }
     if (ev.target.closest('[data-archive-toggle]')) {
-      state.archiveOpen = state.archiveOpen === false;
+      state.archiveOpen = state.archiveOpen !== true;
       render();
       return;
     }
@@ -1371,6 +1371,7 @@
     }
     // Liman görevlisi telefondan bakıyor: Güncelle'ye basmadan liste kendi tazelenir.
     setInterval(checkForChange, CHECK_MS);
+    setInterval(function () { renderExcelStatus(); }, 60 * 1000);
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) checkForChange(true);
     });
@@ -1381,10 +1382,8 @@
     window.addEventListener('online', function () { checkForChange(true); });
   }
 
-  var CHECK_MS = 2 * 1000;           // kantar yeni liste gönderdi mi (hafif istek)
-  var FULL_MS = 15 * 1000;           // çıkış (sarıldı) ve baskı için tam yenileme
+  var CHECK_MS = 2 * 1000;           // damga değişti mi (hafif istek); tam liste yalnız o zaman iner
   var lastCheck = 0;
-  var lastFull = 0;
   var checking = false;
   async function checkForChange(force) {
     if (checking) return;
@@ -1395,7 +1394,7 @@
     checking = true;
     lastCheck = Date.now();
     try {
-      if (force || Date.now() - lastFull >= FULL_MS) {
+      if (force) {
         await guncelle();
         return;
       }
@@ -1403,13 +1402,16 @@
       var printed = info && info.p != null && state.printMark != null && info.p !== state.printMark;
       var sheetChanged = info && info.s && state.sheetStamp && info.s !== state.sheetStamp;
       var versionChanged = info && info.v && state.version && info.v !== state.version;
+      var heartChanged = info && info.h && state.heartStamp && info.h !== state.heartStamp;
       if (info && info.p != null) state.printMark = info.p;
       if (info && info.s && !state.sheetStamp) state.sheetStamp = info.s;
-      if (printed || sheetChanged || versionChanged) {
+      if (info && info.h) state.heartStamp = info.h;
+      if (printed || sheetChanged || versionChanged || heartChanged) {
         await guncelle();
         return;
       }
       setLive(true);
+      renderExcelStatus();
     } catch (e) {
       setLive(false);
     } finally {

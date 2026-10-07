@@ -194,6 +194,33 @@ test('KANTAR ÇIKIŞ, kantar giriş, o.gr, fark ve liman dolum tarihi liman sat�
   assert.equal(parser.__limanBlocks[0].dolum, '05.10.2026 PAZARTESİ');
 });
 
+test('tolerans, ihracat satırı ve dosya adı sevkiyat tarihi liman dolumu olmaz', () => {
+  const parser = loadParser();
+  const yd = 'YD92(M) / LOT NO 26 08 10 / NET 1150 KG / EVYAP';
+  const exportLine = '-------------   EXPORT REF NO : 0 / NETSIS SİPARİŞ NO : M20202600000614   -------------   LİMAN DOLUM TARİHİ : 06.10.2026 SALI';
+  const grid = [
+    ['İHRACAT TAKİP LİSTESİ'],
+    ['AKYÜZ', yd, '', '', '', '', '', '', '', '', '', '', '', 'YD92(M) / LOT NO 26 08 10'],
+    ['', exportLine],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', 'MAX. ARTI TOLERANS'],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', 420, '', '', '', '', '', '', '', 'SEVK.TARİHİ', 'S.TARİHİ: 06.10.2026'],
+    ['YD92', 1150, 'PLAKA', 'BBT', 'ÇUVAL', 'PALET', 'BOŞ BBT', 'BOŞ ÇUVAL', 'NET TONAJ', 'O.GR. TONAJ', 'GİDEN TONAJ', 'FARK', 'HP 0,074-0,30', '', 'YÜKLEME YERİ', 'ŞOFÖR ADI SOYADI', 'TELEFON', 'KANTAR GİRİŞ', 'KANTAR ÇIKIŞ'],
+    ['R01 202604106', 1, '43AAF598', 26, '', 13, 1, '', 29900, 30220, 30200, -20, '', '', 'AVDAN', 'YÜKSEL FERİZ', '5374031074', '06.10.2026 08:10', '06.10.2026 09:02'],
+    ['MADENCİLİK KESİLECEK', 'TOPLAM'],
+  ];
+  const rows = limanRowsFromParse(parser, grid, '06.10.2026.xlsx');
+  const block = parser.__limanBlocks[0];
+  assert.equal(rows[0].kantarGiris, '06.10.2026 08:10');
+  assert.equal(rows[0].kantarCikis, '06.10.2026 09:02');
+  assert.equal(rows[0].telefon, '5374031074');
+  assert.equal(rows[0].sira, '1');
+  assert.equal(rows[0].plaka, '43AAF598');
+  assert.equal(block.dolum, '06.10.2026 SALI');
+  assert.equal(block.tolerans, '420');
+  assert.match(block.exportLine, /M20202600000614/);
+  assert.equal(block.sevk, '');
+});
+
 test('başlık yoksa S sütunundaki çıkış saati okunur, tonaj sayı sayılmaz', () => {
   const parser = loadParser();
   const yd = 'YD10(G) / LOT NO 26 04 13 / 40 BBT / SAFİPORT';
@@ -217,4 +244,32 @@ test('başlık yoksa S sütunundaki çıkış saati okunur, tonaj sayı sayılma
   const plain = limanRowsFromParse(parser, grid, '05.10.2026-tonaj.xlsx');
   assert.equal(plain[0].kantarCikis, '');
   assert.equal(plain[0].net, '25');
+});
+
+test('sağ SIRANO formül sütunu sıra numarasını ezmez, boş tolerans ve dolum yazılmaz', () => {
+  const parser = loadParser();
+  const yd = 'YD92(M) / LOT NO 26 08 10 / NET 1150 KG / EVYAP';
+  const exportLine = '-------------   EXPORT REF NO : 0 / NETSIS SİPARİŞ NO : M20202600000614   -------------';
+  const header = ['YD92', 1150, 'PLAKA', 'BBT', 'ÇUVAL', 'PALET', 'BOŞ BBT', 'BOŞ ÇUVAL', 'NET TONAJ', 'O.GR. TONAJ', 'GİDEN TONAJ', 'FARK', 'HP 0,074-0,30', '', 'YÜKLEME YERİ', 'ŞOFÖR ADI SOYADI', 'TELEFON', 'KANTAR GİRİŞ', 'KANTAR ÇIKIŞ'];
+  while (header.length < 21) header.push('');
+  header.push('SIRANO', 'PLAKA', 'İRSALİYE NO', 'MALIN CİNSİ');
+  const grid = [
+    ['İHRACAT TAKİP LİSTESİ'],
+    ['AKYÜZ', yd],
+    ['', exportLine],
+    ['', '', '', '', '', '', '', '', '', '', '', '', '', 'MAX. ARTI TOLERANS'],
+    ['', 0],
+    header,
+    ['R01 202604106', 1, '43AAE599', 26, '', 13, 1, '', '', '', 30200, '', '', '', 'AVDAN', 'YÜKSEL FERİZ', '5374031074'],
+    ['', 'TOPLAM'],
+  ];
+  const rows = limanRowsFromParse(parser, grid, '06.10.2026-ayna.xlsx');
+  const block = parser.__limanBlocks[0];
+  assert.equal(rows[0].sira, '1');
+  assert.equal(rows[0].plaka, '43AAE599');
+  assert.equal(rows[0].kantarGiris, '');
+  assert.equal(rows[0].kantarCikis, '');
+  assert.equal(block.tolerans, '');
+  assert.equal(block.dolum, '');
+  assert.equal(block.exportLine, exportLine);
 });

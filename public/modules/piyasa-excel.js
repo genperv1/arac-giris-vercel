@@ -14,6 +14,7 @@
       if ('sheetDate' in extra) state.sheetDate = extra.sheetDate;
       if ('sheetDateRaw' in extra) state.sheetDateRaw = extra.sheetDateRaw;
     }
+    state.excelUpdatedAt = new Date().toISOString();
     if (parseMeta) {
       state.sheetParseMeta = {
         headerRow: parseMeta.headerRow || [],

@@ -2878,18 +2878,21 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             }
         }
 
+        /** Yeşil Excel işareti — başlıktaki ihracat ve piyasa dosya satırları. */
+        const _kantarExcelMark = '<svg class="kantar-excel-mark" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect width="16" height="16" rx="2.4" fill="#217346"/><path fill="#fff" d="M3.8 4.2h1.9L8 7.15 10.3 4.2h1.9L9.05 8l3.15 3.8h-1.9L8 8.85 5.7 11.8H3.8L6.95 8z"/></svg>';
+
         /** Selahattin amir Excel yüklemez. Üst satır kantar ihracatı, alt satır açılan piyasa. */
         function _kantarExcelStatusHtml(piyText, piyCount) {
             const piyCls = piyCount > 0 ? 'chip-ok' : 'chip-warn';
             return `<div class="app-header-excel-pair" id="kantarExcelStatus">
               <div class="app-header-ihracat-excel">
                 <span id="kantarExcelIhracat" class="status-chip status-chip--excel chip-warn kantar-excel-sites" title="Kantarlarda yüklü ihracat Excel">
-                  <span class="kantar-excel-line">📄 <b data-kantar-line="1.OSB">İHRACAT: …</b></span>
-                  <span class="kantar-excel-line"><b data-kantar-line="AVDAN">AVDAN: …</b></span>
+                  <span class="kantar-excel-line">${_kantarExcelMark}<b data-kantar-line="1.OSB">İHRACAT: …</b></span>
+                  <span class="kantar-excel-line">${_kantarExcelMark}<b data-kantar-line="AVDAN">AVDAN: …</b></span>
                 </span>
               </div>
               <div class="app-header-ihracat-excel">
-                <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${piyCls}" title="Piyasa Excel'i aç">🧾 PİYASA: <b id="chipPiyasaText">${piyText}</b></button>
+                <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${piyCls}" title="Piyasa Excel'i aç">${_kantarExcelMark}PİYASA: <b id="chipPiyasaText">${piyText}</b>${(typeof window.piyasaUpdateClockMarkup === 'function') ? window.piyasaUpdateClockMarkup() : ''}</button>
               </div>
             </div>`;
         }
@@ -2948,6 +2951,34 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             });
         }
 
+        function _istanbulYmd(date) {
+            try {
+                const parts = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'Europe/Istanbul',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                }).formatToParts(date || new Date());
+                const y = Number((parts.find((p) => p.type === 'year') || {}).value);
+                const m = Number((parts.find((p) => p.type === 'month') || {}).value);
+                const d = Number((parts.find((p) => p.type === 'day') || {}).value);
+                if (!y || !m || !d) return null;
+                return { y, m, d };
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function _isoWeekNo(y, m1, d) {
+            const date = new Date(Date.UTC(Number(y), Number(m1) - 1, Number(d)));
+            if (!Number.isFinite(date.getTime())) return null;
+            const dayNum = date.getUTCDay() || 7;
+            date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+            const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+            return (Number.isFinite(week) && week >= 1) ? week : null;
+        }
+
         function _appStatusMeta() {
             let userId = '-';
             let clientSite = '';
@@ -2976,8 +3007,178 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             } catch (e) {
                 todayStr = new Date().toLocaleDateString('tr-TR');
             }
-            return { userId, userLabel, userTitle, clientSite, clientIp, todayStr, online: navigator.onLine };
+            let weekStr = '';
+            const ymd = _istanbulYmd(new Date());
+            if (ymd) {
+                const weekNo = _isoWeekNo(ymd.y, ymd.m, ymd.d);
+                if (weekNo) weekStr = weekNo + '. hafta';
+            }
+            return { userId, userLabel, userTitle, clientSite, clientIp, todayStr, weekStr, online: navigator.onLine };
         }
+
+        const _CAL_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+        const _CAL_DOWS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+        let _dateCal = null;
+
+        function _calMonthRows(y, m) {
+            const firstDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay() || 7;
+            const start = new Date(Date.UTC(y, m - 1, 1 - (firstDow - 1)));
+            const rows = [];
+            for (let r = 0; r < 6; r++) {
+                const days = [];
+                for (let c = 0; c < 7; c++) {
+                    const dt = new Date(start.getTime());
+                    dt.setUTCDate(start.getUTCDate() + r * 7 + c);
+                    days.push({
+                        y: dt.getUTCFullYear(),
+                        m: dt.getUTCMonth() + 1,
+                        d: dt.getUTCDate(),
+                    });
+                }
+                rows.push({ week: _isoWeekNo(days[0].y, days[0].m, days[0].d), days });
+            }
+            return rows;
+        }
+
+        function _calSheetHtml(y, m) {
+            const today = _istanbulYmd(new Date()) || { y: 0, m: 0, d: 0 };
+            const dows = _CAL_DOWS.map((name) => `<span class="gpm-cal__dow">${name}</span>`).join('');
+            const rows = _calMonthRows(y, m).map((row) => {
+                const thisWeek = row.days.some((day) => day.y === today.y && day.m === today.m && day.d === today.d);
+                const cells = row.days.map((day) => {
+                    const cls = ['gpm-cal__day'];
+                    if (day.m !== m) cls.push('is-out');
+                    if (day.y === today.y && day.m === today.m && day.d === today.d) cls.push('is-today');
+                    return `<span class="${cls.join(' ')}">${day.d}</span>`;
+                }).join('');
+                return `<div class="gpm-cal__row${thisWeek ? ' is-this-week' : ''}"><span class="gpm-cal__week">${row.week || ''}</span>${cells}</div>`;
+            }).join('');
+            return `<div class="gpm-cal__sheet"><div class="gpm-cal__dows"><span class="gpm-cal__week gpm-cal__week--head">Hf</span>${dows}</div>${rows}</div>`;
+        }
+
+        function _placeDateCalendar() {
+            if (!_dateCal) return;
+            const anchor = document.getElementById('chipDate');
+            if (!anchor || !anchor.isConnected) {
+                _closeDateCalendar();
+                return;
+            }
+            const rect = anchor.getBoundingClientRect();
+            const pop = _dateCal.el;
+            const w = pop.offsetWidth;
+            const h = pop.offsetHeight;
+            let left = rect.left;
+            let top = rect.bottom + 8;
+            if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
+            if (left < 8) left = 8;
+            if (top + h > window.innerHeight - 8) top = Math.max(8, rect.top - h - 8);
+            pop.style.left = `${Math.round(left)}px`;
+            pop.style.top = `${Math.round(top)}px`;
+        }
+
+        function _paintDateCalendar(dir) {
+            if (!_dateCal) return;
+            const title = _dateCal.el.querySelector('.gpm-cal__title');
+            const view = _dateCal.el.querySelector('.gpm-cal__view');
+            if (title) title.textContent = `${_CAL_MONTHS[_dateCal.m - 1]} ${_dateCal.y}`;
+            if (!view) return;
+            view.innerHTML = _calSheetHtml(_dateCal.y, _dateCal.m);
+            const sheet = view.querySelector('.gpm-cal__sheet');
+            if (sheet && dir) sheet.classList.add(dir > 0 ? 'is-next' : 'is-prev');
+        }
+
+        function _shiftDateCalendar(dir) {
+            if (!_dateCal) return;
+            let m = _dateCal.m + dir;
+            let y = _dateCal.y;
+            if (m < 1) { m = 12; y -= 1; }
+            if (m > 12) { m = 1; y += 1; }
+            _dateCal.m = m;
+            _dateCal.y = y;
+            _paintDateCalendar(dir);
+        }
+
+        function _closeDateCalendar() {
+            if (!_dateCal) return;
+            const chip = document.getElementById('chipDate');
+            if (chip) chip.setAttribute('aria-expanded', 'false');
+            _dateCal.el.remove();
+            _dateCal = null;
+        }
+
+        function _openDateCalendar(anchor) {
+            _closeDateCalendar();
+            const today = _istanbulYmd(new Date()) || { y: new Date().getFullYear(), m: new Date().getMonth() + 1, d: 1 };
+            const el = document.createElement('div');
+            el.className = 'gpm-cal';
+            el.setAttribute('role', 'dialog');
+            el.setAttribute('aria-label', 'Takvim');
+            el.innerHTML = `
+                <div class="gpm-cal__bar">
+                    <button type="button" class="gpm-cal__nav" data-cal="prev" aria-label="Önceki ay"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+                    <div class="gpm-cal__title"></div>
+                    <button type="button" class="gpm-cal__nav" data-cal="next" aria-label="Sonraki ay"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+                </div>
+                <div class="gpm-cal__view"></div>`;
+            document.body.appendChild(el);
+            _dateCal = { el, y: today.y, m: today.m, dragX: null };
+            anchor.setAttribute('aria-expanded', 'true');
+            _paintDateCalendar(0);
+            _placeDateCalendar();
+            let dragX = null;
+            el.addEventListener('click', (ev) => {
+                const nav = ev.target.closest('[data-cal]');
+                if (!nav) return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                _shiftDateCalendar(nav.getAttribute('data-cal') === 'next' ? 1 : -1);
+            });
+            el.addEventListener('pointerdown', (ev) => {
+                if (ev.target.closest('.gpm-cal__nav')) return;
+                dragX = ev.clientX;
+            });
+            el.addEventListener('pointerup', (ev) => {
+                if (dragX == null) return;
+                const dx = ev.clientX - dragX;
+                dragX = null;
+                if (dx >= 42) _shiftDateCalendar(-1);
+                else if (dx <= -42) _shiftDateCalendar(1);
+            });
+            el.addEventListener('pointercancel', () => { dragX = null; });
+        }
+
+        function _bindDateCalendar() {
+            if (window.__gpmDateCalBound) return;
+            window.__gpmDateCalBound = true;
+            document.addEventListener('click', (ev) => {
+                const chip = ev.target.closest && ev.target.closest('#chipDate');
+                if (chip) {
+                    ev.preventDefault();
+                    if (_dateCal) _closeDateCalendar();
+                    else _openDateCalendar(chip);
+                    return;
+                }
+                if (_dateCal && _dateCal.el.contains(ev.target)) return;
+                _closeDateCalendar();
+            });
+            document.addEventListener('keydown', (ev) => {
+                if (!_dateCal) return;
+                if (ev.key === 'Escape') {
+                    _closeDateCalendar();
+                    return;
+                }
+                if (ev.key === 'ArrowLeft') {
+                    ev.preventDefault();
+                    _shiftDateCalendar(-1);
+                } else if (ev.key === 'ArrowRight') {
+                    ev.preventDefault();
+                    _shiftDateCalendar(1);
+                }
+            });
+            window.addEventListener('resize', _placeDateCalendar);
+            window.addEventListener('scroll', _placeDateCalendar, true);
+        }
+        _bindDateCalendar();
 
         function _searchMetaText(filteredCount, totalCount) {
             const term = (state.searchTerm || '').trim();
@@ -3178,6 +3379,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                 piyChip.title = _piyasaCnt > 0 ? ('PİYASA Excel: ' + _excelStatusInfo.piyLine) : 'PİYASA Excel yüklü değil';
             }
             if (piyText) piyText.textContent = _buildPiyasaChipText(_excelStatusInfo);
+            try { if (typeof window.paintPiyasaUpdateClock === 'function') window.paintPiyasaUpdateClock(); } catch (e) {}
             const userChip = document.getElementById('chipUserLabelValue');
             if (userChip) userChip.textContent = _statusMeta.userLabel;
             const userChipWrap = document.getElementById('chipUserLabel');
@@ -3262,6 +3464,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const shouldLimit = !hasSearch && !state.showAll;
             const visibleVehicles = shouldLimit ? filteredVehicles.slice(0, state.listLimit) : filteredVehicles;
 
+            _closeDateCalendar();
             const app = document.getElementById('mainApp');
             try { document.getElementById('piyasaSuggestionBar')?.remove(); } catch (e) {}
             // ⚠️ Excel tarihi bugünün değilse uyarı göster (İHRACAT + PİYASA, ASLA otomatik silme)
@@ -3334,7 +3537,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           <button type="button" id="piyasaExcelOpenButton" class="amir-nav-btn__icon amir-nav-btn__icon--excel" title="Yüklü Piyasa Excel'i aç" aria-label="Yüklü Piyasa Excel'i aç"><i class="fas fa-file-excel" aria-hidden="true"></i></button>
           <span class="amir-nav-btn__copy">
             <b>Piyasa Excel</b>
-            <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}"><b id="chipPiyasaText">${_piyChipText}</b></button>
+            <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}"><b id="chipPiyasaText">${_piyChipText}</b>${(typeof window.piyasaUpdateClockMarkup === 'function') ? window.piyasaUpdateClockMarkup() : ''}</button>
           </span>
           <span class="saban-piyasa-slot__actions">
             <button type="button" id="piyasaExcelUploadButtonTop" class="saban-piyasa-slot__btn" title="Piyasa Excel yükle"><i class="fas fa-file-import" aria-hidden="true"></i><span>Yükle</span></button>
@@ -3454,7 +3657,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           </div>
           <div class="status-stack__row">
             ${(!_sabanNav && _amirPiyasa) ? `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>` : ''}
-            <span class="status-chip" title="Bugünün tarihi"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}</b></span>
+            <button type="button" class="status-chip status-chip--date" id="chipDate" aria-haspopup="dialog" aria-expanded="false" title="${_statusMeta.weekStr ? ('Takvim · ' + _statusMeta.weekStr) : 'Takvim'}"><i class="fas fa-calendar-day" aria-hidden="true"></i> <b>${_statusMeta.todayStr}${_statusMeta.weekStr ? (' · ' + _statusMeta.weekStr) : ''}</b></button>
             <span class="status-chip" id="chipUserLabel" title="${_statusMeta.userTitle}"><i class="fas fa-user-circle" aria-hidden="true"></i> <b id="chipUserLabelValue">${_statusMeta.userLabel}</b></span>
             <span class="status-chip ${_connChipClass}" id="chipConnection" title="Ağ bağlantısı"><i class="fas fa-wifi" aria-hidden="true"></i> <b>${_connLabel}</b></span>
             ${_sabanNav ? `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>` : ''}
@@ -3463,7 +3666,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         ${(_sabanNav || _amirPiyasa) ? '' : `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>`}
         ${_sessionIsSelahattin() ? _kantarExcelStatusHtml(_piyChipText, _piyasaCnt) : ((_sabanNav || _amirPiyasa) ? '' : `<div class="app-header-excel-pair">
         <div class="app-header-ihracat-excel">
-          <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">📄 İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
+          <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">${_kantarExcelMark}İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
           <span class="app-header-ihracat-excel__actions">
           <button type="button" id="excelIhracatRefreshButtonChip" class="js-ihracat-excel-refresh status-chip app-header-ihracat-excel__refresh ${(!_amirPiyasa && _excelCnt>0)?'':'hidden'}" title="${(typeof listIhracatExcelSources === 'function' && listIhracatExcelSources().length > 1) ? 'Yüklü Excel dosyalarından hangilerinin güncelleneceğini seç' : 'Yüklü İhracat Excel dosyasını yeniden oku'}">
             <i class="fas fa-sync-alt ihracat-excel-refresh-icon" aria-hidden="true"></i>
@@ -3473,7 +3676,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           </span>
         </div>
         <div class="app-header-ihracat-excel">
-          <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">🧾 PİYASA: <b id="chipPiyasaText">${_piyChipText}</b></button>
+          <button type="button" id="chipPiyasa" class="status-chip status-chip--excel ${_piyasaCnt>0?'chip-ok':'chip-warn'}" title="${_piyasaCnt>0?('PİYASA Excel: '+_excelStatusInfo.piyLine):'PİYASA Excel yüklü değil'}">${_kantarExcelMark}PİYASA: <b id="chipPiyasaText">${_piyChipText}</b>${(typeof window.piyasaUpdateClockMarkup === 'function') ? window.piyasaUpdateClockMarkup() : ''}</button>
           ${_piyasaHeaderActions ? `<span class="app-header-ihracat-excel__actions">
           <button type="button" id="piyasaExcelUploadButtonTop" class="status-chip app-header-ihracat-excel__refresh" title="PİYASA Excel yükle">
             <i class="fas fa-file-import" aria-hidden="true"></i>

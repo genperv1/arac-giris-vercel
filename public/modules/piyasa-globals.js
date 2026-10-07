@@ -14,6 +14,7 @@
       week: null,
       sheet: null,
       loadedAt: null,
+      excelUpdatedAt: null,
       sheetDate: null,
       sheetDateRaw: null,
       fileFingerprint: null,

@@ -455,7 +455,15 @@ test('sürüm ucu son takip formu baskısını da döner (liman İÇERİDE için
   const a = await call();
   assert.equal(a.p, '1000');
   lastPrint = 2000;
-  const b = await call();
+  const cached = await call();
+  assert.equal(cached.p, '1000');
+  process.env.LIMAN_PRINT_MARK_MS = '0';
+  let b;
+  try {
+    b = await call();
+  } finally {
+    delete process.env.LIMAN_PRINT_MARK_MS;
+  }
   assert.equal(b.p, '2000');
   assert.equal(a.v, b.v);
 });

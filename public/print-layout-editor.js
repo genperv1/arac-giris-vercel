@@ -739,7 +739,7 @@
       }
       if (applyBtn) applyBtn.disabled = true;
       try {
-        const r = await fetch('/api/reports?limit=800&_=' + Date.now(), {
+        const r = await fetch('/api/reports?slim=1&limit=800&_=' + Date.now(), {
           credentials: 'include',
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' },
@@ -797,13 +797,26 @@
         toast('Önce listeden bir yazdırma seçin.', true);
         return;
       }
-      let samples = reportToSamples(row);
+      let full = row;
+      if (row.id) {
+        try {
+          const rr = await fetch('/api/reports?id=' + encodeURIComponent(row.id) + '&limit=1&_=' + Date.now(), {
+            credentials: 'include',
+            cache: 'no-store',
+          });
+          if (rr.ok) {
+            const list = await rr.json();
+            if (Array.isArray(list) && list[0]) full = list[0];
+          }
+        } catch (e) { /* liste satırıyla devam */ }
+      }
+      let samples = reportToSamples(full);
       const hasNote = !!(samples.not && String(samples.not).trim());
       const hasAmb = !!(samples.ambBilgi && String(samples.ambBilgi).trim());
       // Eski kayıtlarda snapshot yoksa araç lastPrintSnapshot ile tamamla
-      if ((!hasNote || !hasAmb) && row.data && row.data.vehicleId) {
+      if ((!hasNote || !hasAmb) && full.data && full.data.vehicleId) {
         try {
-          const vid = String(row.data.vehicleId).trim();
+          const vid = String(full.data.vehicleId).trim();
           if (vid && vid !== 'manual') {
             const vr = await fetch('/api/vehicles/' + encodeURIComponent(vid), {
               credentials: 'include',
@@ -813,7 +826,7 @@
               const vehicle = await vr.json();
               const snap = vehicle && (vehicle.lastPrintSnapshot || vehicle.data?.lastPrintSnapshot);
               if (snap && typeof snap === 'object') {
-                samples = reportToSamples({ data: Object.assign({}, snap, row.data), snapshot: snap, tarih: row.tarih });
+                samples = reportToSamples({ data: Object.assign({}, snap, full.data), snapshot: snap, tarih: full.tarih || row.tarih });
               }
             }
           }

@@ -76,6 +76,141 @@ html.logged-in body {
   font: inherit;
 }
 .status-chip b{ color: #1e293b; font-weight: 600; }
+.status-chip--date { white-space: nowrap; }
+button.status-chip--date {
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  text-align: left;
+}
+button.status-chip--date:hover { filter: brightness(1.05); }
+button.status-chip--date:focus-visible {
+  outline: 2px solid #ea580c;
+  outline-offset: 2px;
+}
+button.status-chip--date[aria-expanded="true"] {
+  border-color: #fdba74;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.18);
+}
+
+.gpm-cal {
+  position: fixed;
+  z-index: 80;
+  width: 272px;
+  box-sizing: border-box;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid #e7d3c0;
+  background: #fff;
+  color: #1c1917;
+  box-shadow: 0 18px 40px rgba(28, 25, 23, 0.18);
+  user-select: none;
+  touch-action: pan-y;
+}
+.gpm-cal__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.gpm-cal__title {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+.gpm-cal__nav {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid #e7e5e4;
+  background: #fafaf9;
+  color: #44403c;
+  cursor: pointer;
+  font-size: 12px;
+}
+.gpm-cal__nav:hover {
+  background: #fff7ed;
+  border-color: #fdba74;
+  color: #c2410c;
+}
+.gpm-cal__nav:focus-visible {
+  outline: 2px solid #ea580c;
+  outline-offset: 2px;
+}
+.gpm-cal__view { overflow: hidden; }
+.gpm-cal__dows,
+.gpm-cal__row {
+  display: grid;
+  grid-template-columns: 30px repeat(7, 1fr);
+  align-items: center;
+  gap: 2px;
+}
+.gpm-cal__row { margin-top: 2px; }
+.gpm-cal__dow,
+.gpm-cal__day,
+.gpm-cal__week {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border-radius: 8px;
+}
+.gpm-cal__dow {
+  height: 22px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #78716c;
+}
+.gpm-cal__day {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1c1917;
+}
+.gpm-cal__day.is-out {
+  color: #a8a29e;
+  font-weight: 600;
+}
+.gpm-cal__day.is-today {
+  background: #ea580c;
+  color: #fff;
+}
+.gpm-cal__week {
+  font-size: 12px;
+  font-weight: 800;
+  color: #9a3412;
+  background: #ffedd5;
+}
+.gpm-cal__week--head {
+  height: 22px;
+  background: transparent;
+  font-size: 11px;
+}
+.gpm-cal__row.is-this-week .gpm-cal__week {
+  background: #ea580c;
+  color: #fff;
+}
+.gpm-cal__sheet.is-next { animation: gpm-cal-next 180ms ease; }
+.gpm-cal__sheet.is-prev { animation: gpm-cal-prev 180ms ease; }
+@keyframes gpm-cal-next {
+  from { transform: translateX(16px); opacity: 0.45; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes gpm-cal-prev {
+  from { transform: translateX(-16px); opacity: 0.45; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gpm-cal__sheet.is-next,
+  .gpm-cal__sheet.is-prev { animation: none; }
+}
 .status-chip.chip-ok{
   border-color: #86efac;
   background: #dcfce7;
@@ -1282,6 +1417,27 @@ body.session-amir .app-header-ihracat-excel .status-chip--excel b {
   overflow-wrap: break-word;
 }
 
+.piyasa-update-clock {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 8px;
+  background: #fde047;
+  color: #14532d !important;
+  font-size: 1.35rem;
+  font-weight: 900 !important;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 0 0 2px #facc15, 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+.piyasa-update-clock[hidden] {
+  display: none !important;
+}
+
 body.session-amir .app-header-ihracat-excel .kantar-excel-sites {
   display: flex;
   flex-direction: column;
@@ -1295,8 +1451,21 @@ body.session-amir .app-header-ihracat-excel .kantar-excel-sites {
   padding-bottom: 0.32rem;
 }
 
-body.session-amir .kantar-excel-line {
+.kantar-excel-mark {
+  flex: 0 0 auto;
+  width: 0.95rem;
+  height: 0.95rem;
   display: block;
+}
+
+body.session-amir .kantar-excel-line .kantar-excel-mark {
+  margin-top: 0.12em;
+}
+
+body.session-amir .kantar-excel-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.32rem;
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1627,7 +1796,9 @@ button.amir-nav-btn__icon--excel:focus-visible {
 }
 
 .saban-piyasa-slot #chipPiyasa {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   width: 100%;
   margin: 0.12rem 0 0;
   padding: 0;
@@ -1638,10 +1809,15 @@ button.amir-nav-btn__icon--excel:focus-visible {
   font-weight: 500;
   line-height: 1.2;
   text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
   cursor: default;
+}
+
+.saban-piyasa-slot .piyasa-update-clock {
+  font-size: 1.05rem;
+  margin-left: 0;
+  margin-top: 0.15rem;
 }
 
 .saban-piyasa-slot #chipPiyasa b {

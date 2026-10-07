@@ -4,11 +4,14 @@
     const SYNC_KEY = 'gpm_chat_sync_v1';
     const UNREAD_KEY = 'gpm_chat_unread_v1';
     const REPLY_KEY = 'gpm_chat_reply_v1';
+    const SEEN_KEY = 'gpm_chat_seen_v1';
+    const CLEARED_KEY = 'gpm_chat_cleared_v1';
     const POLL_MS = 30 * 1000;
     const FRESH_MS = 20 * 1000;
 
     const windows = new Map();
     const seen = new Set();
+    let appliedCleared = 0;
     let pollTimer = 0;
     let pulling = false;
     let sseBound = false;
@@ -51,11 +54,6 @@
         return k === 'AVDAN' || k === '1.OSB';
     }
 
-    function isAmirKey(key) {
-        const k = siteKey(key);
-        return k === 'AMIR' || k === 'SABAN' || k === 'UGUR';
-    }
-
     function avatarSrc(key) {
         const k = siteKey(key);
         if (k === 'AVDAN') return '/login-baret-avdan.png?v=20261003c';
@@ -76,10 +74,8 @@
         try { localStorage.setItem(REPLY_KEY, JSON.stringify(window.__gpmChatReply || {})); } catch (e) { /* ignore */ }
     }
 
-    function mayReply(peer) {
-        if (!isKantar(myKey()) || !isAmirKey(peer)) return true;
-        const key = siteKey(peer);
-        return !!(window.__gpmChatReply && window.__gpmChatReply[key]);
+    function mayReply() {
+        return true;
     }
 
     function markReply(peer) {
@@ -339,7 +335,7 @@
 
     function loadSeen() {
         try {
-            const arr = JSON.parse(localStorage.getItem('gpm_chat_seen_v1') || '[]');
+            const arr = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]');
             seen.clear();
             if (Array.isArray(arr)) arr.slice(-100).forEach((id) => seen.add(String(id)));
         } catch (e) { /* ignore */ }
@@ -350,7 +346,7 @@
         const arr = Array.from(seen).slice(-100);
         seen.clear();
         arr.forEach((item) => seen.add(item));
-        try { localStorage.setItem('gpm_chat_seen_v1', JSON.stringify(arr)); } catch (e) { /* ignore */ }
+        try { localStorage.setItem(SEEN_KEY, JSON.stringify(arr)); } catch (e) { /* ignore */ }
     }
 
     function hasLine(win, id) {
@@ -441,8 +437,37 @@
         return !!(win && win.el && !win.el.classList.contains('is-min'));
     }
 
+    function readCleared() {
+        try { return Number(localStorage.getItem(CLEARED_KEY)) || 0; } catch (e) { return 0; }
+    }
+
+    function wipeChat(clearedAt) {
+        const n = Number(clearedAt) || 0;
+        if (!n || n <= appliedCleared) return;
+        appliedCleared = n;
+        seen.clear();
+        window.__gpmChatUnread = {};
+        window.__gpmChatReply = {};
+        windows.forEach((win) => {
+            if (win.log) win.log.textContent = '';
+            win.loaded = true;
+            systemLine(win, 'Yazışma temizlendi');
+            paintCompose(win);
+        });
+        try {
+            localStorage.removeItem(SYNC_KEY);
+            localStorage.removeItem(UNREAD_KEY);
+            localStorage.removeItem(REPLY_KEY);
+            localStorage.removeItem(SEEN_KEY);
+            localStorage.setItem(CLEARED_KEY, String(n));
+        } catch (e) { /* ignore */ }
+        refreshChips();
+        paintBadge();
+    }
+
     function ingest(msg, live) {
         if (!msg || !msg.id) return;
+        if (appliedCleared && Number(msg.ts) && Number(msg.ts) <= appliedCleared) return;
         const id = String(msg.id);
         const mine = myKey();
         const from = siteKey(msg.from);
@@ -472,6 +497,7 @@
             const res = await fetch('/api/chat?peer=' + encodeURIComponent(win.peer), { credentials: 'include', cache: 'no-store' });
             if (!res.ok) return;
             const data = await res.json();
+            if (data && data.clearedAt) wipeChat(data.clearedAt);
             win.loaded = true;
             (data.messages || []).forEach((m) => ingest(m, false));
         } catch (e) { /* ignore */ }
@@ -752,6 +778,7 @@
             });
             if (!res.ok) return;
             const data = await res.json();
+            if (data && data.clearedAt) wipeChat(data.clearedAt);
             if (Array.isArray(data.replyPeers)) applyReplyPeers(data.replyPeers);
             (data.messages || []).forEach((m) => ingest(m, true));
         } catch (e) { /* ignore */ }
@@ -776,9 +803,13 @@
             open(data.from, { shake: true, buzz: true });
             buzzSound();
         });
+        SyncManager.on('chat_cleared', (data) => {
+            wipeChat(data && data.clearedAt);
+        });
     }
 
     function boot() {
+        appliedCleared = readCleared();
         loadSeen();
         loadUnread();
         loadReply();
@@ -799,7 +830,12 @@
         document.addEventListener('visibilitychange', () => { if (!document.hidden) pullInbox(); });
         window.addEventListener('online', () => pullInbox());
         window.addEventListener('storage', (ev) => {
-            if (!ev || (ev.key !== UNREAD_KEY && ev.key !== 'gpm_chat_seen_v1')) return;
+            if (!ev) return;
+            if (ev.key === CLEARED_KEY) {
+                wipeChat(ev.newValue);
+                return;
+            }
+            if (ev.key !== UNREAD_KEY && ev.key !== SEEN_KEY) return;
             loadSeen();
             loadUnread();
             refreshChips();
@@ -812,7 +848,7 @@
         document.addEventListener('keydown', unlockAudio, true);
     }
 
-    window.MsnChat = { open: open, siteKey: siteKey };
+    window.MsnChat = { open: open, siteKey: siteKey, wipe: wipeChat };
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
     else boot();

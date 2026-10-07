@@ -87,7 +87,7 @@ class AdvancedReports {
     async loadInitialData() {
         try {
             this.showLoading();
-            const response = await fetch('/api/reports?_cb=' + Date.now(), {
+            const response = await fetch('/api/reports?slim=1&_cb=' + Date.now(), {
                 method: 'GET',
                 headers: {
                     'Cache-Control': 'no-store, no-cache, must-revalidate',

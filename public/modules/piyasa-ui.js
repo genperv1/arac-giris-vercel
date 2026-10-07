@@ -1440,6 +1440,7 @@
     state.week = null;
     state.sheet = null;
     state.loadedAt = null;
+    state.excelUpdatedAt = null;
     state.sheetDate = null;
     state.sheetDateRaw = null;
     state.fileFingerprint = null;
@@ -1455,6 +1456,7 @@
       week: null,
       sheet: null,
       loadedAt: null,
+      excelUpdatedAt: null,
       sheetDate: null,
       sheetDateRaw: null,
       fileFingerprint: null,
@@ -1476,6 +1478,7 @@
     state.week = snapshot.week != null ? snapshot.week : null;
     state.sheet = snapshot.sheet != null ? snapshot.sheet : null;
     state.loadedAt = snapshot.loadedAt ? new Date(snapshot.loadedAt) : null;
+    state.excelUpdatedAt = snapshot.excelUpdatedAt || null;
     state.sheetDate = snapshot.sheetDate || null;
     state.sheetDateRaw = snapshot.sheetDateRaw || null;
     if (state.orders.length) saveState();
@@ -1507,6 +1510,7 @@
       week: state.week,
       sheet: state.sheet,
       loadedAt: state.loadedAt ? state.loadedAt.toISOString() : null,
+      excelUpdatedAt: state.excelUpdatedAt || null,
       sheetDate: state.sheetDate,
       sheetDateRaw: state.sheetDateRaw,
     };

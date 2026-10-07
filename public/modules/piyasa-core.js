@@ -197,6 +197,7 @@ function piyasaOverlayStyle(zIndex) {
         week: state.week,
         sheet: state.sheet,
         loadedAt: state.loadedAt ? state.loadedAt.toISOString() : null,
+        excelUpdatedAt: state.excelUpdatedAt || null,
         sheetDate: state.sheetDate || null,
         sheetDateRaw: state.sheetDateRaw || null,
         // LocalStorage sınırı için sadece gerekli alanları saklıyoruz
@@ -264,6 +265,7 @@ function piyasaOverlayStyle(zIndex) {
               chipPiy.title = cnt > 0 ? `PİYASA Excel: ${piyLine}` : 'PİYASA Excel yüklü değil';
             }
             if (chipPiyText) chipPiyText.textContent = cnt > 0 ? `Yüklü ${piyLine}` : 'Boş';
+            if (typeof window.paintPiyasaUpdateClock === 'function') window.paintPiyasaUpdateClock();
           }catch(_){ }
         }
       }catch(e){}
@@ -374,6 +376,7 @@ function piyasaOverlayStyle(zIndex) {
         state.week = null;
         state.sheet = null;
         state.loadedAt = null;
+        state.excelUpdatedAt = null;
         state.sheetDate = null;
         state.sheetDateRaw = null;
         state.fileFingerprint = null;
@@ -403,6 +406,7 @@ function piyasaOverlayStyle(zIndex) {
       state.week = payload.week ?? null;
       state.sheet = payload.sheet ?? null;
       state.loadedAt = payload.loadedAt ? new Date(payload.loadedAt) : null;
+      state.excelUpdatedAt = payload.excelUpdatedAt || null;
       state.sheetDate = payload.sheetDate || null;
       state.sheetDateRaw = payload.sheetDateRaw || null;
       state.weekArchive = _deserializeWeekArchive(payload.weekArchive, payload.week, payload.sheet);

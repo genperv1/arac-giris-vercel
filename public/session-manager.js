@@ -919,11 +919,6 @@
         const mine = presenceSiteKey(currentUserKey());
         const peer = presenceSiteKey(key);
         if (!mine || !peer || mine === peer) return false;
-        const mineKantar = mine === 'AVDAN' || mine === '1.OSB';
-        const peerAmir = peer === 'AMIR' || peer === 'SABAN' || peer === 'UGUR';
-        if (mineKantar && peerAmir) {
-            return !!(window.__gpmChatReply && window.__gpmChatReply[peer]);
-        }
         return true;
     }
 
@@ -1307,7 +1302,7 @@
         if (document.getElementById('gpmMsnScript')) return;
         const s = document.createElement('script');
         s.id = 'gpmMsnScript';
-        s.src = '/msn-chat.js?v=20261007-chat4';
+        s.src = '/msn-chat.js?v=20261007-chatfree';
         s.async = true;
         document.head.appendChild(s);
     }

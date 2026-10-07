@@ -88,6 +88,10 @@ function harness(user) {
     sanitizeString: (v, max) => String(v || '').slice(0, max),
     broadcastToUsers: (type, data, keys) => { events.push({ type, data, keys }); },
     presence,
+    requireAmir: (req, res, next) => {
+      if (req.user && req.user.role === 'amir') return next();
+      res.status(403).json({ ok: false, code: 'AMIR_REQUIRED' });
+    },
     chatStore: createChatStore({ now: () => 9_000_000 + events.length, id: () => 'c' + (events.length + 1) }),
   });
   async function call(key, req) {
@@ -110,29 +114,27 @@ function harness(user) {
   return { call, events };
 }
 
-test('kantar amire sıfırdan yazamaz; amir açınca cevap gider, başkası görmez', async () => {
+test('kantar amire sıfırdan yazar; yazışma yalnız ikisinde kalır', async () => {
   const h = harness({ username: 'AVDAN', role: 'admin' });
-  const closed = await h.call('post /chat', { body: { to: 'SELAHATTİN', text: 'evrak yolda' } });
-  assert.equal(closed.status, 403);
-  assert.equal(closed.out.code, 'NO_OPEN');
+  const first = await h.call('post /chat', { body: { to: 'SELAHATTİN', text: 'evrak yolda' } });
+  assert.equal(first.status, 200);
+  assert.equal(first.out.message.from, 'AVDAN');
+  assert.equal(first.out.message.to, 'AMIR');
 
   const buzz = await h.call('post /chat/buzz', { body: { to: 'AMIR' } });
-  assert.equal(buzz.status, 403);
-  assert.equal(buzz.out.code, 'NO_OPEN');
+  assert.equal(buzz.status, 200);
+  assert.equal(buzz.out.buzz.to, 'AMIR');
 
   const opened = await h.call('post /chat', { user: { username: 'xxr', role: 'amir' }, body: { to: 'AVDAN', text: 'evrak?' } });
   assert.equal(opened.status, 200);
   assert.equal(opened.out.message.from, 'AMIR');
 
-  const sent = await h.call('post /chat', { body: { to: 'SELAHATTİN', text: 'evrak yolda' } });
-  assert.equal(sent.status, 200);
-  assert.equal(sent.out.message.from, 'AVDAN');
-  assert.equal(sent.out.message.to, 'AMIR');
   const msgEv = h.events.filter((e) => e.type === 'chat_message');
-  assert.deepEqual(msgEv[msgEv.length - 1].keys, ['AVDAN', 'AMIR']);
+  assert.deepEqual(msgEv[0].keys, ['AVDAN', 'AMIR']);
+  assert.deepEqual(msgEv[msgEv.length - 1].keys, ['AMIR', 'AVDAN']);
 
   const mine = await h.call('get /chat', { query: { peer: 'AMIR' } });
-  assert.equal(mine.out.messages[1].text, 'evrak yolda');
+  assert.equal(mine.out.messages[0].text, 'evrak yolda');
 
   const other = await h.call('get /chat', { user: { username: '1.OSB', role: 'admin' }, query: { peer: 'AMIR' } });
   assert.equal(other.out.messages.length, 0);
@@ -159,6 +161,35 @@ test('okundu bilgisi yalnız yazana gider', async () => {
   assert.deepEqual(ev.keys, ['SABAN']);
   const again = await h.call('post /chat/read', { user: { username: 'AVDAN', role: 'admin' }, body: { peer: 'ŞABAN' } });
   assert.equal(again.out.read, null);
+});
+
+test('amir yazışmayı silince geçmiş gider, yeni mesaj yine gider', async () => {
+  const h = harness({ username: 'xxr', role: 'amir' });
+  const opened = await h.call('post /chat', { body: { to: 'AVDAN', text: 'evrak?' } });
+  assert.equal(opened.status, 200);
+  const reply = await h.call('post /chat', { user: { username: 'AVDAN', role: 'admin' }, body: { to: 'AMIR', text: 'yolda' } });
+  assert.equal(reply.status, 200);
+
+  const denied = await h.call('post /chat/clear', { user: { username: 'AVDAN', role: 'admin' }, body: {} });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.out.code, 'AMIR_REQUIRED');
+
+  const cleared = await h.call('post /chat/clear', { body: {} });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.out.ok, true);
+  assert.ok(cleared.out.clearedAt > 0);
+  const ev = h.events.find((e) => e.type === 'chat_cleared');
+  assert.ok(ev);
+  assert.ok(ev.keys.includes('AVDAN'));
+  assert.ok(ev.keys.includes('AMIR'));
+
+  const hist = await h.call('get /chat', { query: { peer: 'AVDAN' } });
+  assert.equal(hist.out.messages.length, 0);
+  assert.equal(hist.out.clearedAt, cleared.out.clearedAt);
+
+  const again = await h.call('post /chat', { user: { username: 'AVDAN', role: 'admin' }, body: { to: 'AMIR', text: 'tekrar' } });
+  assert.equal(again.status, 200);
+  assert.equal(again.out.message.text, 'tekrar');
 });
 
 test('kişi titretmesi yalnız hedefe gider; kantar titretmesi bu yoldan olmaz', async () => {
