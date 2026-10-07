@@ -571,6 +571,30 @@ test('kapatılan gün arşive mühürlenir; kantar yeni dosyaya geçse de arşiv
   assert.equal(missing.ok, false);
 });
 
+test('arşiv klasöründen geri alınca liste limanda açılır, kopya klasörde kalır', async () => {
+  const kantar = { username: 'AVDAN', role: 'admin' };
+  const amir = { username: 'xxr', role: 'amir' };
+  const k = harness(kantar);
+  await k.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN', fileName: '03.10.2026.xlsx',
+    blocks: [block('YD1 / LOT NO 1 / SAFİPORT', 'AVDAN')],
+  });
+  const a = harness(amir);
+  Object.assign(a.store, k.store);
+  const closed = await a.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.deepEqual(closed.days, []);
+  assert.equal(closed.archive.length, 1);
+
+  const back = await a.call('post /liman/archive/:dateKey/restore', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  assert.deepEqual(back.days.map((d) => d.dateKey), ['2026-10-03']);
+  assert.equal(back.days[0].blocks[0].rows[0].plaka, '43RY761');
+  assert.equal(back.archive.length, 1);
+  assert.equal(back.archive[0].dateKey, '2026-10-03');
+
+  const missing = await a.call('post /liman/archive/:dateKey/restore', '1.1.1.1', {}, { dateKey: '2026-10-09' });
+  assert.equal(missing.ok, false);
+});
+
 test('kapanan günün arşivi kantarın sonraki gönderimiyle değişmez ve limanda açılmaz', async () => {
   const kantar = { username: 'AVDAN', role: 'admin' };
   const amir = { username: 'xxr', role: 'amir' };

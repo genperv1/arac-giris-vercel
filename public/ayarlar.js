@@ -1854,6 +1854,7 @@
   const REPORT_DELETE_PASSWORD = '543723';
 
   async function ensureReportDeletePassword() {
+    if (window.clientIsAmir && window.clientIsAmir()) return true;
     const u = window.rpUi || {};
     let entered;
     if (typeof u.password === 'function') {

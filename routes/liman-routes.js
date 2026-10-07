@@ -361,6 +361,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       tasiyici: block.tasiyici || '',
       yd: block.yd || '',
       lot: block.lot || '',
+      fileName: (block.files && block.files[0]) || '',
       toplam: block.toplam || null,
       kalan: block.kalan || null,
       rows: (block.rows || []).map((row) => {
@@ -946,6 +947,72 @@ function registerLimanRoutes(api, ctx, publicApp) {
       return res.json({ ok: true, days });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_LIST_FAILED');
+    }
+  });
+
+  function excelFileName(label) {
+    const s = String(label || '').trim();
+    if (!s) return '';
+    if (/\.xlsx?$/i.test(s)) return s;
+    return s + '.xlsx';
+  }
+
+  function siteForArchive(rec) {
+    const count = { AVDAN: 0, '1.OSB': 0 };
+    (rec.blocks || []).forEach((block) => (block.rows || []).forEach((row) => {
+      const raw = String(row.yukleme || '').toUpperCase();
+      if (raw.indexOf('OSB') >= 0) count['1.OSB'] += 1;
+      else if (raw.indexOf('AVDAN') >= 0) count.AVDAN += 1;
+    }));
+    return count['1.OSB'] > count.AVDAN ? '1.OSB' : 'AVDAN';
+  }
+
+  /** Arşivdeki günü liman listesine geri koyar. Klasördeki kopya durur. */
+  function restoreArchivedDay(state, rec) {
+    const key = rec.dateKey;
+    const next = Object.assign({}, closedDays(state));
+    delete next[key];
+    state.closedDays = next;
+    const fallback = excelFileName(rec.label || labelFromDateKey(key));
+    const blocks = (rec.blocks || []).map((block) => Object.assign({}, block, {
+      fileName: block.fileName || fallback,
+    }));
+    const site = siteForArchive(rec);
+    const prev = state.sites[site] && typeof state.sites[site] === 'object' ? state.sites[site] : {};
+    const kept = (Array.isArray(prev.blocks) ? prev.blocks : []).filter((block) => {
+      return (dateKeyFromFileName(block.fileName || prev.fileName || '') || 'tarihsiz') !== key;
+    });
+    const names = [];
+    const addName = (raw) => {
+      const label = fileLabelOf(raw);
+      if (label && names.indexOf(label) < 0) names.push(label);
+    };
+    String(prev.fileName || '').split(/\s+\+\s+/).forEach(addName);
+    blocks.forEach((block) => addName(block.fileName));
+    state.sites[site] = Object.assign({}, prev, {
+      fileName: names.map((label) => excelFileName(label)).join(' + ') || fallback,
+      blocks: kept.concat(blocks),
+      rows: Array.isArray(prev.rows) ? prev.rows.filter((row) => (dateKeyFromFileName(row.fileName || prev.fileName || '') || '') !== key) : [],
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  api.post('/liman/archive/:dateKey/restore', requireAmir, async (req, res) => {
+    try {
+      if (!canManageLimanList(req.user)) {
+        return res.status(403).json({ ok: false, error: 'Arşivden geri almak yalnızca Selahattin Toker hesabına açıktır.' });
+      }
+      const key = dayKeyParam(req);
+      if (!key) return res.status(400).json({ ok: false, error: 'Geçersiz gün.' });
+      const rec = (await readKvJson(ARCHIVE_PREFIX + key)).value;
+      if (!rec || !Array.isArray(rec.blocks)) return res.status(404).json({ ok: false, error: 'Bu gün arşivde yok.' });
+      const committed = await commitState((state) => {
+        restoreArchivedDay(state, rec);
+      });
+      if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
+      return res.json(await attachArchive(viewFor(req, committed.state)));
+    } catch (err) {
+      return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_RESTORE_FAILED');
     }
   });
 

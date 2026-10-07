@@ -2,6 +2,18 @@
 (function () {
   'use strict';
 
+  if (typeof window.clientIsAmir !== 'function') {
+    window.clientIsAmir = function () {
+      try {
+        var role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
+        var id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+        return role === 'amir' || id === 'xxr' || id === 'saban' || id === 'ugur';
+      } catch (e) {
+        return false;
+      }
+    };
+  }
+
   function inferAlertType(message) {
     const s = String(message == null ? '' : message);
     if (/❌|hata|başarısız|basarisiz|geçersiz|gecersiz/i.test(s)) return 'danger';
@@ -344,7 +356,7 @@
         if (!window.rpDialog) return Promise.resolve('ok');
         return window.rpDialog.actions(message, type, buttons);
       },
-      /** Onay + şifre (varsayılan: 543723) */
+      /** Onay + şifre. Amir oturumunda ek işlem şifresi sorulmaz; giriş şifresi ayrı kalır. */
       confirmSecureDelete: async function (opts) {
         opts = opts || {};
         initRpDialog();
@@ -356,6 +368,7 @@
           cancelLabel: opts.cancelLabel || 'İptal'
         });
         if (!ok) return { ok: false, cancelled: true };
+        if (window.clientIsAmir && window.clientIsAmir()) return { ok: true };
         let entered = await window.rpDialog.password(opts.passwordMessage || 'Silme şifresini giriniz:');
         if (entered == null || entered === false) return { ok: false, cancelled: true };
         if (String(entered).trim() !== pwd) {

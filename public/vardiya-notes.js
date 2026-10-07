@@ -370,14 +370,17 @@
       : confirm('Bu vardiya notu silinsin mi?'));
     if (!ok) return;
 
-    const pw = await (typeof u.password === 'function'
-      ? u.password('Silme şifresini giriniz:')
-      : window.rpUi.password('Silme şifresini giriniz:'));
-    if (pw == null || pw === false) return;
-    if (String(pw).trim() !== DELETE_PASSWORD) {
-      if (typeof u.alert === 'function') await u.alert('Şifre hatalı.', 'danger');
-      else alert('Şifre hatalı.');
-      return;
+    let pw = '';
+    if (!(window.clientIsAmir && window.clientIsAmir())) {
+      pw = await (typeof u.password === 'function'
+        ? u.password('Silme şifresini giriniz:')
+        : window.rpUi.password('Silme şifresini giriniz:'));
+      if (pw == null || pw === false) return;
+      if (String(pw).trim() !== DELETE_PASSWORD) {
+        if (typeof u.alert === 'function') await u.alert('Şifre hatalı.', 'danger');
+        else alert('Şifre hatalı.');
+        return;
+      }
     }
 
     try {

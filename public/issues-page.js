@@ -392,6 +392,12 @@
 
   async function confirmDeleteIssue() {
     const ui = getRpUi() || window.rpUi;
+    if (window.clientIsAmir && window.clientIsAmir()) {
+      if (ui && typeof ui.confirm === 'function') {
+        return !!(await ui.confirm('Bu kaydı silmek istediğinize emin misiniz?', { okLabel: 'Sil' }));
+      }
+      return !!(await confirm('Bu kaydı silmek istediğinize emin misiniz?'));
+    }
     if (ui && typeof ui.confirmSecureDelete === 'function') {
       const r = await ui.confirmSecureDelete({
         message: 'Bu kaydı silmek istediğinize emin misiniz?',

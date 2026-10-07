@@ -12,7 +12,9 @@
     let pollTimer = 0;
     let pulling = false;
     let sseBound = false;
-    let audioCtx = null;
+    let dingAudio = null;
+    let buzzAudio = null;
+    let audioReady = false;
 
     function siteKey(value) {
         const raw = String(value || '').trim();
@@ -153,31 +155,59 @@
         paintBadge();
     }
 
-    function ding() {
+    function clip(kind) {
+        if (kind === 'buzz') {
+            if (!buzzAudio) {
+                buzzAudio = new Audio('/msn-nudge.mp3');
+                buzzAudio.preload = 'auto';
+            }
+            return buzzAudio;
+        }
+        if (!dingAudio) {
+            dingAudio = new Audio('/mesaj-bildirim.mp3');
+            dingAudio.preload = 'auto';
+        }
+        return dingAudio;
+    }
+
+    function playClip(a) {
         try {
-            const AC = window.AudioContext || window.webkitAudioContext;
-            if (!AC) return;
-            if (!audioCtx) audioCtx = new AC();
-            const start = () => {
-                const t = audioCtx.currentTime + 0.02;
-                [784, 988, 1318].forEach((freq, i) => {
-                    const osc = audioCtx.createOscillator();
-                    const gain = audioCtx.createGain();
-                    osc.type = 'sine';
-                    osc.frequency.value = freq;
-                    const when = t + i * 0.11;
-                    gain.gain.setValueAtTime(0.0001, when);
-                    gain.gain.exponentialRampToValueAtTime(0.16, when + 0.02);
-                    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.22);
-                    osc.connect(gain);
-                    gain.connect(audioCtx.destination);
-                    osc.start(when);
-                    osc.stop(when + 0.24);
-                });
-            };
-            if (audioCtx.state === 'suspended') audioCtx.resume().then(start).catch(() => {});
-            else start();
+            a.muted = false;
+            a.volume = 1;
+            a.currentTime = 0;
+            const p = a.play();
+            if (p && typeof p.catch === 'function') p.catch(() => {});
         } catch (e) { /* ignore */ }
+    }
+
+    function unlockAudio() {
+        if (audioReady) return;
+        try {
+            const a = clip('ding');
+            clip('buzz');
+            if (!a.paused && a.currentTime > 0) {
+                audioReady = true;
+                return;
+            }
+            audioReady = true;
+            a.muted = true;
+            const p = a.play();
+            const done = () => {
+                a.pause();
+                a.currentTime = 0;
+                a.muted = false;
+            };
+            if (p && typeof p.then === 'function') p.then(done).catch(() => { a.muted = false; audioReady = false; });
+            else done();
+        } catch (e) { audioReady = false; }
+    }
+
+    function ding() {
+        playClip(clip('ding'));
+    }
+
+    function buzzSound() {
+        playClip(clip('buzz'));
     }
 
     function shortName(key) {
@@ -744,7 +774,7 @@
         SyncManager.on('chat_buzz', (data) => {
             if (!data || siteKey(data.to) !== myKey()) return;
             open(data.from, { shake: true, buzz: true });
-            ding();
+            buzzSound();
         });
     }
 
@@ -778,9 +808,8 @@
         window.addEventListener('gpm-presence', () => {
             windows.forEach((win) => paintStatus(win));
         });
-        document.addEventListener('pointerdown', () => {
-            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
-        }, true);
+        document.addEventListener('pointerdown', unlockAudio, true);
+        document.addEventListener('keydown', unlockAudio, true);
     }
 
     window.MsnChat = { open: open, siteKey: siteKey };

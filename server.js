@@ -1655,7 +1655,7 @@ api.delete('/operation-notes/:id', async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     const password = String((req.body && req.body.password) || '');
-    if (password !== SHIFT_NOTES_DELETE_PASSWORD) {
+    if (!requestHasAmirSession(req) && password !== SHIFT_NOTES_DELETE_PASSWORD) {
       return res.status(403).json({ ok: false, error: 'invalid password' });
     }
     if (!id) return res.status(400).json({ ok: false, error: 'id required' });

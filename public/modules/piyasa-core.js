@@ -66,6 +66,7 @@ function clearAllOrderPrintStatsInState() {
   }
 
   async function verifyCustomerListPassword(message) {
+    if (window.clientIsAmir && window.clientIsAmir()) return true;
     const ui = window.rpUi || {};
     let entered = null;
     if (typeof ui.password === 'function') {

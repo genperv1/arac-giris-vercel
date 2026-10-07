@@ -165,14 +165,22 @@
     }
     var archiveRow = '';
     if (state.canClose) {
-      var items = (state.archive || []).map(function (c) {
+      var files = state.archive || [];
+      var open = state.archiveOpen !== false;
+      var items = files.map(function (c) {
         var when = c.closedAt ? new Date(c.closedAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-        return '<span class="archive-item"><b>' + esc(c.label || c.dateKey) + '</b> · ' + (c.rowCount || 0) + ' satır' +
-          (when ? ' · ' + esc(when) : '') + (c.closedBy ? ' · ' + esc(c.closedBy) : '') +
-          ' <button type="button" class="chip chip-delete" data-delete-archive="' + esc(c.dateKey) + '">Sil</button></span>';
-      }).join(' ');
-      archiveRow = '<span class="archive-label">Arşiv</span> ' +
-        (items || '<span class="archive-empty">Kapatılan liste burada durur.</span>');
+        return '<div class="archive-file">' +
+          '<span class="archive-file-ico" aria-hidden="true"></span>' +
+          '<span class="archive-file-name"><b>' + esc(c.label || c.dateKey) + '</b>' +
+            '<small>' + (c.rowCount || 0) + ' satır' + (when ? ' · ' + esc(when) : '') + (c.closedBy ? ' · ' + esc(c.closedBy) : '') + '</small></span>' +
+          '<button type="button" class="chip chip-restore" data-restore-archive="' + esc(c.dateKey) + '">Geri al</button>' +
+          '<button type="button" class="chip chip-excel" data-excel-archive="' + esc(c.dateKey) + '">Excel</button>' +
+          '<button type="button" class="chip chip-delete" data-delete-archive="' + esc(c.dateKey) + '">Sil</button>' +
+          '</div>';
+      }).join('');
+      archiveRow = '<button type="button" class="archive-folder-btn' + (open ? ' is-open' : '') + '" data-archive-toggle>' +
+        '<span class="archive-folder-ico" aria-hidden="true"></span> Arşiv <span class="archive-count">' + files.length + '</span></button>' +
+        (open ? '<div class="archive-files">' + (items || '<div class="archive-empty">Kapatılan listeler bu klasöre gelir.</div>') + '</div>' : '');
     }
     if (closeRow || archiveRow) {
       html += '<div class="known admin-days">' +
@@ -373,6 +381,59 @@
       if (btn) btn.disabled = false;
       toast(err.message || 'Liste silinemedi');
     }
+  }
+
+  async function restoreArchive(dateKey, btn) {
+    var item = (state.archive || []).filter(function (d) { return d.dateKey === dateKey; })[0];
+    var label = item ? (item.label || dateKey) : dateKey;
+    if (!window.confirm(label + ' listesi arşivden limana geri alınsın mı?\n\nKlasördeki kopya durur. Liman tarafı bu listeyi tekrar görür.')) return;
+    if (btn) btn.disabled = true;
+    var gen = ++viewGeneration;
+    try {
+      applyView(await api('/api/liman/archive/' + encodeURIComponent(dateKey) + '/restore', { method: 'POST' }), gen);
+      state.day = dateKey;
+      render();
+      toast(label + ' listesi limana geri alındı');
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      toast(err.message || 'Liste geri alınamadı');
+    }
+  }
+
+  function excelCell(value) {
+    return '<td>' + esc(value == null ? '' : value) + '</td>';
+  }
+
+  async function downloadArchiveExcel(dateKey, btn) {
+    var item = (state.archive || []).filter(function (d) { return d.dateKey === dateKey; })[0];
+    var label = item ? (item.label || dateKey) : dateKey;
+    if (btn) btn.disabled = true;
+    try {
+      var data = await api('/api/liman/archive/' + encodeURIComponent(dateKey));
+      var day = data.day || {};
+      var blocks = day.blocks || [];
+      var body = blocks.map(function (block) {
+        var head = '<tr><td colspan="14"><b>' + esc([block.title, block.liman, block.gemi, block.booking].filter(Boolean).join(' · ')) + '</b></td></tr>' +
+          '<tr><th>SIRA</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ BBT</th><th>BOŞ ÇUVAL</th><th>NET</th><th>GİDEN</th><th>YÜKLEME</th><th>ŞOFÖR</th><th>TELEFON</th><th>İRSALİYE</th><th>TAŞIYICI</th></tr>';
+        var rows = (block.rows || []).map(function (row) {
+          return '<tr>' + [row.sira, row.plaka, row.bbt, row.cuval, row.palet, row.bosBbt, row.bosCuval, row.net, row.giden, row.yukleme, row.sofor, row.telefon, row.irsaliye, row.tasiyici || block.tasiyici].map(excelCell).join('') + '</tr>';
+        }).join('');
+        return head + rows;
+      }).join('');
+      var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table>' + body + '</table></body></html>';
+      var blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel' });
+      var link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = label + '.xls';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+      toast(label + ' Excel indirildi');
+    } catch (err) {
+      toast(err.message || 'Excel indirilemedi');
+    }
+    if (btn) btn.disabled = false;
   }
 
   async function deleteArchive(dateKey, btn) {
@@ -1244,6 +1305,21 @@
     var deleteBtn = ev.target.closest('[data-delete-day]');
     if (deleteBtn) {
       deleteDay(deleteBtn.getAttribute('data-delete-day') || '', deleteBtn);
+      return;
+    }
+    if (ev.target.closest('[data-archive-toggle]')) {
+      state.archiveOpen = state.archiveOpen === false;
+      render();
+      return;
+    }
+    var restoreBtn = ev.target.closest('[data-restore-archive]');
+    if (restoreBtn) {
+      restoreArchive(restoreBtn.getAttribute('data-restore-archive') || '', restoreBtn);
+      return;
+    }
+    var excelBtn = ev.target.closest('[data-excel-archive]');
+    if (excelBtn) {
+      downloadArchiveExcel(excelBtn.getAttribute('data-excel-archive') || '', excelBtn);
       return;
     }
     var archiveDel = ev.target.closest('[data-delete-archive]');

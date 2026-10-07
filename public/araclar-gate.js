@@ -78,7 +78,7 @@
     try {
       var role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
       var id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-      return role === 'amir' || id === 'xxr';
+      return role === 'amir' || id === 'xxr' || id === 'saban' || id === 'ugur';
     } catch (e) {
       return false;
     }
@@ -86,6 +86,10 @@
 
   async function ensureAccess(opts) {
     opts = opts || {};
+    if (isAmirUser()) {
+      markUnlocked();
+      return true;
+    }
     if (!opts.force && isUnlocked()) return true;
 
     var pw = await askPassword(opts.message);

@@ -44,17 +44,19 @@ async function deleteVehicle(id) {
     }
     if (!ok) return;
 
-    let entered = null;
-    if (typeof ui.password === 'function') {
-        entered = await ui.password('Silme şifresini giriniz:');
-    } else {
-        entered = await window.rpUi.password('Silme şifresini giriniz:');
-    }
-    if (entered == null || entered === false) return;
-    if (String(entered).trim() !== DELETE_VEHICLE_PASSWORD) {
-        if (typeof ui.alert === 'function') await ui.alert('Şifre hatalı.', 'danger');
-        else alert('Şifre hatalı.');
-        return;
+    if (!(window.clientIsAmir && window.clientIsAmir())) {
+        let entered = null;
+        if (typeof ui.password === 'function') {
+            entered = await ui.password('Silme şifresini giriniz:');
+        } else {
+            entered = await window.rpUi.password('Silme şifresini giriniz:');
+        }
+        if (entered == null || entered === false) return;
+        if (String(entered).trim() !== DELETE_VEHICLE_PASSWORD) {
+            if (typeof ui.alert === 'function') await ui.alert('Şifre hatalı.', 'danger');
+            else alert('Şifre hatalı.');
+            return;
+        }
     }
 
     try {

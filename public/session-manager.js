@@ -1307,7 +1307,7 @@
         if (document.getElementById('gpmMsnScript')) return;
         const s = document.createElement('script');
         s.id = 'gpmMsnScript';
-        s.src = '/msn-chat.js?v=20261007-chat2';
+        s.src = '/msn-chat.js?v=20261007-chat4';
         s.async = true;
         document.head.appendChild(s);
     }
@@ -1496,6 +1496,7 @@
         hideSessionBanner,
         requireValidSession,
         isAmirUser,
+        clientIsAmir: isAmirUser,
         isSabanUser,
         amirDisplayLabel,
         withSessionCheck,
@@ -1513,6 +1514,7 @@
         bindAppPageNavigation,
         claimHomeWindow
     };
+    window.clientIsAmir = isAmirUser;
     
     // Sayfa yüklendiğinde ana sayfa linklerini başlat.
     // Keep-alive yalnızca başarılı giriş/doğrulama sonrası markSessionValid() ile başlar.

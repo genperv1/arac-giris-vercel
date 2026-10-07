@@ -2652,6 +2652,7 @@
 
   async function ensureDeletePassword(){
     try{
+      if (window.clientIsAmir && window.clientIsAmir()) return true;
       const entered = await uiPassword('Silme şifresini giriniz:');
       if (entered == null || entered === false) return false;
       if (String(entered).trim() !== DELETE_PASSWORD){
