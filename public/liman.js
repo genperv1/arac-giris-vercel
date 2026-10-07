@@ -827,10 +827,8 @@
     'table.xgrid th, table.xgrid td { border: 1px solid #000; text-align: center; font-weight: 700; font-size: 7.5pt; padding: 2px 1px; line-height: 1.15; white-space: nowrap; }' +
     'table.xgrid th { background: #fff2cc; font-size: 6.4pt; }' +
     'td.ton { background: #f8cbad; }' +
-    'td.fark.is-neg { background: #c6efce; }' +
-    'td.fark.is-pos { background: #e7e6e6; }' +
     'td.yer, td.sof { color: #c00000; -webkit-text-fill-color: #c00000; font-weight: 800; }' +
-    'td.sof { white-space: normal; }' +
+    'td.sof { white-space: nowrap; font-size: 8pt; text-align: left; padding-left: 4px; }' +
     'td.tel { color: #1d4ed8; -webkit-text-fill-color: #1d4ed8; font-size: 6.5pt; }' +
     'td.plk { font-weight: 800; letter-spacing: .01em; }' +
     'td.irs, td.saat { font-size: 6.4pt; }' +
@@ -840,9 +838,9 @@
     'tr.kal td { background: #fff2cc; }' +
     'td.lab { text-align: left; padding-left: 4px; }' +
     '.xnote { font-size: 8pt; font-weight: 800; color: #9b1c1c; -webkit-text-fill-color: #9b1c1c; padding: 2px 4px; }' +
-    'col.c-chk { width: 2.6%; } col.c-irs { width: 8.4%; } col.c-sira { width: 2.8%; } col.c-plk { width: 7.6%; }' +
-    'col.c-q { width: 3.6%; } col.c-ton { width: 5.6%; } col.c-fark { width: 4.2%; }' +
-    'col.c-yer { width: 5.8%; } col.c-sof { width: 9.4%; } col.c-tel { width: 8.8%; } col.c-saat { width: 9.6%; }';
+    'col.c-chk { width: 2.4%; } col.c-irs { width: 8.6%; } col.c-sira { width: 2.6%; } col.c-plk { width: 8%; }' +
+    'col.c-q { width: 3.8%; } col.c-ton { width: 6.4%; }' +
+    'col.c-yer { width: 6.2%; } col.c-sof { width: 16%; } col.c-tel { width: 9.2%; } col.c-saat { width: 10%; }';
 
   function printTon(value) {
     var s = String(value == null ? '' : value).trim();
@@ -850,16 +848,6 @@
     var n = parseNum(s);
     if (!isFinite(n) || n === 0) return s;
     if (Math.abs(n) >= 1000) return n.toLocaleString('tr-TR', { maximumFractionDigits: 3 });
-    return n.toFixed(3);
-  }
-
-  function printFark(value, keepZero) {
-    var s = String(value == null ? '' : value).trim();
-    if (!s) return '';
-    var n = parseNum(s);
-    if (!isFinite(n)) return s;
-    if (n === 0) return keepZero ? '0' : '';
-    if (Math.abs(n) >= 20 || Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
     return n.toFixed(3);
   }
 
@@ -907,16 +895,7 @@
     return '<table class="xside"><tr>' + cells.join('') + '</tr></table>';
   }
 
-  function printFarkCls(value) {
-    var s = String(value == null ? '' : value).trim();
-    if (!s) return '';
-    var n = parseNum(s);
-    if (!n) return '';
-    return n < 0 ? ' is-neg' : ' is-pos';
-  }
-
   function printDataRow(row) {
-    var fark = printFark(row.fark, false);
     return '<tr>' +
       '<td class="chk"><span class="box"></span></td>' +
       '<td class="irs">' + esc(row.irsaliye || row.irsaliyeNo || '') + '</td>' +
@@ -928,9 +907,7 @@
       '<td>' + esc(printQty(row.bosBbt, false)) + '</td>' +
       '<td>' + esc(printQty(row.bosCuval, false)) + '</td>' +
       '<td class="ton">' + esc(printTon(row.net || row.netTonaj)) + '</td>' +
-      '<td class="ton">' + esc(printTon(row.ogr)) + '</td>' +
       '<td class="ton">' + esc(printTon(row.giden || row.gidenTonaj)) + '</td>' +
-      '<td class="fark' + printFarkCls(row.fark) + '">' + esc(fark) + '</td>' +
       '<td class="yer">' + esc(row.yukleme || row.yuklemeYeri || '') + '</td>' +
       '<td class="sof">' + esc(row.sofor || '') + '</td>' +
       '<td class="tel">' + esc(row.telefon || '') + '</td>' +
@@ -938,25 +915,9 @@
       '</tr>';
   }
 
-  function printSumOf(rows, key) {
-    var n = 0;
-    var any = false;
-    rows.forEach(function (row) {
-      var raw = key === 'giden' ? (row.giden || row.gidenTonaj) : row[key];
-      if (String(raw == null ? '' : raw).trim() === '') return;
-      any = true;
-      n += parseNum(raw);
-    });
-    return any ? n : null;
-  }
-
   function printMetric(kind, excelRaw, calc) {
     var has = excelRaw != null && String(excelRaw).trim() !== '';
     if (kind === 'ton') return printTon(has ? excelRaw : calc);
-    if (kind === 'fark') {
-      if (has) return printFark(excelRaw, true);
-      return calc == null ? '' : printFark(calc, true);
-    }
     if (has) return printQty(excelRaw, true);
     if (calc == null) return '';
     return printQty(calc, true);
@@ -971,13 +932,11 @@
       ['qty', 'bosBbt', excel && excel.bosBbt, calc.bosBbt],
       ['qty', 'bosCuval', excel && excel.bosCuval, calc.bosCuval],
       ['ton', 'net', excel && excel.netTonaj, kalan ? null : calc.net],
-      ['ton', 'ogr', excel && excel.ogrTonaj, kalan ? null : printSumOf(rows, 'ogr')],
       ['ton', 'giden', excel && excel.gidenTonaj, kalan ? null : calc.giden],
-      ['fark', 'fark', excel && excel.fark, kalan ? null : printSumOf(rows, 'fark')],
     ];
     var cells = spec.map(function (item) {
       var shown = printMetric(item[0], item[2], item[3]);
-      var clsName = item[0] === 'ton' ? ' class="ton"' : (item[0] === 'fark' ? ' class="fark' + printFarkCls(item[2] != null && String(item[2]).trim() !== '' ? item[2] : item[3]) + '"' : '');
+      var clsName = item[0] === 'ton' ? ' class="ton"' : '';
       return '<td' + clsName + '>' + esc(shown) + '</td>';
     }).join('');
     return '<tr class="' + cls + '"><td class="lab" colspan="4">' + label + '</td>' + cells + '<td colspan="4"></td></tr>';
@@ -1021,11 +980,11 @@
       '<table class="xgrid"><colgroup>' +
         '<col class="c-chk"><col class="c-irs"><col class="c-sira"><col class="c-plk">' +
         '<col class="c-q"><col class="c-q"><col class="c-q"><col class="c-q"><col class="c-q">' +
-        '<col class="c-ton"><col class="c-ton"><col class="c-ton"><col class="c-fark">' +
+        '<col class="c-ton"><col class="c-ton">' +
         '<col class="c-yer"><col class="c-sof"><col class="c-tel"><col class="c-saat">' +
       '</colgroup><thead><tr>' +
         '<th>✓</th><th>İRSALİYE</th><th>#</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ<br>BBT</th><th>BOŞ<br>ÇUVAL</th>' +
-        '<th>NET<br>TONAJ</th><th>O.GR.<br>TONAJ</th><th>GİDEN<br>TONAJ</th><th>FARK</th>' +
+        '<th>NET<br>TONAJ</th><th>GİDEN<br>TONAJ</th>' +
         '<th>YÜKLEME<br>YERİ</th><th>ŞOFÖR ADI<br>SOYADI</th><th>TELEFON</th><th>KANTAR<br>ÇIKIŞ</th>' +
       '</tr></thead><tbody>' +
       rows.map(printDataRow).join('') +
