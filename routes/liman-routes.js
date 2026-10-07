@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
 const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, dateKeyFromFileName, labelFromDateKey, settledFileLabels, withoutSettledFiles } = require('../lib/liman-sheet');
+const { buildArchiveFromPrints } = require('../lib/liman-archive-recover');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { canManageLimanList } = require('../lib/amir-user');
 const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
@@ -382,6 +383,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       fp: rec.fp || '',
       blockCount: blocks.length,
       rowCount: blocks.reduce((sum, block) => sum + ((block.rows && block.rows.length) || 0), 0),
+      recovered: !!rec.recovered,
       check: rec.check || null,
     };
   }
@@ -585,8 +587,49 @@ function registerLimanRoutes(api, ctx, publicApp) {
   const reader = publicApp || api;
   const readPrefix = publicApp ? '/api' : '';
 
-  async function attachArchive(view) {
+  /** Kapalı günün mühürü boşsa kantar baskılarından arşive yazar. Dolu arşive dokunmaz. */
+  async function healClosedArchives(state) {
+    const closed = closedDays(state);
+    const keys = Object.keys(closed).filter((key) => DAY_KEY_RE.test(key));
+    if (!keys.length) return;
+    const idx = (await readKvJson(ARCHIVE_INDEX_KEY)).value || {};
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (idx[key] && Number(idx[key].rowCount) > 0) continue;
+      const cur = await readKvJson(ARCHIVE_PREFIX + key);
+      if (cur.value && Array.isArray(cur.value.blocks) && cur.value.blocks.length) {
+        if (!idx[key]) {
+          await writeArchiveIndex(cur.value);
+          idx[key] = archiveSummary(cur.value);
+        }
+        continue;
+      }
+      const r = await q(
+        `SELECT tarih, snapshot FROM print_history
+         WHERE COALESCE((NULLIF(btrim(snapshot), ''))::json->>'excelDateKey', '') = $1`,
+        [key]
+      );
+      const prints = [];
+      (r.rows || []).forEach((row) => {
+        let snapshot = null;
+        try { snapshot = row.snapshot ? JSON.parse(row.snapshot) : null; } catch (_) { snapshot = null; }
+        if (snapshot) prints.push({ snapshot, ts: Number(row.tarih) || 0 });
+      });
+      const rebuilt = buildArchiveFromPrints(prints, key, closed[key]);
+      if (!rebuilt) continue;
+      const saved = await updateKvJson(ARCHIVE_PREFIX + key, () => rebuilt);
+      await writeArchiveIndex(saved.value);
+      idx[key] = archiveSummary(saved.value);
+    }
+  }
+
+  async function attachArchive(view, state) {
     if (!view || !view.canClose) return view;
+    if (state) {
+      try { await healClosedArchives(state); } catch (err) {
+        console.warn('[liman] kapalı gün arşive tamamlanamadı', (err && err.message) || err);
+      }
+    }
     const idx = (await readKvJson(ARCHIVE_INDEX_KEY)).value || {};
     view.archive = Object.keys(idx).filter((key) => DAY_KEY_RE.test(key)).sort().reverse().map((key) => {
       const s = idx[key] || {};
@@ -597,6 +640,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         closedBy: s.closedBy || '',
         rowCount: s.rowCount || 0,
         blockCount: s.blockCount || 0,
+        recovered: !!s.recovered,
       };
     });
     return view;
@@ -619,7 +663,8 @@ function registerLimanRoutes(api, ctx, publicApp) {
   reader.get(readPrefix + '/liman', attachOptionalUser, async (req, res) => {
     try {
       noStore(res);
-      return res.json(await attachArchive(viewFor(req, await readState())));
+      const state = await readState();
+      return res.json(await attachArchive(viewFor(req, state), state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_READ_FAILED');
     }
@@ -887,7 +932,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       });
       if (committed.missing) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
-      return res.json(await attachArchive(viewFor(req, committed.state)));
+      return res.json(await attachArchive(viewFor(req, committed.state), committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DAY_CLOSE_FAILED');
     }
@@ -924,7 +969,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       if (committed.missing) return res.status(404).json({ ok: false, error: 'Bu güne ait liste yok.' });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
       await clearArchive(key);
-      return res.json(await attachArchive(viewFor(req, committed.state)));
+      return res.json(await attachArchive(viewFor(req, committed.state), committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_DAY_DELETE_FAILED');
     }
@@ -1010,7 +1055,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         restoreArchivedDay(state, rec);
       });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
-      return res.json(await attachArchive(viewFor(req, committed.state)));
+      return res.json(await attachArchive(viewFor(req, committed.state), committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_RESTORE_FAILED');
     }
@@ -1034,7 +1079,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
       await clearArchive(key);
-      return res.json(await attachArchive(viewFor(req, committed.state)));
+      return res.json(await attachArchive(viewFor(req, committed.state), committed.state));
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_ARCHIVE_DELETE_FAILED');
     }

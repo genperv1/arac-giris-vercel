@@ -172,7 +172,7 @@
         return '<div class="archive-file">' +
           '<span class="archive-file-ico" aria-hidden="true"></span>' +
           '<span class="archive-file-name"><b>' + esc(c.label || c.dateKey) + '</b>' +
-            '<small>' + (c.rowCount || 0) + ' satır' + (when ? ' · ' + esc(when) : '') + (c.closedBy ? ' · ' + esc(c.closedBy) : '') + '</small></span>' +
+            '<small>' + (c.rowCount || 0) + ' satır' + (when ? ' · ' + esc(when) : '') + (c.closedBy ? ' · ' + esc(c.closedBy) : '') + (c.recovered ? ' · kantar baskısından' : '') + '</small></span>' +
           '<button type="button" class="chip chip-restore" data-restore-archive="' + esc(c.dateKey) + '">Geri al</button>' +
           '<button type="button" class="chip chip-excel" data-excel-archive="' + esc(c.dateKey) + '">Excel</button>' +
           '<button type="button" class="chip chip-delete" data-delete-archive="' + esc(c.dateKey) + '">Sil</button>' +
@@ -400,31 +400,18 @@
     }
   }
 
-  function excelCell(value) {
-    return '<td>' + esc(value == null ? '' : value) + '</td>';
-  }
-
   async function downloadArchiveExcel(dateKey, btn) {
     var item = (state.archive || []).filter(function (d) { return d.dateKey === dateKey; })[0];
     var label = item ? (item.label || dateKey) : dateKey;
     if (btn) btn.disabled = true;
     try {
+      if (!window.LimanXlsx || !window.LimanXlsx.buildArchiveWorkbook) throw new Error('Excel oluşturucu yüklenmedi');
       var data = await api('/api/liman/archive/' + encodeURIComponent(dateKey));
-      var day = data.day || {};
-      var blocks = day.blocks || [];
-      var body = blocks.map(function (block) {
-        var head = '<tr><td colspan="14"><b>' + esc([block.title, block.liman, block.gemi, block.booking].filter(Boolean).join(' · ')) + '</b></td></tr>' +
-          '<tr><th>SIRA</th><th>PLAKA</th><th>BBT</th><th>ÇUVAL</th><th>PALET</th><th>BOŞ BBT</th><th>BOŞ ÇUVAL</th><th>NET</th><th>GİDEN</th><th>YÜKLEME</th><th>ŞOFÖR</th><th>TELEFON</th><th>İRSALİYE</th><th>TAŞIYICI</th></tr>';
-        var rows = (block.rows || []).map(function (row) {
-          return '<tr>' + [row.sira, row.plaka, row.bbt, row.cuval, row.palet, row.bosBbt, row.bosCuval, row.net, row.giden, row.yukleme, row.sofor, row.telefon, row.irsaliye, row.tasiyici || block.tasiyici].map(excelCell).join('') + '</tr>';
-        }).join('');
-        return head + rows;
-      }).join('');
-      var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table>' + body + '</table></body></html>';
-      var blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel' });
+      var bytes = window.LimanXlsx.buildArchiveWorkbook(data.day || {});
+      var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       var link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = label + '.xls';
+      link.download = label + '.xlsx';
       document.body.appendChild(link);
       link.click();
       link.remove();
