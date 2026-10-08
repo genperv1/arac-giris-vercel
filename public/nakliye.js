@@ -19,6 +19,7 @@
     preset: 'yuklu',
     donus: false,
     mazot: null,
+    mazotError: '',
     route: null,
     places: null,
     geo: null,
@@ -40,15 +41,6 @@
       .replace(/ı/g, 'i').replace(/ğ/g, 'g').replace(/ü/g, 'u')
       .replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c')
       .replace(/[^a-z0-9]/g, '');
-  }
-
-  function authHeaders() {
-    var h = {};
-    try {
-      var token = localStorage.getItem('authToken') || '';
-      if (token) h.Authorization = 'Bearer ' + token;
-    } catch (e) { /* ignore */ }
-    return h;
   }
 
   function isSaban() {
@@ -218,28 +210,52 @@
     return fiyatOf(state.from);
   }
 
+  function ilMazot(plaka) {
+    var iller = (state.mazot && state.mazot.iller) || [];
+    for (var i = 0; i < iller.length; i++) if (iller[i].plaka === plaka) return iller[i];
+    return null;
+  }
+
+  function mazotWhen() {
+    if (!state.mazot || !state.mazot.updatedAt) return '';
+    return new Date(state.mazot.updatedAt).toLocaleString('tr-TR', {
+      timeZone: 'Europe/Istanbul', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+  }
+
   function fillPrice() {
     var price = fiyatOf(state.from);
+    var now = document.getElementById('nkMazotNow');
     var meta = document.getElementById('nkMazotMeta');
     var where = document.getElementById('nkMazotWhere');
-    if (!state.mazot) {
-      if (meta) meta.textContent = 'Güncel mazot fiyatı internetten alınıyor…';
+    var kutahya = ilMazot(43);
+    var istanbul = ilMazot(34);
+    if (!state.mazot || !state.mazot.iller || !state.mazot.iller.length) {
+      if (now) now.textContent = '—';
+      if (meta) meta.textContent = state.mazotError || 'Güncel mazot fiyatı internetten alınıyor…';
       if (where) where.textContent = 'OPET pompa fiyatı';
       return;
     }
-    if (!state.from) {
-      if (where) where.textContent = 'Çıkış seçilince o ilin fiyatı kullanılır';
-      if (meta) meta.textContent = 'Litre fiyatı internetten gelir, elle girilmez.';
+    var shown = price;
+    if (shown == null && state.from) {
+      var fromIl = ilMazot(state.from.plaka);
+      if (fromIl) shown = fromIl.mazot;
+    }
+    if (shown == null && kutahya) shown = kutahya.mazot;
+    if (now) now.textContent = shown == null ? '—' : fmt(shown, 2) + ' TL/L';
+    var bits = [];
+    if (kutahya) bits.push('Kütahya ' + fmt(kutahya.mazot, 2));
+    if (istanbul) bits.push('İstanbul ' + fmt(istanbul.mazot, 2));
+    var when = mazotWhen();
+    var kaynak = (state.mazot.urun || 'Motorin') + ' · ' + (state.mazot.kaynak || 'OPET');
+    if (state.from && price != null) {
+      var yer = state.from.tesis ? (state.from.tesis + ' · ' + state.from.il) : state.from.il;
+      if (where) where.textContent = yer;
+      if (meta) meta.textContent = kaynak + (when ? ' · ' + when : '') + (state.mazot.bayat ? ' · son bilinen fiyat' : '') + (bits.length ? ' · ' + bits.join(' · ') : '');
       return;
     }
-    if (price == null) {
-      if (where) where.textContent = state.from.il + ' fiyatı alınamadı';
-      if (meta) meta.textContent = 'Yenile ile tekrar internetten isteyin.';
-      return;
-    }
-    var yer = state.from.tesis ? (state.from.tesis + ' · ' + state.from.il) : state.from.il;
-    if (where) where.textContent = yer;
-    if (meta) meta.textContent = fmt(price, 2) + ' TL/L · güncel pompa fiyatı';
+    if (where) where.textContent = state.from ? (state.from.il + ' fiyatı') : 'Çıkış ilinin pompa fiyatı';
+    if (meta) meta.textContent = kaynak + (when ? ' · ' + when : '') + (bits.length ? ' · ' + bits.join(' · ') : '');
   }
 
   function round1(n) { return Math.round(n * 10) / 10; }
@@ -283,33 +299,23 @@
     document.getElementById('nkMapHint').textContent = (il ? il.ad : 'İl') + ' ilçesinden varışı seçin.';
   }
 
-  function arrowParts(x1, y1, x2, y2) {
-    var dx = x2 - x1;
-    var dy = y2 - y1;
-    var len = Math.sqrt(dx * dx + dy * dy) || 1;
-    var ux = dx / len;
-    var uy = dy / len;
-    var sx = x1 + ux * 16;
-    var sy = y1 + uy * 16;
-    var ex = x2 - ux * 18;
-    var ey = y2 - uy * 18;
-    var px = -uy;
-    var py = ux;
-    var bx = ex - ux * 16;
-    var by = ey - uy * 16;
-    return {
-      line: 'M' + sx.toFixed(1) + ' ' + sy.toFixed(1) + ' L' + bx.toFixed(1) + ' ' + by.toFixed(1),
-      head: 'M' + ex.toFixed(1) + ' ' + ey.toFixed(1)
-        + ' L' + (bx + px * 8).toFixed(1) + ' ' + (by + py * 8).toFixed(1)
-        + ' L' + (bx - px * 8).toFixed(1) + ' ' + (by - py * 8).toFixed(1) + ' Z'
-    };
+  function roadPath(box) {
+    var raw = state.route && state.route.cizgi;
+    if (!raw || raw.length < 2) return '';
+    var d = '';
+    for (var i = 0; i < raw.length; i++) {
+      var xy = project(raw[i][0], raw[i][1], box);
+      d += (i ? 'L' : 'M') + xy[0].toFixed(1) + ' ' + xy[1].toFixed(1);
+    }
+    return d;
   }
 
   function renderMap() {
     var svg = document.getElementById('nkMap');
     if (!state.geo) { svg.innerHTML = ''; return; }
     var box = TURKEY;
-    var html = '';
+    var html = '<defs><marker id="nkRoadArrow" markerUnits="strokeWidth" markerWidth="4.2" markerHeight="4.2" refX="3.1" refY="2.1" orient="auto">'
+      + '<path d="M0,0 L4.2,2.1 L0,4.2 Z" fill="#ea580c"></path></marker></defs>';
     var features = state.geo.features || [];
     for (var i = 0; i < features.length; i++) {
       var f = features[i];
@@ -325,14 +331,19 @@
     var fromPt = state.from ? project(state.from.lon, state.from.lat, box) : null;
     var toPt = state.to ? project(state.to.lon, state.to.lat, box) : null;
     if (fromPt && toPt) {
-      var arrow = arrowParts(fromPt[0], fromPt[1], toPt[0], toPt[1]);
-      html += '<path class="nk-route" vector-effect="non-scaling-stroke" d="' + arrow.line + '"></path>';
-      html += '<path class="nk-arrow-head" d="' + arrow.head + '"></path>';
       var fromName = state.from.tesis || state.from.ilce || state.from.il;
       var toName = state.to.ilce ? (state.to.il + ' / ' + state.to.ilce) : state.to.il;
+      var road = roadPath(box);
+      if (road) {
+        html += '<path class="nk-route-halo" vector-effect="non-scaling-stroke" d="' + road + '"></path>';
+        html += '<path class="nk-route" vector-effect="non-scaling-stroke" marker-end="url(#nkRoadArrow)" d="' + road + '"></path>';
+        var yol = state.route && state.route.kaynak === 'kus-ucusu' ? 'kuş uçuşu' : 'karayolu';
+        document.getElementById('nkMapHint').textContent = 'Buradan ' + fromName + ' → buraya ' + toName + ' · ' + yol;
+      } else {
+        document.getElementById('nkMapHint').textContent = 'Karayolu çiziliyor: ' + fromName + ' → ' + toName;
+      }
       html += '<text class="nk-pin-label" x="' + (fromPt[0] + 10).toFixed(1) + '" y="' + (fromPt[1] - 8).toFixed(1) + '">Buradan · ' + esc(fromName) + '</text>';
       html += '<text class="nk-pin-label" x="' + (toPt[0] + 10).toFixed(1) + '" y="' + (toPt[1] - 8).toFixed(1) + '">Buraya · ' + esc(toName) + '</text>';
-      document.getElementById('nkMapHint').textContent = 'Buradan ' + fromName + ' → buraya ' + toName;
     } else if (fromPt) {
       document.getElementById('nkMapHint').textContent = 'Çıkış hazır. Haritadan varış iline basın, ilçeyi listeden seçin.';
     }
@@ -436,7 +447,7 @@
     var lead = document.getElementById('nkPriceLead');
     var grid = document.getElementById('nkPriceGrid');
     if (!state.mazot || !state.mazot.iller) {
-      lead.textContent = 'Güncel mazot fiyatı internetten alınamadı. Yenile ile tekrar deneyin.';
+      lead.textContent = state.mazotError || 'Güncel mazot fiyatı internetten alınamadı. Yenile ile tekrar deneyin.';
       grid.innerHTML = '';
       return;
     }
@@ -484,7 +495,7 @@
     var ctl = routeCtl;
     var q = 'olon=' + encodeURIComponent(state.from.lon) + '&olat=' + encodeURIComponent(state.from.lat)
       + '&dlon=' + encodeURIComponent(state.to.lon) + '&dlat=' + encodeURIComponent(state.to.lat);
-    fetch('/api/nakliye/mesafe?' + q, { credentials: 'include', cache: 'no-store', headers: authHeaders(), signal: ctl.signal })
+    apiFetch('/api/nakliye/mesafe?' + q, { signal: ctl.signal })
       .then(function (res) { if (!res.ok) throw new Error('mesafe'); return res.json(); })
       .then(function (data) {
         if (ctl.signal.aborted) return;
@@ -498,21 +509,45 @@
       });
   }
 
-  function loadMazot() {
-    document.getElementById('nkPriceLead').textContent = 'Güncel mazot fiyatları alınıyor…';
-    return fetch('/api/nakliye/mazot', { credentials: 'include', cache: 'no-store', headers: authHeaders() })
+  var mazotSeq = 0;
+
+  function apiFetch(url, extra) {
+    var opts = Object.assign({ credentials: 'same-origin', cache: 'no-store' }, extra || {});
+    if (window.SessionManager && typeof window.SessionManager.fetchWithSession === 'function') {
+      return window.SessionManager.fetchWithSession(url, opts);
+    }
+    return fetch(url, opts);
+  }
+
+  function loadMazot(force) {
+    var seq = ++mazotSeq;
+    state.mazotError = '';
+    var lead = document.getElementById('nkPriceLead');
+    if (lead) lead.textContent = 'Güncel mazot fiyatları OPET’ten alınıyor…';
+    fillPrice();
+    var url = '/api/nakliye/mazot' + (force ? '?yenile=1' : '');
+    return apiFetch(url)
       .then(function (res) {
-        if (!res.ok) throw new Error('mazot');
-        return res.json();
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (!res.ok || !data || data.ok === false || !data.iller || !data.iller.length) {
+            var err = new Error((data && data.error) || (res.status === 401 ? 'Oturum mazot fiyatını alamadı.' : 'Güncel mazot fiyatı alınamadı.'));
+            err.status = res.status;
+            throw err;
+          }
+          return data;
+        });
       })
       .then(function (data) {
-        if (!data) return;
+        if (seq !== mazotSeq) return;
         state.mazot = data;
+        state.mazotError = '';
         fillPrice();
-        render();
+        try { render(); } catch (e) { renderPrices(); }
       })
-      .catch(function () {
+      .catch(function (err) {
+        if (seq !== mazotSeq) return;
         state.mazot = null;
+        state.mazotError = (err && err.message) || 'Güncel mazot fiyatı internetten alınamadı.';
         fillPrice();
         renderPrices();
       });
@@ -709,10 +744,9 @@
       renderResults();
     });
     document.getElementById('nkMazotBtn').addEventListener('click', function () {
-      state.mazot = null;
-      fillPrice();
-      loadMazot();
+      loadMazot(true);
     });
+    loadMazot(false);
 
     Promise.all([
       fetch('data/tr-iller.geojson?v=20261008-nakliye', { cache: 'force-cache' }).then(function (r) { return r.json(); }),
@@ -724,7 +758,6 @@
         state.boxes[Number(f.properties.number)] = geomBox(f.geometry);
       });
       render();
-      loadMazot();
     }).catch(function () {
       document.getElementById('nkMapHint').textContent = 'Harita verisi yüklenemedi.';
     });

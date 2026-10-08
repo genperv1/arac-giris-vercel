@@ -35,6 +35,7 @@
     .nk-home:hover { background: rgba(247,243,236,.08); }
     .nk-btn--primary { background: #9a3412; border-color: #9a3412; color: #fff7ed; }
     .nk-btn--ghost { background: #fff; }
+    .nk-mazot-now { margin: 2px 0 2px; font-size: 28px; font-weight: 750; letter-spacing: -0.03em; color: #9a3412; line-height: 1.1; }
     .nk-btn.is-on { background: #1c1917; border-color: #1c1917; color: #fff7ed; }
     .nk-wrap { padding: 14px; display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr); gap: 12px; }
     .nk-card { background: #fff; border: 1px solid #e7e0d6; border-radius: 12px; padding: 12px; }
@@ -49,10 +50,10 @@
     .nk-il.is-to { fill: #0f766e; }
     .nk-il.is-both { fill: #7c2d12; }
     .nk-il.is-dim { fill: #d6d3d1; stroke: #a8a29e; }
-    .nk-route, .nk-arrow-head, .nk-end, .nk-pin-label, .nk-il-label { pointer-events: none; }
+    .nk-route, .nk-route-halo, .nk-end, .nk-pin-label, .nk-il-label { pointer-events: none; }
     .nk-il-label { text-anchor: middle; dominant-baseline: middle; font-family: "Segoe UI", sans-serif; paint-order: stroke; stroke-linejoin: round; fill: #fffaf3; font-weight: 700; stroke: #1c1917; }
-    .nk-route { fill: none; stroke: #c2410c; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
-    .nk-arrow-head { fill: #c2410c; }
+    .nk-route-halo { fill: none; stroke: #fff7ed; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+    .nk-route { fill: none; stroke: #ea580c; stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
     .nk-end { stroke: #fff; stroke-width: 2; }
     .nk-end.is-from { fill: #c2410c; }
     .nk-end.is-to { fill: #0f766e; }
@@ -185,8 +186,9 @@
       <label class="nk-check"><input id="nkDonus" type="checkbox"> Gidiş-dönüş</label>
 
       <h2 style="margin-top:14px">Güncel mazot</h2>
-      <p id="nkMazotMeta" class="nk-sub" style="color:#57534e;margin:0 0 6px">Litre fiyatı internetten alınır.</p>
-      <button type="button" class="nk-btn nk-btn--ghost" id="nkMazotBtn" title="Fiyatları yenile"><i class="fas fa-sync-alt" aria-hidden="true"></i> Yenile</button>
+      <p id="nkMazotNow" class="nk-mazot-now">—</p>
+      <p id="nkMazotMeta" class="nk-sub" style="color:#57534e;margin:0 0 6px">OPET motorin fiyatı alınıyor.</p>
+      <button type="button" class="nk-btn nk-btn--ghost" id="nkMazotBtn" title="Fiyatları internetten yenile"><i class="fas fa-sync-alt" aria-hidden="true"></i> Yenile</button>
     </section>
 
     <section class="nk-results" aria-live="polite">
@@ -204,6 +206,6 @@
     </section>
   </main>
 
-  <script src="nakliye.js?v=20261008-il"></script>
+  <script src="nakliye.js?v=20261008-yol"></script>
 </body>
 </html>

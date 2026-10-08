@@ -82,12 +82,13 @@ async function refreshMazot() {
   return payload;
 }
 
-function getMazot() {
+function getMazot(force) {
   const fresh = mazotCache.payload && (Date.now() - mazotCache.at) < MAZOT_TTL_MS;
-  if (fresh) return Promise.resolve(mazotCache.payload);
+  if (!force && fresh) return Promise.resolve(mazotCache.payload);
   if (!mazotJob) {
     mazotJob = refreshMazot()
       .catch((err) => {
+        console.error('Nakliye mazot:', err && err.message ? err.message : err);
         if (mazotCache.payload && (Date.now() - mazotCache.at) < MAZOT_STALE_MS) {
           return Object.assign({}, mazotCache.payload, { bayat: true });
         }
@@ -111,7 +112,7 @@ async function drivingRoute(from, to) {
   if (hit && (Date.now() - hit.at) < MAZOT_TTL_MS) return hit.route;
   const url = 'https://router.project-osrm.org/route/v1/driving/'
     + from.lon + ',' + from.lat + ';' + to.lon + ',' + to.lat
-    + '?overview=simplified&geometries=geojson';
+    + '?overview=full&geometries=geojson';
   const body = await fetchJson(url);
   const route = parseOsrmRoute(body);
   if (!route) throw new Error('Rota yok');
@@ -129,9 +130,11 @@ function registerNakliyeRoutes(api, ctx) {
   api.get('/nakliye/mazot', sabanOnly, async (req, res) => {
     res.setHeader('Cache-Control', 'private, max-age=600');
     try {
-      const payload = await getMazot();
+      const force = req.query.yenile === '1';
+      const payload = await getMazot(force);
       res.json(payload);
     } catch (err) {
+      console.error('Nakliye mazot yanıtı:', err && err.message ? err.message : err);
       res.status(502).json({ ok: false, error: 'Güncel mazot fiyatı internetten alınamadı.' });
     }
   });
