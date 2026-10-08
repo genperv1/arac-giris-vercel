@@ -401,21 +401,42 @@ function createIsgApi() {
 
   const ISG_DOC_URL = '/assets/isg-t004.pdf';
 
+  function amirViewer(viewer) {
+    return canControlIsg(viewer != null ? viewer : currentUserName());
+  }
+
+  function signTickHtml(identity) {
+    const idn = identity || {};
+    if (!idn.plateKey && !idn.driverKey) return '';
+    return '<button type="button" class="vehicle-card__isg-tick" data-isg-sign="1"'
+      + ' data-isg-id="' + esc(idn.id || '') + '"'
+      + ' data-isg-plate="' + esc(idn.plateText || '') + '"'
+      + ' data-isg-name="' + esc(idn.driverName || '') + '"'
+      + ' data-isg-tc="' + esc(idn.tc || '') + '"'
+      + ' title="İmzalı yap" aria-label="İmzalı yap">✓</button>';
+  }
+
   function cardHtml(vehicle, viewer) {
     if (!state.loaded) {
       return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg vehicle-card__isg--wait"><span class="vehicle-card__isg-status">İSG</span></div>';
     }
     const st = resolveIsgStatus(vehicle, persistedIsgRecords());
+    const canTick = amirViewer(viewer);
     if (!st.signed) {
-      return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg"><span class="vehicle-card__isg-status">❌ İSG Formu İmzasız</span></div>';
+      const side = canTick ? signTickHtml(st.identity) : '';
+      return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg">'
+        + '<div class="vehicle-card__isg-row"><span class="vehicle-card__isg-status">❌ İSG Formu İmzasız</span>'
+        + side + '</div></div>';
     }
     const rec = st.record || {};
     const recId = String(rec.id || '');
     let side = '';
     if (isControlledRecord(rec)) {
       side = '<span class="vehicle-card__isg-controlled">Kontrol edildi</span>';
-    } else if (canControlIsg(viewer != null ? viewer : currentUserName()) && recId && recId.indexOf('local_') !== 0) {
+    } else if (canTick && recId && recId.indexOf('local_') !== 0) {
       side = '<button type="button" class="vehicle-card__isg-tick" data-isg-control="' + esc(recId) + '" title="Kontrol et" aria-label="Kontrol et">✓</button>';
+    } else if (canTick) {
+      side = signTickHtml(st.identity);
     }
     return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg vehicle-card__isg--signed">'
       + '<div class="vehicle-card__isg-row"><span class="vehicle-card__isg-status">✅ İSG Formu İmzalı</span>'
@@ -1039,6 +1060,28 @@ function createIsgApi() {
     btn.replaceWith(label);
   }
 
+  async function markSignedFromCard(btn) {
+    if (!canControlIsg(currentUserName())) return;
+    const idn = identityFromButton(btn);
+    if (!idn.plateKey && !idn.driverKey) {
+      window.alert('Plaka veya şoför bilgisi olmadan İş Güvenliği kaydı tutulamaz.');
+      return;
+    }
+    if (btn) btn.disabled = true;
+    const ok = await markIsgPrinted(idn);
+    if (!ok) {
+      if (btn) btn.disabled = false;
+      return;
+    }
+    const row = btn && btn.closest ? btn.closest('.vehicle-card__isg') : null;
+    if (row) {
+      row.classList.add('vehicle-card__isg--signed');
+      const label = row.querySelector('.vehicle-card__isg-status');
+      if (label) label.textContent = '✅ İSG Formu İmzalı';
+    }
+    if (btn && btn.parentNode) btn.remove();
+  }
+
   async function markControlled(id, btn) {
     const recId = String(id || '').trim();
     if (!recId || !canControlIsg(currentUserName())) return;
@@ -1073,10 +1116,14 @@ function createIsgApi() {
     if (typeof document === 'undefined' || window.__isgControlBound) return;
     window.__isgControlBound = true;
     document.addEventListener('click', function (e) {
-      const btn = e.target && e.target.closest ? e.target.closest('[data-isg-control]') : null;
+      const btn = e.target && e.target.closest ? e.target.closest('.vehicle-card__isg-tick') : null;
       if (!btn) return;
       e.preventDefault();
       e.stopPropagation();
+      if (btn.getAttribute('data-isg-sign') === '1') {
+        markSignedFromCard(btn);
+        return;
+      }
       markControlled(btn.getAttribute('data-isg-control'), btn);
     });
   }

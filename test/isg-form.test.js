@@ -122,6 +122,20 @@ test('save payload keeps form code and rejects a bad file or url', () => {
   assert.match(isg.safeFileData('data:image/png;base64,YQ=='), /^data:image\/png/);
 });
 
+test('unsigned card shows a sign tick only for Selahattin', () => {
+  isg._state.loaded = true;
+  isg._state.records = [];
+  const vehicle = { cekiciPlaka: '34 ABC 123', soforAdi: 'Ali', soforSoyadi: 'Yılmaz' };
+  const sel = isg.cardHtml(vehicle, 'xxr');
+  assert.match(sel, /İSG Formu İmzasız/);
+  assert.match(sel, /data-isg-sign="1"/);
+  assert.match(sel, /data-isg-plate="34 ABC 123"/);
+  const other = isg.cardHtml(vehicle, 'saban');
+  assert.match(other, /İSG Formu İmzasız/);
+  assert.doesNotMatch(other, /data-isg-sign/);
+  assert.doesNotMatch(other, /vehicle-card__isg-tick/);
+});
+
 test('signed card shows a control tick only for Selahattin, and Kontrol edildi for everyone after approval', () => {
   isg._state.loaded = true;
   isg._state.records = [{
