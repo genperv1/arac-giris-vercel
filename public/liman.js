@@ -324,6 +324,24 @@
     return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear();
   }
 
+  function todayKey() {
+    var d = new Date();
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  /** Liman dolum tarihi bugünse bu, günün listesidir. */
+  function tabIsToday(tab) {
+    var key = todayKey();
+    var re = /(\d{2})\.(\d{2})\.(\d{4})/g;
+    var text = tabDolumText(tab);
+    var m;
+    while ((m = re.exec(text))) {
+      if (m[3] + '-' + m[2] + '-' + m[1] === key) return true;
+    }
+    return false;
+  }
+
   /** Kapatmadan önce amirin görmesi gerekenler: içeride kalan, irsaliyesi boş, gelmeyen araç. */
   function closeWarnings(day) {
     var inside = 0;
@@ -499,15 +517,54 @@
     return { done: done, total: rows.length, complete: rows.length > 0 && done === rows.length };
   }
 
-  /** Sekmedeki her sevkiyat bloğunda bütün araçlar çıktıysa liste bitmiştir. */
-  function tabShipmentsDone(tab) {
+  function tabBlocks(tab) {
     var day = state.days.filter(function (d) { return d.dateKey === tab.dateKey; })[0];
-    if (!day) return false;
-    var blocks = (day.blocks || []).filter(function (block) {
+    if (!day) return [];
+    return (day.blocks || []).filter(function (block) {
       var files = block.files || [];
       return !tab.file || !files.length || files.indexOf(tab.file) >= 0;
     });
+  }
+
+  /** Sekmedeki her sevkiyat bloğunda bütün araçlar çıktıysa liste bitmiştir. */
+  function tabShipmentsDone(tab) {
+    var blocks = tabBlocks(tab);
     return blocks.length > 0 && blocks.every(function (block) { return blockProgress(block).complete; });
+  }
+
+  var TR_DAYS = ['PAZAR', 'PAZARTESİ', 'SALI', 'ÇARŞAMBA', 'PERŞEMBE', 'CUMA', 'CUMARTESİ'];
+
+  /** Liste gününün ertesi: 06.10.2026 → 07.10.2026 ÇARŞAMBA. */
+  function nextDayLabel(dateKey) {
+    var m = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    var dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (isNaN(dt.getTime())) return '';
+    dt.setDate(dt.getDate() + 1);
+    var dd = ('0' + dt.getDate()).slice(-2);
+    var mo = ('0' + (dt.getMonth() + 1)).slice(-2);
+    return dd + '.' + mo + '.' + dt.getFullYear() + ' ' + TR_DAYS[dt.getDay()];
+  }
+
+  /** Excel'de liman dolum varsa o, yoksa listenin bir gün sonrası. */
+  function blockDolumLabel(block, dateKey) {
+    if (String(block && block.dolum || '').trim()) return printDolum(block);
+    return nextDayLabel(dateKey);
+  }
+
+  /** Her listenin sekmesinde liman dolum. Aynı günde birden fazla tarih varsa hepsi. */
+  function tabDolumText(tab) {
+    var seen = [];
+    tabBlocks(tab).forEach(function (block) {
+      var d = blockDolumLabel(block, tab.dateKey);
+      if (d && seen.indexOf(d) < 0) seen.push(d);
+    });
+    if (!seen.length) {
+      var fallback = nextDayLabel(tab.dateKey);
+      if (fallback) seen.push(fallback);
+    }
+    if (!seen.length) return '';
+    return 'LİMAN DOLUM TARİHİ : ' + seen.join(' · ');
   }
 
   function numCell(value) {
@@ -662,9 +719,13 @@
     $('sheetTabs').innerHTML = sheetTabs().map(function (t) {
       var on = t.dateKey === state.day && (!t.file || state.file === t.file);
       var done = tabShipmentsDone(t);
-      return '<button type="button" class="tab' + (on ? ' is-on' : '') + (done ? ' is-done' : '') + '" data-day="' + esc(t.dateKey) + '"' +
+      var dolum = tabDolumText(t);
+      var today = tabIsToday(t);
+      return '<button type="button" class="tab' + (on ? ' is-on' : '') + (done ? ' is-done' : '') + (today ? ' is-today' : '') + '" data-day="' + esc(t.dateKey) + '"' +
         (t.file ? ' data-file="' + esc(t.file) + '"' : '') + '>' +
+        (today ? '<span class="tab-star" aria-hidden="true">★</span>' : '') +
         (done ? '<span class="tab-done">tamamlandı</span>' : '') +
+        (dolum ? '<span class="tab-dolum">' + esc(dolum) + '</span>' : '') +
         '<span class="tab-date">' + esc(t.label) + '</span></button>';
     }).join('');
   }
@@ -745,7 +806,12 @@
       $('list').innerHTML = '<p class="empty">Bu limanda satır yok.</p>';
       return;
     }
-    $('list').innerHTML = '<div class="sheet">' + blocks.map(function (block) {
+    var day = activeDay();
+    var dayKey = (day || {}).dateKey || '';
+    var showingToday = sheetTabs().some(function (t) {
+      return tabIsToday(t) && t.dateKey === dayKey && (!t.file || !state.file || state.file === t.file);
+    });
+    $('list').innerHTML = '<div class="sheet' + (showingToday ? ' is-today' : '') + '">' + blocks.map(function (block) {
       // Taşıyıcı (AKYÜZ, GPM…) yalnız amire görünür
       var tasiyici = state.canEdit ? String(block.tasiyici || '').trim() : '';
       var rowTasiyici = state.canEdit && (block.rows || []).some(function (row) { return row.tasiyici; });
@@ -823,7 +889,7 @@
             '<tr><th>LİMAN</th><td>' + esc(block.liman || block.port || '') + '</td></tr>' +
             '<tr><th>GEMİ DETAYI</th><td>' + esc(block.gemi || '') + '</td></tr>' +
             '<tr><th>BOOKING</th><td>' + esc(block.booking || '') + '</td></tr>' +
-            '<tr><th>SEVK.TARİHİ</th><td>' + esc(block.sevk || '') + '</td></tr>' +
+            '<tr><th>LİMAN DOLUM</th><td>' + esc(blockDolumLabel(block, dayKey)) + '</td></tr>' +
           '</tbody></table>' +
         '</div>' +
         statusLine +

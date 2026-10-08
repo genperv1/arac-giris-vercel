@@ -80,7 +80,7 @@
     .blok-title { margin: 0; padding: 8px 10px; background: #e2efda; font-size: .92rem; line-height: 1.35; font-weight: 700; }
     .meta { width: 100%; border-collapse: collapse; font-size: .82rem; }
     .meta th, .meta td { border: 1px solid #b7d7b0; padding: 4px 6px; text-align: left; }
-    .meta th { width: 92px; background: #c6e0b4; }
+    .meta th { width: 108px; background: #c6e0b4; }
     .note-line { margin: 0; padding: 4px 10px; background: #fff7ed; color: #9a3412; font-size: .8rem; font-weight: 700; }
     table.grid { width: max-content; border-collapse: collapse; font-size: .84rem; }
     table.grid th, table.grid td { border: 1px solid #b0b0b0; padding: 4px 6px; white-space: nowrap; }
@@ -120,10 +120,15 @@
     .gelmeyen .g-rem { margin-top: 4px; font-size: .82rem; color: #c2410c; }
     .multi-line { margin: 0; padding: 4px 10px; background: #fffaf3; color: #b45309; border-top: 1px solid #f5e1c8; font-size: .78rem; font-weight: 500; }
     .empty { padding: 28px 12px; color: #3f6212; }
+    .sheet.is-today { padding: 16px 12px 2px; border-radius: 14px; background: linear-gradient(#fffdf8, #fffdf8) padding-box, linear-gradient(145deg, #f8e7b0, #c6a15a 42%, #fff1c9 68%, #a67c2d) border-box; border: 1.5px solid transparent; box-shadow: 0 16px 36px rgba(92, 67, 20, .1); }
     .tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: 2px; background: #e5e7eb; border-top: 1px solid #9ca3af; padding: 3px 8px 4px; overflow-x: auto; }
     .tab { display: inline-flex; flex-direction: column; align-items: center; justify-content: flex-end; background: #f3f4f6; border: 1px solid #9ca3af; border-top: 0; padding: 3px 12px 4px; font: inherit; font-size: .8rem; font-weight: 700; color: #374151; cursor: pointer; line-height: 1.15; }
     .tab.is-on { background: #fff; color: #14532d; box-shadow: inset 0 -3px 0 #16a34a; }
+    .tab.is-today { background: linear-gradient(180deg, #fffdf6 0%, #f3e2b0 100%); border-color: #c6a15a; color: #3f3422; box-shadow: 0 8px 18px rgba(120, 90, 24, .16), inset 0 1px 0 rgba(255,255,255,.9); z-index: 1; }
+    .tab.is-today.is-on { background: linear-gradient(180deg, #fff8e4 0%, #e8cc86 100%); box-shadow: 0 8px 18px rgba(120, 90, 24, .2), inset 0 -3px 0 #b8892e, inset 0 1px 0 rgba(255,255,255,.9); }
+    .tab-star { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-bottom: 3px; border-radius: 999px; background: linear-gradient(160deg, #fff6d4, #e4c56a 46%, #b8892e); color: #5c4314; font-size: 9px; line-height: 1; box-shadow: 0 1px 2px rgba(92, 67, 20, .35), inset 0 1px 0 rgba(255,255,255,.85); }
     .tab-done { display: block; margin-bottom: 1px; font-size: .68rem; font-weight: 800; letter-spacing: .01em; color: #166534; line-height: 1; }
+    .tab-dolum { display: block; margin: 1px 0 2px; max-width: 220px; font-size: .62rem; font-weight: 700; color: #14532d; line-height: 1.15; white-space: normal; }
     table.grid td.durum { color: #c2410c; font-weight: 700; }
     table.grid td.durum.is-out { color: #166534; }
     .progress-line { margin: 0; padding: 4px 10px; background: #f8fafc; color: #475569; font-size: .8rem; font-weight: 700; border-bottom: 1px solid #e2e8f0; }
@@ -291,6 +296,6 @@
   <div class="toast" id="toast"></div>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
   <script src="liman-xlsx.js?v=20261008-sagtaraf"></script>
-  <script src="liman.js?v=20261008-trafik"></script>
+  <script src="liman.js?v=20261009-gold"></script>
 </body>
 </html>
