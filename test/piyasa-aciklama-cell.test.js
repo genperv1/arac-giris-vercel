@@ -81,3 +81,25 @@ test('güncellemede her satır kendi görünen açıklamasını alır', () => {
   assert.equal(byFirma.HP5, 'KENDI NOTU');
   assert.equal(byFirma.HP6, '');
 });
+
+test('excel filtresiyle gizlenen satır da yüklenir', () => {
+  const grid = [
+    ['FİRMA', 'MALZEME', 'MİKTAR', 'AÇIKLAMA'],
+    ['HP1', 'PERLIT', '10', 'görünen'],
+    ['HP2', 'PERLIT', '20', 'filtreli'],
+    ['HP3', 'PERLIT', '30', 'görünen 2'],
+  ];
+  const ws = {
+    '!ref': 'A1:D4',
+    '!autofilter': { ref: 'A1:D4' },
+    '!rows': [null, null, { hidden: true }, null],
+    _grid: grid,
+  };
+  const raw = api.parseSheetSmart(ws);
+  const firmas = Array.from(raw).map((r) => r.FİRMA);
+  assert.equal(firmas.join('|'), 'HP1|HP2|HP3');
+  assert.equal(raw.__parseMeta.hiddenSkipped, 0);
+  const { orders } = api.normalizeRows(raw, raw.__parseMeta);
+  assert.equal(Array.from(orders).map((o) => o.firma).join('|'), 'HP1|HP2|HP3');
+  assert.equal(orders[1].aciklama, 'filtreli');
+});

@@ -94,6 +94,15 @@ test('normalizeCikanlarInsert keeps HP7 even if fromIhracat flag is set', () => 
   assert.equal(row.firma, 'HP7');
 });
 
+test('previous-week pick is labeled without moving the print week', () => {
+  const { kaynakHaftaSecildiLabel, resolveHafta } = require('../lib/piyasa-cikanlar');
+  const printedAt = Date.parse('2026-08-24T00:31:31+03:00');
+  assert.equal(resolveHafta('34', printedAt), 35);
+  assert.equal(kaynakHaftaSecildiLabel('34', printedAt), '34. haftadan seçildi');
+  assert.equal(kaynakHaftaSecildiLabel('35', printedAt), '');
+  assert.equal(kaynakHaftaSecildiLabel('', printedAt), '');
+});
+
 test('iso week matches Piyasa Excel reading', () => {
   const { isoWeekFromYmd, isoWeekFromParts, haftaLabel, resolveHafta, isoWeekInfoFromMs } = require('../lib/piyasa-cikanlar');
   assert.equal(isoWeekFromYmd('2026-08-20'), 34);
@@ -175,7 +184,20 @@ test('normalizeCikanlarInsert keeps piyasa fields', () => {
   assert.equal(row.firma, 'HP7');
   assert.equal(row.sip_no, 'S-11');
   assert.equal(row.sehir, 'ANKARA');
+  assert.equal(row.kaynak_hafta, '');
   assert.ok(row.id);
+});
+
+test('normalizeCikanlarInsert keeps Excel source week separate from print week', () => {
+  const row = normalizeCikanlarInsert({
+    plaka: '43 ABC 123',
+    firma: 'HP7',
+    tarih: Date.parse('2026-08-24T00:31:31+03:00'),
+    kaynakHafta: '34',
+    hafta: '34',
+  }, (s, n) => String(s).slice(0, n));
+  assert.equal(row.hafta, '35');
+  assert.equal(row.kaynak_hafta, '34');
 });
 
 test('normalizeCikanlarInsert maps il alias to sehir', () => {

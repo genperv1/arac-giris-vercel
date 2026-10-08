@@ -1274,7 +1274,165 @@ body.session-amir .app-header-status {
 }
 
 body.session-amir .app-header-status--centered {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-content: stretch;
+  align-items: center;
+  position: relative;
+}
+
+.saban-header-tools {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  z-index: 2;
+}
+
+body.session-amir .app-header-status--centered > .status-stack {
+  grid-column: 2;
+  justify-self: end;
+  align-items: flex-end;
+}
+
+body.session-amir .app-header-status--centered .status-stack__row {
+  justify-content: flex-end;
+}
+
+.saban-nakliye-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 3.05rem;
+  padding: 0.35rem 0.9rem 0.35rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid rgba(231, 194, 122, 0.65);
+  background: linear-gradient(180deg, #c2410c 0%, #7c2d12 100%);
+  color: #fff7ed;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(124, 45, 18, 0.28);
+}
+
+.saban-nakliye-btn__icon {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  border-radius: 9px;
+  background: rgba(255, 247, 237, 0.14);
+  font-size: 1rem;
+}
+
+.saban-nakliye-btn__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.05;
+}
+
+.saban-nakliye-btn__copy b {
+  font-size: 0.95rem;
+}
+
+.saban-nakliye-btn__copy small {
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: #ffedd5;
+}
+
+.saban-nakliye-btn:hover {
+  filter: brightness(1.06);
+}
+
+@keyframes saban-gelecek-blink {
+  0%, 42% {
+    background: #ef4444;
+    border-color: #fecaca;
+    box-shadow: 0 0 18px 4px rgba(248, 113, 113, 0.95), 0 8px 18px rgba(127, 29, 29, 0.4);
+    filter: brightness(1.12);
+  }
+  58%, 100% {
+    background: #7f1d1d;
+    border-color: #991b1b;
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0), 0 6px 12px rgba(69, 10, 10, 0.35);
+    filter: brightness(0.72);
+  }
+}
+
+.saban-gelecek-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 3.05rem;
+  padding: 0.35rem 0.9rem 0.35rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #dc2626;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(127, 29, 29, 0.35);
+}
+
+.saban-gelecek-btn__icon {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 1rem;
+}
+
+.saban-gelecek-btn__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.05;
+}
+
+.saban-gelecek-btn__copy b {
+  font-size: 0.95rem;
+}
+
+.saban-gelecek-btn__copy small {
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: #fee2e2;
+}
+
+html:not(.reduce-motion-os) .saban-gelecek-btn,
+html:not(.allow-ui-motion):not(.reduce-motion-os) .saban-gelecek-btn {
+  animation: saban-gelecek-blink 0.9s steps(1, end) infinite !important;
+}
+
+.saban-gelecek-btn:hover {
+  animation: none !important;
+  background: #b91c1c;
+  border-color: #fecaca;
+  filter: none;
+  box-shadow: 0 0 14px 2px rgba(248, 113, 113, 0.7);
+}
+
+@media (max-width: 980px) {
+  body.session-amir .app-header-status--centered {
+    display: flex;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .saban-header-tools {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  body.session-amir .app-header-status--centered > .status-stack {
+    width: 100%;
+    margin-left: auto;
+    align-items: flex-end;
+  }
 }
 
 body.session-amir .app-header-status > .status-chip {
@@ -7531,6 +7689,32 @@ html:not(.allow-ui-motion):not(.reduce-motion-os) .am-radar__core {
   white-space: nowrap;
 }
 .vehicle-card__isg--signed .vehicle-card__isg-btn { background: #166534; }
+.vehicle-card__isg-tick {
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  border: 1.5px solid #166534;
+  background: #fff;
+  color: #166534;
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.vehicle-card__isg-tick:hover { background: #dcfce7; }
+.vehicle-card__isg-tick:disabled { opacity: 0.55; cursor: default; }
+.vehicle-card__isg-controlled {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  white-space: nowrap;
+}
 
 .isg-banner {
   margin: 0 0 0.75rem;

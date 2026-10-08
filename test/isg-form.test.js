@@ -122,6 +122,53 @@ test('save payload keeps form code and rejects a bad file or url', () => {
   assert.match(isg.safeFileData('data:image/png;base64,YQ=='), /^data:image\/png/);
 });
 
+test('signed card shows a control tick only for Selahattin, and Kontrol edildi for everyone after approval', () => {
+  isg._state.loaded = true;
+  isg._state.records = [{
+    id: 'isg1',
+    signed: true,
+    signedAt: 10,
+    driverKey: 'name:ALİ YILMAZ',
+    nameKey: 'name:ALİ YILMAZ',
+    plateKey: '34abc123'
+  }];
+  const vehicle = { cekiciPlaka: '34 ABC 123', soforAdi: 'Ali', soforSoyadi: 'Yılmaz' };
+  const sel = isg.cardHtml(vehicle, 'xxr');
+  assert.match(sel, /İSG Formu İmzalı/);
+  assert.match(sel, /data-isg-control="isg1"/);
+  const other = isg.cardHtml(vehicle, 'saban');
+  assert.match(other, /İSG Formu İmzalı/);
+  assert.doesNotMatch(other, /data-isg-control/);
+  assert.doesNotMatch(other, /Kontrol edildi/);
+
+  isg._state.records[0].controlled = true;
+  const seen = isg.cardHtml(vehicle, 'AVDAN');
+  assert.match(seen, /Kontrol edildi/);
+  assert.doesNotMatch(seen, /data-isg-control/);
+  const selSeen = isg.cardHtml(vehicle, 'xxr');
+  assert.match(selSeen, /Kontrol edildi/);
+  assert.doesNotMatch(selSeen, /data-isg-control/);
+});
+
+test('only Selahattin can control an ISG form', () => {
+  assert.equal(isg.canControlIsg({ username: 'xxr' }), true);
+  assert.equal(isg.canControlIsg({ username: 'XXR' }), true);
+  assert.equal(isg.canControlIsg('xxr'), true);
+  assert.equal(isg.canControlIsg({ username: 'saban' }), false);
+  assert.equal(isg.canControlIsg({ username: 'ugur' }), false);
+  assert.equal(isg.canControlIsg({ username: 'AVDAN' }), false);
+});
+
+test('a later save keeps control while the form stays signed', () => {
+  const kept = isg.preserveControl({ controlled: true, controlled_at: 50, controlled_by: 'xxr' }, true);
+  assert.equal(kept.controlled, true);
+  assert.equal(kept.controlledAt, 50);
+  assert.equal(kept.controlledBy, 'xxr');
+  const cleared = isg.preserveControl({ controlled: true, controlled_by: 'xxr' }, false);
+  assert.equal(cleared.controlled, false);
+  assert.equal(cleared.controlledBy, '');
+});
+
 test('card shows only İSG Formu İmzasız or İmzalı', () => {
   isg._state.loaded = true;
   isg._state.records = [];

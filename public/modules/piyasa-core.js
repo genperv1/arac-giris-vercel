@@ -517,6 +517,15 @@ function piyasaOverlayStyle(zIndex) {
     );
   }
 
+  function _pickerSearchWeekHint() {
+    const weeks = [..._recentPiyasaWeekSet(
+      (state.weekArchive || []).map((b) => b && b.week).concat(state.week != null ? [state.week] : [])
+    )].sort((a, b) => b - a);
+    if (weeks.length >= 2) return weeks[0] + '. ve ' + weeks[1] + '. hafta';
+    if (weeks.length === 1) return weeks[0] + '. hafta';
+    return state.week != null ? (state.week + '. hafta') : 'bu hafta';
+  }
+
   function _deserializeWeekArchive(raw, currentWeek, currentSheet) {
     if (!Array.isArray(raw) || !raw.length) return [];
     const keep = _recentPiyasaWeekSet(raw.map((b) => b && b.week));
@@ -603,14 +612,17 @@ function piyasaOverlayStyle(zIndex) {
     return (orders || []).map((o) => _decoratePickerOrder(o, block, currentWeek, currentSheet));
   }
 
-  /** Firma/malzeme araması: yalnızca aktif haftanın sheet'leri (eski hafta siparişleri hariç). */
+  /** Firma/malzeme araması: aktif hafta ve bir önceki hafta. Daha eskisi listelenmez; önceki hafta seçimi kapalı değil. */
   function _getAllArchivePickerOrders() {
     const currentWeek = state.week;
     const currentSheet = state.sheet;
+    const keep = _recentPiyasaWeekSet(
+      (state.weekArchive || []).map((b) => b && b.week).concat(currentWeek != null ? [currentWeek] : [])
+    );
     const out = [];
     const seenKeys = new Set();
     for (const block of state.weekArchive || []) {
-      if (currentWeek != null && block.week !== currentWeek) continue;
+      if (keep.size && !keep.has(Number(block.week))) continue;
       const isActiveSheet = block.week === currentWeek && block.sheet === currentSheet;
       const orders = isActiveSheet && (state.orders || []).length
         ? state.orders

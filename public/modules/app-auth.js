@@ -264,6 +264,30 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
                 }
             });
 
+            document.getElementById('nakliyeMenuButton')?.addEventListener('click', async () => {
+                if (!(window.SessionManager && typeof window.SessionManager.isSabanUser === 'function' && window.SessionManager.isSabanUser())) return;
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('nakliye.html');
+                } else {
+                    location.href = 'nakliye.html';
+                }
+            });
+
+            document.getElementById('gelecekAraclarMenuButton')?.addEventListener('click', async () => {
+                if (!(window.SessionManager && typeof window.SessionManager.isSabanUser === 'function' && window.SessionManager.isSabanUser())) return;
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (typeof window.openExpectedPasteModal === 'function') {
+                    window.openExpectedPasteModal();
+                }
+            });
+
             document.getElementById('piyasaCikanlarButton')?.addEventListener('click', async () => {
                 if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
                 const split = document.querySelector('.app-split-nav__details');

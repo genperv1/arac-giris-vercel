@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Nakliye — Şaban Lahaçlar</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="tailwind-built.css">
+  <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
+  <script src="session-manager.js?v=20261007-chatfree"></script>
+  <style>
+    html, body.nk-page { max-width: 100%; overflow-x: hidden; }
+    body.nk-page {
+      margin: 0;
+      min-height: 100vh;
+      background: #f3f0ea;
+      color: #1c1917;
+      font-family: "Segoe UI", Calibri, sans-serif;
+    }
+    .nk-header { background: #1c1917; color: #f7f3ec; border-bottom: 3px solid #e7c27a; }
+    .nk-header-inner {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 16px; padding: 16px 22px 14px;
+    }
+    .nk-kicker { font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: #e7c27a; font-weight: 700; }
+    .nk-title { margin: 2px 0 0; font-family: Palatino, Georgia, serif; font-size: 28px; font-weight: 500; }
+    .nk-sub { margin: 4px 0 0; font-size: 12px; color: #d6d3d1; }
+    .nk-header-side { display: flex; align-items: center; gap: 16px; }
+    .nk-amir { font-family: Palatino, Georgia, serif; font-size: 22px; white-space: nowrap; }
+    .nk-home, .nk-btn {
+      border: 1px solid #d6d3d1; background: #fff; color: #1c1917;
+      border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 650; cursor: pointer;
+    }
+    .nk-home { border-color: rgba(247,243,236,.28); background: transparent; color: #f7f3ec; }
+    .nk-home:hover { background: rgba(247,243,236,.08); }
+    .nk-btn--primary { background: #9a3412; border-color: #9a3412; color: #fff7ed; }
+    .nk-btn--ghost { background: #fff; }
+    .nk-btn.is-on { background: #1c1917; border-color: #1c1917; color: #fff7ed; }
+    .nk-wrap { padding: 14px; display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr); gap: 12px; }
+    .nk-card { background: #fff; border: 1px solid #e7e0d6; border-radius: 12px; padding: 12px; }
+    .nk-map-card { padding: 10px; }
+    .nk-map-bar { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .nk-map-bar p { margin: 0; font-size: 12px; color: #57534e; }
+    .nk-svg { width: 100%; height: auto; background: #faf7f2; border-radius: 10px; display: block; touch-action: none; cursor: grab; }
+    .nk-svg.is-drag { cursor: grabbing; }
+    .nk-il { fill: #44403c; stroke: #e7c27a; stroke-width: 0.8; cursor: pointer; }
+    .nk-il:hover { fill: #57534e; }
+    .nk-il.is-from { fill: #c2410c; }
+    .nk-il.is-to { fill: #0f766e; }
+    .nk-il.is-both { fill: #7c2d12; }
+    .nk-il.is-dim { fill: #d6d3d1; stroke: #a8a29e; }
+    .nk-route, .nk-arrow-head, .nk-end, .nk-pin-label, .nk-il-label { pointer-events: none; }
+    .nk-il-label { text-anchor: middle; dominant-baseline: middle; font-family: "Segoe UI", sans-serif; paint-order: stroke; stroke-linejoin: round; fill: #fffaf3; font-weight: 700; stroke: #1c1917; }
+    .nk-route { fill: none; stroke: #c2410c; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+    .nk-arrow-head { fill: #c2410c; }
+    .nk-end { stroke: #fff; stroke-width: 2; }
+    .nk-end.is-from { fill: #c2410c; }
+    .nk-end.is-to { fill: #0f766e; }
+    .nk-dot { cursor: pointer; stroke: #fff; stroke-width: 1; }
+    .nk-dot.is-from { fill: #c2410c; }
+    .nk-dot.is-to { fill: #0f766e; }
+    .nk-dot.is-plain { fill: #1c1917; }
+    .nk-pin-label { font-size: 11px; font-weight: 700; fill: #1c1917; paint-order: stroke; stroke: #fff; stroke-width: 3; }
+    .nk-side h2 { margin: 0 0 8px; font-size: 15px; }
+    .nk-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+    .nk-tab { text-align: left; }
+    .nk-tab small { display: block; font-weight: 500; color: #a8a29e; }
+    .nk-tab.is-on small { color: #fdba74; }
+    .nk-search { position: relative; margin-bottom: 8px; }
+    .nk-search input, .nk-price-input {
+      width: 100%; box-sizing: border-box; border: 1px solid #d6d3d1; border-radius: 8px;
+      padding: 8px 10px; font-size: 14px;
+    }
+    .nk-suggest {
+      position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px);
+      background: #fff; border: 1px solid #e7e0d6; border-radius: 8px; max-height: 240px; overflow: auto;
+      box-shadow: 0 10px 24px rgba(28,25,23,.12);
+    }
+    .nk-suggest button { display: block; width: 100%; text-align: left; background: #fff; border: 0; padding: 8px 10px; cursor: pointer; font-size: 13px; }
+    .nk-suggest button:hover { background: #fff7ed; }
+    .nk-origins { display: flex; flex-wrap: wrap; gap: 8px; }
+    .nk-origin {
+      border: 1.5px solid #1f7a4d; background: #fff; color: #1f7a4d;
+      border-radius: 12px; padding: 10px 14px; font-weight: 700; cursor: pointer; font-size: 14px;
+    }
+    .nk-origin:hover { background: #e7f6ee; }
+    .nk-origin.is-on { background: #1f7a4d; color: #fff; }
+    .nk-origin-card {
+      display: flex; gap: 10px; align-items: flex-start; margin-top: 10px;
+      background: #f4f7f5; border-radius: 14px; padding: 12px;
+    }
+    .nk-origin-pin {
+      width: 36px; height: 36px; border-radius: 10px; background: #1f7a4d; color: #fff;
+      display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+    }
+    .nk-origin-card b { display: block; color: #1f7a4d; font-size: 15px; }
+    .nk-origin-card p { margin: 2px 0 0; font-size: 13px; color: #44403c; }
+    .nk-to-line { margin: 8px 0 0; font-size: 13px; color: #57534e; }
+    .nk-ilce-list { max-height: 180px; overflow: auto; display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .nk-chip {
+      border: 1px solid #e7e0d6; background: #faf7f2; border-radius: 999px; padding: 4px 8px;
+      font-size: 12px; cursor: pointer;
+    }
+    .nk-chip.is-on { background: #9a3412; border-color: #9a3412; color: #fff7ed; }
+    .nk-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .nk-check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
+    .nk-field { font-size: 12px; color: #57534e; }
+    .nk-field input { margin-top: 4px; }
+    .nk-results { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .nk-stat { background: #1c1917; color: #fff7ed; border-radius: 12px; padding: 12px 14px; }
+    .nk-stat span { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #e7c27a; }
+    .nk-stat b { display: block; margin-top: 4px; font-size: 26px; font-weight: 650; line-height: 1.1; }
+    .nk-stat small { display: block; margin-top: 4px; color: #d6d3d1; font-size: 12px; }
+    .nk-note { grid-column: 1 / -1; margin: 0; font-size: 12px; color: #57534e; }
+    .nk-prices { grid-column: 1 / -1; }
+    .nk-prices h2 { margin: 0 0 4px; font-size: 16px; }
+    .nk-prices p { margin: 0 0 8px; font-size: 12px; color: #57534e; }
+    .nk-price-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .nk-price {
+      border: 1px solid #e7e0d6; background: #fff; border-radius: 8px; padding: 6px 8px;
+      min-width: 118px; text-align: left; cursor: pointer; font-size: 12px;
+    }
+    .nk-price b { display: block; }
+    .nk-price.is-from { border-color: #c2410c; background: #fff7ed; }
+    .nk-price.is-to { border-color: #0f766e; background: #f0fdfa; }
+    .nk-row { display: flex; gap: 6px; align-items: center; }
+    .nk-row .nk-price-input { flex: 1; }
+    @media (max-width: 900px) {
+      .nk-wrap, .nk-results { grid-template-columns: 1fr; }
+      .nk-header-inner { align-items: flex-start; flex-direction: column; }
+      .nk-stat b { font-size: 22px; }
+    }
+  </style>
+</head>
+<body class="nk-page">
+  <header class="nk-header">
+    <div class="nk-header-inner">
+      <div>
+        <div class="nk-kicker">Tır nakliyesi</div>
+        <h1 class="nk-title">Nakliye</h1>
+        <p class="nk-sub">Çıkışı tek tıkla seçin, varışı il ve ilçe olarak işaretleyin.</p>
+      </div>
+      <div class="nk-header-side">
+        <div class="nk-amir">Şaban Lahaçlar</div>
+        <button type="button" class="nk-home" data-nav-home>Ana Sayfa</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="nk-wrap">
+    <section class="nk-card nk-map-card">
+      <div class="nk-map-bar">
+        <p id="nkMapHint">Haritada il adları durur. İlçeyi sağdaki listeden seçin.</p>
+      </div>
+      <svg id="nkMap" class="nk-svg" viewBox="0 0 1000 460" role="img" aria-label="Türkiye haritası"></svg>
+    </section>
+
+    <section class="nk-card nk-side">
+      <h2>Çıkış</h2>
+      <div class="nk-origins" id="nkOrigins"></div>
+      <div class="nk-origin-card" id="nkOriginCard" hidden>
+        <div class="nk-origin-pin" aria-hidden="true"><i class="fas fa-map-marker-alt"></i></div>
+        <div>
+          <b id="nkOriginName"></b>
+          <p id="nkOriginAddr"></p>
+        </div>
+      </div>
+      <h2 style="margin-top:14px">Varış</h2>
+      <p class="nk-to-line" id="nkToLine">İl ve ilçe seçilmedi</p>
+      <div class="nk-search">
+        <input id="nkSearch" type="search" placeholder="Varış ili veya ilçesi" autocomplete="off">
+        <div id="nkSuggest" class="nk-suggest" hidden></div>
+      </div>
+      <div id="nkIlceList" class="nk-ilce-list"></div>
+
+      <h2 style="margin-top:14px">Tır tüketimi</h2>
+      <div class="nk-presets" id="nkPresets">
+        <button type="button" class="nk-btn" data-preset="bos" data-litre="28">Boş · 28 L</button>
+        <button type="button" class="nk-btn nk-btn--primary" data-preset="yuklu" data-litre="35">Yüklü · 35 L</button>
+        <button type="button" class="nk-btn" data-preset="agir" data-litre="40">Ağır · 40 L</button>
+      </div>
+      <label class="nk-field">100 km’de litre
+        <input id="nkLitre" class="nk-price-input" inputmode="decimal" value="35">
+      </label>
+      <label class="nk-check"><input id="nkDonus" type="checkbox"> Gidiş-dönüş</label>
+
+      <h2 style="margin-top:14px">Güncel mazot</h2>
+      <p id="nkMazotMeta" class="nk-sub" style="color:#57534e;margin:0 0 6px">Litre fiyatı internetten alınır.</p>
+      <button type="button" class="nk-btn nk-btn--ghost" id="nkMazotBtn" title="Fiyatları yenile"><i class="fas fa-sync-alt" aria-hidden="true"></i> Yenile</button>
+    </section>
+
+    <section class="nk-results" aria-live="polite">
+      <div class="nk-stat"><span>Mesafe</span><b id="nkKm">—</b><small id="nkSure">Karayolu</small></div>
+      <div class="nk-stat"><span>Mazot</span><b id="nkMazot">—</b><small id="nkMazotWhere">Çıkış fiyatı</small></div>
+      <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Yüklü tır</small></div>
+      <div class="nk-stat"><span>Tahmini tutar</span><b id="nkTutar">—</b><small id="nkFormula">km × litre / 100</small></div>
+      <p class="nk-note">Çekici ve dorse için planlama hesabıdır. 35 L/100 km yüklü tır içindir; boşta 28, ağır yükte veya rampada 40 kullanılabilir. Gerçek tüketim yük, rölanti ve yola göre değişir.</p>
+    </section>
+
+    <section class="nk-card nk-prices">
+      <h2>Güncel mazot</h2>
+      <p id="nkPriceLead">İl fiyatları yükleniyor.</p>
+      <div id="nkPriceGrid" class="nk-price-grid"></div>
+    </section>
+  </main>
+
+  <script src="nakliye.js?v=20261008-il"></script>
+</body>
+</html>

@@ -151,6 +151,7 @@
     .pc-count { font-size: 0.75rem; color: #64748b; margin-top: 8px; }
     .pc-mono { font-variant-numeric: tabular-nums; }
     .pc-week { font-size: 10px; font-weight: 700; color: #8a7049; margin-top: 1px; line-height: 1.2; }
+    .pc-kaynak { display: inline-block; margin-top: 3px; padding: 1px 5px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 10px; font-weight: 800; line-height: 1.25; letter-spacing: -0.01em; }
     .pc-weeks { display: flex; flex-direction: column; gap: 10px; }
     .pc-acc { background: #fff; border: 1px solid #e4dfd6; overflow: hidden; }
     .pc-acc--current { border-color: #d7c4a4; border-top: 2px solid #b8956a; }
@@ -212,7 +213,7 @@
 
   <main class="w-full max-w-none px-3 pb-4 pt-3">
     <div class="pc-card">
-      <p class="pc-hint">Firma kısa kodla görünür: K1BGSP → K1, G9SP → G9, CR2S → CR2. HP7 ve HP13 olduğu gibi kalır; yer adı kesilmez. Bu hafta açık durur, eski haftalar “Geçmiş kayıtlar” içindedir.</p>
+      <p class="pc-hint">Firma kısa kodla görünür: K1BGSP → K1, G9SP → G9, CR2S → CR2. HP7 ve HP13 olduğu gibi kalır; yer adı kesilmez. Bu hafta açık durur, eski haftalar “Geçmiş kayıtlar” içindedir. Bir önceki haftanın siparişi seçilebilir; çıkan satırda “40. haftadan seçildi” yazar.</p>
       <div class="flex flex-wrap gap-2 items-end">
         <label class="text-xs font-semibold text-slate-600">Firma<br>
           <input type="search" id="pcFirma" class="pc-input" style="width:120px;" placeholder="HP7" autocomplete="off">
@@ -234,6 +235,6 @@
     </div>
   </main>
 
-  <script src="piyasa-cikanlar.js?v=20260930-firma"></script>
+  <script src="piyasa-cikanlar.js?v=20261008-kaynak-hafta"></script>
 </body>
 </html>

@@ -370,6 +370,7 @@
         'rapor.html': 'gpm_page_rapor',
         'vardiya-notlari.html': 'gpm_page_vardiya',
         'nakliye-bekleyen.html': 'gpm_page_nakliye',
+        'nakliye.html': 'gpm_page_nakliye_harita',
         'liman.html': 'gpm_page_liman',
         'piyasa-cikanlar.html': 'gpm_page_piyasa_cikanlar',
         'sorunlar.html': 'gpm_page_sorunlar',

@@ -26,8 +26,6 @@
     const r = norm.report;
     if (r && (
       r.totalSkipped > 0
-      || (r.hiddenRowsSkipped > 0)
-      || r.visibilityApplied === false
       || (r.template && !r.template.ok)
     )) {
       showPiyasaImportReportModal(r);
@@ -35,7 +33,7 @@
     return norm;
   }
 
-  /** Sheet'te Excel'de görünen sipariş sayısı (gizli satırlar hariç). */
+  /** Sheet'teki sipariş sayısı. Excel filtresi yok sayılır, gizli satırlar da sayılır. */
   function countOrdersInVisibleSheet(ws) {
     try {
       const rawRows = parseSheetSmart(ws);
@@ -50,12 +48,6 @@
     if (!report) return;
     const labels = (eu().SKIP_REASON_LABELS) || {};
     let lines = `<p><b>${report.accepted}</b> sipariş yüklendi. <b>${report.totalSkipped}</b> satır elendi.</p>`;
-    if (report.hiddenRowsSkipped > 0) {
-      lines += `<p style="color:#4338ca;font-size:12px;">👁 Excel'de gizli <b>${report.hiddenRowsSkipped}</b> satır atlandı (sheet'te görünenler yüklendi).</p>`;
-    }
-    if (report.visibilityApplied === false) {
-      lines += `<p style="color:#b45309;">⚠️ Excel gizli satır bilgisi okunamadı — sheet'te gördüğünüzle birebir eşleşmeyebilir. Dosyayı yeniden kaydedip tekrar yükleyin.</p>`;
-    }
     if (report.template && !report.template.ok) {
       lines += `<p style="color:#b45309;">⚠️ Şablon: eksik başlıklar — ${(report.template.missing || []).join(', ')}</p>`;
     }
@@ -718,6 +710,7 @@
       malzeme: snapshot.malzeme,
       yuklemeTuru: snapshot.yuklemeTuru,
       sehir: orderSehirKey(snapshot),
+      sourceWeek: snapshot._sourceWeek != null ? snapshot._sourceWeek : null,
     };
     applyAracBosuToForm(null);
 

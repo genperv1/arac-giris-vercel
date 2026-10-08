@@ -60,6 +60,7 @@ const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerKantarNudgeRoutes } = require('./routes/kantar-nudge-routes');
 const { registerChatRoutes } = require('./routes/chat-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
+const { registerNakliyeRoutes } = require('./routes/nakliye-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
 const { registerIsgRoutes } = require('./routes/isg-routes');
 const { registerPrintFormBgImageRoute, registerPrintFormBgRoutes } = require('./routes/print-form-bg-routes');
@@ -387,6 +388,7 @@ async function prepareSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_print_history_id ON piyasa_cikanlar(print_history_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_piyasa_cikanlar_sehir ON piyasa_cikanlar(sehir);`);
   await pool.query(`ALTER TABLE piyasa_cikanlar ADD COLUMN IF NOT EXISTS kantarci TEXT;`);
+  await pool.query(`ALTER TABLE piyasa_cikanlar ADD COLUMN IF NOT EXISTS kaynak_hafta TEXT;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS operation_notes(
@@ -436,6 +438,9 @@ async function prepareSchema() {
     );
   `);
   await pool.query(`ALTER TABLE isg_forms ADD COLUMN IF NOT EXISTS name_key TEXT;`);
+  await pool.query(`ALTER TABLE isg_forms ADD COLUMN IF NOT EXISTS controlled BOOLEAN NOT NULL DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE isg_forms ADD COLUMN IF NOT EXISTS controlled_at BIGINT;`);
+  await pool.query(`ALTER TABLE isg_forms ADD COLUMN IF NOT EXISTS controlled_by TEXT;`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_isg_forms_driver ON isg_forms(driver_key);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_isg_forms_name ON isg_forms(name_key);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_isg_forms_plate ON isg_forms(plate_key);`);
@@ -1420,6 +1425,7 @@ api.get('/presence', requireValidSession, (req, res) => {
 
 
 registerBackupRoutes(api, { q, requireAmir, PRINT_FORM_BG_KEY });
+registerNakliyeRoutes(api, routeCtx);
 
 
 

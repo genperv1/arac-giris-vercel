@@ -48,7 +48,7 @@
           <div style="flex:1 1 220px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%;">
             ${skippedCount ? `<button type="button" id="piyasaSkippedBtn" style="border:0;background:#fef3c7;color:#92400e;border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;font-weight:700;">Elenen satırlar (${skippedCount})</button>` : ''}
             ${searchAllSheets
-              ? `<div style="font-size:12px;color:#4338ca;font-weight:700;white-space:normal;min-width:0;">${state.week != null ? `${state.week}. hafta — tüm sayfalar` : 'Bu haftanın tüm sayfalarında ara'}</div>`
+              ? `<div style="font-size:12px;color:#4338ca;font-weight:700;white-space:normal;min-width:0;">${_pickerSearchWeekHint()} — tüm sayfalar. Bir önceki haftadan da seçilir.</div>`
               : `<label style="font-size:12px;color:#666;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;max-width:100%;">
                   <span>Sheet:</span>
                   <select id="piyasaPickerSheet" style="padding:6px 8px;border:1px solid #ddd;border-radius:8px;font-size:12px;font-weight:700;max-width:min(42vw,240px);cursor:pointer;"></select>
@@ -57,7 +57,7 @@
           </div>
         </div>
         <div class="piyasa-toolbar">
-          <input id="piyasaSearch" class="piyasa-tool-search" placeholder="${searchAllSheets ? (state.week != null ? `Firma / Malzeme / İl ara… (${state.week}. hafta, tüm sayfalar)` : 'Firma / Malzeme / İl ara… (bu hafta, tüm sayfalar)') : 'Firma / Malzeme / İl ara… (seçili sheet)'}" >
+          <input id="piyasaSearch" class="piyasa-tool-search" placeholder="${searchAllSheets ? `Firma / Malzeme / İl ara… (${_pickerSearchWeekHint()})` : 'Firma / Malzeme / İl ara… (seçili sheet)'}" >
           <select id="piyasaSevkiyatFilter" class="piyasa-tool-select" title="Excel SEVKİYAT TİPİ">
             <option value="all">Tüm siparişler</option>
             <option value="Yİ-GP">Yİ-GP</option>
@@ -734,7 +734,7 @@
       const displayRows = truncated ? rows.slice(0, PICKER_MAX_VISIBLE_ROWS) : rows;
       const truncNote = truncated ? ` (ilk ${PICKER_MAX_VISIBLE_ROWS}, aramayı daraltın)` : '';
       const sheetLabel = searchAllSheets
-        ? (state.week != null ? ` • ${state.week}. hafta (tüm sayfalar)` : ' • bu hafta (tüm sayfalar)')
+        ? ` • ${_pickerSearchWeekHint()}`
         : (pickerViewSheet?.sheet ? ` • ${pickerViewSheet.sheet}` : (state.sheet ? ` • ${state.sheet}` : ''));
       countEl.textContent = `${rows.length} sipariş${sheetLabel}${truncNote} • GP:${pickerGpHp.gp} HP:${pickerGpHp.hp}`;
       tbody.innerHTML = displayRows.map((o) => rowHtml(o, duplicateFirmas, { showWeek: searchAllSheets })).join('');

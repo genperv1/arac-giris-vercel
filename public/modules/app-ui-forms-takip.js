@@ -3651,6 +3651,16 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
     <div class="app-header-menus">
       ${_navHtml}
       <div class="app-header-status${_sabanNav ? ' app-header-status--centered' : ''}" id="quickStatusRow">
+        ${_sabanNav ? `<div class="saban-header-tools">
+          <button type="button" id="nakliyeMenuButton" class="saban-nakliye-btn" title="Tır nakliyesi — il, ilçe, mazot ve tahmini yakıt">
+            <span class="saban-nakliye-btn__icon" aria-hidden="true"><i class="fas fa-truck"></i></span>
+            <span class="saban-nakliye-btn__copy"><b>Nakliye</b><small>Mesafe · mazot</small></span>
+          </button>
+          <button type="button" id="gelecekAraclarMenuButton" class="saban-gelecek-btn" title="Piyasa Excel — gelecek araçlar">
+            <span class="saban-gelecek-btn__icon" aria-hidden="true"><i class="fas fa-truck-moving"></i></span>
+            <span class="saban-gelecek-btn__copy"><b>Gelecek Araçlar</b><small>Piyasa Excel</small></span>
+          </button>
+        </div>` : ''}
         <div class="status-stack">
           <div class="status-stack__row status-stack__row--top">
             <span class="status-chip presence-chip" id="chipPresence" title="Kim çevrimiçi">${(window.SessionManager && typeof SessionManager.presenceChipHtml === 'function') ? SessionManager.presenceChipHtml(SessionManager.getPresence()) : ''}</span>

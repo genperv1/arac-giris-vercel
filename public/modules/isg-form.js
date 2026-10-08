@@ -102,6 +102,34 @@ function createIsgApi() {
       || record.signed === 't' || record.signed === '1';
   }
 
+  function isFlag(value) {
+    return value === true || value === 1 || value === 'true' || value === 't' || value === '1';
+  }
+
+  function isControlledRecord(record) {
+    return !!(record && isFlag(record.controlled));
+  }
+
+  /** Onay tiki yalnızca Selahattin Toker (giriş: xxr). */
+  function canControlIsg(user) {
+    const raw = user && typeof user === 'object'
+      ? (user.username || user.id || user.name || '')
+      : user;
+    return String(raw || '').trim().toLowerCase() === 'xxr';
+  }
+
+  function preserveControl(existing, signed) {
+    if (!signed || !existing || !isFlag(existing.controlled)) {
+      return { controlled: false, controlledAt: null, controlledBy: '' };
+    }
+    const at = Number(existing.controlled_at != null ? existing.controlled_at : existing.controlledAt);
+    return {
+      controlled: true,
+      controlledAt: Number.isFinite(at) && at > 0 ? at : null,
+      controlledBy: String(existing.controlled_by || existing.controlledBy || '').slice(0, 80)
+    };
+  }
+
   function personKeysOf(obj) {
     if (!obj) return [];
     return [obj.driverKey, obj.nameKey].map((k) => String(k || '')).filter(Boolean);
@@ -373,7 +401,7 @@ function createIsgApi() {
 
   const ISG_DOC_URL = '/assets/isg-t004.pdf';
 
-  function cardHtml(vehicle) {
+  function cardHtml(vehicle, viewer) {
     if (!state.loaded) {
       return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg vehicle-card__isg--wait"><span class="vehicle-card__isg-status">İSG</span></div>';
     }
@@ -381,7 +409,17 @@ function createIsgApi() {
     if (!st.signed) {
       return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg"><span class="vehicle-card__isg-status">❌ İSG Formu İmzasız</span></div>';
     }
-    return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg vehicle-card__isg--signed"><span class="vehicle-card__isg-status">✅ İSG Formu İmzalı</span></div>';
+    const rec = st.record || {};
+    const recId = String(rec.id || '');
+    let side = '';
+    if (isControlledRecord(rec)) {
+      side = '<span class="vehicle-card__isg-controlled">Kontrol edildi</span>';
+    } else if (canControlIsg(viewer != null ? viewer : currentUserName()) && recId && recId.indexOf('local_') !== 0) {
+      side = '<button type="button" class="vehicle-card__isg-tick" data-isg-control="' + esc(recId) + '" title="Kontrol et" aria-label="Kontrol et">✓</button>';
+    }
+    return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg vehicle-card__isg--signed">'
+      + '<div class="vehicle-card__isg-row"><span class="vehicle-card__isg-status">✅ İSG Formu İmzalı</span>'
+      + side + '</div></div>';
   }
 
   function bannerHtml(st) {
@@ -993,7 +1031,58 @@ function createIsgApi() {
     return printIsgFormWithDialog(ctx);
   }
 
+  function showControlDone(btn) {
+    if (!btn || !btn.parentNode) return;
+    const label = document.createElement('span');
+    label.className = 'vehicle-card__isg-controlled';
+    label.textContent = 'Kontrol edildi';
+    btn.replaceWith(label);
+  }
+
+  async function markControlled(id, btn) {
+    const recId = String(id || '').trim();
+    if (!recId || !canControlIsg(currentUserName())) return;
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/isg/' + encodeURIComponent(recId) + '/control', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        window.alert((data && (data.message || data.error)) || 'Kontrol kaydı yazılamadı.');
+        if (btn) btn.disabled = false;
+        return;
+      }
+      if (data && data.record) mergeServerRecord(data.record);
+      showControlDone(btn);
+      notifyUi();
+      try {
+        if (window.SyncManager && typeof window.SyncManager.broadcastLocal === 'function') {
+          window.SyncManager.broadcastLocal('isg_updated', { id: recId, controlled: true });
+        }
+      } catch (e) { /* ignore */ }
+    } catch (e) {
+      window.alert('Kontrol kaydı yazılamadı. Bağlantıyı kontrol edip tekrar deneyin.');
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function bindControlClick() {
+    if (typeof document === 'undefined' || window.__isgControlBound) return;
+    window.__isgControlBound = true;
+    document.addEventListener('click', function (e) {
+      const btn = e.target && e.target.closest ? e.target.closest('[data-isg-control]') : null;
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      markControlled(btn.getAttribute('data-isg-control'), btn);
+    });
+  }
+
   function boot() {
+    bindControlClick();
     ensureLoaded().catch(function () {});
     const bindSync = function () {
       if (!window.SyncManager || typeof window.SyncManager.on !== 'function') {
@@ -1020,6 +1109,9 @@ function createIsgApi() {
     vehicleIdentity,
     recordMatches,
     resolveIsgStatus,
+    isControlledRecord,
+    canControlIsg,
+    preserveControl,
     buildSavePayload,
     safeHttpUrl,
     safeFileData,

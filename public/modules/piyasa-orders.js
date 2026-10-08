@@ -762,7 +762,7 @@
     return best;
   }
 
-  /** SheetJS: gizli satır bilgisi yalnızca cellStyles:true ile okunur. */
+  /** Açıklama rengi için stil okunur. Satır gizleme / filtre satır atlamaz. */
   const PIYASA_XLSX_READ_OPTS = {
     type: 'array',
     cellStyles: true,
@@ -770,17 +770,6 @@
     cellText: false,
     dense: true,
   };
-
-  function isExcelRowHidden(ws, zeroBasedRowIndex) {
-    try {
-      const rowsMeta = ws && ws['!rows'];
-      if (!rowsMeta || !Array.isArray(rowsMeta)) return false;
-      const meta = rowsMeta[zeroBasedRowIndex];
-      return !!(meta && meta.hidden);
-    } catch (e) {
-      return false;
-    }
-  }
 
   function sheetOriginRow(ws) {
     try {
@@ -793,33 +782,15 @@
     }
   }
 
-  /** Excel'de kullanıcının görmediği (gizli) satırları at — sheet ne gösteriyorsa o yüklenir. */
+  /** Excel filtresi veya satır gizleme olsa bile tüm satırlar yüklenir. */
   function filterHiddenRowsAoA(ws, table) {
     const src = table || [];
     const origin = sheetOriginRow(ws);
-    const stamp = (row, i) => {
+    for (let i = 0; i < src.length; i++) {
+      const row = src[i];
       if (row && typeof row === 'object') row._excelRowNum = origin + i + 1;
-      return row;
-    };
-    try {
-      const rowsMeta = ws && ws['!rows'];
-      if (!rowsMeta || !Array.isArray(rowsMeta)) {
-        for (let i = 0; i < src.length; i++) stamp(src[i], i);
-        return { table: src, hiddenSkipped: 0, visibilityApplied: false };
-      }
-      const out = [];
-      let hiddenSkipped = 0;
-      for (let i = 0; i < src.length; i++) {
-        if (isExcelRowHidden(ws, origin + i)) {
-          hiddenSkipped++;
-          continue;
-        }
-        out.push(stamp(src[i], i));
-      }
-      return { table: out, hiddenSkipped, visibilityApplied: true };
-    } catch (e) {
-      return { table: src, hiddenSkipped: 0, visibilityApplied: false };
     }
+    return { table: src, hiddenSkipped: 0, visibilityApplied: true };
   }
 
   function parseAmount(v){
@@ -841,7 +812,7 @@
 
   function parseSheetSmart(ws){
     // Bazı dosyalarda başlık satırı 1. satır değildir (üstte boş/sabit satırlar olabilir).
-    // Yalnızca Excel'de görünen satırlar okunur (gizli satırlar atılır).
+    // Excel filtresi satırı gizlese bile tüm satırlar okunur.
     const fullTable = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true });
     const sheetOrigin = sheetOriginRow(ws);
     const visibility = filterHiddenRowsAoA(ws, fullTable);
@@ -871,7 +842,7 @@
       }
     }
 
-    // Başlık bulunamazsa gizli satır filtresi dışı ham json kullanma — boş dön.
+    // Başlık bulunamazsa satır üretme — boş dön.
     if (bestScore < 2 || headerRowIndex < 0){
       const empty = [];
       empty.__parseMeta = {

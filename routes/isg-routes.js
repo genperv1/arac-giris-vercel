@@ -55,6 +55,9 @@ function mapIsgRow(row) {
     docNo: row.doc_no || '',
     formCode: row.form_code || isg.FORM_CODE,
     recordedBy: row.recorded_by || '',
+    controlled: row.controlled === true || row.controlled === 't' || row.controlled === 1 || row.controlled === '1',
+    controlledAt: row.controlled_at != null ? Number(row.controlled_at) : null,
+    controlledBy: row.controlled_by || '',
     fileName: row.file_name || '',
     fileUrl,
     hasFile: hasData || !!fileUrl,
@@ -65,7 +68,8 @@ function mapIsgRow(row) {
 async function findExisting(q, payload) {
   if (payload.driverKey || payload.nameKey) {
     const r = await q(
-      `SELECT id, file_name, file_url, file_data, signed_at, recorded_by, doc_no
+      `SELECT id, file_name, file_url, file_data, signed_at, recorded_by, doc_no,
+              controlled, controlled_at, controlled_by
        FROM isg_forms
        WHERE ($1 <> '' AND (driver_key = $1 OR name_key = $1))
           OR ($2 <> '' AND (driver_key = $2 OR name_key = $2))
@@ -77,7 +81,8 @@ async function findExisting(q, payload) {
   }
   if (payload.plateKey) {
     const r = await q(
-      `SELECT id, file_name, file_url, file_data, signed_at, recorded_by, doc_no
+      `SELECT id, file_name, file_url, file_data, signed_at, recorded_by, doc_no,
+              controlled, controlled_at, controlled_by
        FROM isg_forms
        WHERE plate_key = $1 AND coalesce(driver_key, '') = '' AND coalesce(name_key, '') = ''
        ORDER BY signed DESC, updated_at DESC NULLS LAST
@@ -96,7 +101,8 @@ function registerIsgRoutes(api, ctx) {
     try {
       const r = await q(
         `SELECT id, plate_key, driver_key, name_key, vehicle_id, plate_text, driver_name,
-                signed, signed_at, doc_no, form_code, recorded_by, file_name, file_url,
+                signed, signed_at, doc_no, form_code, recorded_by,
+                controlled, controlled_at, controlled_by, file_name, file_url,
                 CASE WHEN file_data IS NOT NULL AND length(file_data) > 20 THEN TRUE ELSE FALSE END AS has_data,
                 updated_at
          FROM isg_forms
@@ -164,30 +170,35 @@ function registerIsgRoutes(api, ctx) {
       const nextFileName = fileName || (existing && existing.file_name) || '';
       const nextFileUrl = fileUrl !== undefined ? fileUrl : ((existing && existing.file_url) || '');
       const nextFileData = fileData !== undefined ? fileData : ((existing && existing.file_data) || '');
+      const kept = isg.preserveControl(existing, payload.signed);
       const id = existing ? existing.id : ('isg_' + now + '_' + Math.random().toString(16).slice(2, 10));
       if (existing) {
         await q(
           `UPDATE isg_forms SET
              plate_key=$2, driver_key=$3, name_key=$4, vehicle_id=$5, plate_text=$6, driver_name=$7,
              signed=$8, signed_at=$9, doc_no=$10, form_code=$11, recorded_by=$12,
-             file_name=$13, file_url=$14, file_data=$15, updated_at=$16
+             file_name=$13, file_url=$14, file_data=$15, updated_at=$16,
+             controlled=$17, controlled_at=$18, controlled_by=$19
            WHERE id=$1`,
           [
             id, payload.plateKey, payload.driverKey, payload.nameKey || '', payload.vehicleId, payload.plateText, payload.driverName,
             payload.signed, signedAt, payload.docNo, payload.formCode, payload.recordedBy,
-            nextFileName, nextFileUrl, nextFileData, now
+            nextFileName, nextFileUrl, nextFileData, now,
+            kept.controlled, kept.controlledAt, kept.controlledBy
           ]
         );
       } else {
         await q(
           `INSERT INTO isg_forms(
              id, plate_key, driver_key, name_key, vehicle_id, plate_text, driver_name,
-             signed, signed_at, doc_no, form_code, recorded_by, file_name, file_url, file_data, updated_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+             signed, signed_at, doc_no, form_code, recorded_by, file_name, file_url, file_data, updated_at,
+             controlled, controlled_at, controlled_by
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
           [
             id, payload.plateKey, payload.driverKey, payload.nameKey || '', payload.vehicleId, payload.plateText, payload.driverName,
             payload.signed, signedAt, payload.docNo, payload.formCode, payload.recordedBy,
-            nextFileName, nextFileUrl, nextFileData, now
+            nextFileName, nextFileUrl, nextFileData, now,
+            false, null, ''
           ]
         );
       }
@@ -204,6 +215,9 @@ function registerIsgRoutes(api, ctx) {
         doc_no: payload.docNo,
         form_code: payload.formCode,
         recorded_by: payload.recordedBy,
+        controlled: existing ? kept.controlled : false,
+        controlled_at: existing ? kept.controlledAt : null,
+        controlled_by: existing ? kept.controlledBy : '',
         file_name: nextFileName,
         file_url: nextFileUrl,
         file_data: nextFileData,
@@ -215,6 +229,47 @@ function registerIsgRoutes(api, ctx) {
       res.json({ ok: true, record: saved });
     } catch (err) {
       sendApiError(res, err, 500, 'ISG_SAVE_FAILED');
+    }
+  });
+
+  api.post('/isg/:id/control', requireValidSession, async (req, res) => {
+    try {
+      if (!isg.canControlIsg(req.user)) {
+        return res.status(403).json({ error: 'Bu işlemi yalnızca Selahattin Toker yapabilir' });
+      }
+      const id = sanitizeString(req.params.id, 80);
+      if (!id) return res.status(400).json({ error: 'Kayıt bulunamadı' });
+      const r = await q(
+        `SELECT id, plate_key, driver_key, name_key, vehicle_id, plate_text, driver_name,
+                signed, signed_at, doc_no, form_code, recorded_by,
+                controlled, controlled_at, controlled_by, file_name, file_url, file_data, updated_at
+         FROM isg_forms WHERE id = $1`,
+        [id]
+      );
+      const row = r.rows[0];
+      if (!row) return res.status(404).json({ error: 'Kayıt bulunamadı' });
+      const signed = row.signed === true || row.signed === 't' || row.signed === 1 || row.signed === '1';
+      if (!signed) return res.status(400).json({ error: 'İmzasız form kontrol edilemez' });
+      const already = row.controlled === true || row.controlled === 't' || row.controlled === 1 || row.controlled === '1';
+      const now = Date.now();
+      const by = sanitizeString((req.user && req.user.username) || 'xxr', 80);
+      if (!already) {
+        await q(
+          `UPDATE isg_forms SET controlled = TRUE, controlled_at = $2, controlled_by = $3, updated_at = $2 WHERE id = $1`,
+          [id, now, by]
+        );
+        row.controlled = true;
+        row.controlled_at = now;
+        row.controlled_by = by;
+        row.updated_at = now;
+      }
+      const saved = mapIsgRow(row);
+      try {
+        broadcastEvent('isg_updated', { id, signed: true, controlled: true, plateKey: row.plate_key, driverKey: row.driver_key });
+      } catch (e) { /* ignore */ }
+      res.json({ ok: true, record: saved });
+    } catch (err) {
+      sendApiError(res, err, 500, 'ISG_CONTROL_FAILED');
     }
   });
 

@@ -656,7 +656,15 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
     const o = window.piyasa && typeof window.piyasa.getOrderByIdx === 'function'
       ? window.piyasa.getOrderByIdx(pending.piyasaOrderIdx)
       : null;
-    if (!o) return printEv;
+    if (!o) {
+      try {
+        const lock = window.piyasa && window.piyasa._state && window.piyasa._state._lockedPiyasaPick;
+        if (lock && lock.sourceWeek != null && String(lock.sourceWeek).trim() !== '') {
+          printEv.piyasaKaynakHafta = String(lock.sourceWeek).trim();
+        }
+      } catch (e2) { /* ignore */ }
+      return printEv;
+    }
     const snapFirma = String(printEv.firmaKodu || printEv.firma || '').trim();
     const f = String(o.firma || '').trim();
     const m = String(o.malzeme || '').trim();
@@ -687,6 +695,14 @@ function applyPiyasaOrderToPrintEvent(printEv, pending) {
       printEv.yuklemeTuru = yuk;
       if (!String(printEv.ambalajBilgisi || '').trim()) printEv.ambalajBilgisi = yuk;
     }
+    let kaynakHafta = o._sourceWeek != null ? String(o._sourceWeek).trim() : '';
+    if (!kaynakHafta) {
+      try {
+        const lock = window.piyasa && window.piyasa._state && window.piyasa._state._lockedPiyasaPick;
+        if (lock && lock.sourceWeek != null) kaynakHafta = String(lock.sourceWeek).trim();
+      } catch (e2) { /* ignore */ }
+    }
+    if (kaynakHafta) printEv.piyasaKaynakHafta = kaynakHafta;
   } catch (e) { /* ignore */ }
   return printEv;
 }
@@ -725,6 +741,7 @@ function buildPrintHistoryPostBody(printEv, pending, commitTs) {
     palet: String(printEv.palet || '').trim(),
     torba: String(printEv.torba || '').trim(),
     kantar: String(printEv.kantar || '').trim(),
+    piyasaKaynakHafta: String(printEv.piyasaKaynakHafta || '').trim(),
     imzaSahaAd: String(printEv.imzaSahaAd || printEv.saha || '').trim(),
     imzaYukleyenAd: String(printEv.imzaYukleyenAd || '').trim(),
     imzaKaliteAd: String(printEv.imzaKaliteAd || '').trim(),
@@ -889,6 +906,10 @@ function buildPiyasaCikanlarPostBody(printEv, pending, commitTs, printHistoryId)
     ).trim(),
     order_key: String((order && (order._pickKey || order.__archiveKey)) || (pending && pending.piyasaOrderIdx) || '').trim(),
     hafta: '',
+    kaynak_hafta: _cikanlarFirstText(
+      printEv && printEv.piyasaKaynakHafta,
+      order && order._sourceWeek
+    ),
     sheet: String((order && order._sourceSheet) || '').trim(),
     sevkiyat_tipi: String((order && order.sevkiyatTipi) || '').trim(),
     vehicle_id: String((printEv && printEv.vehicleId) || pending.vehicleId || '').trim(),

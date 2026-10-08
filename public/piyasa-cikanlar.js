@@ -228,6 +228,17 @@
       .join('');
   }
 
+  function kaynakSecildiText(r) {
+    const ready = String((r && r.kaynakHaftaLabel) || '').trim();
+    if (ready) return ready;
+    const kaynak = parseInt(String((r && r.kaynak_hafta) || '').replace(/[^\d]/g, ''), 10);
+    const printed = isoWeekFromYmd(istanbulYmdFromMs(r && r.tarih))
+      || parseInt(String((r && r.hafta) || '').replace(/[^\d]/g, ''), 10)
+      || 0;
+    if (!kaynak || !printed || kaynak === printed) return '';
+    return kaynak + '. haftadan seçildi';
+  }
+
   function rowHtml(r) {
     const sehir = rowSehir(r);
     const sevk = String(r.sevk_yeri || '').trim();
@@ -238,6 +249,7 @@
       '<tr>' +
         '<td class="pc-mono">' + esc(r.tarihLabel) +
           (r.haftaLabel ? '<div class="pc-week">' + esc(r.haftaLabel) + '</div>' : '') +
+          (kaynakSecildiText(r) ? '<div class="pc-kaynak">' + esc(kaynakSecildiText(r)) + '</div>' : '') +
         '</td>' +
         '<td class="pc-mono">' + esc(r.saatLabel) + '</td>' +
         '<td class="pc-mono"><strong>' + esc(r.plaka) + '</strong>' +
@@ -400,11 +412,11 @@
     try {
       const XLSX = await ensureXlsx();
       const headers = [
-        'Tarih', 'Hafta', 'Saat', 'Plaka', 'Dorse', 'Firma', 'Firma adı', 'Sip no',
+        'Tarih', 'Hafta', 'Kaynak', 'Saat', 'Plaka', 'Dorse', 'Firma', 'Firma adı', 'Sip no',
         'Malzeme', 'Yükleme türü', 'Şehir', 'Sevk yeri', 'Miktar', 'Tonaj', 'Şoför', 'Basım yeri',
       ];
       const body = rows.map((r) => [
-        r.tarihLabel, r.haftaLabel || r.hafta, r.saatLabel, r.plaka, r.dorse_plaka, shownFirma(r), r.firma_adi, r.sip_no,
+        r.tarihLabel, r.haftaLabel || r.hafta, kaynakSecildiText(r), r.saatLabel, r.plaka, r.dorse_plaka, shownFirma(r), r.firma_adi, r.sip_no,
         r.malzeme, r.yukleme_turu, rowSehir(r), r.sevk_yeri, r.miktar, r.tonaj, r.sofor, r.basim_yeri,
       ].map((v) => (v == null ? '' : String(v))));
       const ws = XLSX.utils.aoa_to_sheet([headers, ...body]);
