@@ -248,6 +248,7 @@
     if (istanbul) bits.push('İstanbul ' + fmt(istanbul.mazot, 2));
     var when = mazotWhen();
     var kaynak = (state.mazot.urun || 'Motorin') + ' · ' + (state.mazot.kaynak || 'OPET');
+    if (state.mazot.dosya) kaynak += ' · kayıtlı liste';
     if (state.from && price != null) {
       var yer = state.from.tesis ? (state.from.tesis + ' · ' + state.from.il) : state.from.il;
       if (where) where.textContent = yer;
@@ -435,7 +436,18 @@
     else if (state.route.kaynak === 'kus-ucusu') sure.textContent = 'Kuş uçuşu tahmin, yol payı %30' + (state.donus ? ' · gidiş-dönüş' : '');
     else if (state.route.kaynak === 'ayni') sure.textContent = 'Çıkış ve varış aynı yer';
     else sure.textContent = 'Karayolu' + (sureText(state.route.sureDk) ? ' · ' + sureText(state.route.sureDk) : '') + (state.donus ? ' · gidiş-dönüş' : '');
-    document.getElementById('nkMazot').textContent = sonuc.fiyat == null ? '—' : fmt(sonuc.fiyat, 2) + ' TL';
+    document.getElementById('nkMazot').textContent = (function () {
+      var litreFiyat = sonuc.fiyat;
+      if (litreFiyat == null && state.from) {
+        var fromIl = ilMazot(state.from.plaka);
+        if (fromIl) litreFiyat = fromIl.mazot;
+      }
+      if (litreFiyat == null) {
+        var kutahya = ilMazot(43);
+        if (kutahya) litreFiyat = kutahya.mazot;
+      }
+      return litreFiyat == null ? '—' : fmt(litreFiyat, 2) + ' TL/L';
+    })();
     document.getElementById('nkLitreOut').textContent = hasEnds && state.route ? fmt(sonuc.litre, 1) + ' L' : '—';
     document.getElementById('nkTutar').textContent = hasEnds && state.route && sonuc.tutar != null ? fmt(sonuc.tutar, 2) + ' TL' : '—';
     var note = state.preset === 'bos' ? 'Boş tır · 28 L/100 km' : (state.preset === 'agir' ? 'Ağır tır · 40 L/100 km' : 'Yüklü tır · ' + fmt(state.litrePer100, 1) + ' L/100 km');
@@ -476,6 +488,7 @@
     renderMap();
     renderResults();
     renderPrices();
+    fillPrice();
   }
 
   function scheduleRoute() {
@@ -519,38 +532,76 @@
     return fetch(url, opts);
   }
 
+  function mazotPayloadOk(data) {
+    return !!(data && data.ok !== false && data.iller && data.iller.length);
+  }
+
+  function readMazotResponse(res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok || !mazotPayloadOk(data)) {
+        var err = new Error((data && data.error) || (res.status === 401 ? 'Oturum mazot fiyatını alamadı.' : 'Güncel mazot fiyatı alınamadı.'));
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    });
+  }
+
+  function loadMazotFile() {
+    return fetch('data/mazot-guncel.json?v=20261008-mazot3', { cache: 'no-store' }).then(function (res) {
+      if (!res.ok) throw new Error('Kayıtlı mazot listesi yok.');
+      return res.json();
+    }).then(function (data) {
+      if (!mazotPayloadOk(data)) throw new Error('Kayıtlı mazot listesi boş.');
+      data.dosya = true;
+      return data;
+    });
+  }
+
+  function showMazot(seq, data) {
+    if (seq !== mazotSeq || !mazotPayloadOk(data)) return false;
+    state.mazot = data;
+    state.mazotError = '';
+    fillPrice();
+    try { render(); } catch (e) { renderPrices(); fillPrice(); }
+    return true;
+  }
+
   function loadMazot(force) {
     var seq = ++mazotSeq;
     state.mazotError = '';
     var lead = document.getElementById('nkPriceLead');
     if (lead) lead.textContent = 'Güncel mazot fiyatları OPET’ten alınıyor…';
     fillPrice();
+    if (!force) {
+      loadMazotFile().then(function (data) { showMazot(seq, data); }).catch(function () {});
+    }
     var url = '/api/nakliye/mazot' + (force ? '?yenile=1' : '');
-    return apiFetch(url)
-      .then(function (res) {
-        return res.json().catch(function () { return {}; }).then(function (data) {
-          if (!res.ok || !data || data.ok === false || !data.iller || !data.iller.length) {
-            var err = new Error((data && data.error) || (res.status === 401 ? 'Oturum mazot fiyatını alamadı.' : 'Güncel mazot fiyatı alınamadı.'));
-            err.status = res.status;
-            throw err;
-          }
-          return data;
-        });
-      })
-      .then(function (data) {
-        if (seq !== mazotSeq) return;
-        state.mazot = data;
-        state.mazotError = '';
-        fillPrice();
-        try { render(); } catch (e) { renderPrices(); }
-      })
-      .catch(function (err) {
+    var timed = new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error('Mazot isteği zaman aşımına uğradı.')); }, 20000);
+      apiFetch(url).then(function (res) {
+        clearTimeout(timer);
+        resolve(res);
+      }, function (err) {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+    return timed.then(readMazotResponse).then(function (data) {
+      showMazot(seq, data);
+    }).catch(function (err) {
+      if (seq !== mazotSeq) return;
+      if (state.mazot && state.mazot.iller && state.mazot.iller.length) return;
+      return loadMazotFile().then(function (data) {
+        if (!showMazot(seq, data)) throw err;
+      }).catch(function () {
         if (seq !== mazotSeq) return;
         state.mazot = null;
         state.mazotError = (err && err.message) || 'Güncel mazot fiyatı internetten alınamadı.';
         fillPrice();
         renderPrices();
       });
+    });
   }
 
   function searchHits(q) {

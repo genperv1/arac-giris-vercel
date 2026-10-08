@@ -1425,7 +1425,7 @@ api.get('/presence', requireValidSession, (req, res) => {
 
 
 registerBackupRoutes(api, { q, requireAmir, PRINT_FORM_BG_KEY });
-registerNakliyeRoutes(api, routeCtx);
+registerNakliyeRoutes(api, routeCtx, app);
 
 
 

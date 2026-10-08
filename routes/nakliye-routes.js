@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const {
   buildMazotPayload,
@@ -9,6 +10,7 @@ const {
 } = require('../lib/nakliye-yakit');
 
 const PLACES_PATH = path.join(__dirname, '..', 'public', 'data', 'tr-ilceler.json');
+const MAZOT_FILE = path.join(__dirname, '..', 'public', 'data', 'mazot-guncel.json');
 const MAZOT_TTL_MS = 6 * 60 * 60 * 1000;
 const MAZOT_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const OPET_PROVINCES = 'https://api.opet.com.tr/api/fuelprices/provinces';
@@ -79,6 +81,7 @@ async function refreshMazot() {
   const payload = buildMazotPayload(rows, loadPlaces(), new Date().toISOString());
   if (!payload.ok) throw new Error('Mazot listesi boş');
   mazotCache = { at: Date.now(), payload };
+  try { fs.writeFileSync(MAZOT_FILE, JSON.stringify(payload)); } catch (err) { /* dosya yazılamazsa bellek önbelleği yeter */ }
   return payload;
 }
 
@@ -124,11 +127,11 @@ async function drivingRoute(from, to) {
   return route;
 }
 
-function registerNakliyeRoutes(api, ctx) {
+function registerNakliyeRoutes(api, ctx, app) {
   const sabanOnly = requireSaban(ctx || {});
 
-  api.get('/nakliye/mazot', sabanOnly, async (req, res) => {
-    res.setHeader('Cache-Control', 'private, max-age=600');
+  async function sendMazot(req, res) {
+    res.setHeader('Cache-Control', 'no-store');
     try {
       const force = req.query.yenile === '1';
       const payload = await getMazot(force);
@@ -137,7 +140,10 @@ function registerNakliyeRoutes(api, ctx) {
       console.error('Nakliye mazot yanıtı:', err && err.message ? err.message : err);
       res.status(502).json({ ok: false, error: 'Güncel mazot fiyatı internetten alınamadı.' });
     }
-  });
+  }
+
+  if (app && typeof app.get === 'function') app.get('/api/nakliye/mazot', sendMazot);
+  api.get('/nakliye/mazot', sabanOnly, sendMazot);
 
   api.get('/nakliye/mesafe', sabanOnly, async (req, res) => {
     res.setHeader('Cache-Control', 'private, max-age=3600');
