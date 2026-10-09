@@ -250,4 +250,56 @@ test('yol kaydı 502 döndürmez', () => {
   const src = fs.readFileSync(path.join(__dirname, '../routes/nakliye-routes.js'), 'utf8');
   assert.match(src, /res\.status\(200\)\.json\(payload\)/);
   assert.equal(src.includes('status(502)'), false);
+  assert.match(src, /ipv4Dispatcher/);
+  assert.match(src, /20 8,13,18/);
+});
+
+test('bütçe dolunca kalan iller beklenmez', async () => {
+  let calls = 0;
+  const svc = createMazotService({
+    budgetMs: 25,
+    timeoutMs: 5000,
+    fetchImpl: async (url) => {
+      if (String(url).includes('provinces')) {
+        return { ok: true, json: async () => Array.from({ length: 16 }, (_, i) => ({ code: String(i + 1) })) };
+      }
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return { ok: true, json: async () => [] };
+    },
+    buildPayload: () => ({ ok: false, iller: [] }),
+    log: () => {},
+  });
+  const started = Date.now();
+  const none = await svc.getMazot(true);
+  assert.equal(none.guncel, false);
+  assert.ok(calls < 16, 'il çağrısı ' + calls);
+  assert.ok(Date.now() - started < 1500);
+});
+
+test('aktarıcı iletilir ve yavaş deneme eski kaydı güncel yapmaz', async () => {
+  const seen = [];
+  const lines = [];
+  let file = JSON.stringify(snapshot('2026-10-08T06:00:00.000Z'));
+  const svc = createMazotService({
+    slowRetry: true,
+    dispatcher: { kind: 'ipv4' },
+    readText: () => file,
+    fetchImpl: async (url, opts) => {
+      seen.push(opts && opts.dispatcher);
+      const err = new Error('aborted');
+      err.name = 'TimeoutError';
+      throw err;
+    },
+    buildPayload: () => snapshot(),
+    log: (line) => lines.push(line),
+  });
+  const stale = await svc.getMazot(false);
+  assert.equal(stale.guncel, false);
+  assert.equal(stale.bayat, true);
+  assert.equal(stale.updatedAt, '2026-10-08T06:00:00.000Z');
+  assert.equal(seen[0] && seen[0].kind, 'ipv4');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.ok(seen.length >= 2);
+  assert.equal(lines.some((line) => line.includes('asama=zaman-asimi')), true);
 });

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const cron = require('node-cron');
 const {
   buildMazotPayload,
   turkiyeIcinde,
@@ -9,7 +10,7 @@ const {
   parseOsrmRoutes,
   yanNokta,
 } = require('../lib/nakliye-yakit');
-const { createMazotService, emptyMazot, classifyFetchError, logMazotFailure } = require('../lib/nakliye-mazot');
+const { createMazotService, emptyMazot, classifyFetchError, logMazotFailure, ipv4Dispatcher } = require('../lib/nakliye-mazot');
 
 const PLACES_PATH = path.join(__dirname, '..', 'public', 'data', 'tr-ilceler.json');
 const MAZOT_FILE = path.join(__dirname, '..', 'public', 'data', 'mazot-guncel.json');
@@ -101,6 +102,8 @@ function registerNakliyeRoutes(api, ctx, app) {
   const sabanOnly = requireSaban(ctx || {});
   const mazot = createMazotService({
     fetchImpl: (url, opts) => fetch(url, opts),
+    dispatcher: ipv4Dispatcher(),
+    slowRetry: true,
     q: ctx && ctx.q,
     buildPayload: (rows, updatedAt) => buildMazotPayload(rows, loadPlaces(), updatedAt),
     readText: () => {
@@ -112,6 +115,14 @@ function registerNakliyeRoutes(api, ctx, app) {
     },
     writeOnceki: (text) => fs.writeFileSync(MAZOT_DUN_FILE, text),
   });
+
+  if (process.env.MAZOT_CRON !== '0') {
+    try {
+      cron.schedule('20 8,13,18 * * *', () => {
+        mazot.getMazot(true).catch(() => {});
+      }, { timezone: 'Europe/Istanbul' });
+    } catch (err) { /* istek yolu zamanlayıcı olmadan da çalışır */ }
+  }
 
   async function sendMazot(req, res) {
     res.setHeader('Cache-Control', 'no-store');
