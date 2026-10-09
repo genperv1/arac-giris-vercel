@@ -97,7 +97,7 @@ function registerAmirNoticeRoutes(api, ctx) {
   api.get('/amir-notices', requireAmir, async (req, res) => {
     try {
       const items = unreadGirisNotices(await readItems(), noticeUser(req), Date.now(), noticeClient(req));
-      const scare = unreadScareNotices(noticeUser(req), noticeClient(req));
+      const scare = await unreadScareNotices(q, noticeUser(req), noticeClient(req), Date.now());
       return res.json({ ok: true, items: items.concat(scare) });
     } catch (err) {
       return sendApiError(res, err, 500, 'AMIR_NOTICE_READ_FAILED');
@@ -108,7 +108,7 @@ function registerAmirNoticeRoutes(api, ctx) {
     try {
       const id = String(req.params.id || '').trim();
       const user = noticeUser(req);
-      if (ackScareNotice(id, user, noticeClient(req))) {
+      if (await ackScareNotice(q, id, user, noticeClient(req), Date.now())) {
         return res.json({ ok: true });
       }
       const result = await withLock(async () => {

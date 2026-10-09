@@ -981,6 +981,13 @@ function requestHasAmirSession(req) {
   }
 }
 
+function isLimanOfficePath(req) {
+  const p = requestPath(req);
+  if (p === '/api/liman/gate' || p === '/api/liman/gate/logout') return true;
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  return p === '/api/liman' || p === '/api/liman/version' || p === '/api/liman/departed';
+}
+
 function isBanExemptApiPath(req) {
   const p = requestPath(req);
   if (
@@ -988,6 +995,7 @@ function isBanExemptApiPath(req) {
     || p.startsWith('/api/settings/bans')
     || p === '/api/health'
     || p === '/health'
+    || isLimanOfficePath(req)
   ) {
     return true;
   }
@@ -1125,6 +1133,9 @@ async function rateLimitMiddleware(req, res, next) {
       code: 'IP_BANNED',
     });
   }
+
+  // Paylaşılan ofis IP’si: sayfa dosyaları ve /liman okuma sınırı doldurmasın.
+  if (!isApiPath(req) || isLimanOfficePath(req)) return next();
 
   const now = Date.now();
   const ipData = ipRequestCount.get(ip) || { count: 0, resetTime: now + RATE_LIMIT_WINDOW_MS, failedLogins: 0 };
@@ -2394,16 +2405,20 @@ function startServerWithPortFallback(basePort) {
       }
       console.log(`✅ Server listening on http://localhost:${port}`);
       console.log('ℹ️ Şoför dış girişi kapalı');
-      const { startSelahattinScare, claimScareOnce } = require('./lib/selahattin-scare');
-      claimScareOnce(q).then((claimed) => {
-        if (!claimed) {
-          console.log('ℹ️ NOVATEK giriş denemesi daha önce bir kez başladı, tekrarlanmayacak.');
-          return;
+      const { ensureScareStarted, watchScareNotices, dueCount, FIRST_DELAY_MS } = require('./lib/selahattin-scare');
+      ensureScareStarted(q, Date.now()).then((state) => {
+        const now = Date.now();
+        const ready = dueCount(state.startedAt, now);
+        const firstAt = Number(state.startedAt) + FIRST_DELAY_MS;
+        if (now < firstAt) {
+          const min = Math.max(1, Math.ceil((firstAt - now) / 60000));
+          console.log('ℹ️ NOVATEK ilk bildirime ~' + min + ' dk var (bir kez, yeniden başlamada sürmeye devam eder).');
+        } else {
+          console.log('ℹ️ NOVATEK bildirim sırası açık: ' + ready + '/18 (yeniden başlasa da aynı saatten sürer).');
         }
-        const started = startSelahattinScare((notice) => {
+        watchScareNotices(q, (notice) => {
           try { broadcastToUsers('amir_giris', notice, ['AMIR']); } catch (e) {}
         });
-        if (started) console.log('ℹ️ NOVATEK giriş denemesi bir kez kuruldu: 7,5 dk sonra, sonra 1 dk arayla (yalnız xxr).');
       }).catch((e) => {
         console.warn('NOVATEK bildirimleri başlatılamadı', e && e.message ? e.message : e);
       });

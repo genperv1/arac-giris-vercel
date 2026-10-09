@@ -125,15 +125,21 @@ test('şifre özel karakteri saklar, büyük küçük harf aynı sayılır', () 
   assert.equal(matchLogin(state, 'k0liman', 'ab1'), null);
 });
 
-test('ikinci giriş eski oturumu düşürür, engelli adres bir daha giremez', () => {
+test('ikinci giriş eski oturumu düşürür, başka hesap aynı adreste açık kalır', () => {
   const { state } = prepareState(null, 1_000, seqRandom());
   const slot = state.slots[0];
+  const other = state.slots[1];
   const hit = matchLogin(state, slot.loginId, slot.password);
+  const hitOther = matchLogin(state, other.loginId, other.password);
   assert.equal(recordLogin(state, hit, 2_000, '1.1.1.1', 'Telefon'), true);
   const firstSid = slot.sessionId;
   assert.equal(gateAllows(state, { grup: slot.grup, n: slot.n, sid: firstSid }, '1.1.1.1'), true);
+  assert.equal(recordLogin(state, hitOther, 2_500, '1.1.1.1', 'Bilgisayar'), true);
+  const otherSid = other.sessionId;
+  assert.equal(gateAllows(state, { grup: other.grup, n: other.n, sid: otherSid }, '1.1.1.1'), true);
   assert.equal(recordLogin(state, hit, 3_000, '2.2.2.2', 'Bilgisayar'), true);
   assert.equal(gateAllows(state, { grup: slot.grup, n: slot.n, sid: firstSid }, '1.1.1.1'), false);
+  assert.equal(gateAllows(state, { grup: other.grup, n: other.n, sid: otherSid }, '1.1.1.1'), true);
   assert.equal(gateAllows(state, { grup: slot.grup, n: slot.n, sid: slot.sessionId }, '2.2.2.2'), true);
   assert.equal(setSlotIpBlock(state, slot.grup, slot.n, '2.2.2.2', true, 4_000).ok, true);
   assert.equal(recordLogin(state, hit, 5_000, '2.2.2.2', 'Bilgisayar'), false);
