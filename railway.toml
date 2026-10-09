@@ -1,7 +1,8 @@
 [build]
 builder = "NIXPACKS"
-# devDependencies (tailwind) build için gerekli; build sonrası production start yeterli
-buildCommand = "npm install && npm run build"
+# NODE_ENV=production npm'in devDependencies atlamasına yol açar.
+# tailwindcss build sırasında gerekli; runtime NODE_ENV production kalır.
+buildCommand = "npm install --include=dev && npm run build"
 
 [deploy]
 startCommand = "npm start"
