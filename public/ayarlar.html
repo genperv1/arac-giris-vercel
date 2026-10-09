@@ -145,6 +145,66 @@
       box-shadow: 0 2px 8px rgba(99,102,241,.12);
     }
     .ay-nav-btn.is-active i { opacity: 1; }
+    .ay-side-premium {
+      margin: .15rem 0 .85rem;
+      padding: .5rem;
+      border-radius: 16px;
+      background:
+        radial-gradient(120% 80% at 0% 0%, rgba(99,102,241,.45), transparent 55%),
+        linear-gradient(165deg, #1e1b4b 0%, #312e81 62%, #14532d 140%);
+      box-shadow: 0 14px 28px rgba(30, 27, 75, .28);
+    }
+    .ay-side-premium .ay-sidebar__label { color: rgba(255,255,255,.62); padding-top: .2rem; }
+    .ay-nav-btn.ay-nav-btn--premium {
+      color: #eef2ff;
+      background: rgba(255,255,255,.07);
+      border-color: rgba(255,255,255,.1);
+      margin-bottom: .28rem;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+    .ay-nav-btn.ay-nav-btn--premium:last-child { margin-bottom: 0; }
+    .ay-nav-btn.ay-nav-btn--premium i {
+      width: 1.65rem;
+      height: 1.65rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: rgba(255,255,255,.14);
+      opacity: 1;
+      font-size: .72rem;
+    }
+    .ay-nav-btn.ay-nav-btn--premium:hover {
+      background: rgba(255,255,255,.16);
+      color: #fff;
+      border-color: rgba(255,255,255,.22);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(0,0,0,.18);
+    }
+    .ay-nav-btn.ay-nav-btn--premium.is-active {
+      background: #fff;
+      color: #1e1b4b;
+      border-color: #fff;
+      box-shadow: 0 8px 18px rgba(0,0,0,.22);
+      transform: none;
+    }
+    .ay-nav-btn.ay-nav-btn--premium.is-active i {
+      background: #eef2ff;
+      color: #4338ca;
+    }
+    @media (max-width: 960px) {
+      .ay-side-premium {
+        display: flex;
+        flex-wrap: wrap;
+        width: 100%;
+        gap: .35rem;
+        order: -1;
+      }
+      .ay-side-premium .ay-nav-btn {
+        flex: 1 1 calc(50% - .35rem);
+        width: auto;
+      }
+    }
 
     .ay-main { min-width: 0; }
     .ay-main__head {
@@ -547,29 +607,42 @@
     .ple-fmt-btn--active.ple-fmt-btn--u { text-decoration: underline; }
     .ple-stage {
       position: relative;
-      width: 840px;
+      width: 100%;
       max-width: 100%;
-      height: auto;
       aspect-ratio: 210 / 148;
       border: 1px solid var(--rp-border);
       border-radius: 10px;
       overflow: hidden;
-      background: #f8fafc;
+      background: #fff;
       user-select: none;
+    }
+    .ple-page {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 210mm;
+      height: 148mm;
+      transform-origin: top left;
+      background: #fff;
     }
     .ple-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; z-index: 0; }
     #pleFields { position: absolute; inset: 0; z-index: 1; }
     .ple-box {
       position: absolute;
-      border: 1px dashed rgba(100, 116, 139, 0.75);
-      background: rgba(148, 163, 184, 0.12);
+      border: 0;
+      outline: 1px dashed transparent;
+      background: transparent;
       box-sizing: border-box;
       cursor: move;
       overflow: hidden;
     }
+    .ple-box:hover {
+      outline-color: rgba(100, 116, 139, 0.9);
+      background: rgba(148, 163, 184, 0.08);
+    }
     .ple-box--active {
-      border: 2px dashed #2563eb;
-      background: rgba(37, 99, 235, 0.12);
+      outline: 2px dashed #2563eb;
+      background: rgba(37, 99, 235, 0.08);
       z-index: 3;
     }
     .ple-tag {
@@ -585,26 +658,40 @@
       border-radius: 0 0 4px 0;
       pointer-events: none;
       z-index: 2;
+      opacity: 0;
     }
+    .ple-box:hover .ple-tag,
+    .ple-box--active .ple-tag { opacity: 1; }
     .ple-body {
       width: 100%;
       height: 100%;
       box-sizing: border-box;
-      padding: 2px 3px;
-      font-size: 8px;
-      font-weight: 700;
-      line-height: 1.08;
+      margin: 0;
+      padding: 0;
       overflow: hidden;
       pointer-events: none;
-      color: #0f172a;
+      color: #000;
+      font-family: Arial, sans-serif;
     }
     .ple-box--active .ple-body { pointer-events: auto; cursor: text; }
     .ple-body--edit {
       pointer-events: auto !important;
       cursor: text;
-      outline: 1px dashed rgba(37, 99, 235, 0.85);
-      outline-offset: -1px;
-      background: rgba(255, 255, 255, 0.55);
+      user-select: text;
+    }
+    .ple-inline-ta {
+      display: block;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      border: 0;
+      resize: none;
+      box-sizing: border-box;
+      overflow: auto;
+      outline: none;
+      color: #000;
+      font-family: Arial, sans-serif;
+      white-space: pre-wrap;
       user-select: text;
     }
     .ple-box--edit { z-index: 5; }
@@ -632,8 +719,10 @@
       cursor: nwse-resize;
       pointer-events: auto;
       z-index: 4;
+      opacity: 0;
     }
-    .ple-box--active .ple-resize { background: #2563eb; }
+    .ple-box:hover .ple-resize,
+    .ple-box--active .ple-resize { opacity: 1; background: #2563eb; }
     .ple-controls { margin-top: 1rem; max-width: 1180px; }
     .ple-report-pick {
       margin-bottom: 1rem;
@@ -802,6 +891,8 @@
     .ay-btn--danger { background: #fef2f2; border-color: #fecaca; color: var(--rp-danger); }
     .ay-btn--danger:hover { background: #fee2e2; }
     .ay-ip-mono { font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+    .ay-ban-scare td { color: #991b1b; font-weight: 700; background: #fef2f2; }
+    .ay-ban-scare .ay-ip-mono { color: #7f1d1d; }
     .ay-ban-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
     .ay-goz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: .85rem; }
     @media (max-width: 800px) { .ay-goz-grid { grid-template-columns: 1fr; } }
@@ -924,6 +1015,24 @@
             <span>Araç Takip</span>
           </div>
         </div>
+        <div class="ay-sidebar__group ay-side-premium">
+          <span class="ay-sidebar__label">Operasyon</span>
+          <button type="button" class="ay-nav-btn ay-nav-btn--premium" data-goto="section-gozetmen">
+            <i class="fas fa-anchor" aria-hidden="true"></i> Liman girişleri
+          </button>
+          <button type="button" class="ay-nav-btn ay-nav-btn--premium" data-goto="section-yazisma">
+            <i class="fas fa-comments" aria-hidden="true"></i> Yazışmalar
+          </button>
+          <button type="button" class="ay-nav-btn ay-nav-btn--premium" data-goto="section-cihazlar">
+            <i class="fas fa-desktop" aria-hidden="true"></i> Kantar cihazları
+          </button>
+          <button type="button" class="ay-nav-btn ay-nav-btn--premium" data-goto="section-ban">
+            <i class="fas fa-ban" aria-hidden="true"></i> IP engelleri
+          </button>
+          <button type="button" class="ay-nav-btn ay-nav-btn--premium" data-goto="section-yazdir">
+            <i class="fas fa-print" aria-hidden="true"></i> Yazdırma
+          </button>
+        </div>
         <div class="ay-sidebar__group">
           <span class="ay-sidebar__label">Veri &amp; istatistik</span>
           <button type="button" class="ay-nav-btn is-active" data-goto="section-plaka">
@@ -947,21 +1056,6 @@
         </div>
         <div class="ay-sidebar__group">
           <span class="ay-sidebar__label">Sistem</span>
-          <button type="button" class="ay-nav-btn" data-goto="section-yazdir">
-            <i class="fas fa-print" aria-hidden="true"></i> Yazdırma
-          </button>
-          <button type="button" class="ay-nav-btn" data-goto="section-ban">
-            <i class="fas fa-ban" aria-hidden="true"></i> IP engelleri
-          </button>
-          <button type="button" class="ay-nav-btn" data-goto="section-cihazlar">
-            <i class="fas fa-desktop" aria-hidden="true"></i> Kantar cihazları
-          </button>
-          <button type="button" class="ay-nav-btn" data-goto="section-gozetmen">
-            <i class="fas fa-anchor" aria-hidden="true"></i> Liman girişleri
-          </button>
-          <button type="button" class="ay-nav-btn" data-goto="section-yazisma">
-            <i class="fas fa-comments" aria-hidden="true"></i> Yazışmalar
-          </button>
           <button type="button" class="ay-nav-btn" data-goto="section-yedek">
             <i class="fas fa-database" aria-hidden="true"></i> Yedekleme
           </button>
@@ -1203,13 +1297,13 @@
     <section id="section-cihazlar" class="ay-panel ay-section" tabindex="-1" aria-labelledby="cihazTitle" hidden>
       <div class="ay-panel__head">
         <div>
-          <h2 id="cihazTitle">Kantar cihazları (hatırlanan oturumlar)</h2>
-          <p>Kantar hesabıyla (AVDAN / 1.OSB) giriş yapılan bilgisayarlar. Oturum düşse bile bu cihazlar şifre sormadan kendiliğinden yenilenir; liman listesi gönderimi kesilmez. Şüpheli bir cihazı buradan düşürün — o PC bir sonraki yenilemede giriş ekranına döner.</p>
+          <h2 id="cihazTitle">Kantar cihazları</h2>
+          <p>Her kantarda yalnız açık olan oturum görünür: IP ve kantar adı. Düşürülen oturumlar listede durmaz. Şüpheli oturumu buradan düşürün — o bilgisayar bir sonraki yenilemede giriş ekranına döner.</p>
         </div>
       </div>
 
       <div class="ay-ban-alert" id="cihazHelpText">
-        Cihaz anahtarı yalnız giriş yapılan tarayıcıda saklanır, <span id="cihazDays">90</span> gün geçerlidir; her hesapta en fazla 3 cihaz tutulur (eskisi düşer). Amir hesaplarına cihaz anahtarı verilmez.
+        Cihaz anahtarı yalnız giriş yapılan tarayıcıda saklanır, <span id="cihazDays">90</span> gün geçerlidir. Her kantar hesabında bir açık oturum tutulur; yeni giriş eskisini düşürür. Amir hesaplarına cihaz anahtarı verilmez.
       </div>
 
       <div class="ay-ban-actions">
@@ -1221,17 +1315,15 @@
           <table class="ay-table">
             <thead>
               <tr>
-                <th>Hesap</th>
-                <th>Cihaz / IP</th>
-                <th>Giriş</th>
-                <th>Son kullanım</th>
-                <th>Bitiş</th>
                 <th>Durum</th>
+                <th>IP</th>
+                <th>Kantar</th>
+                <th>Son kullanım</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="cihazTbody">
-              <tr><td colspan="7" class="ay-empty">Yükleniyor…</td></tr>
+              <tr><td colspan="5" class="ay-empty">Yükleniyor…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1307,7 +1399,7 @@
       <div class="ay-panel__head">
         <div>
           <h2 id="yazdirTitle">Yazdırma düzenleyici</h2>
-          <p>Burada gördüğünüz konum, punto ve satır ayarları <strong>Kaydet</strong> dediğinizde takip formu yazdırmaya birebir uygulanır. Metne <strong>iki kez tıklayıp Enter</strong> ile satır kırabilirsiniz — şablonda da önizlemede de aynı görünür.</p>
+          <p>Ekrandaki form, yazıcıdaki sayfanın küçültülmüş halidir — punto, satır kırığı ve kaydırma baskıyla aynıdır. Metne <strong>iki kez tıklayıp Enter</strong> ile satır kırın; şablonda gördüğünüz satır kağıda da aynı basılır. <strong>Kaydet</strong> canlı siteye yazar.</p>
         </div>
       </div>
 
@@ -1613,9 +1705,9 @@
   <script src="signatures-registry.js"></script>
   <script src="print-form-bg-bootstrap.js?v=1.0.3-20260909-formjpg"></script>
   <script src="print-form-bg-builtin.js"></script>
-  <script src="print-layout-settings.js?v=20261006-no-isg-takip"></script>
-  <script src="print-layout-editor.js?v=20261008-trafik"></script>
+  <script src="print-layout-settings.js?v=20261009-wysiwyg"></script>
+  <script src="print-layout-editor.js?v=20261009-wysiwyg"></script>
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
-  <script src="ayarlar.js?v=20261009-ip"></script>
+  <script src="ayarlar.js?v=20261009-novatek"></script>
 </body>
 </html>

@@ -65,9 +65,27 @@ test('kullanıcı başına en fazla 3 aktif cihaz; en eskisi düşer', async () 
   assert.ok(await store.verify(issued[1].raw));
   assert.ok(await store.verify(issued[3].raw));
   const list = await store.list();
-  const active = list.filter((d) => d.active);
-  assert.equal(active.length, 3);
-  assert.equal(list.length, 4, 'iptal edilen son 30 günde listede kalır');
+  assert.equal(list.length, 3);
+  assert.equal(list.every((d) => d.active), true, 'düşürülen oturum listede görünmez');
+  assert.equal(await store.verify(issued[0].raw), null);
+});
+
+test('varsayılan sınır 1 açık oturumdur; liste fazlalığı düşürür ve gizler', async () => {
+  const db = createFakeDeviceDb();
+  let t = 1_700_000_000_000;
+  const store = createDeviceTokenStore(db.q, { days: 90, now: () => t });
+  const issued = [];
+  for (let i = 0; i < 3; i++) {
+    issued.push(await store.issue('AVDAN', { ip: '10.0.0.' + (i + 1) }));
+    t += 1000;
+  }
+  const list = await store.list();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].lastIp, '10.0.0.3');
+  assert.equal(list[0].username, 'AVDAN');
+  assert.equal(await store.verify(issued[0].raw), null);
+  assert.equal(await store.verify(issued[1].raw), null);
+  assert.ok(await store.verify(issued[2].raw));
 });
 
 test('revokeAllForUser yalnız o kullanıcıyı düşürür; touch son kullanım/IP günceller', async () => {

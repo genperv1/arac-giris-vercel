@@ -7569,6 +7569,13 @@ html:not(.allow-ui-motion):not(.reduce-motion-os) .am-radar__core {
 }
 .vehicle-card__isg:not(.vehicle-card__isg--signed) .vehicle-card__isg-tick:hover { background: #fee2e2; }
 .vehicle-card__isg-tick:disabled { opacity: 0.55; cursor: default; }
+.vehicle-card__isg-tick--undo,
+.vehicle-card__isg--signed .vehicle-card__isg-tick--undo {
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+.vehicle-card__isg-tick--undo:hover,
+.vehicle-card__isg--signed .vehicle-card__isg-tick--undo:hover { background: #fee2e2; }
 .vehicle-card__isg-controlled {
   flex: 0 0 auto;
   font-size: 0.68rem;

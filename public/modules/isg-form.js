@@ -416,6 +416,17 @@ function createIsgApi() {
       + ' title="İmzalı yap" aria-label="İmzalı yap">✓</button>';
   }
 
+  function unsignTickHtml(identity) {
+    const idn = identity || {};
+    if (!idn.plateKey && !idn.driverKey) return '';
+    return '<button type="button" class="vehicle-card__isg-tick vehicle-card__isg-tick--undo" data-isg-unsign="1"'
+      + ' data-isg-id="' + esc(idn.id || '') + '"'
+      + ' data-isg-plate="' + esc(idn.plateText || '') + '"'
+      + ' data-isg-name="' + esc(idn.driverName || '') + '"'
+      + ' data-isg-tc="' + esc(idn.tc || '') + '"'
+      + ' title="İmzasız yap" aria-label="İmzasız yap">✕</button>';
+  }
+
   function cardHtml(vehicle, viewer) {
     if (!state.loaded) {
       return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg vehicle-card__isg--wait"><span class="vehicle-card__isg-status">İSG</span></div>';
@@ -433,10 +444,11 @@ function createIsgApi() {
     let side = '';
     if (isControlledRecord(rec)) {
       side = '<span class="vehicle-card__isg-controlled">Kontrol edildi</span>';
-    } else if (canTick && recId && recId.indexOf('local_') !== 0) {
-      side = '<button type="button" class="vehicle-card__isg-tick" data-isg-control="' + esc(recId) + '" title="Kontrol et" aria-label="Kontrol et">✓</button>';
     } else if (canTick) {
-      side = signTickHtml(st.identity);
+      const control = recId && recId.indexOf('local_') !== 0
+        ? '<button type="button" class="vehicle-card__isg-tick" data-isg-control="' + esc(recId) + '" title="Kontrol et" aria-label="Kontrol et">✓</button>'
+        : '';
+      side = control + unsignTickHtml(st.identity);
     }
     return '<div class="vehicle-card__field vehicle-card__field--wide vehicle-card__isg vehicle-card__isg--signed">'
       + '<div class="vehicle-card__isg-row"><span class="vehicle-card__isg-status">✅ İSG Formu İmzalı</span>'
@@ -652,9 +664,9 @@ function createIsgApi() {
   }
 
   async function confirmIsgPrinted(sinceSeq) {
-    // Kantar PC dışında yazıcı kuyruğu yok; yazdır penceresi kapandıysa (afterprint) imzalı say.
-    if (!spoolIsLocal()) return true;
-    const deadline = Date.now() + 25000;
+    // İptal de yazdır penceresini kapatır. İmza yalnızca kuyruğa düşen işte yazılır.
+    if (!spoolIsLocal()) return false;
+    const deadline = Date.now() + 8000;
     do {
       try {
         const qs = new URLSearchParams();
@@ -664,6 +676,7 @@ function createIsgApi() {
         if (res.ok) {
           const data = await res.json();
           if (data && data.seen) return true;
+          if (data && data.watching === false) return false;
         }
       } catch (e) { /* ignore */ }
       if (Date.now() >= deadline) break;
@@ -902,6 +915,8 @@ function createIsgApi() {
       let settled = false;
       let dialogClosed = false;
       let printInvoked = false;
+      let armingPrint = false;
+      let spoolSeq = null;
       let watchTarget = null;
       let pdfReady = false;
 
@@ -970,10 +985,23 @@ function createIsgApi() {
       const onPrintDialogClosed = function () {
         if (dialogClosed || !printInvoked) return;
         dialogClosed = true;
-        patchLocalSignedRecord(idn);
-        markIsgPrinted(idn).then(function (saved) {
-          if (!saved) notifyUi();
-          settle(true);
+        hint.textContent = 'Yazıcı kuyruğu kontrol ediliyor…';
+        confirmIsgPrinted(spoolSeq).then(function (printed) {
+          if (!printed) {
+            try {
+              if (typeof showToast === 'function') {
+                showToast('İptal edildi. ISG imzasız kaldı.', 'warning');
+              }
+            } catch (e) { /* ignore */ }
+            notifyUi();
+            settle(false, new Error('isg-cancelled'));
+            return;
+          }
+          patchLocalSignedRecord(idn);
+          markIsgPrinted(idn).then(function (saved) {
+            if (!saved) notifyUi();
+            settle(true);
+          });
         });
       };
 
@@ -998,27 +1026,34 @@ function createIsgApi() {
           } catch (e) { /* ignore */ }
           return;
         }
-        printInvoked = true;
-        const frameWin = iframe.contentWindow;
-        if (kickPrintOn(frameWin)) return;
+        if (printInvoked || armingPrint) return;
+        armingPrint = true;
+        readSpoolSeq().then(function (seq) {
+          armingPrint = false;
+          if (settled) return;
+          spoolSeq = seq;
+          printInvoked = true;
+          const frameWin = iframe.contentWindow;
+          if (kickPrintOn(frameWin)) return;
 
-        const pop = window.open(pdfUrl, 'isgOfficialPdfPrint', 'noopener,noreferrer');
-        if (!pop) {
+          const pop = window.open(pdfUrl, 'isgOfficialPdfPrint', 'noopener,noreferrer');
+          if (!pop) {
+            try {
+              if (typeof showToast === 'function') {
+                showToast('Açılır pencere engellendi. Tarayıcıda bu site için popup izni verin.', 'warn', 6000);
+              }
+            } catch (e) { /* ignore */ }
+            printInvoked = false;
+            return;
+          }
+          bindWatch(pop);
+          const tryPop = function () { kickPrintOn(pop); };
           try {
-            if (typeof showToast === 'function') {
-              showToast('Açılır pencere engellendi. Tarayıcıda bu site için popup izni verin.', 'warn', 6000);
-            }
+            pop.addEventListener('load', tryPop, { once: true });
           } catch (e) { /* ignore */ }
-          printInvoked = false;
-          return;
-        }
-        bindWatch(pop);
-        const tryPop = function () { kickPrintOn(pop); };
-        try {
-          pop.addEventListener('load', tryPop, { once: true });
-        } catch (e) { /* ignore */ }
-        setTimeout(tryPop, 600);
-        setTimeout(tryPop, 1600);
+          setTimeout(tryPop, 600);
+          setTimeout(tryPop, 1600);
+        });
       };
 
       printBtn.addEventListener('click', function (ev) {
@@ -1082,6 +1117,60 @@ function createIsgApi() {
     if (btn && btn.parentNode) btn.remove();
   }
 
+  function dropLocalSigned(identity) {
+    state.records = (state.records || []).filter(function (r) {
+      if (!String(r.id || '').startsWith('local_')) return true;
+      if (!isSignedRecord(r)) return true;
+      return !recordMatches(r, identity);
+    });
+  }
+
+  async function markUnsignedFromCard(btn) {
+    if (!canControlIsg(currentUserName())) return;
+    const idn = identityFromButton(btn);
+    if (!idn.plateKey && !idn.driverKey) {
+      window.alert('Plaka veya şoför bilgisi olmadan İş Güvenliği kaydı tutulamaz.');
+      return;
+    }
+    const st = resolveIsgStatus(idn, state.records);
+    if (st.record && isControlledRecord(st.record)) return;
+    if (btn) btn.disabled = true;
+    const name = splitDriverName(idn.driverName || '');
+    try {
+      const res = await fetch('/api/isg', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicleId: idn.id,
+          cekiciPlaka: idn.plateText,
+          soforAdi: name.soforAdi,
+          soforSoyadi: name.soforSoyadi,
+          tcKimlik: idn.tc,
+          driverName: idn.driverName,
+          signed: false
+        })
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        window.alert((data && (data.message || data.error)) || 'İmzasız yapılamadı.');
+        if (btn) btn.disabled = false;
+        return;
+      }
+      dropLocalSigned(idn);
+      await ensureLoaded({ force: true });
+      notifyUi();
+      try {
+        if (typeof showToast === 'function') {
+          showToast('İş Güvenliği Formu imzasız olarak işaretlendi.', 'success');
+        }
+      } catch (e) { /* ignore */ }
+    } catch (e) {
+      window.alert('İmzasız yapılamadı. Bağlantıyı kontrol edip tekrar deneyin.');
+      if (btn) btn.disabled = false;
+    }
+  }
+
   async function markControlled(id, btn) {
     const recId = String(id || '').trim();
     if (!recId || !canControlIsg(currentUserName())) return;
@@ -1120,6 +1209,10 @@ function createIsgApi() {
       if (!btn) return;
       e.preventDefault();
       e.stopPropagation();
+      if (btn.getAttribute('data-isg-unsign') === '1') {
+        markUnsignedFromCard(btn);
+        return;
+      }
       if (btn.getAttribute('data-isg-sign') === '1') {
         markSignedFromCard(btn);
         return;

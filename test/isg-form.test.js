@@ -150,18 +150,22 @@ test('signed card shows a control tick only for Selahattin, and Kontrol edildi f
   const sel = isg.cardHtml(vehicle, 'xxr');
   assert.match(sel, /İSG Formu İmzalı/);
   assert.match(sel, /data-isg-control="isg1"/);
+  assert.match(sel, /data-isg-unsign="1"/);
   const other = isg.cardHtml(vehicle, 'saban');
   assert.match(other, /İSG Formu İmzalı/);
   assert.doesNotMatch(other, /data-isg-control/);
+  assert.doesNotMatch(other, /data-isg-unsign/);
   assert.doesNotMatch(other, /Kontrol edildi/);
 
   isg._state.records[0].controlled = true;
   const seen = isg.cardHtml(vehicle, 'AVDAN');
   assert.match(seen, /Kontrol edildi/);
   assert.doesNotMatch(seen, /data-isg-control/);
+  assert.doesNotMatch(seen, /data-isg-unsign/);
   const selSeen = isg.cardHtml(vehicle, 'xxr');
   assert.match(selSeen, /Kontrol edildi/);
   assert.doesNotMatch(selSeen, /data-isg-control/);
+  assert.doesNotMatch(selSeen, /data-isg-unsign/);
 });
 
 test('only Selahattin can control an ISG form', () => {
@@ -215,6 +219,9 @@ test('shipment print path shows the badge and prints the ISG sheet only when uns
   assert.match(takip, /afterTakipPrint/);
   const isgJs = fs.readFileSync(path.join(__dirname, '../public/modules/isg-form.js'), 'utf8');
   assert.match(isgJs, /isg-t004\.pdf/);
+  assert.match(isgJs, /confirmIsgPrinted/);
+  assert.match(isgJs, /İptal edildi\. ISG imzasız kaldı/);
+  assert.match(isgJs, /data-isg-unsign/);
   assert.doesNotMatch(isgJs, /buildCommitmentHtml\(idn\)/);
   assert.match(vehicles, /isgPrint/);
   assert.match(card, /isgCardBlockHTML/);

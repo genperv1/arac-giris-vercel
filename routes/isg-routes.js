@@ -171,6 +171,12 @@ function registerIsgRoutes(api, ctx) {
       const nextFileUrl = fileUrl !== undefined ? fileUrl : ((existing && existing.file_url) || '');
       const nextFileData = fileData !== undefined ? fileData : ((existing && existing.file_data) || '');
       const kept = isg.preserveControl(existing, payload.signed);
+      if (!payload.signed && existing && isg.isControlledRecord(existing)) {
+        return res.status(400).json({ error: 'Kontrol edilmiş form imzasız yapılamaz' });
+      }
+      if (!payload.signed && !isg.canControlIsg(req.user)) {
+        return res.status(403).json({ error: 'İmzasız yapma yalnızca evrak kontrolünde yapılabilir' });
+      }
       const id = existing ? existing.id : ('isg_' + now + '_' + Math.random().toString(16).slice(2, 10));
       if (existing) {
         await q(

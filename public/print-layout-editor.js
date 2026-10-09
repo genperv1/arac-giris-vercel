@@ -4,15 +4,6 @@
   const PLS = window.PrintLayoutSettings;
   if (!PLS) return;
 
-  const STAGE_W = 840;
-  const STAGE_H = 592;
-
-  function pxToMm(px, axis) {
-    const formMm = axis === 'x' ? PLS.FORM_W_MM : PLS.FORM_H_MM;
-    const stagePx = axis === 'x' ? STAGE_W : STAGE_H;
-    return (Number(px) / stagePx) * formMm;
-  }
-
   function toast(msg, isErr) {
     const el = document.getElementById('ayToast');
     if (!el) return;
@@ -38,14 +29,16 @@
     box.style.height = ((rectMm.h / PLS.FORM_H_MM) * 100) + '%';
   }
 
-  function readBoxMm(box, stage) {
-    const sr = stage.getBoundingClientRect();
+  function readBoxMm(box, pageEl) {
+    const sr = pageEl.getBoundingClientRect();
     const br = box.getBoundingClientRect();
+    const w = sr.width || 1;
+    const h = sr.height || 1;
     return {
-      left: pxToMm((br.left - sr.left) / sr.width * STAGE_W, 'x'),
-      top: pxToMm((br.top - sr.top) / sr.height * STAGE_H, 'y'),
-      w: pxToMm(br.width / sr.width * STAGE_W, 'x'),
-      h: pxToMm(br.height / sr.height * STAGE_H, 'y'),
+      left: ((br.left - sr.left) / w) * PLS.FORM_W_MM,
+      top: ((br.top - sr.top) / h) * PLS.FORM_H_MM,
+      w: (br.width / w) * PLS.FORM_W_MM,
+      h: (br.height / h) * PLS.FORM_H_MM,
     };
   }
 
@@ -60,6 +53,29 @@
     const fieldSelect = val('pleFieldSelect');
     const stylePanel = val('pleStylePanel');
     if (!stage || !bg || !fieldsLayer) return;
+
+    let page = document.getElementById('plePage');
+    if (!page) {
+      page = document.createElement('div');
+      page.id = 'plePage';
+      page.className = 'ple-page';
+      stage.insertBefore(page, bg);
+      page.appendChild(bg);
+      page.appendChild(fieldsLayer);
+    }
+
+    function fitPageScale() {
+      if (!page || !stage) return;
+      page.style.transform = 'none';
+      const naturalW = page.offsetWidth;
+      const naturalH = page.offsetHeight;
+      const avail = stage.clientWidth;
+      if (!naturalW || !naturalH || !avail) return;
+      const scale = avail / naturalW;
+      page.style.transform = 'scale(' + scale + ')';
+      const nextH = Math.ceil(naturalH * scale);
+      if (stage.clientHeight !== nextH) stage.style.height = nextH + 'px';
+    }
 
     let state = PLS.load();
     if (!state || typeof state !== 'object') state = { fields: {}, fieldStyles: {}, styles: {}, samples: {} };
@@ -120,122 +136,112 @@
       state.fieldStyles[key] = PLS.normalizeFieldStyle(key, Object.assign({}, getFieldStyle(key), patch));
     }
 
-    function applyTextPreview(body, key) {
-      const s = getFieldStyle(key);
-      const def = getDef(key);
+    function displayTextFor(key) {
       const raw = getSampleText(key);
-      let text = raw;
-      if (editingKey !== key && typeof PLS.formatFieldDisplayText === 'function') {
-        text = PLS.formatFieldDisplayText(key, raw);
-      }
-      body.style.cssText = '';
-      body.className = 'ple-body ple-body--text';
-      body.contentEditable = 'false';
-      body.style.fontSize = s.fontPt + 'pt';
-      body.style.lineHeight = String(s.lineHeight);
-      body.style.fontWeight = String(s.fontWeight);
-      body.style.fontStyle = s.fontStyle || 'normal';
-      body.style.textDecoration = s.textDecoration || 'none';
-      body.style.textAlign = s.align;
-      body.style.padding = s.padMm + 'mm';
-      body.style.display = 'flex';
-      body.style.alignItems = s.valign === 'flex-start' ? 'flex-start' : (s.valign === 'flex-end' ? 'flex-end' : 'center');
-      body.style.height = '100%';
-      body.style.width = '100%';
-      body.style.boxSizing = 'border-box';
-      body.style.overflow = 'hidden';
-      const usePreLine = s.wrap === 'pre-line' || def.multiline || sampleHasManualBreaks(text);
-      if (s.wrap === 'nowrap') {
-        body.style.whiteSpace = 'nowrap';
-        body.style.textOverflow = 'ellipsis';
-      } else if (usePreLine) {
-        body.style.whiteSpace = 'pre-line';
-        body.style.alignItems = 'flex-start';
-      } else if (s.wrap === 'break-word') {
-        body.style.whiteSpace = 'normal';
-        body.style.wordBreak = 'break-word';
-        body.style.overflowWrap = 'anywhere';
-        body.style.alignItems = 'flex-start';
-      } else {
-        body.style.whiteSpace = 'normal';
-        body.style.wordBreak = s.wordBreak || 'normal';
-        body.style.overflowWrap = 'break-word';
-        body.style.alignItems = 'flex-start';
-      }
-      if (editingKey === key) {
-        body.classList.add('ple-body--edit');
-        body.contentEditable = 'true';
-        body.textContent = raw;
-        return;
-      }
-      const inner = document.createElement('span');
-      inner.style.width = '100%';
-      inner.style.whiteSpace = body.style.whiteSpace;
-      inner.textContent = text;
-      body.innerHTML = '';
-      body.appendChild(inner);
+      if (typeof PLS.formatFieldDisplayText === 'function') return PLS.formatFieldDisplayText(key, raw);
+      return raw;
     }
 
-    function applyNotePreview(body) {
-      const s = getFieldStyle('not');
-      const def = getDef('not');
-      body.className = 'ple-body ple-body--note';
-      body.style.cssText = 'height:100%;overflow:hidden;padding:1mm;box-sizing:border-box;';
-      body.contentEditable = 'false';
-      const raw = getSampleText('not');
-      if (editingKey === 'not') {
-        body.classList.add('ple-body--edit');
-        body.contentEditable = 'true';
-        body.style.whiteSpace = 'pre-line';
-        body.textContent = raw;
-        return;
+    function sigSrcFor(def) {
+      if (!def) return '';
+      let src = def.key === 'imzaKantar' ? '/signatures/burak_karatas.png' : '';
+      try {
+        if (window.SignatureRegistry && def.sigRole) {
+          src = window.SignatureRegistry.resolveSignatureSrc(def.sigRole, def.sampleName) || src;
+        }
+      } catch (e) { /* ignore */ }
+      if (src && window.SignatureRegistry?.toAbsoluteSignatureSrc) {
+        src = window.SignatureRegistry.toAbsoluteSignatureSrc(src);
       }
-      const lines = raw.split(/\r?\n/);
-      const head = lines[0] || '';
-      let desc = lines.slice(1).join(' ');
-      const split = PLS.splitTextByPhrases(desc, s.breakAfter, s.maxLines);
-      if (split.length > 1) desc = split.join('\n');
-      body.innerHTML =
-        `<div class="ple-note-head" style="font-size:${s.headPt}pt;margin-bottom:${s.headGapMm}mm;line-height:1.1;font-weight:${s.headFontWeight};font-style:${s.headFontStyle || 'normal'};${s.headTextDecoration === 'underline' ? 'text-decoration:underline;' : ''}">${head}</div>` +
-        `<div class="ple-note-body" style="font-size:${s.descPt}pt;line-height:${s.lineHeight};white-space:pre-line;font-weight:${s.descFontWeight};font-style:${s.descFontStyle || 'normal'};${s.descTextDecoration === 'underline' ? 'text-decoration:underline;' : ''}">${desc}</div>`;
+      return src || '';
     }
 
-    function applyIsgPreview(body, key) {
-      const signed = PLS.isgStampSignedFromSample
-        ? PLS.isgStampSignedFromSample(getSampleText(key))
-        : String(getSampleText(key)).trim().toLowerCase() === 'ok';
-      if (PLS.buildIsgStampInnerHtml) {
-        body.className = 'ple-body ple-body--isg';
+    function paintFieldBody(body, key) {
+      const def = getDef(key);
+      body.className = 'ple-body';
+      body.contentEditable = 'false';
+      body.style.cssText = 'width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:transparent;';
+      if (!def) return;
+      if (def.kind === 'sig' && typeof PLS.buildSigInnerHtml === 'function') {
+        body.innerHTML = PLS.buildSigInnerHtml(def.sampleName || '', sigSrcFor(def), getFieldStyle(key));
+        return;
+      }
+      if (def.kind === 'isg' && typeof PLS.buildIsgStampInnerHtml === 'function') {
+        const signed = PLS.isgStampSignedFromSample
+          ? PLS.isgStampSignedFromSample(getSampleText(key))
+          : String(getSampleText(key)).trim().toLowerCase() === 'ok';
         body.innerHTML = PLS.buildIsgStampInnerHtml(signed, getFieldStyle(key));
         return;
       }
-      body.className = 'ple-body ple-body--isg';
-      body.textContent = signed ? '✅ İSG Formu İmzalı' : '❌ İSG Formu İmzasız';
+      if (def.kind === 'note' && typeof PLS.buildNoteInnerHtml === 'function') {
+        body.innerHTML = PLS.buildNoteInnerHtml(getSampleText('not'), getFieldStyle('not'));
+        return;
+      }
+      if (typeof PLS.buildTextInnerHtml === 'function') {
+        body.innerHTML = PLS.buildTextInnerHtml(displayTextFor(key), getFieldStyle(key));
+      }
     }
 
-    function applySigPreview(body, key) {
-      const s = getFieldStyle(key);
+    function styleInlineTextarea(ta, key) {
       const def = getDef(key);
-      body.className = 'ple-body ple-body--sig';
-      body.style.cssText = 'height:100%;display:flex;flex-direction:column;justify-content:flex-end;box-sizing:border-box;';
-      body.style.paddingTop = (s.padTopMm != null ? s.padTopMm : 5) + 'mm';
-      body.style.paddingBottom = '0.5mm';
-      body.style.alignItems = s.align === 'left' ? 'flex-start' : 'center';
-      body.style.gap = s.nameGapMm + 'mm';
-      let img = body.querySelector('.ple-sig-img');
-      let name = body.querySelector('.ple-sig-name');
-      if (!img) {
-        body.innerHTML = '<img class="ple-sig-img" alt=""><div class="ple-sig-name"></div>';
-        img = body.querySelector('.ple-sig-img');
-        name = body.querySelector('.ple-sig-name');
+      const s = getFieldStyle(key);
+      ta.style.fontFamily = 'Arial, sans-serif';
+      ta.style.whiteSpace = 'pre-wrap';
+      ta.style.width = '100%';
+      ta.style.height = '100%';
+      ta.style.color = '#000';
+      ta.style.background = 'rgba(255,255,255,0.78)';
+      if (def?.kind === 'note') {
+        ta.style.fontSize = (s.descPt || 9) + 'pt';
+        ta.style.lineHeight = String(s.lineHeight || 1.1);
+        ta.style.fontWeight = String(s.descFontWeight || 700);
+        ta.style.fontStyle = s.descFontStyle || 'normal';
+        ta.style.textAlign = 'left';
+        ta.style.padding = '1.15mm 0.5mm';
+        return;
       }
-      if (name) {
-        name.textContent = def.sampleName || '';
-        name.style.fontSize = s.namePt + 'pt';
-        name.style.fontWeight = '700';
-        name.style.textAlign = s.align === 'left' ? 'left' : 'center';
+      ta.style.fontSize = (s.fontPt || 10.5) + 'pt';
+      ta.style.lineHeight = String(s.lineHeight || 1.05);
+      ta.style.fontWeight = String(s.fontWeight || 700);
+      ta.style.fontStyle = s.fontStyle || 'normal';
+      ta.style.textDecoration = s.textDecoration || 'none';
+      ta.style.textAlign = s.align || 'left';
+      ta.style.padding = (s.padMm != null ? s.padMm : 0.35) + 'mm';
+    }
+
+    function mountInlineEditor(body, key) {
+      const raw = getSampleText(key);
+      let ta = body.querySelector('textarea.ple-inline-ta');
+      if (!ta) {
+        body.className = 'ple-body ple-body--edit';
+        body.style.cssText = 'width:100%;height:100%;margin:0;padding:0;overflow:hidden;';
+        body.innerHTML = '';
+        ta = document.createElement('textarea');
+        ta.className = 'ple-inline-ta';
+        ta.setAttribute('aria-label', 'Alan metni');
+        ta.spellcheck = false;
+        ta.value = raw;
+        ta.addEventListener('input', () => {
+          const text = ta.value.replace(/\r\n/g, '\n');
+          setSampleText(key, text);
+          if (getDef(key)?.kind === 'text') ensurePreLineForBreaks(key);
+          const sampleEl = val('pleSampleText');
+          if (sampleEl && selectedKey === key && sampleEl.value !== ta.value) sampleEl.value = ta.value;
+        });
+        ta.addEventListener('keydown', (e) => {
+          e.stopPropagation();
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            endInlineEdit(true);
+          }
+        });
+        body.appendChild(ta);
+        styleInlineTextarea(ta, key);
+        ta.focus();
+        try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) { /* ignore */ }
+        return;
       }
-      if (img) img.style.maxHeight = s.imgMaxMm + 'mm';
+      styleInlineTextarea(ta, key);
     }
 
     function buildBox(def) {
@@ -258,6 +264,8 @@
         if (e.target.closest('.ple-body')) {
           if (selectedKey === def.key && !editingKey && def.kind !== 'sig' && def.kind !== 'isg') {
             startInlineEdit(def.key);
+            e.preventDefault();
+            e.stopPropagation();
           } else {
             selectField(def.key);
           }
@@ -408,10 +416,11 @@
       applyBoxRect(box, rects[key]);
       const body = box.querySelector('.ple-body');
       if (!body) return;
-      if (def.kind === 'sig') applySigPreview(body, key);
-      else if (def.kind === 'isg') applyIsgPreview(body, key);
-      else if (def.kind === 'note') applyNotePreview(body);
-      else applyTextPreview(body, key);
+      if (editingKey === key && (def.kind === 'text' || def.kind === 'note')) {
+        mountInlineEditor(body, key);
+        return;
+      }
+      paintFieldBody(body, key);
     }
 
     function renderAll() { PLS.FIELD_DEFS.forEach((d) => renderBox(d.key)); }
@@ -422,37 +431,31 @@
       const text = val('pleSampleText')?.value ?? '';
       setSampleText(selectedKey, text);
       if (def.kind === 'text') ensurePreLineForBreaks(selectedKey);
+      if (editingKey === selectedKey) {
+        const ta = boxes.get(selectedKey)?.querySelector('textarea.ple-inline-ta');
+        if (ta && ta.value !== text) ta.value = text;
+        return;
+      }
       renderBox(selectedKey);
     }
 
     function startInlineEdit(key) {
       const def = getDef(key);
       if (!def || def.kind === 'sig' || def.kind === 'isg') return;
-      endInlineEdit(false);
+      if (editingKey && editingKey !== key) endInlineEdit(true);
       editingKey = key;
       const box = boxes.get(key);
       box?.classList.add('ple-box--edit');
       renderBox(key);
-      const body = box?.querySelector('.ple-body');
-      if (!body) return;
-      body.focus();
-      try {
-        const range = document.createRange();
-        range.selectNodeContents(body);
-        range.collapse(false);
-        const sel = window.getSelection();
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-      } catch (e) { /* ignore */ }
     }
 
     function endInlineEdit(save) {
       if (!editingKey) return;
       const key = editingKey;
       const box = boxes.get(key);
-      const body = box?.querySelector('.ple-body');
-      if (save !== false && body) {
-        const text = body.innerText.replace(/\r\n/g, '\n');
+      const ta = box?.querySelector('textarea.ple-inline-ta');
+      if (save !== false && ta) {
+        const text = ta.value.replace(/\r\n/g, '\n');
         setSampleText(key, text);
         if (val('pleSampleText') && selectedKey === key) val('pleSampleText').value = text;
         ensurePreLineForBreaks(key);
@@ -550,24 +553,16 @@
     async function loadSigImages() {
       try { if (window.SignatureRegistry) await window.SignatureRegistry.loadSignatures(); } catch (e) { /* ignore */ }
       PLS.FIELD_DEFS.filter((d) => d.kind === 'sig').forEach((def) => {
-        const img = boxes.get(def.key)?.querySelector('.ple-sig-img');
-        if (!img) return;
-        let src = def.key === 'imzaKantar' ? '/signatures/burak_karatas.png' : '';
-        try {
-          if (window.SignatureRegistry && def.sigRole) {
-            src = window.SignatureRegistry.resolveSignatureSrc(def.sigRole, def.sampleName) || src;
-          }
-        } catch (e) { /* ignore */ }
-        if (src && window.SignatureRegistry?.toAbsoluteSignatureSrc) src = window.SignatureRegistry.toAbsoluteSignatureSrc(src);
-        if (src) img.src = src;
+        if (editingKey === def.key) return;
+        renderBox(def.key);
       });
     }
 
     document.addEventListener('mousemove', (e) => {
-      if (!drag) return;
-      const sr = stage.getBoundingClientRect();
-      const dx = pxToMm((e.clientX - drag.startX) / sr.width * STAGE_W, 'x');
-      const dy = pxToMm((e.clientY - drag.startY) / sr.height * STAGE_H, 'y');
+      if (!drag || !page) return;
+      const sr = page.getBoundingClientRect();
+      const dx = ((e.clientX - drag.startX) / (sr.width || 1)) * PLS.FORM_W_MM;
+      const dy = ((e.clientY - drag.startY) / (sr.height || 1)) * PLS.FORM_H_MM;
       const rect = rects[drag.key];
       if (drag.mode === 'move') {
         rect.left = clamp(drag.base.left + dx, 0, PLS.FORM_W_MM - drag.base.w);
@@ -894,7 +889,7 @@
     async function persistCurrentLayout(showToast) {
       const fields = {};
       PLS.FIELD_DEFS.forEach((d) => {
-        fields[d.key] = Object.assign({}, rects[d.key] || readBoxMm(boxes.get(d.key), stage));
+        fields[d.key] = Object.assign({}, rects[d.key] || readBoxMm(boxes.get(d.key), page));
       });
       const noteStyle = getFieldStyle('not');
       const styles = {
@@ -969,6 +964,7 @@
       renderAll();
       loadBg();
       loadSigImages();
+      fitPageScale();
     }
 
     val('pleResetBtn')?.addEventListener('click', () => {
@@ -999,9 +995,17 @@
       rects = PLS.getAllFieldRects();
       renderAll();
       loadSigImages();
+      fitPageScale();
     }
 
     root.__pleRefresh = refreshLayoutPreview;
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const watch = stage.parentElement || stage;
+      const ro = new ResizeObserver(() => fitPageScale());
+      ro.observe(watch);
+    }
+    window.addEventListener('resize', fitPageScale);
 
     bootstrapEditor();
     PLS.ensureSynced().then(function () {
@@ -1011,6 +1015,7 @@
       selectField(selectedKey);
       renderAll();
       loadSigImages();
+      fitPageScale();
     }).catch(function () {
       /* local bootstrapEditor state kept */
     });

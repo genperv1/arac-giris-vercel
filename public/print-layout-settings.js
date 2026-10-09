@@ -770,36 +770,68 @@
   }
 
   function buildTextInnerHtml(text, style) {
-    const s = style || {};
+    const s = Object.assign({}, style || {});
+    const normalized = normalizePrintFieldText(text);
+    if (s.wrap !== 'nowrap' && /\n/.test(normalized)) s.wrap = 'pre-line';
     const valign = valignToAlign(s.valign);
-    let css = 'width:100%;height:100%;box-sizing:border-box;overflow:hidden;display:flex;';
+    let css = 'width:100%;height:100%;box-sizing:border-box;overflow:hidden;display:flex;font-family:Arial,sans-serif;color:#000;';
     css += wrapCss(s);
     css += `font-size:${s.fontPt || 10.5}pt;line-height:${s.lineHeight || 1.05};${typographyInlineCss(s)}`;
     css += `text-align:${s.align || 'left'};align-items:${valign};padding:${s.padMm != null ? s.padMm : 0.35}mm;`;
     if (s.wrap === 'pre-line' || s.wrap === 'wrap' || s.wrap === 'break-word') css += 'align-items:flex-start;';
-    const inner = escapeHtml(normalizePrintFieldText(text));
-    return `<div class="plf-body plf-body--text" style="${css}"><span style="width:100%;">${inner}</span></div>`;
+    const inner = escapeHtml(normalized);
+    return `<div class="plf-body plf-body--text" style="${css}"><span style="width:100%;white-space:inherit;">${inner}</span></div>`;
+  }
+
+  function capNoteLines(lines, maxLines) {
+    const max = Math.max(1, Number(maxLines) || 6);
+    const list = (lines || []).slice();
+    if (list.length <= max) return list;
+    const head = list.slice(0, max - 1);
+    const tail = list.slice(max - 1).join(' ').replace(/\s+/g, ' ').trim();
+    return tail ? head.concat(tail) : head;
   }
 
   /**
    * Yükleme notunu düzenleyici + baskı için aynı düz metne çevirir.
-   * opts.lines: hazır satırlar (print-main ihracat/piyasa işlediyse)
+   * Kullanıcının Enter ile koyduğu satır kırıkları korunur.
+   * Tek paragrafsa otomatik kelime kırma (breakAfter) uygulanır.
+   * opts.lines: hazır satırlar (özel HTML yolu verdiyse)
    */
   function normalizeNotePlainText(raw, opts) {
     const s = (opts && opts.style) || defaultNoteStyle();
     if (opts && Array.isArray(opts.lines) && opts.lines.length) {
       return opts.lines.map((x) => String(x || '').trim()).filter(Boolean).join('\n');
     }
-    const t = String(raw || '').trim();
+    const t = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
     if (!t) return '';
-    const lines = t.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    const lines = t.split('\n').map((x) => x.trim());
+    while (lines.length && !lines[0]) lines.shift();
+    while (lines.length && !lines[lines.length - 1]) lines.pop();
     if (!lines.length) return '';
     const head = lines[0] || '';
-    let desc = lines.slice(1).join(' ');
-    const split = splitTextByPhrases(desc, s.breakAfter, s.maxLines);
-    if (split.length > 1) desc = split.join('\n');
-    else if (desc) desc = split[0] || desc;
-    return desc ? `${head}\n${desc}` : head;
+    let descLines = lines.slice(1);
+    while (descLines.length && !descLines[0]) descLines.shift();
+    while (descLines.length && !descLines[descLines.length - 1]) descLines.pop();
+    const nonEmpty = descLines.filter(Boolean);
+    if (nonEmpty.length <= 1) {
+      const split = splitTextByPhrases(nonEmpty[0] || '', s.breakAfter, s.maxLines);
+      descLines = split;
+    } else {
+      const expanded = [];
+      descLines.forEach((line) => {
+        if (!line) {
+          expanded.push('');
+          return;
+        }
+        const split = splitTextByPhrases(line, s.breakAfter, s.maxLines);
+        if (split.length > 1) expanded.push.apply(expanded, split);
+        else expanded.push(line);
+      });
+      descLines = expanded;
+    }
+    descLines = capNoteLines(descLines, s.maxLines);
+    return descLines.length ? `${head}\n${descLines.join('\n')}` : head;
   }
 
   function buildNoteInnerHtml(raw, style, opts) {
@@ -963,6 +995,7 @@
   function getDemoPrintData() {
     return {
       yuklemeSirasi: sampleForField('yuklemeSirasi') || '127',
+      tarih: sampleForField('tarih'),
       firmaKodu: sampleForField('firma'),
       malzeme: sampleForField('malzeme'),
       yuklemeNotu: sampleForField('not'),
@@ -1040,6 +1073,9 @@
     formatFieldDisplayText,
     formatSevkYeriDisplay,
     formatAmbalajDisplay,
+    buildTextInnerHtml,
+    buildNoteInnerHtml,
+    buildSigInnerHtml,
     getSampleText,
     getDemoPrintData,
     useStrictPrintLayout,

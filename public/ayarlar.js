@@ -60,7 +60,7 @@
     },
     'section-cihazlar': {
       title: 'Kantar cihazları',
-      desc: 'Kantar hesaplarının hatırlanan bilgisayarları — oturum şifresiz yenilenir; şüpheli cihazı düşürün.',
+      desc: 'Her kantarda açık oturum: IP ve kantar adı. Düşürülenler listede görünmez.',
       hash: 'cihazlar',
     },
     'section-gozetmen': {
@@ -1153,6 +1153,22 @@
     } catch (e) { /* ignore */ }
   }
 
+  function viewerIsSelahattin() {
+    return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
+  }
+
+  /** Ekranda duran şaka satırları. Veritabanına yazılmaz, kaldırılmaz. */
+  function scareBanItems() {
+    const counts = [248, 253, 261, 239, 274, 256, 244, 267, 251, 286, 233, 262, 247, 279, 255, 241, 271, 258];
+    const now = Date.now();
+    return counts.map((n, i) => ({
+      scare: true,
+      ip: 'Bilinmiyor',
+      reason: 'NOVATEK — IP bilinmiyor — giriş denemesi ' + n + ' — sistem tarafından engellendi',
+      bannedAt: now - (counts.length - i) * 3 * 60 * 1000,
+    }));
+  }
+
   async function loadBanList() {
     const tbody = document.getElementById('banTbody');
     if (!tbody) return;
@@ -1165,12 +1181,21 @@
         tbody.innerHTML = '<tr><td colspan="6" class="ay-empty" style="color:#dc2626">' + escapeHtml(msg) + '</td></tr>';
         return;
       }
-      const items = data.banned || [];
+      const scare = viewerIsSelahattin() ? scareBanItems() : [];
+      const items = scare.concat(data.banned || []);
       if (!items.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Aktif IP engeli yok.</td></tr>';
         return;
       }
-      tbody.innerHTML = items.map((row) => `
+      tbody.innerHTML = items.map((row) => row.scare ? `
+        <tr class="ay-ban-scare">
+          <td class="ay-ip-mono">${escapeHtml(row.ip)}</td>
+          <td>${escapeHtml(row.reason)}</td>
+          <td>${escapeHtml(new Date(row.bannedAt).toLocaleString('tr-TR', { timeZone: TR_TZ }))}</td>
+          <td>—</td>
+          <td>Sistem kilidi</td>
+          <td><button type="button" class="ay-btn ay-btn--danger ay-ban-scare-lock">Kaldır</button></td>
+        </tr>` : `
         <tr data-ban-ip="${escapeHtml(row.ip)}">
           <td class="ay-ip-mono">${escapeHtml(row.ip)}</td>
           <td>${escapeHtml(row.reason || '—')}</td>
@@ -1179,6 +1204,11 @@
           <td>${escapeHtml(formatRemaining(row.remainingMs))}</td>
           <td><button type="button" class="ay-btn ay-btn--danger ay-ban-unban" data-ip="${escapeHtml(row.ip)}">Kaldır</button></td>
         </tr>`).join('');
+      tbody.querySelectorAll('.ay-ban-scare-lock').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          toast('Sistem tarafından engellendi. Bu kayıt kaldırılamaz.', true);
+        });
+      });
       tbody.querySelectorAll('.ay-ban-unban').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const ip = btn.getAttribute('data-ip');
@@ -1199,43 +1229,33 @@
   }
 
   // ---- Kantar cihazları: hatırlanan oturum anahtarları (amir) ----
-  function shortAgent(ua) {
-    const s = String(ua || '');
-    if (!s) return '';
-    const os = /Windows NT 10/.test(s) ? 'Windows' : (/Android/.test(s) ? 'Android' : (/iPhone|iPad/.test(s) ? 'iOS' : (/Mac OS/.test(s) ? 'Mac' : (/Linux/.test(s) ? 'Linux' : ''))));
-    const br = /Edg\//.test(s) ? 'Edge' : (/OPR\//.test(s) ? 'Opera' : (/Chrome\//.test(s) ? 'Chrome' : (/Firefox\//.test(s) ? 'Firefox' : (/Safari\//.test(s) ? 'Safari' : ''))));
-    return [os, br].filter(Boolean).join(' · ');
-  }
-
   async function loadDeviceList() {
     const tbody = document.getElementById('cihazTbody');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="7" class="ay-empty">Yükleniyor…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="ay-empty">Yükleniyor…</td></tr>';
     try {
       const r = await fetch('/api/session/devices', { credentials: 'same-origin', headers: authHeaders(false) });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
         const msg = data.error || (r.status === 403 ? 'Bu bölüm yalnız amir oturumunda görülür.' : 'Liste yüklenemedi');
-        tbody.innerHTML = '<tr><td colspan="7" class="ay-empty" style="color:#dc2626">' + escapeHtml(msg) + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="ay-empty" style="color:#dc2626">' + escapeHtml(msg) + '</td></tr>';
         return;
       }
       const daysEl = document.getElementById('cihazDays');
       if (daysEl && data.days) daysEl.textContent = String(data.days);
-      const items = data.devices || [];
-      if (!items.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="ay-empty">Henüz hatırlanan kantar cihazı yok. Kantar PC\'de bir kez şifreyle giriş yapılınca burada görünür.</td></tr>';
+      const open = latestOpenDevices(data.devices || []);
+      if (!open.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="ay-empty">Açık kantar oturumu yok. Kantar PC\'de bir kez şifreyle giriş yapılınca IP ve kantar burada görünür.</td></tr>';
         return;
       }
       const fmt = (ms) => (ms ? escapeHtml(new Date(Number(ms)).toLocaleString('tr-TR', { timeZone: TR_TZ })) : '—');
-      tbody.innerHTML = items.map((d) => `
-        <tr data-device-id="${escapeHtml(d.id)}"${d.active ? '' : ' style="opacity:.55"'}>
+      tbody.innerHTML = open.map((d) => `
+        <tr data-device-id="${escapeHtml(d.id)}">
+          <td><span style="color:#15803d;font-weight:600">Oturum açık</span></td>
+          <td><span class="ay-ip-mono">${escapeHtml(d.lastIp || '—')}</span></td>
           <td><strong>${escapeHtml(d.username || '')}</strong></td>
-          <td>${escapeHtml(d.label || shortAgent(d.userAgent) || 'Bilinmeyen cihaz')}<br><span class="ay-ip-mono">${escapeHtml(d.lastIp || '')}</span></td>
-          <td>${fmt(d.createdAt)}</td>
-          <td>${fmt(d.lastUsedAt)}</td>
-          <td>${fmt(d.expiresAt)}</td>
-          <td>${d.active ? '<span style="color:#15803d;font-weight:600">Aktif</span>' : '<span style="color:#b91c1c">Düşürüldü ' + fmt(d.revokedAt) + '</span>'}</td>
-          <td>${d.active ? '<button type="button" class="ay-btn ay-btn--danger ay-device-revoke" data-id="' + escapeHtml(d.id) + '" data-user="' + escapeHtml(d.username || '') + '">Düşür</button>' : ''}</td>
+          <td>${fmt(d.lastUsedAt || d.createdAt)}</td>
+          <td><button type="button" class="ay-btn ay-btn--danger ay-device-revoke" data-id="${escapeHtml(d.id)}" data-user="${escapeHtml(d.username || '')}">Düşür</button></td>
         </tr>`).join('');
       tbody.querySelectorAll('.ay-device-revoke').forEach((btn) => {
         btn.addEventListener('click', async () => {
@@ -1253,8 +1273,23 @@
         });
       });
     } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="7" class="ay-empty" style="color:#dc2626">Liste yüklenemedi.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="ay-empty" style="color:#dc2626">Liste yüklenemedi.</td></tr>';
     }
+  }
+
+  /** Düşürülenleri gizler; her kantar için yalnız en son açık oturumu bırakır. */
+  function latestOpenDevices(items) {
+    const byUser = new Map();
+    (items || []).forEach((d) => {
+      if (!d || d.active === false || Number(d.revokedAt)) return;
+      const key = String(d.username || '').trim();
+      if (!key) return;
+      const prev = byUser.get(key);
+      const score = Number(d.lastUsedAt) || Number(d.createdAt) || 0;
+      const prevScore = prev ? (Number(prev.lastUsedAt) || Number(prev.createdAt) || 0) : -1;
+      if (!prev || score >= prevScore) byUser.set(key, d);
+    });
+    return Array.from(byUser.values());
   }
 
   function bindDeviceUi() {

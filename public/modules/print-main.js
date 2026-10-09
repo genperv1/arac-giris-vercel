@@ -2602,7 +2602,9 @@ const bosBbtText = amb.bosBbt;
 
     const layoutFieldValues = {
       yuklemeSirasi,
-      tarih: trLocaleDateString(),
+      tarih: (isDemo && demoData && String(demoData.tarih || '').trim())
+        ? String(demoData.tarih).trim()
+        : trLocaleDateString(),
       sofor: soforBilgi,
       iletisim: iletisimBilgi,
       tc: tcBilgi,
@@ -2629,22 +2631,6 @@ const bosBbtText = amb.bosBbt;
       imzaSaha: { name: imzaSahaAd, src: imzaSahaSrc },
     };
 
-    // Canlı önizleme / yazdırma: yükleme notu satırları print-main ile aynı mantıkta
-    const noteLinesForLayout = (() => {
-      try {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = yuklemeNotuPrint;
-        const rows = [];
-        tmp.querySelectorAll('.note-head, .note-row').forEach((el) => {
-          const t = (el.textContent || '').trim();
-          if (t) rows.push(t);
-        });
-        return rows.length ? rows : null;
-      } catch (e) {
-        return null;
-      }
-    })();
-
     const printJobToken = (function () {
       const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       let s = 'TF';
@@ -2669,7 +2655,7 @@ const bosBbtText = amb.bosBbt;
         pageSize,
         values: layoutFieldValues,
         signatures: layoutSignatures,
-        noteLines: hp13PrintParts.length ? null : noteLinesForLayout,
+        noteLines: null,
         noteHtml: fieldHtml.not || '',
         fieldHtml,
         docTitle: printDocTitle,

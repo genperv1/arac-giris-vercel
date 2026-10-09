@@ -6,6 +6,10 @@
   let openItems = [];
   let showing = false;
   let closing = false;
+  const scareQueue = [];
+  let scareOpen = [];
+  let scareShowing = false;
+  let scareClosing = false;
   let watchTimer = 0;
   let pulling = false;
   let audioCtx = null;
@@ -27,6 +31,14 @@
       return id;
     } catch (e) {
       return '';
+    }
+  }
+
+  function isSelahattin() {
+    try {
+      return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
+    } catch (e) {
+      return false;
     }
   }
 
@@ -77,6 +89,19 @@
     });
   }
 
+  function holdScare() {
+    forgetUnacked(scareOpen);
+    forgetUnacked(scareQueue);
+    scareQueue.length = 0;
+    scareOpen = [];
+    const root = document.getElementById('amirScareNotice');
+    if (root) {
+      try { root.remove(); } catch (e) {}
+    }
+    scareShowing = false;
+    scareClosing = false;
+  }
+
   function holdNotice() {
     forgetUnacked(openItems);
     forgetUnacked(queue);
@@ -88,6 +113,7 @@
     }
     showing = false;
     closing = false;
+    holdScare();
     stopChimes();
     if (titleShown) paintTitleCount(0);
   }
@@ -143,7 +169,7 @@
   }
 
   function unreadCount() {
-    return openItems.length + queue.length;
+    return openItems.length + queue.length + scareOpen.length + scareQueue.length;
   }
 
   function titleBaseText() {
@@ -167,15 +193,37 @@
     paintTitleCount(unreadCount());
   }
 
-  function enqueue(items) {
-    if (!canShow()) return;
+  function takeFresh(items, scare) {
     const fresh = [];
     (Array.isArray(items) ? items : [items]).forEach((item) => {
       if (!item || !item.id || !item.text || seen.has(item.id)) return;
+      const isScare = item.kind === 'scare';
+      if (isScare !== scare) return;
+      if (isScare && !isSelahattin()) return;
       seen.add(item.id);
       fresh.push(item);
     });
-    if (!fresh.length) return;
+    return fresh;
+  }
+
+  function enqueue(items) {
+    if (!canShow()) return;
+    const list = Array.isArray(items) ? items : [items];
+    const scare = takeFresh(list, true);
+    const fresh = takeFresh(list, false);
+    if (scare.length) {
+      if (scareShowing) {
+        scareOpen = scareOpen.concat(scare);
+        renderScare();
+      } else {
+        scare.forEach((item) => scareQueue.push(item));
+        pumpScare();
+      }
+    }
+    if (!fresh.length) {
+      if (scare.length) syncTabCount();
+      return;
+    }
     if (showing) {
       openItems = openItems.concat(fresh);
       renderOpen();
@@ -284,8 +332,14 @@
       + '.agn-line+.agn-line{border-top:1px solid #e4eef8;margin-top:6px;padding-top:6px}'
       + '.agn-plate{font-size:15px;font-weight:700;color:#1b2838;line-height:1.3}'
       + '.agn-meta{margin-top:1px;font-size:13px;color:#4d6278;line-height:1.35}'
-      + '#amirGirisNoticeOk{display:block;margin:6px 10px 10px auto;border:0;background:#3d74c0;color:#fff;border-radius:4px;padding:5px 16px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}'
-      + '#amirGirisNoticeOk:disabled{opacity:.6;cursor:default}';
+      + '#amirGirisNoticeOk,#amirScareNoticeOk{display:block;margin:6px 10px 10px auto;border:0;background:#3d74c0;color:#fff;border-radius:4px;padding:5px 16px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}'
+      + '#amirGirisNoticeOk:disabled,#amirScareNoticeOk:disabled{opacity:.6;cursor:default}'
+      + '#amirScareNotice{position:fixed;right:18px;bottom:18px;z-index:2147483601;width:min(360px,calc(100vw - 24px));font-family:"Segoe UI",Tahoma,sans-serif;animation:agn-in .28s ease-out}'
+      + '#amirScareNotice .agn-card{border-color:#b91c1c;box-shadow:0 12px 30px rgba(127,29,29,.35)}'
+      + '#amirScareNotice .agn-bar{background:linear-gradient(180deg,#f87171 0%,#b91c1c 100%)}'
+      + '#amirScareNotice .agn-plate{color:#991b1b}'
+      + '#amirScareNotice .agn-meta{color:#7f1d1d;font-weight:700}'
+      + '#amirScareNoticeOk{background:#b91c1c}';
     document.head.appendChild(style);
   }
 
@@ -348,6 +402,7 @@
       + '</div>';
     document.body.appendChild(overlay);
     renderOpen();
+    if (document.getElementById('amirScareNotice')) renderScare();
     playArrivalChime();
     const ok = overlay.querySelector('#amirGirisNoticeOk');
     const closeAll = () => {
@@ -361,8 +416,93 @@
       try { overlay.remove(); } catch (e) {}
       showing = false;
       closing = false;
+      if (document.getElementById('amirScareNotice')) renderScare();
       syncTabCount();
       pump();
+      const client = noticeClientId();
+      batch.forEach((item) => {
+        fetch('/api/amir-notices/' + encodeURIComponent(item.id) + '/ack', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client: client }),
+        }).then((res) => {
+          if (!res.ok) seen.delete(item.id);
+        }).catch(() => {
+          seen.delete(item.id);
+        });
+      });
+    };
+    if (ok) ok.onclick = closeAll;
+  }
+
+  function scareLine(item) {
+    const ip = String(item.plate || 'Bilinmiyor').trim();
+    const meta = String(item.firma || 'NOVATEK — sistem tarafından engellendi').trim();
+    return ''
+      + '<div class="agn-line">'
+      + '<div class="agn-plate">' + escapeText(ip) + '</div>'
+      + '<div class="agn-meta">' + escapeText(meta) + '</div>'
+      + '</div>';
+  }
+
+  function renderScare() {
+    const root = document.getElementById('amirScareNotice');
+    if (!root) return;
+    const title = root.querySelector('[data-scare-title]');
+    const body = root.querySelector('[data-scare-body]');
+    if (title) {
+      title.textContent = scareOpen.length > 1
+        ? (scareOpen.length + ' giriş denemesi engellendi')
+        : 'Sistem tarafından engellendi';
+    }
+    if (body) {
+      body.innerHTML = scareOpen.map(scareLine).join('');
+      body.scrollTop = body.scrollHeight;
+    }
+    const ok = root.querySelector('#amirScareNoticeOk');
+    if (ok && !ok.disabled) ok.textContent = scareOpen.length > 1 ? ('Tamam (' + scareOpen.length + ')') : 'Tamam';
+    const vehicle = document.getElementById('amirGirisNotice');
+    root.style.bottom = vehicle ? (vehicle.offsetHeight + 28) + 'px' : '18px';
+  }
+
+  function pumpScare() {
+    if (!canShow() || !isSelahattin()) {
+      holdScare();
+      return;
+    }
+    if (scareShowing || scareClosing || !scareQueue.length) return;
+    scareOpen = scareQueue.splice(0, scareQueue.length);
+    scareShowing = true;
+    ensureNoticeStyle();
+    const old = document.getElementById('amirScareNotice');
+    if (old) old.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'amirScareNotice';
+    overlay.setAttribute('role', 'status');
+    overlay.innerHTML = ''
+      + '<div class="agn-card">'
+      + '<div class="agn-bar">' + bellMarkup() + '<span class="agn-title" data-scare-title></span></div>'
+      + '<div class="agn-body" data-scare-body></div>'
+      + '<button type="button" id="amirScareNoticeOk">Tamam</button>'
+      + '</div>';
+    document.body.appendChild(overlay);
+    renderScare();
+    playArrivalChime();
+    const ok = overlay.querySelector('#amirScareNoticeOk');
+    const closeAll = () => {
+      if (scareClosing || !scareOpen.length) return;
+      scareClosing = true;
+      if (ok) ok.disabled = true;
+      stopChimes();
+      playCloseChime();
+      const batch = scareOpen.slice();
+      scareOpen = [];
+      try { overlay.remove(); } catch (e) {}
+      scareShowing = false;
+      scareClosing = false;
+      syncTabCount();
+      pumpScare();
       const client = noticeClientId();
       batch.forEach((item) => {
         fetch('/api/amir-notices/' + encodeURIComponent(item.id) + '/ack', {

@@ -66,8 +66,7 @@ function createFakeDeviceDb() {
     }
 
     if (/^SELECT id, username, label, created_at, expires_at, last_used_at, last_ip, user_agent, revoked_at FROM device_tokens WHERE/i.test(s)) {
-      const out = rows.filter((r) => (r.revoked_at == null && Number(r.expires_at) > Number(p[0]))
-        || (r.revoked_at != null && Number(r.revoked_at) > Number(p[1])));
+      const out = rows.filter((r) => r.revoked_at == null && Number(r.expires_at) > Number(p[0]));
       return { rows: out.map(clone) };
     }
 

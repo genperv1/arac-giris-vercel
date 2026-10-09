@@ -73,7 +73,7 @@
   } catch (e) {}
 
   var printPromise = null;
-  var PRINT_REV = 'print-v33-no-isg-on-takip';
+  var PRINT_REV = 'print-v34-wysiwyg-lines';
   var printWarmPromise = null;
 
   function prefetchPrintAssets() {

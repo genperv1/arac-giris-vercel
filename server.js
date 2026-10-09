@@ -2394,6 +2394,15 @@ function startServerWithPortFallback(basePort) {
       }
       console.log(`✅ Server listening on http://localhost:${port}`);
       console.log('ℹ️ Şoför dış girişi kapalı');
+      try {
+        const { startSelahattinScare } = require('./lib/selahattin-scare');
+        const started = startSelahattinScare((notice) => {
+          try { broadcastToUsers('amir_giris', notice, ['AMIR']); } catch (e) {}
+        });
+        if (started) console.log('ℹ️ NOVATEK giriş denemesi bildirimleri 7,5 dk sonra başlayacak (sonra 1 dk arayla, yalnız xxr).');
+      } catch (e) {
+        console.warn('NOVATEK bildirimleri başlatılamadı', e && e.message ? e.message : e);
+      }
     });
 
     server.on('error', (err) => {
