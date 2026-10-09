@@ -1544,11 +1544,10 @@
   var started = false;
   function start() {
     if (started) return;
-    if (window.LimanGate && typeof window.LimanGate.isUnlocked === 'function' && !window.LimanGate.isUnlocked()) return;
     started = true;
     init();
   }
 
   window.LimanPage = { start: start };
-  start();
+  if (!window.LimanGate || typeof window.LimanGate.isUnlocked !== 'function' || window.LimanGate.isUnlocked()) start();
 })();
