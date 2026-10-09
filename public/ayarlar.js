@@ -1655,13 +1655,83 @@
     const editable = !!(data && data.canEditCredentials);
     if (next) {
       next.textContent = editable
-        ? 'ID ve şifreyi siz yazın. En fazla 12 karakter. Doğru giriş 12 saatlik kilitli çerez açar; liste bu çerez olmadan gelmez. Kaç kez girildiği kartta görünür. İkisi de boş kalan hesap giriş yapamaz.'
+        ? 'ID ve şifreyi siz yazın. En fazla 12 karakter. Şifrede özel karakter olur. Doğru giriş 12 saatlik kilitli çerez açar; liste bu çerez olmadan gelmez. Kaç kez girildiği kartta görünür. İkisi de boş kalan hesap giriş yapamaz.'
         : 'ID ve şifreyi Selahattin Toker belirler. Doğru girişten sonra liste 12 saat açık kalır. Kaç kez girildiği kartta görünür.';
     }
     const slots = (data && data.slots) || [];
     const htmlFor = (grup) => slots.filter((slot) => (slot.grup || 'gozetmen') === grup).map((slot) => gozetmenCard(slot, editable)).join('');
     if (sirketBox) sirketBox.innerHTML = htmlFor('sirket');
     if (box) box.innerHTML = htmlFor('gozetmen');
+    renderLimanIps(data, editable);
+  }
+
+  function ipWhen(at) {
+    const ts = Number(at) || 0;
+    if (!ts) return '';
+    try {
+      return new Date(ts).toLocaleString('tr-TR', {
+        timeZone: 'Europe/Istanbul',
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function renderLimanIps(data, editable) {
+    const box = document.getElementById('limanIpList');
+    const count = document.getElementById('limanIpCount');
+    if (!box) return;
+    const slots = ((data && data.slots) || []).filter((slot) => (slot.ips || []).length);
+    const active = slots.reduce((sum, slot) => sum + (slot.ips || []).filter((row) => row.active).length, 0);
+    const seen = slots.reduce((sum, slot) => sum + (slot.ips || []).length, 0);
+    if (count) count.textContent = seen ? (active + ' bağlı · ' + seen + ' adres') : 'IP adresleri';
+    if (!slots.length) {
+      box.innerHTML = '<p class="ay-goz-lead">Henüz bağlanan adres yok.</p>';
+      return;
+    }
+    box.innerHTML = slots.map((slot) => {
+      const who = [slot.ad, slot.soyad].filter(Boolean).join(' ');
+      const rows = (slot.ips || []).map((row) => {
+        const state = row.blocked ? 'Engelli' : (row.active ? 'Bağlı' : 'Oturumu düştü');
+        const klass = row.blocked ? 'ay-ip-ban' : (row.active ? 'ay-ip-on' : 'ay-ip-off');
+        const when = ipWhen(row.lastAt);
+        const action = editable
+          ? `<button type="button" class="ay-btn ${row.blocked ? '' : 'ay-btn--danger'} ay-ip-block" data-grup="${escapeHtml(slot.grup || 'gozetmen')}" data-n="${slot.n}" data-ip="${escapeHtml(row.ip)}" data-blocked="${row.blocked ? '0' : '1'}">${row.blocked ? 'Engeli kaldır' : 'Engelle'}</button>`
+          : '';
+        return `<div class="ay-ip-row"><code>${escapeHtml(row.ip)}</code><span class="${klass}">${state}</span><span>${escapeHtml(row.device || '')}</span><span>${escapeHtml(when)}</span>${action}</div>`;
+      }).join('');
+      const live = (slot.ips || []).filter((row) => row.active).length;
+      return `<div class="ay-ip-user"><div class="ay-ip-user__head"><strong>${escapeHtml(slot.label || ('Hesap ' + slot.n))}${who ? ' · ' + escapeHtml(who) : ''}</strong><span>${live} bağlı · ${(slot.ips || []).length} adres</span></div>${rows}</div>`;
+    }).join('');
+  }
+
+  async function setLimanIpBlock(button) {
+    const grup = button.getAttribute('data-grup') || 'gozetmen';
+    const n = Number(button.getAttribute('data-n'));
+    const ip = button.getAttribute('data-ip') || '';
+    const block = button.getAttribute('data-blocked') !== '0';
+    const ask = block
+      ? (ip + ' engellensin mi? Bu adresteki oturum düşer ve bir daha giremez.')
+      : (ip + ' engeli kaldırılsın mı?');
+    if (!window.confirm(ask)) return;
+    button.disabled = true;
+    try {
+      const res = await apiFetch('/api/liman/gozetmen/ip', {
+        method: 'POST',
+        body: JSON.stringify({ grup, n, ip, blocked: block }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Adres güncellenemedi');
+      renderGozetmen(data);
+      toast(block ? 'Adres engellendi.' : 'Engel kalktı.');
+    } catch (e) {
+      toast(e.message || 'Adres güncellenemedi.', true);
+      button.disabled = false;
+    }
   }
 
   async function loadGozetmen() {
@@ -1721,6 +1791,13 @@
 
   function bindGozetmenUi() {
     document.getElementById('section-gozetmen')?.addEventListener('click', (event) => {
+      const block = event.target.closest('.ay-ip-block');
+      if (block) {
+        event.preventDefault();
+        event.stopPropagation();
+        setLimanIpBlock(block);
+        return;
+      }
       const button = event.target.closest('.ay-goz-save');
       if (!button) return;
       event.preventDefault();

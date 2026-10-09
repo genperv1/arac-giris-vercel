@@ -7,7 +7,7 @@ const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retain
 const { buildArchiveFromPrints } = require('../lib/liman-archive-recover');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { canManageLimanList } = require('../lib/amir-user');
-const { GATE_COOKIE, GATE_PURPOSE } = require('../lib/liman-gozetmen');
+const { GATE_COOKIE, GATE_PURPOSE, KV_KEY, sanitizeState, gateAllows } = require('../lib/liman-gozetmen');
 const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
 
 // Liman listesi ofis oturumu ya da liman kapı çerezi ister.
@@ -109,18 +109,29 @@ function registerLimanRoutes(api, ctx, publicApp) {
   }
 
   /** Ofis oturumu (req.user) veya liman kapı çerezi. İkisi de yoksa liste verilmez. */
-  function limanReaderAllowed(req) {
+  async function limanReaderAllowed(req) {
     if (req.user) return true;
     const token = readNamedCookie(req, GATE_COOKIE);
     if (!token || !jwtSecret) return false;
+    let decoded;
     try {
-      const decoded = jwt.verify(token, jwtSecret);
-      if (!decoded || decoded.purpose !== GATE_PURPOSE) return false;
-      req.limanGate = decoded;
-      return true;
+      decoded = jwt.verify(token, jwtSecret);
     } catch (e) {
       return false;
     }
+    if (!decoded || decoded.purpose !== GATE_PURPOSE) return false;
+    if (decoded.grup !== 'admin') {
+      let accounts = null;
+      try {
+        const result = await q('SELECT value FROM kv_store WHERE key = $1', [KV_KEY]);
+        accounts = result.rows[0] ? sanitizeState(JSON.parse(result.rows[0].value)) : sanitizeState(null);
+      } catch (e) {
+        return false;
+      }
+      if (!gateAllows(accounts, decoded, requestIp(req))) return false;
+    }
+    req.limanGate = decoded;
+    return true;
   }
 
   function rejectLimanReader(res) {
@@ -783,7 +794,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   reader.get(readPrefix + '/liman', attachOptionalUser, async (req, res) => {
     try {
-      if (!limanReaderAllowed(req)) return rejectLimanReader(res);
+      if (!(await limanReaderAllowed(req))) return rejectLimanReader(res);
       noStore(res);
       const state = await readState();
       return res.json(await attachArchive(viewFor(req, state), state));
@@ -794,7 +805,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   reader.get(readPrefix + '/liman/version', attachOptionalUser, async (req, res) => {
     try {
-      if (!limanReaderAllowed(req)) return rejectLimanReader(res);
+      if (!(await limanReaderAllowed(req))) return rejectLimanReader(res);
       await ensureStamps();
       const lastPrint = await lastPrintMark();
       noStore(res);
@@ -810,7 +821,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
    */
   reader.get(readPrefix + '/liman/departed', attachOptionalUser, async (req, res) => {
     try {
-      if (!limanReaderAllowed(req)) return rejectLimanReader(res);
+      if (!(await limanReaderAllowed(req))) return rejectLimanReader(res);
       const now = Date.now();
       let since = Number(req.query && req.query.since);
       if (!Number.isFinite(since) || since <= 0 || now - since > DEPARTED_MAX_WINDOW_MS) since = now - 3 * 24 * 60 * 60 * 1000;

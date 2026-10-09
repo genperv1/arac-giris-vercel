@@ -9,6 +9,9 @@ const {
   applyProfiles,
   applyCredentials,
   recordLogin,
+  gateAllows,
+  setSlotIpBlock,
+  amirView,
   ackNotice,
 } = require('../lib/liman-gozetmen');
 const { registerLimanGozetmenRoutes } = require('../routes/liman-gozetmen-routes');
@@ -105,6 +108,41 @@ test('yazılan ID ve şifre 40 gün dolmadan durur, xxr ve tekrar kabul edilmez'
     index === 0 ? { n: 1, loginId: 'k0liman', password: 'sifre1a0000000' } : slot
   )), 8_000);
   assert.match(long.error, /4 ile 12/);
+});
+
+test('şifre özel karakteri saklar, büyük küçük harf aynı sayılır', () => {
+  const { state } = prepareState(null, 9_000, seqRandom());
+  const slots = state.slots.filter((slot) => slot.grup === 'gozetmen').map((slot, index) => ({
+    grup: 'gozetmen',
+    n: slot.n,
+    loginId: 'k' + index + 'liman',
+    password: index === 0 ? 'Ab!1' : ('sifre' + (index + 1) + 'a'),
+  }));
+  const saved = applyCredentials(state, slots, 9_000);
+  assert.equal(saved.error, undefined);
+  assert.equal(state.slots[0].password, 'ab!1');
+  assert.equal(matchLogin(state, 'K0LIMAN', 'AB!1').n, 1);
+  assert.equal(matchLogin(state, 'k0liman', 'ab1'), null);
+});
+
+test('ikinci giriş eski oturumu düşürür, engelli adres bir daha giremez', () => {
+  const { state } = prepareState(null, 1_000, seqRandom());
+  const slot = state.slots[0];
+  const hit = matchLogin(state, slot.loginId, slot.password);
+  assert.equal(recordLogin(state, hit, 2_000, '1.1.1.1', 'Telefon'), true);
+  const firstSid = slot.sessionId;
+  assert.equal(gateAllows(state, { grup: slot.grup, n: slot.n, sid: firstSid }, '1.1.1.1'), true);
+  assert.equal(recordLogin(state, hit, 3_000, '2.2.2.2', 'Bilgisayar'), true);
+  assert.equal(gateAllows(state, { grup: slot.grup, n: slot.n, sid: firstSid }, '1.1.1.1'), false);
+  assert.equal(gateAllows(state, { grup: slot.grup, n: slot.n, sid: slot.sessionId }, '2.2.2.2'), true);
+  assert.equal(setSlotIpBlock(state, slot.grup, slot.n, '2.2.2.2', true, 4_000).ok, true);
+  assert.equal(recordLogin(state, hit, 5_000, '2.2.2.2', 'Bilgisayar'), false);
+  const view = amirView(state, 5_000);
+  const ips = view.slots[0].ips;
+  assert.equal(ips.find((row) => row.ip === '1.1.1.1').device, 'Telefon');
+  assert.equal(ips.find((row) => row.ip === '1.1.1.1').active, false);
+  assert.equal(ips.find((row) => row.ip === '2.2.2.2').blocked, true);
+  assert.equal(view.slots[0].ips.filter((row) => row.active).length, 0);
 });
 
 test('ad soyad telefon kaydı şifreyi değiştirmez; bildirim yalnız aynı dönemi kapatır', () => {

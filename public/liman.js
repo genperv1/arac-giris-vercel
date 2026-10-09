@@ -497,15 +497,6 @@
     return limanGidenKg(row.gidenTonaj || row.giden) >= 1000;
   }
 
-  /** Araç listeye geldiyse: içeride, dışarıda, kantara girmiş veya çıkmış. */
-  function rowArrived(row) {
-    if (!row) return false;
-    if (rowDeparted(row) || row._printedInside) return true;
-    var durum = String(row.durum || '').trim();
-    if (/^(İÇERİDE|ICERIDE|DIŞARIDA|DISARIDA)$/i.test(durum)) return true;
-    return !!String(row.kantarGiris || '').trim();
-  }
-
   function blockProgress(block) {
     var rows = block.rows || [];
     var done = rows.filter(rowDeparted).length;
@@ -521,12 +512,12 @@
     });
   }
 
-  /** Sekmedeki her araç geldiyse liste biter. Çıkış beklenmez; gelmeyen araç varsa devam eder. */
+  /** Sekme, giden tonajı dolmadan tamamlanmaz. İçeride / baskı güncellemesi çıkış sayılmaz. */
   function tabShipmentsDone(tab) {
     var blocks = tabBlocks(tab);
     return blocks.length > 0 && blocks.every(function (block) {
       var rows = block.rows || [];
-      return rows.length > 0 && rows.every(rowArrived);
+      return rows.length > 0 && rows.every(rowDeparted);
     });
   }
 

@@ -9,6 +9,7 @@ const {
   prepareState,
   matchLogin,
   recordLogin,
+  setSlotIpBlock,
   applyProfiles,
   applyCredentials,
   amirView,
@@ -75,6 +76,13 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
     const run = chain.then(fn, fn);
     chain = run.then(() => undefined, () => undefined);
     return run;
+  }
+
+  function deviceOf(req) {
+    const ua = String(req && req.headers && req.headers['user-agent'] || '').toLowerCase();
+    if (!ua) return '';
+    if (/iphone|ipad|android|mobile/.test(ua)) return 'Telefon';
+    return 'Bilgisayar';
   }
 
   function clientIp(req) {
@@ -167,10 +175,15 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
           if (prepared.changed) await writeState(prepared.state);
           return null;
         }
-        recordLogin(prepared.state, found, now);
+        const opened = recordLogin(prepared.state, found, now, ip, deviceOf(req));
         await writeState(prepared.state);
-        return found;
+        if (!opened) return { blocked: true };
+        const slot = prepared.state.slots.find((row) => row.grup === found.grup && row.n === found.n);
+        return Object.assign({ sessionId: slot ? slot.sessionId : 0 }, found);
       });
+      if (hit && hit.blocked) {
+        return res.status(403).json({ ok: false, error: 'Bu adres bu hesap için engelli.' });
+      }
       if (!hit) {
         noteFail(ip);
         return res.status(401).json({ ok: false, error: 'Hatalı kullanıcı adı veya şifre.' });
@@ -180,7 +193,7 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
         return res.status(500).json({ ok: false, error: 'Giriş şu an yapılamadı.' });
       }
       res.setHeader('Cache-Control', 'no-store');
-      writeGateCookie(res, signGateToken(ctx, { grup: hit.grup, n: hit.n, loginId: hit.loginId }), gateCookieOptions(ctx), false);
+      writeGateCookie(res, signGateToken(ctx, { grup: hit.grup, n: hit.n, loginId: hit.loginId, sid: hit.sessionId }), gateCookieOptions(ctx), false);
       return res.json({ ok: true, n: hit.n, grup: hit.grup, label: hit.label, issuedAt: hit.issuedAt });
     } catch (err) {
       return res.status(500).json({ ok: false, error: 'Giriş şu an yapılamadı.' });
@@ -277,6 +290,37 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
       return res.status(status).json({
         ok: false,
         error: status === 400 ? err.message : 'Kaydedilemedi.',
+      });
+    }
+  });
+
+  api.post('/liman/gozetmen/ip', requireAmir, async (req, res) => {
+    try {
+      if (!isSelahattin(req.user)) {
+        return res.status(403).json({ ok: false, error: 'IP engelini yalnız Selahattin Toker değiştirir.' });
+      }
+      const body = req.body || {};
+      const state = await withLock(async () => {
+        const now = Date.now();
+        const prepared = prepareState(await readRaw(), now);
+        const applied = setSlotIpBlock(prepared.state, body.grup, body.n, body.ip, body.blocked !== false, now);
+        if (!applied.ok) {
+          const err = new Error(applied.error || 'Adres bulunamadı.');
+          err.status = 400;
+          throw err;
+        }
+        await writeState(prepared.state);
+        return prepared.state;
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      const view = amirView(state, Date.now());
+      view.canEditCredentials = true;
+      return res.json(view);
+    } catch (err) {
+      const status = err && err.status === 400 ? 400 : 500;
+      return res.status(status).json({
+        ok: false,
+        error: status === 400 ? err.message : 'Adres güncellenemedi.',
       });
     }
   });

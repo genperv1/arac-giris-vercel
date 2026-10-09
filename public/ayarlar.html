@@ -829,6 +829,16 @@
     .ay-goz__pw { margin-top: .55rem; font-size: .82rem; color: #334155; }
     .ay-goz__pw code { font-size: 1.05rem; font-weight: 800; letter-spacing: .04em; background: #eef2ff; padding: .12rem .4rem; border-radius: 6px; }
     .ay-goz-lead { margin: 0 0 .65rem; color: var(--rp-muted); font-size: .82rem; }
+    .ay-ip-user { border-top: 1px solid var(--rp-border); padding: .75rem 0; }
+    .ay-ip-user:first-child { border-top: 0; }
+    .ay-ip-user__head { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; color: #14532d; font-weight: 800; }
+    .ay-ip-user__head span { font-weight: 600; color: var(--rp-muted); font-size: .78rem; }
+    .ay-ip-row { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .7rem; margin-top: .4rem; font-size: .82rem; }
+    .ay-ip-row code { font-weight: 800; }
+    .ay-ip-on { color: #166534; font-weight: 800; }
+    .ay-ip-off { color: #b45309; font-weight: 700; }
+    .ay-ip-ban { color: #b91c1c; font-weight: 800; }
+    .ay-ip-row .ay-btn { padding: .28rem .6rem; font-size: .75rem; }
     @keyframes ayGozGrow { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
     .ay-ozmal-form {
@@ -1232,10 +1242,17 @@
       <div class="ay-panel__head">
         <div>
           <h2 id="gozetmenTitle">Liman giriş hesapları</h2>
-          <p>İki taraf vardır. Şirket yetkilileri şirket içinden, gözetmenler liman tarafından /liman sayfasına girer. ID ve şifre en fazla 12 karakterdir. ID ve şifreyi Selahattin Toker belirler. Giriş sayılır; liste bu giriş olmadan açılmaz.</p>
+          <p>İki taraf vardır. Şirket yetkilileri şirket içinden, gözetmenler liman tarafından /liman sayfasına girer. ID ve şifre en fazla 12 karakterdir. Şifrede özel karakter olur. ID ve şifreyi Selahattin Toker belirler. Giriş sayılır; liste bu giriş olmadan açılmaz.</p>
         </div>
       </div>
       <div class="ay-ban-alert" id="gozetmenNext">Hesaplar yükleniyor…</div>
+      <details class="ay-goz-fold" id="limanIpFold" open>
+        <summary>Bağlı kullanıcılar <small id="limanIpCount">IP adresleri</small></summary>
+        <div class="ay-goz-fold__body">
+          <p class="ay-goz-lead">Aynı hesaba yeni bir yerden girilince önceki oturum düşer. Burada o hesaba hangi adreslerin girdiği durur. Selahattin Toker istemediği adresi engeller; o adres bir daha giremez. Telefon şebekesinde adres zamanla değişebilir.</p>
+          <div id="limanIpList"></div>
+        </div>
+      </details>
       <details class="ay-goz-fold" id="sirketFold">
         <summary>Şirket yetkilileri <small>Şirket içi /liman</small></summary>
         <div class="ay-goz-fold__body">
@@ -1599,6 +1616,6 @@
   <script src="print-layout-settings.js?v=20261006-no-isg-takip"></script>
   <script src="print-layout-editor.js?v=20261008-trafik"></script>
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
-  <script src="ayarlar.js?v=20261009-max12"></script>
+  <script src="ayarlar.js?v=20261009-ip"></script>
 </body>
 </html>

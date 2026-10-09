@@ -31,3 +31,11 @@ test('liman giriş kapısı şifreyi tarayıcıda tutmaz, sunucuya sorar', () =>
   assert.match(liman, /liman-login-required/);
   assert.doesNotMatch(liman, /isUnlocked\(\)\) start\(\)/);
 });
+
+test('liman sekmesi giden tonaj dolmadan tamamlandı olmaz', () => {
+  const liman = fs.readFileSync(path.join(__dirname, '../public/liman.js'), 'utf8');
+  const fn = liman.slice(liman.indexOf('function tabShipmentsDone'), liman.indexOf('var TR_DAYS'));
+  assert.match(fn, /rows\.every\(rowDeparted\)/);
+  assert.doesNotMatch(fn, /rowArrived/);
+  assert.match(liman, /giden tonajı dolmadan tamamlanmaz/);
+});
