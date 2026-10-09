@@ -9,18 +9,14 @@ const {
   parseOsrmRoutes,
   yanNokta,
 } = require('../lib/nakliye-yakit');
+const { createMazotService, emptyMazot, classifyFetchError, logMazotFailure } = require('../lib/nakliye-mazot');
 
 const PLACES_PATH = path.join(__dirname, '..', 'public', 'data', 'tr-ilceler.json');
 const MAZOT_FILE = path.join(__dirname, '..', 'public', 'data', 'mazot-guncel.json');
 const MAZOT_DUN_FILE = path.join(__dirname, '..', 'public', 'data', 'mazot-dun.json');
-const MAZOT_TTL_MS = 6 * 60 * 60 * 1000;
-const MAZOT_STALE_MS = 7 * 24 * 60 * 60 * 1000;
-const OPET_PROVINCES = 'https://api.opet.com.tr/api/fuelprices/provinces';
-
 let placesCache = null;
-let mazotCache = { at: 0, payload: null };
-let mazotJob = null;
 const mesafeCache = new Map();
+const ROUTE_TTL_MS = 6 * 60 * 60 * 1000;
 
 function loadPlaces() {
   if (placesCache) return placesCache;
@@ -50,99 +46,6 @@ async function fetchJson(url) {
   return res.json();
 }
 
-async function mapPool(items, limit, fn) {
-  const out = new Array(items.length);
-  let cursor = 0;
-  async function worker() {
-    while (cursor < items.length) {
-      const idx = cursor++;
-      out[idx] = await fn(items[idx], idx);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  return out;
-}
-
-async function fetchOpetRows() {
-  const provinces = await fetchJson(OPET_PROVINCES);
-  const groups = await mapPool(provinces, 8, async (province) => {
-    const code = province && province.code;
-    if (!code) return [];
-    const url = 'https://api.opet.com.tr/api/fuelprices/prices?ProvinceCode=' + encodeURIComponent(code) + '&IncludeAllProducts=true';
-    try {
-      return await fetchJson(url);
-    } catch (err) {
-      return [];
-    }
-  });
-  return groups.flat();
-}
-
-function istanbulGunu(iso) {
-  try {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit',
-    }).format(new Date(iso));
-  } catch (err) {
-    return '';
-  }
-}
-
-function readJsonFile(file) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err) {
-    return null;
-  }
-}
-
-function oncekiMazot() {
-  const dun = readJsonFile(MAZOT_DUN_FILE);
-  if (!dun || !Array.isArray(dun.iller) || !dun.iller.length) return null;
-  return { updatedAt: dun.updatedAt || null, iller: dun.iller };
-}
-
-function rememberYesterday(nextPayload) {
-  const current = readJsonFile(MAZOT_FILE);
-  const nextDay = istanbulGunu(nextPayload && nextPayload.updatedAt);
-  const curDay = current && istanbulGunu(current.updatedAt);
-  if (!current || !Array.isArray(current.iller) || !curDay || !nextDay || curDay === nextDay) return;
-  try {
-    fs.writeFileSync(MAZOT_DUN_FILE, JSON.stringify({ updatedAt: current.updatedAt, iller: current.iller }));
-  } catch (err) { /* dünkü fiyat yazılamazsa bugünkü liste yine gelir */ }
-}
-
-async function refreshMazot() {
-  const rows = await fetchOpetRows();
-  const payload = buildMazotPayload(rows, loadPlaces(), new Date().toISOString());
-  if (!payload.ok) throw new Error('Mazot listesi boş');
-  payload.onceki = oncekiMazot();
-  rememberYesterday(payload);
-  payload.onceki = oncekiMazot();
-  mazotCache = { at: Date.now(), payload };
-  try { fs.writeFileSync(MAZOT_FILE, JSON.stringify(payload)); } catch (err) { /* dosya yazılamazsa bellek önbelleği yeter */ }
-  return payload;
-}
-
-function getMazot(force) {
-  const fresh = mazotCache.payload && (Date.now() - mazotCache.at) < MAZOT_TTL_MS;
-  if (!force && fresh) return Promise.resolve(mazotCache.payload);
-  if (!mazotJob) {
-    mazotJob = refreshMazot()
-      .catch((err) => {
-        console.error('Nakliye mazot:', err && err.message ? err.message : err);
-        if (mazotCache.payload && (Date.now() - mazotCache.at) < MAZOT_STALE_MS) {
-          return Object.assign({}, mazotCache.payload, { bayat: true });
-        }
-        throw err;
-      })
-      .finally(() => {
-        mazotJob = null;
-      });
-  }
-  return mazotJob;
-}
-
 function coord(value) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : null;
@@ -167,7 +70,7 @@ async function fetchRoutes(points) {
 async function drivingRoute(from, to) {
   const key = [from.lon, from.lat, to.lon, to.lat].join(',');
   const hit = mesafeCache.get(key);
-  if (hit && (Date.now() - hit.at) < MAZOT_TTL_MS) return hit.route;
+  if (hit && (Date.now() - hit.at) < ROUTE_TTL_MS) return hit.route;
   let yollar = await fetchRoutes([from, to]);
   if (!yollar.length) throw new Error('Rota yok');
   if (yollar.length < 2 && yollar[0].km > 80) {
@@ -196,16 +99,30 @@ async function drivingRoute(from, to) {
 
 function registerNakliyeRoutes(api, ctx, app) {
   const sabanOnly = requireSaban(ctx || {});
+  const mazot = createMazotService({
+    fetchImpl: (url, opts) => fetch(url, opts),
+    q: ctx && ctx.q,
+    buildPayload: (rows, updatedAt) => buildMazotPayload(rows, loadPlaces(), updatedAt),
+    readText: () => {
+      try { return fs.readFileSync(MAZOT_FILE, 'utf8'); } catch (err) { return ''; }
+    },
+    writeText: (text) => fs.writeFileSync(MAZOT_FILE, text),
+    readOnceki: () => {
+      try { return fs.readFileSync(MAZOT_DUN_FILE, 'utf8'); } catch (err) { return ''; }
+    },
+    writeOnceki: (text) => fs.writeFileSync(MAZOT_DUN_FILE, text),
+  });
 
   async function sendMazot(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     try {
-      const force = req.query.yenile === '1';
-      const payload = await getMazot(force);
-      res.json(Object.assign({}, payload, { onceki: payload.onceki || oncekiMazot() }));
+      const force = String((req.query && req.query.yenile) || '') === '1';
+      const payload = await mazot.getMazot(force);
+      res.status(200).json(payload);
     } catch (err) {
-      console.error('Nakliye mazot yanıtı:', err && err.message ? err.message : err);
-      res.status(502).json({ ok: false, error: 'Güncel mazot fiyatı internetten alınamadı.' });
+      const kind = classifyFetchError(err);
+      logMazotFailure(console.error, kind);
+      res.status(200).json(emptyMazot());
     }
   }
 
