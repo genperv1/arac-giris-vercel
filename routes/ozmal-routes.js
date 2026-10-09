@@ -9,6 +9,37 @@ const {
   formatPlateDisplay,
   normDriverName,
 } = require('../lib/ozmal-store');
+const { isAmirIdentity } = require('../lib/amir-user');
+
+function canReadOzmalEntries(user) {
+  const role = String((user && user.role) || '').trim().toLowerCase();
+  return role === 'admin' || role === 'amir' || isAmirIdentity(user);
+}
+
+/**
+ * Oturum yoksa 401, oturum var ama ofis yetkisi yoksa 403.
+ * @param {object} ctx
+ */
+function requireOzmalEntriesRead(ctx) {
+  return function ozmalEntriesRead(req, res, next) {
+    const requireValidSession = ctx && ctx.requireValidSession;
+    if (typeof requireValidSession !== 'function') {
+      return res.status(401).json({
+        ok: false,
+        error: 'Oturum gerekli',
+        code: 'SESSION_MISSING',
+      });
+    }
+    return requireValidSession(req, res, () => {
+      if (canReadOzmalEntries(req.user)) return next();
+      return res.status(403).json({
+        ok: false,
+        error: 'Özmal listesini görme yetkisi yok',
+        code: 'OZMAL_FORBIDDEN',
+      });
+    });
+  };
+}
 
 /**
  * @param {import('express').Router} api
@@ -17,7 +48,7 @@ const {
 function registerOzmalRoutes(api, ctx) {
   const { q, sendApiError, requireSettingsAccess } = ctx;
 
-  api.get('/ozmal-entries', async (req, res) => {
+  api.get('/ozmal-entries', requireOzmalEntriesRead(ctx), async (req, res) => {
     try {
       const entries = await loadOzmalEntries(q);
       return res.json({ entries });
@@ -108,4 +139,6 @@ module.exports = {
   registerOzmalRoutes,
   registerDriverAuthRoutes,
   normalizeEntries,
+  canReadOzmalEntries,
+  requireOzmalEntriesRead,
 };
