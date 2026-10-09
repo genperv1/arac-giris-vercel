@@ -27,7 +27,11 @@
     .vn-badge { display: inline-block; font-size: 0.6875rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 6px; background: #fee2e2; color: #991b1b; margin-right: 4px; }
     .vn-excel-status { font-size: 0.8125rem; color: #475569; }
     .vn-excel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-    @media (max-width: 640px) { .vn-excel-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) {
+      .vn-excel-grid { grid-template-columns: 1fr; }
+      .vn-btn-primary, .vn-btn-ghost { min-height: 44px; }
+      .vn-input, .vn-note-item { font-size: 1rem; }
+    }
     .vn-excel-card { background: #fff; border-radius: 10px; padding: 10px 12px; border: 1px solid #e2e8f0; }
     .vn-excel-card--ihr { border-left: 4px solid #2563eb; }
     .vn-excel-card--piy { border-left: 4px solid #7c3aed; }
@@ -120,6 +124,6 @@
   </main>
   <script src="dailyStore.js"></script>
   <script src="rp-dialog.js?v=20260605-fixes-v1"></script>
-  <script src="vardiya-notes.js?v=20260820-pwd"></script>
+  <script src="vardiya-notes.js?v=20261010-srvdel"></script>
 </body>
 </html>

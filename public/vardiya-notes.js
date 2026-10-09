@@ -1,7 +1,6 @@
 (function () {
   'use strict';
 
-  const DELETE_PASSWORD = '543723';
   let _editingId = null;
   const _notesCache = {};
 
@@ -370,17 +369,13 @@
       : confirm('Bu vardiya notu silinsin mi?'));
     if (!ok) return;
 
-    let pw = '';
+    const payload = {};
     if (!(window.clientIsAmir && window.clientIsAmir())) {
-      pw = await (typeof u.password === 'function'
+      const pw = await (typeof u.password === 'function'
         ? u.password('Silme şifresini giriniz:')
         : window.rpUi.password('Silme şifresini giriniz:'));
       if (pw == null || pw === false) return;
-      if (String(pw).trim() !== DELETE_PASSWORD) {
-        if (typeof u.alert === 'function') await u.alert('Şifre hatalı.', 'danger');
-        else alert('Şifre hatalı.');
-        return;
-      }
+      payload.password = String(pw);
     }
 
     try {
@@ -388,10 +383,14 @@
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pw })
+        body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Silinemedi');
+      if (!res.ok) {
+        const serverMsg = typeof data.error === 'string' ? data.error : '';
+        const msg = res.status === 403 ? 'Şifre hatalı.' : (serverMsg || 'Silinemedi');
+        throw new Error(msg);
+      }
       if (_editingId === id) {
         setFormCreateMode();
         document.getElementById('vnForm')?.reset();

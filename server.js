@@ -1581,7 +1581,7 @@ function operationNoteHasRule(rules) {
 }
 
 // Vardiya / operasyon notları (Excel kurallı uyarılar)
-api.get('/operation-notes', async (req, res) => {
+api.get('/operation-notes', requireValidSession, async (req, res) => {
   try {
     const activeParam = String(req.query.active ?? '1').toLowerCase();
     let text = 'SELECT id, body, author_username, excel_type, rules, active, created_at FROM operation_notes';
@@ -1619,11 +1619,8 @@ api.post('/operation-notes', requireValidSession, async (req, res) => {
     if (!operationNoteHasRule(rules)) {
       return res.status(400).json({ ok: false, error: 'At least one rule required (yd_key, firma_kodu, or malzeme_p1p2)' });
     }
-    const author = sanitizeString(
-      (req.user && req.user.username) || body.author_username || '',
-      80
-    );
-    const id = String(body.id || (Date.now().toString() + Math.random().toString(16).slice(2)));
+    const author = sanitizeString((req.user && req.user.username) || '', 80);
+    const id = Date.now().toString() + crypto.randomBytes(4).toString('hex');
     const created_at = Date.now();
     await q(
       `INSERT INTO operation_notes(id, body, author_username, excel_type, rules, active, created_at)
@@ -1689,7 +1686,7 @@ api.patch('/operation-notes/:id', requireValidSession, async (req, res) => {
   }
 });
 
-api.delete('/operation-notes/:id', async (req, res) => {
+api.delete('/operation-notes/:id', requireValidSession, async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ ok: false, error: 'id required' });
