@@ -101,6 +101,10 @@ test('yazılan ID ve şifre 40 gün dolmadan durur, xxr ve tekrar kabul edilmez'
     index === 0 ? { n: 1, loginId: 'ab', password: 'sifre1a' } : slot
   )), 7_000);
   assert.match(short.error, /3 ile 12/);
+  const long = applyCredentials(state, slots.map((slot, index) => (
+    index === 0 ? { n: 1, loginId: 'k0liman', password: 'sifre1a0000000' } : slot
+  )), 8_000);
+  assert.match(long.error, /4 ile 12/);
 });
 
 test('ad soyad telefon kaydı şifreyi değiştirmez; bildirim yalnız aynı dönemi kapatır', () => {

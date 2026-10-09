@@ -309,16 +309,16 @@
         <p>Size verilen ID ve şifreyi girin.</p>
         <form id="limanGateForm" class="liman-gate__form" autocomplete="off">
           <label for="limanUser">ID</label>
-          <input id="limanUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="ID" autofocus />
+          <input id="limanUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="ID" maxlength="12" autofocus />
           <label for="limanPwd">Şifre</label>
-          <input id="limanPwd" name="password" type="password" autocomplete="current-password" />
+          <input id="limanPwd" name="password" type="password" autocomplete="current-password" maxlength="12" />
           <button type="submit">Giriş</button>
         </form>
         <p id="limanGateErr" class="liman-gate__err" hidden>Hatalı kullanıcı adı veya şifre.</p>
       </div>
       <div id="limanAccounts" hidden>
         <h2>Liman hesapları</h2>
-        <p>Şirket yetkilileri ve gözetmenler için ID ve şifreyi buradan yazın. /liman girişi bu hesaplarla açılır. Harf ve rakam; büyük küçük fark etmez. İkisi de boş kalan hesap giriş yapamaz.</p>
+        <p>Şirket yetkilileri ve gözetmenler için ID ve şifreyi buradan yazın. /liman girişi bu hesaplarla açılır. Harf ve rakam, en fazla 12 karakter; büyük küçük fark etmez. İkisi de boş kalan hesap giriş yapamaz.</p>
         <div id="limanAccountList"></div>
         <div class="liman-gate__actions">
           <button type="button" class="secondary" id="limanAccountExit">Çıkış</button>

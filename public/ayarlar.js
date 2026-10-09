@@ -1655,7 +1655,7 @@
     const editable = !!(data && data.canEditCredentials);
     if (next) {
       next.textContent = editable
-        ? 'ID ve şifreyi siz yazın. Doğru giriş 12 saatlik kilitli çerez açar; liste bu çerez olmadan gelmez. Kaç kez girildiği kartta görünür. İkisi de boş kalan hesap giriş yapamaz.'
+        ? 'ID ve şifreyi siz yazın. En fazla 12 karakter. Doğru giriş 12 saatlik kilitli çerez açar; liste bu çerez olmadan gelmez. Kaç kez girildiği kartta görünür. İkisi de boş kalan hesap giriş yapamaz.'
         : 'ID ve şifreyi Selahattin Toker belirler. Doğru girişten sonra liste 12 saat açık kalır. Kaç kez girildiği kartta görünür.';
     }
     const slots = (data && data.slots) || [];
