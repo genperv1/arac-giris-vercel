@@ -23,6 +23,14 @@ test('ajan sunucunun bekledigi adrese yukler', () => {
   assert.match(script, /baslat\.bat|Startup/);
 });
 
+test('bir eski Excel okunamazsa diger dosyalar sisteme gitmeye devam eder', () => {
+  const script = fs.readFileSync(path.join(root, 'ajan.ps1'), 'utf8');
+  const start = script.indexOf('foreach ($file in $files)');
+  const loop = script.slice(start, script.indexOf('SonGuncelleme', start));
+  assert.doesNotMatch(loop, /\bbreak\b/);
+  assert.match(loop, /diger dosyalar yine sisteme gider/);
+});
+
 test('baslat gizli calistirir', () => {
   const bat = fs.readFileSync(path.join(root, 'baslat.bat'), 'utf8');
   assert.match(bat, /ajan\.ps1" -Kur/);

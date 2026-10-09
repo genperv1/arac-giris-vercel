@@ -665,6 +665,37 @@
     return parts.join(' · ');
   }
 
+  function orderBbtOf(title) {
+    var m = String(title || '').match(/(\d+)\s*BBT\b/i);
+    return m ? parseNum(m[1]) : 0;
+  }
+
+  /**
+   * Excel sayfasındaki sarılan ve kalan BBT.
+   * Sarılan: giden tonajı dolu (çıkan) satırların BBT toplamı.
+   * Kalan: başlıktaki sipariş BBT − sarılan. Sipariş yoksa Excel KALAN satırı, o da yoksa çıkmamış satırlar.
+   */
+  function bbtStatusText(block) {
+    var wrapped = 0;
+    var waiting = 0;
+    ((block && block._bbtRows) || (block && block.rows) || []).forEach(function (row) {
+      var n = parseNum(row.bbt);
+      if (!n) return;
+      if (rowDeparted(row)) wrapped += n;
+      else waiting += n;
+    });
+    var exTop = excelTotal(block && block.toplam, 'bbt');
+    var exKal = excelTotal(block && block.kalan, 'bbt');
+    if (!wrapped && !waiting && exTop !== '' && exKal !== '') {
+      wrapped = parseNum(exTop) - parseNum(exKal);
+      waiting = parseNum(exKal);
+    }
+    var orderBbt = orderBbtOf(block && block.title);
+    if (!orderBbt && !wrapped && !waiting && exTop === '' && exKal === '') return '';
+    var kalan = orderBbt ? (orderBbt - wrapped) : (exKal !== '' ? parseNum(exKal) : waiting);
+    return ' · ' + fmtTotal(wrapped) + ' BBT sarıldı · Kalan BBT: ' + fmtTotal(kalan);
+  }
+
   function telHref(raw) {
     var digits = String(raw || '').replace(/[^\d+]/g, '');
     if (digits.length < 7) return '';
@@ -695,6 +726,7 @@
     }).map(function (block) {
       if (!q) return block;
       return Object.assign({}, block, {
+        _bbtRows: block.rows || [],
         rows: (block.rows || []).filter(function (row) {
           return String(row.plaka || '').toUpperCase().replace(/[^A-Z0-9]/g, '').indexOf(q) >= 0;
         })
@@ -877,9 +909,11 @@
       var progress = blockProgress(block);
       var order = orderOf(block.title);
       var orderText = order ? ' · Sipariş: ' + esc(order) : '';
+      var bbtRaw = bbtStatusText(block);
+      var bbtText = bbtRaw ? '<span class="bbt-status">' + esc(bbtRaw) + '</span>' : '';
       var statusLine = progress.complete
-        ? '<p class="done-line"><i>✔</i> SEVKİYAT TAMAMLANDI · ' + progress.total + ' / ' + progress.total + ' araç çıktı' + orderText + '</p>'
-        : '<p class="progress-line">' + progress.done + ' / ' + progress.total + ' araç çıktı' + orderText + '</p>';
+        ? '<p class="done-line"><i>✔</i> SEVKİYAT TAMAMLANDI · ' + progress.total + ' / ' + progress.total + ' araç çıktı' + orderText + bbtText + '</p>'
+        : '<p class="progress-line">' + progress.done + ' / ' + progress.total + ' araç çıktı' + orderText + bbtText + '</p>';
       return '<section class="blok' + (progress.complete ? ' is-done' : '') + '">' +
         '<div class="blok-head">' +
           '<h2 class="blok-title' + (tasiyici ? ' has-tasiyici' : '') + '">' +

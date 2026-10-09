@@ -7,7 +7,6 @@ const {
   normalizeEntries,
   addOzmalPlateDriver,
   formatPlateDisplay,
-  regenerateDriverPassword,
   normDriverName,
 } = require('../lib/ozmal-store');
 
@@ -70,11 +69,7 @@ function registerOzmalRoutes(api, ctx) {
       if (!plaka || !driver) {
         return res.status(400).json({ ok: false, error: 'Plaka ve şoför gerekli' });
       }
-      const result = await regenerateDriverPassword(q, plaka, driver);
-      if (!result) {
-        return res.status(404).json({ ok: false, error: 'Şoför bulunamadı' });
-      }
-      return res.json({ ok: true, passwordPlain: result.passwordPlain });
+      return res.status(410).json({ ok: false, error: 'Şoför girişi kapatıldı. Şifre üretilmez.' });
     } catch (err) {
       return sendApiError(res, err, 500, 'OZMAL_PASSWORD_REGEN_FAILED');
     }

@@ -573,8 +573,8 @@ try {
               }
               Send-Excel $file $base $key
             } catch {
+              # Eski Excel okunamaz veya silinemezse diger dosyalar yine sisteme gider.
               Write-LogOnce $_.Exception.Message
-              break
             }
           }
           Save-Durum

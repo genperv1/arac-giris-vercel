@@ -1472,12 +1472,9 @@
         ? (entry.drivers || []).map((d) => {
           const name = typeof d === 'string' ? d : d.name;
           const starred = !!(typeof d === 'object' && d && d.starred);
-          const pwd = typeof d === 'object' && d && d.passwordPlain ? d.passwordPlain : '';
           return `<span class="ay-ozmal-chip${starred ? ' is-starred' : ''}">
             <button type="button" class="ay-ozmal-chip-btn ay-ozmal-star" data-plate="${attrEsc(p)}" data-driver="${attrEsc(name)}" title="Menüde öne al">${starred ? '★' : '☆'}</button>
             <span>${escapeHtml(name)}</span>
-            ${pwd ? `<code title="Giriş şifresi">${escapeHtml(pwd)}</code>` : ''}
-            ${pwd ? `<button type="button" class="ay-ozmal-chip-btn ay-ozmal-pwd" data-plate="${attrEsc(p)}" data-driver="${attrEsc(name)}" title="Yeni şifre">↻</button>` : ''}
             <button type="button" class="ay-ozmal-chip-btn ay-ozmal-chip-btn--del ay-ozmal-driver-del" data-plate="${attrEsc(p)}" data-driver="${attrEsc(name)}" title="Şoförü kaldır">×</button>
           </span>`;
         }).join('')
@@ -1544,26 +1541,6 @@
       });
     });
 
-    tbody.querySelectorAll('.ay-ozmal-pwd').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const plate = btn.getAttribute('data-plate') || '';
-        const driver = btn.getAttribute('data-driver') || '';
-        if (!plate || !driver || !(await confirm(driver + ' için yeni şifre oluşturulsun mu?'))) return;
-        try {
-          const r = await apiFetch('/api/settings/ozmal-regenerate-password', {
-            method: 'POST',
-            body: JSON.stringify({ plaka: plate, driver }),
-          });
-          const data = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(data.error || 'Şifre oluşturulamadı');
-          await loadOzmalEntriesFull();
-          renderOzmalTable();
-          toast('Yeni şifre: ' + (data.passwordPlain || '—'));
-        } catch (e) {
-          toast(e.message || 'Şifre oluşturulamadı.', true);
-        }
-      });
-    });
   }
 
   async function submitOzmalAdd(ev) {
@@ -1607,9 +1584,8 @@
         if (driverInput) driverInput.value = '';
       }
 
-      const pwdMsg = data.passwordPlain ? ' · Şifre: ' + data.passwordPlain : '';
       if (driver) {
-        toast((data.driver || driver) + ' kaydedildi' + pwdMsg + '.');
+        toast((data.driver || driver) + ' kaydedildi.');
       } else {
         toast((data.plaka || plate) + ' kaydedildi.');
       }

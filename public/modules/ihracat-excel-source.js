@@ -221,6 +221,28 @@
     } catch (e) {}
   }
 
+  function withTimeout(p, ms) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var t = setTimeout(function () {
+        if (done) return;
+        done = true;
+        resolve({ __timeout: true });
+      }, ms);
+      Promise.resolve(p).then(function (v) {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        resolve(v);
+      }, function () {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        resolve({ __timeout: true });
+      });
+    });
+  }
+
   function primeHandlePermissions(names) {
     var seen = [];
     function kick(handle) {
@@ -232,9 +254,15 @@
         if (p && typeof p.then === 'function') _permInflight.push(p);
       } catch (e) {}
     }
-    Object.keys(_handlesByName).forEach(function (key) { kick(_handlesByName[key]); });
-    kick(_liveHandle);
-    kick(_dirHandle);
+    var list = (names || []).map(function (n) { return String(n || '').trim(); }).filter(Boolean);
+    if (list.length) {
+      list.forEach(function (n) { kick(handleForName(n)); });
+      if (list.length === 1) kick(_liveHandle);
+    } else {
+      Object.keys(_handlesByName).forEach(function (key) { kick(_handlesByName[key]); });
+      kick(_liveHandle);
+      kick(_dirHandle);
+    }
     return _permInflight.slice();
   }
 
@@ -243,7 +271,7 @@
     _permInflight = [];
     if (!list.length) return;
     await Promise.all(list.map(function (p) {
-      return Promise.resolve(p).catch(function () { return 'denied'; });
+      return withTimeout(p, 8000);
     }));
   }
 
@@ -511,11 +539,11 @@
         var picked = selectedNames();
         if (!picked.length) return;
         primeHandlePermissions(picked);
-        var pickerPromise = null;
         if (namesLackHandle(picked) || pathPickNeeded()) {
-          pickerPromise = openExcelPicker(picked.length > 1);
+          // Eski veya silinmiş Excel'in tutamacı yok diye dosya seçici açılmaz.
+          // Okunabilenler güncellenir; okunamayan atlanır, yüklü liste sisteme gider.
         }
-        finish({ names: picked, pickerPromise: pickerPromise });
+        finish({ names: picked, pickerPromise: null });
       });
       overlay.querySelectorAll('.ihracat-excel-pick__check').forEach(function (ch) {
         ch.addEventListener('change', syncOk);
@@ -891,7 +919,7 @@
       if (!handle || typeof handle.getFile !== 'function' || seen.indexOf(handle) >= 0) return;
       seen.push(handle);
       var file = null;
-      try { file = await readFileFromHandle(handle); } catch (e) { file = null; }
+      try { file = await readFileFromHandle(handle, { noPrompt: true }); } catch (e) { file = null; }
       if (file && !file.__missing && !file.__notSelected && file.name && !isDroppedSource(file.name)) files.push(file);
     }
     var keys = Object.keys(_handlesByName);
@@ -932,24 +960,33 @@
     }
   }
 
-  async function readFileFromHandle(handle) {
+  async function readFileFromHandle(handle, opts) {
     if (!handle || typeof handle.getFile !== 'function') return null;
+    var noPrompt = !!(opts && opts.noPrompt);
     try {
       if (typeof handle.queryPermission === 'function') {
-        var q = await handle.queryPermission({ mode: 'read' });
-        if (q === 'granted') return await handle.getFile();
+        var q = await withTimeout(handle.queryPermission({ mode: 'read' }), 4000);
+        if (q && q.__timeout) return { __missing: true };
+        if (q === 'granted') {
+          var grantedFile = await withTimeout(handle.getFile(), 8000);
+          if (!grantedFile || grantedFile.__timeout) return { __missing: true };
+          return grantedFile;
+        }
       }
-      // Sessiz (otomatik) çalışmada izin penceresi açılmaz; izin yoksa dosya yok sayılır.
+      // Sessiz çalışmada ve eski dosya taramasında izin penceresi açılmaz.
       if (_silentRun) {
         _silentPermMissing = true;
         return { __missing: true };
       }
+      if (noPrompt) return { __missing: true };
       // İzin tıklama anında primeHandlePermissions ile istenmiş olmalı.
       if (typeof handle.requestPermission === 'function') {
-        var perm = await handle.requestPermission({ mode: 'read' });
-        if (perm !== 'granted') return { __missing: true };
+        var perm = await withTimeout(handle.requestPermission({ mode: 'read' }), 8000);
+        if (!perm || perm.__timeout || perm !== 'granted') return { __missing: true };
       }
-      return await handle.getFile();
+      var file = await withTimeout(handle.getFile(), 8000);
+      if (!file || file.__timeout) return { __missing: true };
+      return file;
     } catch (e) {
       return { __missing: true };
     }
@@ -1177,15 +1214,31 @@
 
       if (!okNames.length) {
         if (!failNames.length) {
-          failNames = listLoadedSourceNames().slice();
+          failNames = sources.slice();
+        }
+        var sentLoaded = false;
+        if (!silent && hasLoadedExcel() && typeof window.publishLimanFromStore === 'function') {
+          try {
+            var kept = await Promise.resolve(window.publishLimanFromStore(true, { keepDropped: true }));
+            sentLoaded = !!(kept && kept.sent && kept.ok && !kept.skipped);
+          } catch (ePub) {}
         }
         if (silent) {
           return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames, silent: true };
         }
-        setNeedPath(true);
-        heartbeat(true, { ok: false, reason: 'not-found' });
-        if (typeof window.showToast === 'function') window.showToast(lastFailMsg || MSG_NOT_FOUND, 'warn');
-        return { ok: false, code: 'EXCEL_FILE_NOT_FOUND', msg: lastFailMsg || MSG_NOT_FOUND, failNames: failNames };
+        if (!sentLoaded) setNeedPath(true);
+        heartbeat(true, { ok: sentLoaded, reason: sentLoaded ? '' : 'not-found' });
+        var missMsg = sentLoaded
+          ? ('Excel yeniden okunamadı (' + failNames.join(', ') + '). Yüklü liste sisteme gönderildi.')
+          : (lastFailMsg || MSG_NOT_FOUND);
+        if (typeof window.showToast === 'function') window.showToast(missMsg, 'warn');
+        return {
+          ok: sentLoaded,
+          code: sentLoaded ? '' : 'EXCEL_FILE_NOT_FOUND',
+          msg: missMsg,
+          failNames: failNames,
+          sentLoaded: sentLoaded,
+        };
       }
       setNeedPath(false);
       if (!silent) heartbeat(true, { ok: true });
@@ -1193,7 +1246,7 @@
       var limanNote = '';
       try {
         if (typeof window.publishLimanFromStore === 'function') {
-          var pub = await Promise.resolve(window.publishLimanFromStore(false, { keepDropped: true }));
+          var pub = await Promise.resolve(window.publishLimanFromStore(!silent, { keepDropped: true }));
           if (pub && pub.sent) {
             if (!pub.ok) {
               limanNote = pub.status === 401
@@ -1475,10 +1528,8 @@
         }).then(function (ready) {
           if (!ready || !ready.names || !ready.names.length) return;
           beginRefresh(ready.names, ready.preset, false);
-        }).catch(function (err) {
-          if (err && err.name === 'AbortError') {
-            beginRefresh(chosenNames, null, true);
-          }
+        }).catch(function () {
+          beginRefresh(chosenNames, null, true);
         });
         return;
       }

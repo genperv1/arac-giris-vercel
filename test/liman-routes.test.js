@@ -631,6 +631,44 @@ test('kapanan günün arşivi kantarın sonraki gönderimiyle değişmez ve lima
   assert.equal(rec.day.blocks[0].rows[0].giden, '');
 });
 
+test('kapalı eski Excel, birlikte yüklenen yeni Excel güncellemesini düşürmez', async () => {
+  const kantar = { username: 'AVDAN', role: 'admin' };
+  const amir = { username: 'xxr', role: 'amir' };
+  const h = harness(kantar);
+  const book = (title, fileName, giden) => ({
+    title, liman: 'EVYAP', fileName,
+    rows: [{ sira: '1', plaka: '43RY761', giden }],
+  });
+  await h.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '03.10.2026.xlsx + 09.10.2026.xlsx',
+    blocks: [
+      book('YD03 / LOT NO 1 / EVYAP', '03.10.2026.xlsx', '100'),
+      book('YD09 / LOT NO 2 / EVYAP', '09.10.2026.xlsx', '200'),
+    ],
+  });
+  const a = harness(amir);
+  Object.assign(a.store, h.store);
+  await a.call('put /liman/day/:dateKey/close', '1.1.1.1', {}, { dateKey: '2026-10-03' });
+  const k2 = harness(kantar);
+  Object.assign(k2.store, a.store);
+  const again = await k2.call('put /liman/snapshot', '95.3.27.82', {
+    site: 'AVDAN',
+    fileName: '03.10.2026.xlsx + 09.10.2026.xlsx + 09.10.2026-YD28.xlsx',
+    blocks: [
+      book('YD03 / LOT NO 1 / EVYAP', '03.10.2026.xlsx + 09.10.2026.xlsx', '999'),
+      book('YD09 / LOT NO 2 / EVYAP', '09.10.2026.xlsx', '26000'),
+      book('YD28 / LOT NO 3 / EVYAP', '09.10.2026-YD28.xlsx', '400'),
+    ],
+  });
+  assert.equal(again.settled, undefined);
+  const view = await k2.call('get /liman', '1.1.1.1');
+  assert.equal(view.days.some((d) => d.dateKey === '2026-10-03'), false);
+  const day9 = view.days.find((d) => d.dateKey === '2026-10-09');
+  assert.ok(day9);
+  assert.deepEqual(day9.blocks.map((b) => b.rows[0].giden).sort(), ['26000', '400']);
+});
+
 test('kantar Excel silince kitap düşmez; güncelleme ve yeni kitap işlenir, boş gönderim silmez', async () => {
   const { call } = harness({ username: 'AVDAN', role: 'admin' });
   const book = (title, fileName, giden) => ({

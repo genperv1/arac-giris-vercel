@@ -316,13 +316,18 @@ function registerLimanRoutes(api, ctx, publicApp) {
   }
 
   function blockIsClosed(block, state, fallbackFile) {
-    const label = (fileLabelOf(block && block.fileName) || fileLabelOf(fallbackFile) || '').toLowerCase();
+    const ownName = String((block && block.fileName) || '').trim();
+    const ownLabel = fileLabelOf(ownName);
+    const fallbackLabel = fileLabelOf(fallbackFile);
+    const label = (ownLabel || fallbackLabel || '').toLowerCase();
     const closed = closedDays(state);
     if (label) {
       const named = Object.keys(closed).some((key) => (closed[key].files || []).some((file) => String(file).toLowerCase() === label));
       if (named) return true;
     }
-    const dateKey = dateKeyFromFileName((block && block.fileName) || fallbackFile || '');
+    // "a.xlsx + b.xlsx" tek gün değildir. Kapalı eski dosyanın tarihi yeni Excel'i de kapatmasın.
+    const dateSource = ownLabel ? ownName : (fallbackLabel ? String(fallbackFile || '') : '');
+    const dateKey = dateKeyFromFileName(dateSource);
     return !!(dateKey && closed[dateKey]);
   }
 

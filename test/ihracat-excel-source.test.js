@@ -245,8 +245,8 @@ test('client refresh: manual button + silent auto refresh + file stamp watch (ka
   assert.match(clientCode, /FIRST_REFRESH_MS = 15 \* 1000/);
   assert.match(clientCode, /WATCH_MS = 8 \* 1000/);
   assert.match(clientCode, /setInterval\s*\(/);
-  // ilk otomatik güncelleme; ajan olayı yok
-  assert.equal((clientCode.match(/setTimeout\s*\(/g) || []).length, 1);
+  // ilk otomatik güncelleme + eski dosya tutamacı zaman aşımı
+  assert.equal((clientCode.match(/setTimeout\s*\(/g) || []).length, 2);
   assert.doesNotMatch(clientCode, /fs\.watch/);
   const watchFn = clientCode.slice(
     clientCode.indexOf('async function grantedStamp'),
@@ -434,6 +434,20 @@ function clientFn(name) {
   }
   return '';
 }
+
+test('çoklu Güncelle eski dosya yüzünden seçicide kalmaz, yüklü listeyi gönderir', () => {
+  const pickFn = clientFn('pickSourcesToRefresh');
+  assert.match(pickFn, /namesLackHandle\(picked\)/);
+  assert.doesNotMatch(pickFn, /openExcelPicker/);
+  assert.match(clientCode, /Yüklü liste sisteme gönderildi/);
+  assert.match(clientCode, /function withTimeout/);
+  const refreshFn = clientCode.slice(
+    clientCode.indexOf('async function refreshFromStored'),
+    clientCode.indexOf("window.addEventListener('daily-store-ready'")
+  );
+  assert.match(refreshFn, /publishLimanFromStore\(true/);
+  assert.match(clientCode, /beginRefresh\(chosenNames, null, true\)/);
+});
 
 test('same-date Excels keep their own file on refresh (no YD28 swap)', () => {
   const bind = new Function(

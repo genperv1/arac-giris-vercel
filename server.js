@@ -1172,6 +1172,25 @@ app.get(["/liman", "/liman.html"], (req, res) => {
   res.sendFile(path.join(__dirname, "public", "liman.html"));
 });
 
+const CLOSED_DRIVER_PAGES = new Set([
+  '/sofor-panel', '/sofor-panel.html',
+  '/sofor-admin', '/sofor-admin.html',
+  '/driver-card', '/driver-card.html',
+]);
+
+app.use((req, res, next) => {
+  const p = requestPath(req);
+  if (p === '/api/driver-login' || p.startsWith('/api/driver-login/') || p.startsWith('/api/driver-panel')) {
+    return res.status(410).json({ ok: false, error: 'Şoför girişi kapatıldı.' });
+  }
+  if (!CLOSED_DRIVER_PAGES.has(p)) return next();
+  res.status(410).type('html').send(
+    '<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>Giriş kapalı</title></head>'
+    + '<body style="font-family:Segoe UI,sans-serif;background:#f8fafc;color:#0f172a;display:flex;min-height:100vh;align-items:center;justify-content:center">'
+    + '<p>Şoför girişi kapatılmıştır. Bu ekrandan sisteme girilemez.</p></body></html>'
+  );
+});
+
 // ✅ STATIC FILES: Serve only public directory (short cache for hashed-free assets)
 app.use(
   express.static(path.join(__dirname, 'public'), {
@@ -1308,10 +1327,7 @@ const routeCtx = {
 
 registerAuthRoutes(api, routeCtx);
 registerOzmalRoutes(api, routeCtx);
-if (DRIVER_SEFER_PANEL_ENABLED) {
-  registerDriverAuthRoutes(api, routeCtx);
-  registerDriverTripRoutes(api, routeCtx);
-}
+// Şoför dış girişi kapatıldı. DRIVER_SEFER_PANEL_ENABLED artık bu uçları açmaz.
 
 // İmza görselleri — <img> Authorization gönderemez; auth öncesi public
 registerSignatureImageRoute(api, routeCtx);
@@ -2364,9 +2380,7 @@ function startServerWithPortFallback(basePort) {
         console.log(`⚠️ Port ${basePort} dolu olduğu için ${port} kullanılıyor.`);
       }
       console.log(`✅ Server listening on http://localhost:${port}`);
-      if (!DRIVER_SEFER_PANEL_ENABLED) {
-        console.log('ℹ️ Şoför sefer paneli kapalı (DRIVER_SEFER_PANEL_ENABLED=true ile açılır)');
-      }
+      console.log('ℹ️ Şoför dış girişi kapalı');
     });
 
     server.on('error', (err) => {
