@@ -22,6 +22,7 @@ const { applySupabaseSecurity } = require('./lib/supabase-security');
 const { createAuthSessionMiddleware, extractAuthTokenFromRequest } = require('./lib/auth-session');
 const { createClientSiteResolver } = require('./lib/client-site');
 const { applyTrustProxy, resolveClientIp, normalizeClientIp: normalizeIp } = require('./lib/client-ip');
+const { isConnectionDrop, isRetryableDbError, isReadOnlyQuery, retryQuery, errorCode: dbErrorCode } = require('./lib/pg-retry');
 const {
   sanitizeString,
   validateEmail,
@@ -150,11 +151,17 @@ const pool = new Pool({
   statement_timeout: PG_STATEMENT_TIMEOUT,
 });
 
-// ✅ POOL EVENT HANDLERS: Monitor pool health and catch errors
-pool.on('error', (err, client) => {
-  console.error('❌ Unexpected pool error on idle client:', err.message || err);
-  console.error('Client info:', client ? 'Active' : 'Unknown');
-  // Don't exit the process on pool errors - let the pool handle reconnection
+// Boşta kalan istemci kopunca havuz onu atar. Kısa süre sonra yeni bağlantı yoklanır.
+// Uyku, replica ve bölge ayarına dokunulmaz.
+let poolReconnectTimer = null;
+pool.on('error', (err) => {
+  const code = dbErrorCode(err).replace(/[^\w]/g, '').slice(0, 16) || 'db';
+  console.error('PostgreSQL idle client dropped:', code);
+  clearTimeout(poolReconnectTimer);
+  poolReconnectTimer = setTimeout(() => {
+    checkPoolHealth().catch(() => {});
+  }, 750);
+  if (poolReconnectTimer.unref) poolReconnectTimer.unref();
 });
 
 pool.on('connect', (client) => {
@@ -216,42 +223,6 @@ async function checkPoolHealth() {
     return false;
   }
 }
-
-function isRetryableDbError(err) {
-  const code = String(err?.code || '').toUpperCase();
-  const msg = String(err?.message || '');
-  const retryableCodes = new Set([
-    'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET',
-    '08006', '57P01', '57P03', '40001'
-  ]);
-  return retryableCodes.has(code) || /Connection terminated|terminat|reset/i.test(msg);
-}
-
-function isReadOnlyQuery(text) {
-  const q = String(text || '').trim().toUpperCase();
-  return q.startsWith('SELECT') || q.startsWith('WITH');
-}
-
-// ✅ RETRY WRAPPER: Retry failed queries with exponential backoff + jitter
-async function retryQuery(queryFn, maxRetries = 3, baseDelay = 250) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await queryFn();
-    } catch (err) {
-      const isLastAttempt = attempt === maxRetries;
-      const isRetryable = isRetryableDbError(err);
-      
-      if (isLastAttempt || !isRetryable) {
-        throw err;
-      }
-      
-      const delay = Math.round((baseDelay * Math.pow(2, attempt - 1)) + Math.random() * 150);
-      console.warn(`⚠️ Query failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms:`, err.message);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
-
 
 async function prepareSchema() {
   console.log('🔧 Preparing database schema...');
@@ -738,7 +709,9 @@ async function q(text, params = [], options = {}) {
   };
 
   try {
-    const result = retry ? await retryQuery(queryFn) : await queryFn();
+    const result = await retryQuery(queryFn, retry ? 3 : 2, 250, {
+      allow: (err) => (retry ? isRetryableDbError(err) : isConnectionDrop(err)),
+    });
     if (isKvSelect(text) && typeof kvKey === 'string' && !isBlockedKvKey(kvKey)) {
       setCachedKvValue(kvKey, result.rows[0] ? result.rows[0].value : null);
     } else if (isKvDelete(text) && typeof kvKey === 'string') {
