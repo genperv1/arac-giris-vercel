@@ -21,6 +21,7 @@ const { pgSsl } = require('./lib/pg-ssl');
 const { applySupabaseSecurity } = require('./lib/supabase-security');
 const { createAuthSessionMiddleware, extractAuthTokenFromRequest } = require('./lib/auth-session');
 const { createClientSiteResolver } = require('./lib/client-site');
+const { applyTrustProxy, resolveClientIp, normalizeClientIp: normalizeIp } = require('./lib/client-ip');
 const {
   sanitizeString,
   validateEmail,
@@ -756,6 +757,8 @@ async function q(text, params = [], options = {}) {
 }
 
 const app = express();
+// Railway tek hop. true değil: sahte X-Forwarded-For hız sınırını aşamasın.
+applyTrustProxy(app);
 
 // Cloudflare gizli origin başlığı. off iken etkisiz. Railway /health yolu muaf;
 // Host başlığı hiçbir yolu muaf etmez. API, SSE, Excel ajanı ve statik dosyadan önce.
@@ -938,20 +941,13 @@ function saveBannedIps() {
   }
 }
 
-// Get client IP (considering proxy headers)
+// Gerçek istemci: Railway hopu + yalnızca Cloudflare kenarından CF-Connecting-IP.
 function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0].trim() ||
-         req.headers['x-real-ip'] ||
-         req.connection.remoteAddress ||
-         'unknown';
+  return resolveClientIp(req);
 }
 
 function normalizeClientIp(ip) {
-  const s = String(ip || '').trim();
-  if (!s) return 'unknown';
-  if (s === '::1' || s === '::ffff:127.0.0.1') return '127.0.0.1';
-  if (s.startsWith('::ffff:')) return s.slice(7);
-  return s;
+  return normalizeIp(ip) || 'unknown';
 }
 
 function isLoopbackIp(ip) {
@@ -1240,6 +1236,7 @@ const loginEndpointLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const sessionRenewLimiter = rateLimit({
@@ -1247,6 +1244,7 @@ const sessionRenewLimiter = rateLimit({
   max: envNumber('SESSION_RENEW_BURST_MAX', 30, { min: 5, max: 200 }),
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Auth initialization (JWT). Uses user.js helper which expects `q`.

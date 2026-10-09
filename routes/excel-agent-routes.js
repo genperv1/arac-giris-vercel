@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { rateLimitKey } = require('../lib/client-ip');
 const { siteFromUsername } = require('../lib/kantar-nudge');
 const {
   MAX_UPLOAD_BYTES,
@@ -91,6 +92,7 @@ function registerExcelAgentRoutes(api, ctx) {
     max: 120,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => rateLimitKey(req),
   });
 
   function requireAgentKey(req, res, next) {
