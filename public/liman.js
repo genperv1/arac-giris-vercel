@@ -328,24 +328,6 @@
     return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear();
   }
 
-  function todayKey() {
-    var d = new Date();
-    var p = function (n) { return (n < 10 ? '0' : '') + n; };
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
-  }
-
-  /** Liman dolum tarihi bugünse bu, günün listesidir. */
-  function tabIsToday(tab) {
-    var key = todayKey();
-    var re = /(\d{2})\.(\d{2})\.(\d{4})/g;
-    var text = tabDolumText(tab);
-    var m;
-    while ((m = re.exec(text))) {
-      if (m[3] + '-' + m[2] + '-' + m[1] === key) return true;
-    }
-    return false;
-  }
-
   /** Kapatmadan önce amirin görmesi gerekenler: içeride kalan, irsaliyesi boş, gelmeyen araç. */
   function closeWarnings(day) {
     var inside = 0;
@@ -515,6 +497,15 @@
     return limanGidenKg(row.gidenTonaj || row.giden) >= 1000;
   }
 
+  /** Araç listeye geldiyse: içeride, dışarıda, kantara girmiş veya çıkmış. */
+  function rowArrived(row) {
+    if (!row) return false;
+    if (rowDeparted(row) || row._printedInside) return true;
+    var durum = String(row.durum || '').trim();
+    if (/^(İÇERİDE|ICERIDE|DIŞARIDA|DISARIDA)$/i.test(durum)) return true;
+    return !!String(row.kantarGiris || '').trim();
+  }
+
   function blockProgress(block) {
     var rows = block.rows || [];
     var done = rows.filter(rowDeparted).length;
@@ -530,10 +521,13 @@
     });
   }
 
-  /** Sekmedeki her sevkiyat bloğunda bütün araçlar çıktıysa liste bitmiştir. */
+  /** Sekmedeki her araç geldiyse liste biter. Çıkış beklenmez; gelmeyen araç varsa devam eder. */
   function tabShipmentsDone(tab) {
     var blocks = tabBlocks(tab);
-    return blocks.length > 0 && blocks.every(function (block) { return blockProgress(block).complete; });
+    return blocks.length > 0 && blocks.every(function (block) {
+      var rows = block.rows || [];
+      return rows.length > 0 && rows.every(rowArrived);
+    });
   }
 
   var TR_DAYS = ['PAZAR', 'PAZARTESİ', 'SALI', 'ÇARŞAMBA', 'PERŞEMBE', 'CUMA', 'CUMARTESİ'];
@@ -752,17 +746,20 @@
       html += '<button type="button" class="chip' + (state.port === port ? ' is-on' : '') + '" data-port="' + esc(port) + '">' + esc(port) + '</button>';
     });
     $('ports').innerHTML = html;
-    $('sheetTabs').innerHTML = sheetTabs().map(function (t) {
+    var tabs = sheetTabs();
+    var current = tabs[0] || null;
+    $('sheetTabs').innerHTML = tabs.map(function (t) {
       var on = t.dateKey === state.day && (!t.file || state.file === t.file);
       var done = tabShipmentsDone(t);
       var dolum = tabDolumText(t);
-      var today = tabIsToday(t);
-      return '<button type="button" class="tab' + (on ? ' is-on' : '') + (done ? ' is-done' : '') + (today ? ' is-today' : '') + '" data-day="' + esc(t.dateKey) + '"' +
+      var currentLoad = !!(current && t.dateKey === current.dateKey && (t.file || '') === (current.file || ''));
+      return '<button type="button" class="tab' + (on ? ' is-on' : '') + (done ? ' is-done' : ' is-live') + '" data-day="' + esc(t.dateKey) + '"' +
         (t.file ? ' data-file="' + esc(t.file) + '"' : '') + '>' +
-        (today ? '<span class="tab-star" aria-hidden="true">★</span>' : '') +
-        (done ? '<span class="tab-done">tamamlandı</span>' : '') +
+        '<span class="' + (done ? 'tab-done' : 'tab-live') + '">' + (done ? 'tamamlandı' : 'devam ediyor') + '</span>' +
         (dolum ? '<span class="tab-dolum">' + esc(dolum) + '</span>' : '') +
-        '<span class="tab-date">' + esc(t.label) + '</span></button>';
+        '<span class="tab-date">' + esc(t.label) +
+          (currentLoad ? '<span class="tab-star" aria-hidden="true">★</span>' : '') +
+        '</span></button>';
     }).join('');
   }
 
@@ -844,10 +841,7 @@
     }
     var day = activeDay();
     var dayKey = (day || {}).dateKey || '';
-    var showingToday = sheetTabs().some(function (t) {
-      return tabIsToday(t) && t.dateKey === dayKey && (!t.file || !state.file || state.file === t.file);
-    });
-    $('list').innerHTML = '<div class="sheet' + (showingToday ? ' is-today' : '') + '">' + blocks.map(function (block) {
+    $('list').innerHTML = '<div class="sheet">' + blocks.map(function (block) {
       // Taşıyıcı (AKYÜZ, GPM…) yalnız amire görünür
       var tasiyici = state.canEdit ? String(block.tasiyici || '').trim() : '';
       var rowTasiyici = state.canEdit && (block.rows || []).some(function (row) { return row.tasiyici; });

@@ -120,14 +120,14 @@
     .gelmeyen .g-rem { margin-top: 4px; font-size: .82rem; color: #c2410c; }
     .multi-line { margin: 0; padding: 4px 10px; background: #fffaf3; color: #b45309; border-top: 1px solid #f5e1c8; font-size: .78rem; font-weight: 500; }
     .empty { padding: 28px 12px; color: #3f6212; }
-    .sheet.is-today { padding: 16px 12px 2px; border-radius: 14px; background: linear-gradient(#fffdf8, #fffdf8) padding-box, linear-gradient(145deg, #f8e7b0, #c6a15a 42%, #fff1c9 68%, #a67c2d) border-box; border: 1.5px solid transparent; box-shadow: 0 16px 36px rgba(92, 67, 20, .1); }
     .tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: 2px; background: #e5e7eb; border-top: 1px solid #9ca3af; padding: 3px 8px 4px; overflow-x: auto; }
     .tab { display: inline-flex; flex-direction: column; align-items: center; justify-content: flex-end; background: #f3f4f6; border: 1px solid #9ca3af; border-top: 0; padding: 3px 12px 4px; font: inherit; font-size: .8rem; font-weight: 700; color: #374151; cursor: pointer; line-height: 1.15; }
     .tab.is-on { background: #fff; color: #14532d; box-shadow: inset 0 -3px 0 #16a34a; }
-    .tab.is-today { background: linear-gradient(180deg, #fffdf6 0%, #f3e2b0 100%); border-color: #c6a15a; color: #3f3422; box-shadow: 0 8px 18px rgba(120, 90, 24, .16), inset 0 1px 0 rgba(255,255,255,.9); z-index: 1; }
-    .tab.is-today.is-on { background: linear-gradient(180deg, #fff8e4 0%, #e8cc86 100%); box-shadow: 0 8px 18px rgba(120, 90, 24, .2), inset 0 -3px 0 #b8892e, inset 0 1px 0 rgba(255,255,255,.9); }
-    .tab-star { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-bottom: 3px; border-radius: 999px; background: linear-gradient(160deg, #fff6d4, #e4c56a 46%, #b8892e); color: #5c4314; font-size: 9px; line-height: 1; box-shadow: 0 1px 2px rgba(92, 67, 20, .35), inset 0 1px 0 rgba(255,255,255,.85); }
-    .tab-done { display: block; margin-bottom: 1px; font-size: .68rem; font-weight: 800; letter-spacing: .01em; color: #166534; line-height: 1; }
+    .tab-date { display: inline-flex; align-items: center; gap: 4px; }
+    .tab-star { color: #b45309; font-size: .95rem; line-height: 1; }
+    .tab-done, .tab-live { display: block; margin-bottom: 1px; font-size: .68rem; font-weight: 800; letter-spacing: .01em; line-height: 1; }
+    .tab-done { color: #166534; }
+    .tab-live { color: #c2410c; }
     .tab-dolum { display: block; margin: 1px 0 2px; max-width: 220px; font-size: .62rem; font-weight: 700; color: #14532d; line-height: 1.15; white-space: normal; }
     table.grid td.durum { color: #c2410c; font-weight: 700; }
     table.grid td.durum.is-out { color: #166534; }
@@ -357,7 +357,7 @@
   <script src="liman-gate.js?v=20261009-kapi"></script>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
   <script src="liman-xlsx.js?v=20261008-sagtaraf"></script>
-  <script src="liman.js?v=20261009-kapi"></script>
+  <script src="liman.js?v=20261009-yildiz"></script>
   <script>
     (function () {
       function esc(value) {
