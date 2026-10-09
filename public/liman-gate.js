@@ -37,6 +37,23 @@
     } catch (e) { /* ignore */ }
   }
 
+  async function hasAppSession() {
+    var res;
+    try {
+      res = await fetch('/api/me', {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+    } catch (e) {
+      return false;
+    }
+    if (!res.ok) return false;
+    var data = {};
+    try { data = await res.json(); } catch (e) { return false; }
+    return !!(data && data.ok && data.user);
+  }
+
   async function login(username, password) {
     var res;
     try {
@@ -64,6 +81,7 @@
     isUnlocked: isUnlocked,
     markUnlocked: markUnlocked,
     clearUnlock: clearUnlock,
+    hasAppSession: hasAppSession,
     login: login
   };
 

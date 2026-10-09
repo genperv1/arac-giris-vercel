@@ -287,7 +287,7 @@
   </style>
 </head>
 <body class="liman-locked">
-  <section id="limanGate" class="liman-gate" aria-label="Liman girişi">
+  <section id="limanGate" class="liman-gate" aria-label="Liman girişi" hidden>
     <div class="liman-gate__card">
       <h2>Liman girişi</h2>
       <p>Size verilen ID ve şifreyi girin.</p>
@@ -325,7 +325,7 @@
   </div>
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
-  <script src="liman-gate.js?v=20261009-gozetmen"></script>
+  <script src="liman-gate.js?v=20261009-oturum"></script>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
   <script src="liman-xlsx.js?v=20261008-sagtaraf"></script>
   <script src="liman.js?v=20261009-bbt-status2"></script>
@@ -337,11 +337,25 @@
         document.body.classList.remove('liman-locked');
         if (window.LimanPage && typeof window.LimanPage.start === 'function') window.LimanPage.start();
       }
-      function boot() {
+      async function boot() {
         if (window.LimanGate && window.LimanGate.isUnlocked()) {
           openPage();
           return;
         }
+        var session = false;
+        try {
+          session = window.LimanGate && typeof window.LimanGate.hasAppSession === 'function'
+            ? await window.LimanGate.hasAppSession()
+            : false;
+        } catch (e) {
+          session = false;
+        }
+        if (session) {
+          openPage();
+          return;
+        }
+        var gate = document.getElementById('limanGate');
+        if (gate) gate.hidden = false;
         var form = document.getElementById('limanGateForm');
         if (!form) return;
         form.addEventListener('submit', async function (e) {
