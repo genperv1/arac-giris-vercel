@@ -1666,6 +1666,9 @@ try { window.applyLimanDropFiles = applyLimanDropFiles; } catch (e) {}
  * Döner: { sent:false, reason } | { sent:true, ok, status, unchanged, site, error }
  * Güncelle sonrası kantar bunun sonucunu görür; sessiz yutulmaz.
  */
+var _limanSnapFlight = null;
+var _limanSnapKey = '';
+
 function publishLimanSnapshot(rows, meta, opts) {
   try {
     const site = limanPublishSite(rows);
@@ -1709,11 +1712,13 @@ function publishLimanSnapshot(rows, meta, opts) {
     if (!force && sentBefore.split('|')[0] === stamp && Date.now() - sentAt < 6 * 60 * 60 * 1000) {
       return Promise.resolve({ sent: false, reason: 'same' });
     }
+    // Kayıt ve Güncelle aynı listeyi peş peşe basmasın. İlki yoldayken ikincisi ağa çıkmaz.
+    if (!force && _limanSnapFlight && _limanSnapKey === stamp) return _limanSnapFlight;
     // 401 gelirse SessionManager cihaz anahtarıyla oturumu yeniler ve isteği bir kez tekrarlar
     const doFetch = (window.SessionManager && typeof window.SessionManager.fetchWithSession === 'function')
       ? window.SessionManager.fetchWithSession.bind(window.SessionManager)
       : fetch;
-    return doFetch('/api/liman/snapshot', {
+    const flight = doFetch('/api/liman/snapshot', {
       method: 'PUT',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -1738,6 +1743,14 @@ function publishLimanSnapshot(rows, meta, opts) {
         error: res.ok ? '' : String((data && (data.error || data.message)) || ('HTTP ' + res.status)),
       };
     }).catch((err) => ({ sent: true, ok: false, status: 0, error: (err && err.message) || 'Bağlantı yok' }));
+    _limanSnapKey = stamp;
+    _limanSnapFlight = flight.finally(() => {
+      if (_limanSnapKey === stamp) {
+        _limanSnapFlight = null;
+        _limanSnapKey = '';
+      }
+    });
+    return _limanSnapFlight;
   } catch (e) {
     return Promise.resolve({ sent: false, reason: 'error', error: e && e.message });
   }
@@ -1806,13 +1819,12 @@ try { window.publishLimanFromStore = publishLimanFromStore; } catch (e) {}
 try { window.sendLimanHeartbeat = sendLimanHeartbeat; } catch (e) {}
 
 if (typeof window !== 'undefined' && typeof location !== 'undefined' && !/\/liman(\.html)?$/i.test(String(location.pathname || ''))) {
-  // Açılıştan kısa süre sonra: liste gönderimi + ilk nabız (amir 10 dk beklemeden "kantar bağlı" görsün)
+  // Açılışta listeyi ayrıca basma. 15 sn sonraki Excel okuması değiştiyse bir kez gönderir.
   setTimeout(() => {
     try {
       const loggedIn = (typeof window.isAppLoggedIn === 'function') ? window.isAppLoggedIn() : (localStorage.getItem('isLoggedIn') === 'true');
       if (!loggedIn) return;
     } catch (e) { return; }
-    Promise.resolve(publishLimanFromStore()).catch(() => {});
     Promise.resolve(sendLimanHeartbeat()).catch(() => {});
   }, 5000);
 }

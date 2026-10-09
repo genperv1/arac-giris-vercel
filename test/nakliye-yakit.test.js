@@ -8,6 +8,8 @@ const {
   pickMotorin,
   buildMazotPayload,
   parseOsrmRoute,
+  parseOsrmRoutes,
+  yanNokta,
   yolTahminiKm,
   turkiyeIcinde,
   samePlaceName,
@@ -100,6 +102,26 @@ test('karayolu cevabından km ve süre okunur', () => {
   assert.equal(route.sureDk, 304);
   assert.equal(route.kaynak, 'karayolu');
   assert.equal(route.cizgi.length, 2);
+});
+
+test('birden fazla karayolu cevabı ayrı ayrı okunur', () => {
+  const yollar = parseOsrmRoutes({
+    routes: [
+      { distance: 300000, duration: 10800, geometry: { coordinates: [[30, 39], [32, 39.2]] } },
+      { distance: 340000, duration: 12000, geometry: { coordinates: [[30, 39], [31, 40], [32, 39.2]] } },
+    ],
+  });
+  assert.equal(yollar.length, 2);
+  assert.equal(yollar[0].km, 300);
+  assert.equal(yollar[1].km, 340);
+  assert.equal(yollar[1].sureDk, 200);
+});
+
+test('yan nokta doğu-batı yolunun kuzeyine kayar', () => {
+  const via = yanNokta([[30, 39], [31, 39], [32, 39], [33, 39]], 55);
+  assert.ok(via);
+  assert.ok(via.lat > 39.3 && via.lat < 39.8);
+  assert.ok(Math.abs(via.lon - 32) < 0.2);
 });
 
 test('kuş uçuşu tahmini Türkiye içi iki nokta için yol payı ekler', () => {

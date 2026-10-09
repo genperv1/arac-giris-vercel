@@ -141,6 +141,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
   let version = '';
   let sheetStamp = '';
   let heartbeatStamp = '';
+  let heartbeatBrief = {};
   let stampsLoadedAt = 0;
   let stampsPromise = null;
   let printMarkCache = { at: 0, value: null };
@@ -552,6 +553,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
   function rememberStamps(state) {
     sheetStamp = sheetStampOf(state);
     heartbeatStamp = heartbeatStampOf(state);
+    heartbeatBrief = heartbeatBriefOf(state);
     stampsLoadedAt = Date.now();
   }
 
@@ -600,6 +602,26 @@ function registerLimanRoutes(api, ctx, publicApp) {
   /** Kantar nabzı. Liste damgasını değiştirmez; amir ekranındaki Excel durumu bunu izler. */
   function heartbeatStampOf(state) {
     return crypto.createHash('sha1').update(JSON.stringify(heartbeats(state))).digest('hex').slice(0, 12);
+  }
+
+  /** Nabız özeti: liman sayfası tam listeyi indirmeden Excel durumunu günceller. */
+  function heartbeatBriefOf(state) {
+    const hb = heartbeats(state);
+    const out = {};
+    SITES.forEach((site) => {
+      const beat = hb[site] || null;
+      const snap = state && state.sites && state.sites[site];
+      if (!beat && !snap) return;
+      out[site] = {
+        heartbeatAt: (beat && beat.at) || '',
+        heartbeatReadOk: beat && typeof beat.readOk === 'boolean' ? beat.readOk : null,
+        heartbeatReadReason: (beat && beat.readReason) || '',
+        heartbeatReadOkAt: (beat && beat.readOkAt) || '',
+        receivedAt: (snap && (snap.receivedAt || snap.updatedAt)) || '',
+        updatedAt: (snap && snap.updatedAt) || '',
+      };
+    });
+    return out;
   }
 
   function noStore(res) {
@@ -731,7 +753,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       await ensureStamps();
       const lastPrint = await lastPrintMark();
       noStore(res);
-      return res.json({ v: version, p: lastPrint, s: sheetStamp, h: heartbeatStamp });
+      return res.json({ v: version, p: lastPrint, s: sheetStamp, h: heartbeatStamp, hb: heartbeatBrief });
     } catch (err) {
       return sendApiError(res, err, 500, 'LIMAN_VERSION_FAILED');
     }

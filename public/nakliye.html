@@ -57,12 +57,21 @@
     .nk-il.is-to { fill: #8fcec2; filter: none; }
     .nk-il.is-both { fill: #e0b07a; filter: none; }
     .nk-il.is-dim { fill: #e7e2d8; stroke: #d6d0c6; }
-    .nk-route-case, .nk-route, .nk-route-dash, .nk-route-air, .nk-end, .nk-pin-label, .nk-il-label { pointer-events: none; }
+    .nk-route-case, .nk-route, .nk-route-dash, .nk-route-air, .nk-route-alt, .nk-end, .nk-pin-label, .nk-il-label, .nk-bridge { pointer-events: none; }
     .nk-il-label { text-anchor: middle; dominant-baseline: middle; font-family: "Segoe UI", sans-serif; paint-order: stroke; stroke-linejoin: round; fill: #3d4a34; font-weight: 700; stroke: #f7fbf2; }
     .nk-route-case { fill: none; stroke: #4a433c; stroke-width: 6.6; stroke-linecap: round; stroke-linejoin: round; }
     .nk-route { fill: none; stroke: #f0c84a; stroke-width: 3.7; stroke-linecap: round; stroke-linejoin: round; }
     .nk-route-dash { fill: none; stroke: #fffdf6; stroke-width: 1.05; stroke-linecap: butt; stroke-dasharray: 8 7; }
     .nk-route-air { fill: none; stroke: #475569; stroke-width: 2.2; stroke-dasharray: 5 6; stroke-linecap: round; }
+    .nk-route-alt { fill: none; stroke: #64748b; stroke-width: 2.6; stroke-dasharray: 5 6; stroke-linecap: round; stroke-linejoin: round; }
+    .nk-yollar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+    .nk-yollar:empty { display: none; }
+    .nk-yol { border: 1px solid #d6d3d1; background: #fff; border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: #1c1917; }
+    .nk-yol.is-on { background: #1c1917; border-color: #1c1917; color: #fff7ed; }
+    .nk-gecilen { margin: 8px 2px 0; font-size: 13px; color: #3f4a34; line-height: 1.4; }
+    .nk-gecilen:empty { display: none; }
+    .nk-dolum { margin: 8px 0 0; font-size: 13px; color: #1c1917; background: #f4f7f5; border-radius: 8px; padding: 8px 10px; line-height: 1.4; }
+    .nk-dolum:empty { display: none; }
     .nk-end { stroke: #fff; stroke-width: 2; }
     .nk-end.is-from { fill: #c2410c; }
     .nk-end.is-to { fill: #0f766e; }
@@ -71,6 +80,16 @@
     .nk-dot.is-to { fill: #0f766e; }
     .nk-dot.is-plain { fill: #1c1917; }
     .nk-pin-label { font-size: 11px; font-weight: 700; fill: #1c1917; paint-order: stroke; stroke: #fff; stroke-width: 3; }
+    .nk-port { cursor: pointer; }
+    .nk-port-mark { fill: #0c4a6e; stroke: #fff; stroke-width: 1.4; }
+    .nk-port.is-to .nk-port-mark { fill: #0f766e; }
+    .nk-port-label { font-size: 10px; font-weight: 750; fill: #0c4a6e; paint-order: stroke; stroke: #f7fbff; stroke-width: 3px; }
+    .nk-bridge-mark { fill: #9a3412; stroke: #fff; stroke-width: 1.2; }
+    .nk-bridge-mark.is-ban { fill: #78716c; }
+    .nk-bridge-label { font-size: 10px; font-weight: 800; fill: #9a3412; paint-order: stroke; stroke: #fff7ed; stroke-width: 3px; }
+    .nk-bridge-label.is-ban { fill: #57534e; }
+    .nk-kopru { margin: 8px 2px 0; font-size: 13px; color: #7c2d12; line-height: 1.45; }
+    .nk-kopru:empty { display: none; }
     .nk-side h2 { margin: 0 0 8px; font-size: 15px; }
     .nk-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
     .nk-tab { text-align: left; }
@@ -148,7 +167,7 @@
       <div>
         <div class="nk-kicker">Tır nakliyesi</div>
         <h1 class="nk-title">Nakliye</h1>
-        <p class="nk-sub">Çıkışı tek tıkla seçin, varışı il ve ilçe olarak işaretleyin.</p>
+        <p class="nk-sub">Çıkışı tek tıkla seçin. Varış il, ilçe veya liman olsun.</p>
       </div>
       <div class="nk-header-side">
         <div class="nk-amir">Şaban Lahaçlar</div>
@@ -160,9 +179,12 @@
   <main class="nk-wrap">
     <section class="nk-card nk-map-card">
       <div class="nk-map-bar">
-        <p id="nkMapHint">Haritada il adları durur. İlçeyi sağdaki listeden seçin.</p>
+        <p id="nkMapHint">Limanlar haritada. Bir limana basınca varış orası olur.</p>
       </div>
+      <div id="nkYollar" class="nk-yollar"></div>
       <svg id="nkMap" class="nk-svg" viewBox="0 0 1000 460" role="img" aria-label="Türkiye haritası"></svg>
+      <p id="nkGecilen" class="nk-gecilen"></p>
+      <p id="nkKopru" class="nk-kopru"></p>
     </section>
 
     <section class="nk-card nk-side">
@@ -182,6 +204,8 @@
         <div id="nkSuggest" class="nk-suggest" hidden></div>
       </div>
       <div id="nkIlceList" class="nk-ilce-list"></div>
+      <h2 style="margin-top:14px">Liman</h2>
+      <div id="nkLimanlar" class="nk-ilce-list"></div>
 
       <h2 style="margin-top:14px">Tır tüketimi</h2>
       <div class="nk-presets" id="nkPresets">
@@ -193,11 +217,16 @@
         <input id="nkLitre" class="nk-price-input" inputmode="decimal" value="35">
       </label>
       <label class="nk-check"><input id="nkDonus" type="checkbox"> Gidiş-dönüş</label>
+      <label class="nk-field">Yola çıkış
+        <input id="nkCikisSaat" class="nk-price-input" type="time" value="08:00">
+      </label>
+      <p id="nkVarisSaat" class="nk-to-line">Varış saati karayolu süresinden hesaplanır.</p>
 
       <h2 style="margin-top:14px">Güncel mazot</h2>
       <p id="nkMazotNow" class="nk-mazot-now">—</p>
       <p id="nkMazotMeta" class="nk-sub" style="color:#57534e;margin:0 0 6px">OPET motorin fiyatı alınıyor.</p>
       <button type="button" class="nk-btn nk-btn--ghost" id="nkMazotBtn" title="Fiyatları internetten yenile"><i class="fas fa-sync-alt" aria-hidden="true"></i> Yenile</button>
+      <p id="nkDolum" class="nk-dolum"></p>
     </section>
 
     <section class="nk-results" aria-live="polite">
@@ -206,6 +235,7 @@
       <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Yüklü tır</small></div>
       <div class="nk-stat"><span>Tahmini tutar</span><b id="nkTutar">—</b><small id="nkFormula">km × litre / 100</small></div>
       <p class="nk-note">Çekici ve dorse için planlama hesabıdır. 35 L/100 km yüklü tır içindir; boşta 28, ağır yükte veya rampada 40 kullanılabilir. Gerçek tüketim yük, rölanti ve yola göre değişir.</p>
+      <p id="nkDunFark" class="nk-note"></p>
     </section>
 
     <section class="nk-card nk-prices">
@@ -215,6 +245,7 @@
     </section>
   </main>
 
-  <script src="nakliye.js?v=20261009-harita"></script>
+  <script src="nakliye-liman.js?v=20261009-liman"></script>
+  <script src="nakliye.js?v=20261009-liman"></script>
 </body>
 </html>

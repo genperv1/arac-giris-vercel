@@ -1257,13 +1257,23 @@
     });
   }
 
-  async function guncelle() {
+  function mergeSitePulse(hb) {
+    if (!hb || typeof hb !== 'object') return;
+    Object.keys(hb).forEach(function (site) {
+      state.sites[site] = Object.assign({}, state.sites[site] || {}, hb[site] || {});
+    });
+  }
+
+  async function guncelle(opts) {
     var gen = ++viewGeneration;
-    var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
-    // Oturumsuz çıkış akışı (liman görevlisi giriş yapmaz)
-    var res = await fetch(freshUrl('/api/liman/departed?since=' + since), { credentials: 'same-origin', cache: 'no-store' });
-    if (gen !== viewGeneration) return;
-    state.reports = res.ok ? await res.json() : (state.reports || []);
+    var pullDeparted = !opts || opts.departed !== false || !state.reports;
+    if (pullDeparted) {
+      var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
+      // Oturumsuz çıkış akışı (liman görevlisi giriş yapmaz). Baskı değişmediyse tekrar inmez.
+      var res = await fetch(freshUrl('/api/liman/departed?since=' + since), { credentials: 'same-origin', cache: 'no-store' });
+      if (gen !== viewGeneration) return;
+      state.reports = res.ok ? await res.json() : (state.reports || []);
+    }
     var data = await api('/api/liman');
     if (gen !== viewGeneration) return;
     applyView(data, gen);
@@ -1435,7 +1445,7 @@
         $('list').innerHTML = '<p class="empty">' + esc(err2.message || 'Liste açılamadı') + '</p>';
       }
     }
-    // Liman görevlisi telefondan bakıyor: Güncelle'ye basmadan liste kendi tazelenir.
+    // Telefon kotası: hareket varken 30 sn, sakinse 2 dk, uzun süre durgunsa 5 dk.
     setInterval(checkForChange, CHECK_MS);
     setInterval(function () { renderExcelStatus(); }, 60 * 1000);
     document.addEventListener('visibilitychange', function () {
@@ -1448,22 +1458,29 @@
     window.addEventListener('online', function () { checkForChange(true); });
   }
 
-  var CHECK_MS = 2 * 1000;           // damga değişti mi (hafif istek); tam liste yalnız o zaman iner
+  var CHECK_MS = 30 * 1000;
+  var POLL_QUIET_MS = 2 * 60 * 1000;
+  var POLL_IDLE_MS = 5 * 60 * 1000;
   var lastCheck = 0;
+  var lastListChangeAt = Date.now();
   var checking = false;
+  function pollGap() {
+    var quiet = Date.now() - lastListChangeAt;
+    if (quiet > 60 * 60 * 1000) return POLL_IDLE_MS;
+    if (quiet > 15 * 60 * 1000) return POLL_QUIET_MS;
+    return CHECK_MS;
+  }
   async function checkForChange(force) {
     if (checking) return;
-    if (!force && document.hidden) return;
-    if (!force && Date.now() - lastCheck < 1500) return;
+    if (document.hidden) return;
+    // Sekme aç-kapa da aynı süreyi delmesin. Son bakıştan erkense ağ yok.
+    var wait = force ? CHECK_MS : pollGap();
+    if (Date.now() - lastCheck < wait) return;
     var active = document.activeElement;
     if (active && active.matches && active.matches('[data-note]')) return;
     checking = true;
     lastCheck = Date.now();
     try {
-      if (force) {
-        await guncelle();
-        return;
-      }
       var info = await api('/api/liman/version');
       var printed = info && info.p != null && state.printMark != null && info.p !== state.printMark;
       var sheetChanged = info && info.s && state.sheetStamp && info.s !== state.sheetStamp;
@@ -1472,9 +1489,15 @@
       if (info && info.p != null) state.printMark = info.p;
       if (info && info.s && !state.sheetStamp) state.sheetStamp = info.s;
       if (info && info.h) state.heartStamp = info.h;
-      if (printed || sheetChanged || versionChanged || heartChanged) {
-        await guncelle();
+      if (printed || sheetChanged || versionChanged) {
+        lastListChangeAt = Date.now();
+        // Çıkış listesi (3 gün baskı) yalnız yeni takip formu basılınca iner. Tonaj güncellemesi onu tekrar çekmez.
+        await guncelle({ departed: !!printed || !state.reports });
         return;
+      }
+      if (heartChanged && info.hb) {
+        mergeSitePulse(info.hb);
+        renderExcelStatus();
       }
       setLive(true);
       renderExcelStatus();

@@ -1193,7 +1193,7 @@
       var limanNote = '';
       try {
         if (typeof window.publishLimanFromStore === 'function') {
-          var pub = await Promise.resolve(window.publishLimanFromStore(true, { keepDropped: true }));
+          var pub = await Promise.resolve(window.publishLimanFromStore(false, { keepDropped: true }));
           if (pub && pub.sent) {
             if (!pub.ok) {
               limanNote = pub.status === 401
@@ -1291,7 +1291,19 @@
     } catch (e) { return Promise.resolve(null); }
   }
 
-  async function autoRefreshTick() {
+  async function filesNeedRead() {
+    var sources = [];
+    try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
+    if (!sources.length) return false;
+    for (var i = 0; i < sources.length; i++) {
+      var key = handleKey(sources[i]);
+      var stamp = await grantedStamp(handleForName(sources[i]) || (sources.length === 1 ? _liveHandle : null));
+      if (!stamp || !_watchStamps[key] || _watchStamps[key] !== stamp) return true;
+    }
+    return false;
+  }
+
+  async function autoRefreshTick(opts) {
     if (_busy || _picking) return;
     if (typeof window.applyIhracatExcelReread !== 'function') return; // bu sayfa Excel'i işleyemez
     if (!isKantarSessionActive()) return;
@@ -1310,6 +1322,14 @@
     var sources = [];
     try { sources = listLoadedSourceNames(); } catch (e) { sources = []; }
     if (!sources.length) { heartbeat(false, { ok: false, reason: 'no-excel' }); return; }
+    if (opts && opts.onlyIfFileChanged) {
+      var needRead = true;
+      try { needRead = await filesNeedRead(); } catch (eNeed) { needRead = true; }
+      if (!needRead) {
+        heartbeat(true, { ok: true });
+        return;
+      }
+    }
     var read = { ok: false, reason: 'error' };
     _silentPermMissing = false;
     try {
@@ -1381,7 +1401,7 @@
     if (now - _lastWakeTickAt < WAKE_MIN_GAP_MS) return;
     _lastWakeTickAt = now;
     _lastTimerAt = now;
-    autoRefreshTick().catch(function () {});
+    autoRefreshTick({ onlyIfFileChanged: true }).catch(function () {});
   }
 
   function startAutoRefresh() {
@@ -1389,7 +1409,7 @@
     if (/\/liman(\.html)?$/i.test(String(location.pathname || ''))) return;
     window.__ihracatExcelAutoRefreshTimer = setInterval(function () {
       _lastTimerAt = Date.now();
-      autoRefreshTick().catch(function () {});
+      autoRefreshTick({ onlyIfFileChanged: true }).catch(function () {});
     }, AUTO_REFRESH_MS);
     setTimeout(function () { autoRefreshTick().catch(function () {}); }, FIRST_REFRESH_MS);
     setInterval(function () {
