@@ -35,16 +35,17 @@ test('resolveSecret production + yasaklı değerde durur', () => {
   }
 });
 
-test('resolveSecret production + eksik secret veritabanı adresinden türetmez', () => {
+test('resolveSecret production + eksik secret veritabanı adresinden türetir, sunucuyu düşürmez', () => {
   const prevNode = process.env.NODE_ENV;
   const prev = process.env.JWT_SECRET;
   process.env.NODE_ENV = 'production';
   delete process.env.JWT_SECRET;
   try {
-    assert.throws(
-      () => resolveSecret('JWT_SECRET', { fallback: 'dev_secret_change_me', forbidden: ['dev_secret_change_me'] }),
-      /DATABASE_URL/
-    );
+    const a = resolveSecret('JWT_SECRET', { fallback: 'dev_secret_change_me', forbidden: ['dev_secret_change_me'], deriveFrom: 'postgres://x' });
+    const b = resolveSecret('JWT_SECRET', { fallback: 'dev_secret_change_me', forbidden: ['dev_secret_change_me'], deriveFrom: 'postgres://x' });
+    assert.equal(a, b);
+    assert.notEqual(a, 'dev_secret_change_me');
+    assert.equal(a.length, 64);
   } finally {
     if (prev === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = prev;

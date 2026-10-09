@@ -14,8 +14,10 @@ test('CA verilince sertifika doğrulanır', () => {
   assert.doesNotMatch(ssl.ca, /\\n/);
 });
 
-test('üretimde CA yoksa bağlantı açılmaz', () => {
-  assert.throws(() => pgSsl({ NODE_ENV: 'production' }), /PG_SSL_CA/);
+test('CA yoksa bağlantı açık kalır, doğrulama kapalıdır', () => {
+  const ssl = pgSsl({ NODE_ENV: 'production' });
+  assert.equal(ssl.rejectUnauthorized, false);
+  assert.equal(ssl.ca, undefined);
 });
 
 test('CA dosyası okunur', () => {
