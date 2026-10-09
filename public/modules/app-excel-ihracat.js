@@ -1708,7 +1708,8 @@ function publishLimanSnapshot(rows, meta, opts) {
       disarida: !!(row && row.disarida),
     }));
     let fileName = (meta && (meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : ''))) || '';
-    if (limanDroppedStems().size) {
+    // Güncelle veriyi eksiksiz gönderir. Silinmiş dosyayı ayıklamak yalnız arka plan gönderimindedir.
+    if (limanDroppedStems().size && !(opts && opts.keepDropped)) {
       list = list.filter((row) => !limanSourceDropped(row && row.fileName));
       blocks = (blocks || []).filter((block) => !limanSourceDropped(block && block.fileName));
       fileName = String(fileName).split(/\s+\+\s+/).map((part) => part.trim()).filter((part) => part && !limanSourceDropped(part)).join(' + ');
@@ -1717,7 +1718,13 @@ function publishLimanSnapshot(rows, meta, opts) {
     if (!list.length && !(blocks && blocks.length)) {
       return Promise.resolve({ sent: false, reason: limanDroppedStems().size ? 'settled' : 'empty' });
     }
-    const body = JSON.stringify({ site, fileName, rows: list, blocks });
+    const body = JSON.stringify({
+      site,
+      fileName,
+      rows: list,
+      blocks,
+      confirmDrop: !!(opts && opts.confirmDrop),
+    });
     let sentBefore = '';
     try { sentBefore = localStorage.getItem('liman_last_sent_v1') || ''; } catch (e) {}
     const stamp = String(body.length) + ':' + _limanHash(body);
@@ -1750,6 +1757,7 @@ function publishLimanSnapshot(rows, meta, opts) {
         skipped: !!(data && data.skipped),
         settled: !!(data && data.settled),
         dropFiles: (data && data.dropFiles) || [],
+        dropPending: (data && data.dropPending) || [],
         site: (data && data.site) || site,
         error: res.ok ? '' : String((data && (data.error || data.message)) || ('HTTP ' + res.status)),
       };
@@ -1759,7 +1767,7 @@ function publishLimanSnapshot(rows, meta, opts) {
   }
 }
 
-function publishLimanFromStore(force) {
+function publishLimanFromStore(force, opts) {
   try {
     if (!window.DailyStore || typeof DailyStore.getRows !== 'function') {
       return Promise.resolve({ sent: false, reason: 'no-store' });
@@ -1769,7 +1777,11 @@ function publishLimanFromStore(force) {
       const rows = DailyStore.getRows() || [];
       if (!rows.length) return { sent: false, reason: 'empty' };
       const meta = typeof DailyStore.getMeta === 'function' ? (DailyStore.getMeta() || {}) : {};
-      return publishLimanSnapshot(rows, meta, { force: force === true });
+      return publishLimanSnapshot(rows, meta, {
+        force: force === true,
+        confirmDrop: !!(opts && opts.confirmDrop),
+        keepDropped: !!(opts && opts.keepDropped),
+      });
     }).catch((err) => ({ sent: false, reason: 'error', error: err && err.message }));
   } catch (e) {
     return Promise.resolve({ sent: false, reason: 'error', error: e && e.message });

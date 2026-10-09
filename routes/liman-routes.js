@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { SITES, normalizeSite, slimRow, emptyState, irsaliyeKey } = require('../lib/liman-merge');
-const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, dateKeyFromFileName, labelFromDateKey, settledFileLabels, withoutSettledFiles } = require('../lib/liman-sheet');
+const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retainDroppedBooks, fileLabelOf, dateKeyFromFileName, labelFromDateKey, labelsReadyToDelete, pendingDropLabels, confirmSettledLabels, withoutSettledFiles } = require('../lib/liman-sheet');
 const { buildArchiveFromPrints } = require('../lib/liman-archive-recover');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { canManageLimanList } = require('../lib/amir-user');
@@ -169,6 +169,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
       base.closedDays = pruneClosedDays(parsed.closedDays);
       if (parsed.heartbeats && typeof parsed.heartbeats === 'object') base.heartbeats = parsed.heartbeats;
       if (parsed.fileSeen && typeof parsed.fileSeen === 'object') base.fileSeen = parsed.fileSeen;
+      if (parsed.dropConfirmed && typeof parsed.dropConfirmed === 'object') base.dropConfirmed = parsed.dropConfirmed;
       (Array.isArray(parsed.pending) ? parsed.pending : []).forEach((p) => {
         const site = ipSite(p && p.ip) || normalizeSite(p && p.guess);
         if (!site || !p.snapshot) return;
@@ -505,7 +506,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
   function publicSites(state) {
     const out = {};
     const hb = heartbeats(state);
-    const doneFiles = settledFileLabels(state);
+    const doneFiles = labelsReadyToDelete(state);
     const openName = (raw) => withoutSettledFiles(raw, doneFiles);
     SITES.forEach((site) => {
       const snap = state.sites[site];
@@ -801,7 +802,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         const hb = Object.assign({}, heartbeats(state));
         const prev = hb[site] || {};
         const at = new Date().toISOString();
-        const openFile = withoutSettledFiles(sanitizeString(body.fileName || '', 180), settledFileLabels(state));
+        const openFile = withoutSettledFiles(sanitizeString(body.fileName || '', 180), labelsReadyToDelete(state));
         hb[site] = {
           at,
           user: sanitizeString((req.user && req.user.username) || '', 40),
@@ -823,7 +824,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
         ok: true,
         site,
         at: committed.at,
-        dropFiles: settledFileLabels(committed.state),
+        dropFiles: labelsReadyToDelete(committed.state),
       });
     } catch (err) {
       logEvent('error', req, { path: 'heartbeat', error: String(err && err.message || err) });
@@ -852,7 +853,13 @@ function registerLimanRoutes(api, ctx, publicApp) {
         return row.irsaliyeNo || row.plaka || row.headerText;
       });
       const incomingBlocks = blocks;
-      const dropSetOf = (state) => new Set(settledFileLabels(state).map((label) => label.toLowerCase()));
+      const confirmDrop = body.confirmDrop === true;
+      const dropInfo = (state) => ({
+        dropFiles: labelsReadyToDelete(state),
+        dropPending: pendingDropLabels(state),
+      });
+      // Silme kilidi yalnız ikinci Güncelle'den (veya amirin kapattığı günden) sonra. İlk gönderim veriyi yazar.
+      const dropSetOf = (state) => new Set(labelsReadyToDelete(state).map((label) => label.toLowerCase()));
       const blockIsSettled = (block, state) => {
         const label = (fileLabelOf(block && block.fileName) || fileLabelOf(fileName) || '').toLowerCase();
         return !!(label && dropSetOf(state).has(label));
@@ -874,12 +881,12 @@ function registerLimanRoutes(api, ctx, publicApp) {
         });
         const activeBlocks = incomingBlocks.filter((block) => !blockIsSettled(block, state) && !blockIsClosed(block, state, fileName));
         const activeRows = rows.filter((row) => !blockIsSettled(row, state) && !blockIsClosed(row, state, fileName));
-        // Tamamlanan Excel bir daha işlenmez: limandaki liste durur, kantar dosyayı siler.
+        // Onaylanmış (ikinci Güncelle) veya amirin kapattığı Excel bir daha işlenmez.
         if (incomingBlocks.length && !activeBlocks.length) {
-          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state) };
+          return Object.assign({ shortCircuit: true, unchanged: true, settled: true }, dropInfo(state));
         }
         if (!incomingBlocks.length && rows.length && !activeRows.length) {
-          return { shortCircuit: true, unchanged: true, settled: true, dropFiles: settledFileLabels(state) };
+          return Object.assign({ shortCircuit: true, unchanged: true, settled: true }, dropInfo(state));
         }
         // Boş gönderim (Excel silindi) listeyi silmez. Dolu gönderim: o dosya güncellenir, yeni kitap eklenir, eksik kitap durur.
         if (activeBlocks.length) {
@@ -900,7 +907,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
           snapshot.blocks = [];
           snapshot.rows = activeRows;
         }
-        const openLabels = settledFileLabels(Object.assign({}, state, {
+        const openLabels = labelsReadyToDelete(Object.assign({}, state, {
           sites: Object.assign({}, state.sites, { [site]: snapshot }),
         }));
         snapshot.fileName = withoutSettledFiles(snapshot.fileName || fileName, openLabels);
@@ -908,26 +915,28 @@ function registerLimanRoutes(api, ctx, publicApp) {
           && JSON.stringify(prev.blocks || []) === JSON.stringify(snapshot.blocks)
           && JSON.stringify(prev.rows || []) === JSON.stringify(snapshot.rows);
         noteFileSeen(state, snapshot);
-        const dropFiles = settledFileLabels(state);
         if (sameContent) {
           state.sites[site] = Object.assign({}, prev, { receivedAt: snapshot.updatedAt });
-          return { unchanged: true, silent: true, dropFiles };
+        } else {
+          snapshot.receivedAt = snapshot.updatedAt;
+          state.sites[site] = snapshot;
         }
-        snapshot.receivedAt = snapshot.updatedAt;
-        state.sites[site] = snapshot;
-        return { unchanged: false, dropFiles: settledFileLabels(state) };
+        // Veri yazıldıktan sonra: ancak bu istek "tekrar Güncelle" ise Excel silinsin.
+        if (confirmDrop) confirmSettledLabels(state, snapshotFileLabels(state.sites[site]));
+        return Object.assign({ unchanged: !!sameContent, silent: !!sameContent }, dropInfo(state));
       }, { silent: false });
       if (committed.conflict) return res.status(409).json({ ok: false, error: committed.error });
       const dropFiles = committed.dropFiles || [];
+      const dropPending = committed.dropPending || [];
       if (committed.settled) {
-        return res.json({ ok: true, site, unchanged: true, settled: true, dropFiles });
+        return res.json({ ok: true, site, unchanged: true, settled: true, dropFiles, dropPending });
       }
       if (committed.unchanged) {
         logEvent('unchanged', req, { site, fileName, rows: snapshotRowCount(snapshot) });
-        return res.json({ ok: true, site, unchanged: true, dropFiles });
+        return res.json({ ok: true, site, unchanged: true, dropFiles, dropPending });
       }
       logEvent('changed', req, { site, fileName, rows: snapshotRowCount(snapshot) });
-      return res.json({ ok: true, site, dropFiles });
+      return res.json({ ok: true, site, dropFiles, dropPending });
     } catch (err) {
       logEvent('error', req, { path: 'snapshot', error: String(err && err.message || err) });
       return sendApiError(res, err, 500, 'LIMAN_SNAPSHOT_FAILED');

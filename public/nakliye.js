@@ -315,13 +315,16 @@
     var svg = document.getElementById('nkMap');
     if (!state.geo) { svg.innerHTML = ''; return; }
     var box = TURKEY;
-    var html = '<defs><marker id="nkRoadArrow" markerUnits="strokeWidth" markerWidth="4.2" markerHeight="4.2" refX="3.1" refY="2.1" orient="auto">'
-      + '<path d="M0,0 L4.2,2.1 L0,4.2 Z" fill="#ea580c"></path></marker></defs>';
+    var html = '<defs>'
+      + '<linearGradient id="nkSea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7eafd0"/><stop offset="1" stop-color="#b9d6ea"/></linearGradient>'
+      + '<marker id="nkRoadArrow" markerUnits="strokeWidth" markerWidth="3.4" markerHeight="3.4" refX="2.6" refY="1.7" orient="auto">'
+      + '<path d="M0,0 L3.4,1.7 L0,3.4 Z" fill="#3f362e"></path></marker></defs>';
+    html += '<rect class="nk-sea" x="-500" y="-300" width="2000" height="1100" fill="url(#nkSea)"></rect>';
     var features = state.geo.features || [];
     for (var i = 0; i < features.length; i++) {
       var f = features[i];
       var plaka = Number(f.properties.number);
-      var cls = 'nk-il';
+      var cls = 'nk-il nk-land-' + (Math.abs(plaka) % 6);
       var fromHere = state.from && state.from.plaka === plaka;
       var toHere = state.to && state.to.plaka === plaka;
       if (fromHere && toHere) cls += ' is-both';
@@ -336,10 +339,15 @@
       var toName = state.to.ilce ? (state.to.il + ' / ' + state.to.ilce) : state.to.il;
       var road = roadPath(box);
       if (road) {
-        html += '<path class="nk-route-halo" vector-effect="non-scaling-stroke" d="' + road + '"></path>';
-        html += '<path class="nk-route" vector-effect="non-scaling-stroke" marker-end="url(#nkRoadArrow)" d="' + road + '"></path>';
-        var yol = state.route && state.route.kaynak === 'kus-ucusu' ? 'kuş uçuşu' : 'karayolu';
-        document.getElementById('nkMapHint').textContent = 'Buradan ' + fromName + ' → buraya ' + toName + ' · ' + yol;
+        var kus = state.route && state.route.kaynak === 'kus-ucusu';
+        if (kus) {
+          html += '<path class="nk-route-air" vector-effect="non-scaling-stroke" d="' + road + '"></path>';
+        } else {
+          html += '<path class="nk-route-case" vector-effect="non-scaling-stroke" d="' + road + '"></path>';
+          html += '<path class="nk-route" vector-effect="non-scaling-stroke" marker-end="url(#nkRoadArrow)" d="' + road + '"></path>';
+          html += '<path class="nk-route-dash" vector-effect="non-scaling-stroke" d="' + road + '"></path>';
+        }
+        document.getElementById('nkMapHint').textContent = 'Buradan ' + fromName + ' → buraya ' + toName + ' · ' + (kus ? 'kuş uçuşu' : 'karayolu');
       } else {
         document.getElementById('nkMapHint').textContent = 'Karayolu çiziliyor: ' + fromName + ' → ' + toName;
       }

@@ -42,18 +42,27 @@
     .nk-map-card { padding: 10px; }
     .nk-map-bar { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }
     .nk-map-bar p { margin: 0; font-size: 12px; color: #57534e; }
-    .nk-svg { width: 100%; height: auto; background: #faf7f2; border-radius: 10px; display: block; touch-action: none; cursor: grab; }
+    .nk-svg { width: 100%; height: auto; background: #8eb8d4; border-radius: 10px; display: block; touch-action: none; cursor: grab; }
     .nk-svg.is-drag { cursor: grabbing; }
-    .nk-il { fill: #44403c; stroke: #e7c27a; stroke-width: 0.8; cursor: pointer; }
-    .nk-il:hover { fill: #57534e; }
-    .nk-il.is-from { fill: #c2410c; }
-    .nk-il.is-to { fill: #0f766e; }
-    .nk-il.is-both { fill: #7c2d12; }
-    .nk-il.is-dim { fill: #d6d3d1; stroke: #a8a29e; }
-    .nk-route, .nk-route-halo, .nk-end, .nk-pin-label, .nk-il-label { pointer-events: none; }
-    .nk-il-label { text-anchor: middle; dominant-baseline: middle; font-family: "Segoe UI", sans-serif; paint-order: stroke; stroke-linejoin: round; fill: #fffaf3; font-weight: 700; stroke: #1c1917; }
-    .nk-route-halo { fill: none; stroke: #fff7ed; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
-    .nk-route { fill: none; stroke: #ea580c; stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
+    .nk-sea { pointer-events: none; }
+    .nk-il { stroke: #f4f1ea; stroke-width: 1.15; cursor: pointer; }
+    .nk-land-0 { fill: #d5e4c6; }
+    .nk-land-1 { fill: #e3ecd4; }
+    .nk-land-2 { fill: #cdddba; }
+    .nk-land-3 { fill: #e7f0da; }
+    .nk-land-4 { fill: #d0e0c2; }
+    .nk-land-5 { fill: #deebcf; }
+    .nk-il:hover { filter: brightness(0.95); }
+    .nk-il.is-from { fill: #f0c48a; filter: none; }
+    .nk-il.is-to { fill: #8fcec2; filter: none; }
+    .nk-il.is-both { fill: #e0b07a; filter: none; }
+    .nk-il.is-dim { fill: #e7e2d8; stroke: #d6d0c6; }
+    .nk-route-case, .nk-route, .nk-route-dash, .nk-route-air, .nk-end, .nk-pin-label, .nk-il-label { pointer-events: none; }
+    .nk-il-label { text-anchor: middle; dominant-baseline: middle; font-family: "Segoe UI", sans-serif; paint-order: stroke; stroke-linejoin: round; fill: #3d4a34; font-weight: 700; stroke: #f7fbf2; }
+    .nk-route-case { fill: none; stroke: #4a433c; stroke-width: 6.6; stroke-linecap: round; stroke-linejoin: round; }
+    .nk-route { fill: none; stroke: #f0c84a; stroke-width: 3.7; stroke-linecap: round; stroke-linejoin: round; }
+    .nk-route-dash { fill: none; stroke: #fffdf6; stroke-width: 1.05; stroke-linecap: butt; stroke-dasharray: 8 7; }
+    .nk-route-air { fill: none; stroke: #475569; stroke-width: 2.2; stroke-dasharray: 5 6; stroke-linecap: round; }
     .nk-end { stroke: #fff; stroke-width: 2; }
     .nk-end.is-from { fill: #c2410c; }
     .nk-end.is-to { fill: #0f766e; }
@@ -206,6 +215,6 @@
     </section>
   </main>
 
-  <script src="nakliye.js?v=20261008-mazot3"></script>
+  <script src="nakliye.js?v=20261009-harita"></script>
 </body>
 </html>
