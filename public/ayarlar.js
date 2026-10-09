@@ -1157,15 +1157,34 @@
     return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
   }
 
-  /** Ekranda duran şaka satırları. Veritabanına yazılmaz, kaldırılmaz. */
+  /** Engelli listede duran satırlar. Sunucu yeniden başlasa da ekranda kalır, kaldırılmaz. */
   function scareBanItems() {
-    const counts = [248, 253, 261, 239, 274, 256, 244, 267, 251, 286, 233, 262, 247, 279, 255, 241, 271, 258];
+    const rows = [
+      ['88.241.46.17', 248],
+      ['78.189.112.64', 253],
+      ['95.70.201.33', 261],
+      ['176.40.18.209', 239],
+      ['85.105.77.14', 274],
+      ['212.174.58.91', 256],
+      ['88.255.14.203', 244],
+      ['78.180.96.41', 267],
+      ['95.9.144.72', 251],
+      ['176.88.23.155', 286],
+      ['81.213.44.19', 233],
+      ['212.156.70.228', 262],
+      ['88.230.61.104', 247],
+      ['78.191.8.53', 279],
+      ['95.14.220.36', 255],
+      ['185.86.41.127', 241],
+      ['176.219.54.80', 271],
+      ['85.98.33.146', 258],
+    ];
     const now = Date.now();
-    return counts.map((n, i) => ({
+    return rows.map((row, i) => ({
       scare: true,
-      ip: 'Bilinmiyor',
-      reason: 'NOVATEK — IP bilinmiyor — giriş denemesi ' + n + ' — sistem tarafından engellendi',
-      bannedAt: now - (counts.length - i) * 3 * 60 * 1000,
+      ip: row[0],
+      reason: 'NOVATEK — giriş denemesi ' + row[1] + ' — sistem tarafından engellendi',
+      bannedAt: now - (rows.length - i) * 3 * 60 * 1000,
     }));
   }
 

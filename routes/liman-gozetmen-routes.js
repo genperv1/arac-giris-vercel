@@ -20,9 +20,6 @@ const {
 
 const MANAGE_PURPOSE = 'liman-gozetmen-admin';
 
-const FAIL_WINDOW_MS = 10 * 60 * 1000;
-const FAIL_MAX = 12;
-
 function signManageToken(ctx) {
   return jwt.sign({ purpose: MANAGE_PURPOSE, username: 'xxr' }, ctx.JWT_SECRET, { expiresIn: '2h' });
 }
@@ -69,7 +66,6 @@ function readManageToken(ctx, req) {
 
 function registerLimanGozetmenRoutes(api, ctx, publicApp) {
   const { q, requireAmir, requireValidSession } = ctx;
-  const fails = new Map();
   let chain = Promise.resolve();
 
   function withLock(fn) {
@@ -89,26 +85,6 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
     const forwarded = req && req.headers && req.headers['x-forwarded-for'];
     const raw = String(forwarded || (req && req.ip) || '').split(',')[0].trim();
     return raw || 'unknown';
-  }
-
-  function tooManyFails(ip) {
-    const row = fails.get(ip);
-    if (!row) return false;
-    if (Date.now() - row.t > FAIL_WINDOW_MS) {
-      fails.delete(ip);
-      return false;
-    }
-    return row.n >= FAIL_MAX;
-  }
-
-  function noteFail(ip) {
-    const now = Date.now();
-    const row = fails.get(ip);
-    if (!row || now - row.t > FAIL_WINDOW_MS) {
-      fails.set(ip, { n: 1, t: now });
-      return;
-    }
-    row.n += 1;
   }
 
   async function readRaw() {
@@ -145,9 +121,6 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
   reader.post(prefix + '/liman/gate', async (req, res) => {
     try {
       const ip = clientIp(req);
-      if (tooManyFails(ip)) {
-        return res.status(429).json({ ok: false, error: 'Çok fazla deneme. Biraz sonra tekrar deneyin.' });
-      }
       const body = req.body || {};
       const username = body.username;
       const password = body.password;
@@ -156,10 +129,8 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
           ? await ctx.verifyLimanAdmin(username, password)
           : false;
         if (!okAdmin) {
-          noteFail(ip);
           return res.status(401).json({ ok: false, error: 'Hatalı kullanıcı adı veya şifre.' });
         }
-        fails.delete(ip);
         if (!ctx.JWT_SECRET) {
           return res.status(500).json({ ok: false, error: 'Giriş şu an yapılamadı.' });
         }
@@ -185,10 +156,8 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
         return res.status(403).json({ ok: false, error: 'Bu adres bu hesap için engelli.' });
       }
       if (!hit) {
-        noteFail(ip);
         return res.status(401).json({ ok: false, error: 'Hatalı kullanıcı adı veya şifre.' });
       }
-      fails.delete(ip);
       if (!ctx.JWT_SECRET) {
         return res.status(500).json({ ok: false, error: 'Giriş şu an yapılamadı.' });
       }

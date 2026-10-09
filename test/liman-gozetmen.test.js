@@ -296,15 +296,24 @@ test('giriş ucu doğru gözetmeni açar, amir listesi şifreyi gösterir, başk
   assert.equal(wrote.out.slots.find((slot) => slot.grup === 'sirket' && slot.n === 1).loginId, 'ofis1');
   assert.equal(wrote.out.noticePending, false);
 
+  const officeIp = { 'x-forwarded-for': '10.8.0.4' };
+  for (let i = 0; i < 20; i++) {
+    const miss = await call('app post /api/liman/gate', {
+      body: { username: 'ofis1', password: 'yanlis' },
+      headers: officeIp,
+    });
+    assert.equal(miss.status, 401);
+    assert.notEqual(miss.out.error, 'Çok fazla deneme. Biraz sonra tekrar deneyin.');
+  }
   const entered = await call('app post /api/liman/gate', {
     body: { username: 'LIM1', password: 'KAP1X' },
-    headers: {},
+    headers: officeIp,
   });
   assert.equal(entered.status, 200);
   assert.equal(entered.out.n, 1);
   const office = await call('app post /api/liman/gate', {
     body: { username: 'ofis1', password: 'ofis12' },
-    headers: {},
+    headers: officeIp,
   });
   assert.equal(office.status, 200);
   assert.equal(office.out.grup, 'sirket');

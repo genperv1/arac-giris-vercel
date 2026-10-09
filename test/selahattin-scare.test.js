@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createScareNotices } = require('../lib/selahattin-scare');
+const { createScareNotices, claimScareOnce } = require('../lib/selahattin-scare');
 
 test('sunucu açılışında bir kez planlanır, 1 dk arayla yalnız xxr görür', () => {
   const timers = [];
@@ -50,4 +50,20 @@ test('varsayılan ilk bildirim sunucu açılışından 7,5 dakika sonra', () => 
   assert.equal(scare.start(() => {}), true);
   assert.equal(timers[0], 7.5 * 60 * 1000);
   assert.equal(timers[1] - timers[0], 60000);
+});
+
+test('yeniden başlamada bildirim dizisi tekrar kurulmaz', async () => {
+  const store = new Map();
+  const q = async (sql, params) => {
+    if (String(sql).includes('INSERT')) {
+      const key = params[0];
+      if (store.has(key)) return { rows: [] };
+      store.set(key, params[1]);
+      return { rows: [{ key }] };
+    }
+    return { rows: [] };
+  };
+  assert.equal(await claimScareOnce(q), true);
+  assert.equal(await claimScareOnce(q), false);
+  assert.equal(store.size, 1);
 });
