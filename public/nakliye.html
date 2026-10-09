@@ -236,18 +236,17 @@
 
       <h2 style="margin-top:14px">Tır tüketimi</h2>
       <div class="nk-presets" id="nkPresets">
-        <button type="button" class="nk-btn" data-preset="bos" data-litre="28">Boş · 28 L</button>
-        <button type="button" class="nk-btn nk-btn--primary" data-preset="yuklu" data-litre="35">Yüklü · 35 L</button>
-        <button type="button" class="nk-btn" data-preset="agir" data-litre="40">Ağır · 40 L</button>
+        <button type="button" class="nk-btn" data-preset="bos" data-litre="22">Boş · 22 L</button>
+        <button type="button" class="nk-btn nk-btn--primary" data-preset="agir" data-litre="37">Ağır yüklü · 37 L</button>
       </div>
       <label class="nk-field">100 km’de litre
-        <input id="nkLitre" class="nk-price-input" inputmode="decimal" value="35">
+        <input id="nkLitre" class="nk-price-input" inputmode="decimal" value="37">
       </label>
       <label class="nk-check"><input id="nkDonus" type="checkbox"> Gidiş-dönüş</label>
       <label class="nk-field">Yola çıkış
         <input id="nkCikisSaat" class="nk-price-input" type="time" value="08:00">
       </label>
-      <p id="nkVarisSaat" class="nk-to-line">Varış saati karayolu süresinden hesaplanır.</p>
+      <p id="nkVarisSaat" class="nk-to-line">Varış, 60–70 km/sa ve günde 9 saat sürüşe göre hesaplanır.</p>
 
       <h2 id="nkMazotTitle" style="margin-top:14px">Mazot fiyatı</h2>
       <p id="nkMazotNow" class="nk-mazot-now">—</p>
@@ -257,11 +256,11 @@
     </section>
 
     <section class="nk-results" aria-live="polite">
-      <div class="nk-stat"><span>Mesafe</span><b id="nkKm">—</b><small id="nkSure">Karayolu</small></div>
+      <div class="nk-stat"><span>Mesafe</span><b id="nkKm">—</b><small id="nkSure">60–70 km/sa</small></div>
       <div class="nk-stat"><span>Mazot</span><b id="nkMazot">—</b><small id="nkMazotWhere">Çıkış fiyatı</small></div>
-      <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Yüklü tır</small></div>
+      <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Ağır yüklü</small></div>
       <div class="nk-stat"><span>Tahmini tutar</span><b id="nkTutar">—</b><small id="nkFormula">km × litre / 100</small></div>
-      <p class="nk-note">Çekici ve dorse için planlama hesabıdır. 35 L/100 km yüklü tır içindir; boşta 28, ağır yükte veya rampada 40 kullanılabilir. Gerçek tüketim yük, rölanti ve yola göre değişir.</p>
+      <p class="nk-note">Amirin son yazdığı tüketim: boş 22, ağır yüklü 37 L/100 km. Süre: 4 saatte ortalama 60–70 km, 24 saatte 9 saat sürüş. 9 saati aşan yol 15 saat dinlenmeden sonra devam eder.</p>
       <p id="nkDunFark" class="nk-note"></p>
     </section>
 
@@ -273,6 +272,6 @@
   </main>
 
   <script src="nakliye-liman.js?v=20261009-alti"></script>
-  <script src="nakliye.js?v=20261010-mazot"></script>
+  <script src="nakliye.js?v=20261010-son"></script>
 </body>
 </html>

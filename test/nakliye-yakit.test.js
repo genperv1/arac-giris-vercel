@@ -4,7 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   TIR_TUKETIM,
+  TIR_SURUS,
   tahminiYakit,
+  tirYolPlani,
   pickMotorin,
   buildMazotPayload,
   parseOsrmRoute,
@@ -15,18 +17,23 @@ const {
   samePlaceName,
 } = require('../lib/nakliye-yakit');
 
-test('yüklü tır 100 km mazot tutarını hesaplar', () => {
-  const sonuc = tahminiYakit({ km: 100, litrePer100: TIR_TUKETIM.yuklu, fiyatTl: 90, donus: false });
-  assert.equal(sonuc.litre, 35);
-  assert.equal(sonuc.tutarTl, 3150);
+test('ağır yüklü tır 100 km mazot tutarını hesaplar', () => {
+  const sonuc = tahminiYakit({ km: 100, litrePer100: TIR_TUKETIM.agir, fiyatTl: 90, donus: false });
+  assert.equal(sonuc.litre, 37);
+  assert.equal(sonuc.tutarTl, 3330);
   assert.equal(sonuc.mesafeKm, 100);
+});
+
+test('amirin son tüketimi boş 22, ağır yüklü 37', () => {
+  assert.equal(TIR_TUKETIM.bos, 22);
+  assert.equal(TIR_TUKETIM.agir, 37);
 });
 
 test('gidiş-dönüş mesafeyi ve yakıtı ikiye katlar', () => {
   const sonuc = tahminiYakit({ km: 312.4, litrePer100: TIR_TUKETIM.bos, fiyatTl: 91.5, donus: true });
   assert.equal(sonuc.mesafeKm, 624.8);
-  assert.equal(sonuc.litre, 174.9);
-  assert.equal(sonuc.tutarTl, 16003.35);
+  assert.equal(sonuc.litre, 137.5);
+  assert.equal(sonuc.tutarTl, 12581.25);
 });
 
 test('motorin olarak UltraForce fiyatını seçer', () => {
@@ -122,6 +129,37 @@ test('yan nokta doğu-batı yolunun kuzeyine kayar', () => {
   assert.ok(via);
   assert.ok(via.lat > 39.3 && via.lat < 39.8);
   assert.ok(Math.abs(via.lon - 32) < 0.2);
+});
+
+test('tır süresi 4 saatte 60–70 km ve 24 saatte 9 saat sürüş', () => {
+  assert.equal(TIR_SURUS.kmSaatMin, 60);
+  assert.equal(TIR_SURUS.kmSaatMax, 70);
+  assert.equal(TIR_SURUS.blokSaat, 4);
+  assert.equal(TIR_SURUS.gunlukSaat, 9);
+  assert.equal(TIR_SURUS.pencereSaat, 24);
+
+  const dortSaat = tirYolPlani(260);
+  assert.equal(dortSaat.surusDk, 240);
+  assert.equal(dortSaat.varisDk, 240);
+  assert.equal(dortSaat.blokKmMin, 240);
+  assert.equal(dortSaat.blokKmMax, 280);
+
+  const tamGun = tirYolPlani(585);
+  assert.equal(tamGun.surusDk, 540);
+  assert.equal(tamGun.varisDk, 540);
+
+  const asim = tirYolPlani(650);
+  assert.equal(asim.surusDk, 600);
+  assert.equal(asim.varisDk, 1500);
+
+  const ikiGun = tirYolPlani(1170);
+  assert.equal(ikiGun.surusDk, 1080);
+  assert.equal(ikiGun.varisDk, 1980);
+
+  const bant = tirYolPlani(130);
+  assert.equal(bant.surusDk, 120);
+  assert.equal(bant.surusHizliDk, 111);
+  assert.equal(bant.surusYavasDk, 130);
 });
 
 test('kuş uçuşu tahmini Türkiye içi iki nokta için yol payı ekler', () => {

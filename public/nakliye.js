@@ -15,8 +15,8 @@
     from: null,
     to: null,
     focus: null,
-    litrePer100: 35,
-    preset: 'yuklu',
+    litrePer100: 37,
+    preset: 'agir',
     donus: false,
     mazot: null,
     mazotError: '',
@@ -73,12 +73,60 @@
     }).format(n);
   }
 
-  function sureText(dk) {
+  var TIR_SURUS = { kmSaatMin: 60, kmSaatMax: 70, blokSaat: 4, gunlukSaat: 9, pencereSaat: 24 };
+  var PRESET_AD = {
+    bos: 'Boş',
+    agir: 'Ağır yüklü',
+  };
+
+  function surusDakika(km, kmSaat) {
+    var mesafe = Math.max(0, Number(km) || 0);
+    var hiz = Number(kmSaat);
+    if (!mesafe || !isFinite(hiz) || hiz <= 0) return 0;
+    return Math.round(mesafe / hiz * 60);
+  }
+
+  function varisDakika(surusDk) {
+    var surus = Math.max(0, Math.round(Number(surusDk) || 0));
+    var gunluk = TIR_SURUS.gunlukSaat * 60;
+    var pencere = TIR_SURUS.pencereSaat * 60;
+    var dinlenme = pencere - gunluk;
+    if (surus <= gunluk) return surus;
+    var tamGun = Math.floor(surus / gunluk);
+    var kalan = surus % gunluk;
+    if (kalan === 0) return surus + (tamGun - 1) * dinlenme;
+    return tamGun * pencere + kalan;
+  }
+
+  function tirYolPlani(km) {
+    var mesafeKm = round1(Math.max(0, Number(km) || 0));
+    var kmSaat = (TIR_SURUS.kmSaatMin + TIR_SURUS.kmSaatMax) / 2;
+    var surusDk = surusDakika(mesafeKm, kmSaat);
+    var surusHizliDk = surusDakika(mesafeKm, TIR_SURUS.kmSaatMax);
+    var surusYavasDk = surusDakika(mesafeKm, TIR_SURUS.kmSaatMin);
+    return {
+      mesafeKm: mesafeKm,
+      surusDk: surusDk,
+      surusHizliDk: surusHizliDk,
+      surusYavasDk: surusYavasDk,
+      varisDk: varisDakika(surusDk),
+      varisHizliDk: varisDakika(surusHizliDk),
+      varisYavasDk: varisDakika(surusYavasDk),
+    };
+  }
+
+  function truckPlan() {
+    if (!state.route || !isFinite(Number(state.route.km))) return null;
+    return tirYolPlani(round1(Number(state.route.km) * (state.donus ? 2 : 1)));
+  }
+
+  function formatDk(dk) {
     if (dk == null || !isFinite(dk)) return '';
-    var total = Math.round(dk) * (state.donus ? 2 : 1);
+    var total = Math.max(0, Math.round(Number(dk)));
     var h = Math.floor(total / 60);
     var m = total % 60;
     if (h <= 0) return m + ' dk';
+    if (m === 0) return h + ' sa';
     return h + ' sa ' + m + ' dk';
   }
 
@@ -251,7 +299,7 @@
   function mazotEski() {
     var m = state.mazot;
     if (!m || !m.iller || !m.iller.length) return false;
-    return m.guncel === false || m.bayat === true || m.dosya === true;
+    return m.guncel !== true || m.bayat === true || m.dosya === true;
   }
 
   function mazotBaslikYaz() {
@@ -593,10 +641,13 @@
     var hasEnds = !!(state.from && state.to);
     document.getElementById('nkKm').textContent = hasEnds && state.route ? fmt(sonuc.mesafe, 1) + ' km' : '—';
     var sure = document.getElementById('nkSure');
+    var plan = truckPlan();
     if (!state.route) sure.textContent = hasEnds ? 'Mesafe hesaplanıyor' : 'İki nokta seçin';
-    else if (state.route.kaynak === 'kus-ucusu') sure.textContent = 'Kuş uçuşu tahmin, yol payı %30' + (state.donus ? ' · gidiş-dönüş' : '');
     else if (state.route.kaynak === 'ayni') sure.textContent = 'Çıkış ve varış aynı yer';
-    else sure.textContent = 'Karayolu' + (sureText(state.route.sureDk) ? ' · ' + sureText(state.route.sureDk) : '') + (state.donus ? ' · gidiş-dönüş' : '');
+    else {
+      var onEk = state.route.kaynak === 'kus-ucusu' ? 'Kuş uçuşu, yol payı %30 · ' : '';
+      sure.textContent = onEk + 'Sürüş ' + formatDk(plan ? plan.surusDk : 0) + ' · 4 saatte 240–280 km' + (state.donus ? ' · gidiş-dönüş' : '');
+    }
     document.getElementById('nkMazot').textContent = (function () {
       var litreFiyat = sonuc.fiyat;
       if (litreFiyat == null && state.from) {
@@ -617,7 +668,7 @@
         ? ('Son doğrulanmış fiyat · ' + (mazotWhen() || 'kayıt tarihi yok') + ' · güncel değil')
         : 'km × litre / 100';
     }
-    var note = state.preset === 'bos' ? 'Boş tır · 28 L/100 km' : (state.preset === 'agir' ? 'Ağır tır · 40 L/100 km' : 'Yüklü tır · ' + fmt(state.litrePer100, 1) + ' L/100 km');
+    var note = (PRESET_AD[state.preset] || 'Tüketim') + ' · ' + fmt(state.litrePer100, 1) + ' L/100 km';
     if (state.preset === 'elle') note = fmt(state.litrePer100, 1) + ' L/100 km';
     document.getElementById('nkTuketimNote').textContent = note;
     renderSaat();
@@ -676,30 +727,27 @@
     if (!host) return;
     var list = state.yollar || [];
     if (!state.from || !state.to || !list.length) { host.innerHTML = ''; return; }
-    var fastest = 0;
     var shortest = 0;
     for (var k = 1; k < list.length; k++) {
-      if ((list[k].sureDk || 1e9) < (list[fastest].sureDk || 1e9)) fastest = k;
       if ((list[k].km || 1e9) < (list[shortest].km || 1e9)) shortest = k;
     }
     host.innerHTML = list.map(function (row, i) {
       var ad = 'Tek güzergâh';
-      if (list.length > 1) {
-        if (i === fastest && i === shortest) ad = 'En uygun';
-        else if (i === fastest) ad = 'En hızlı';
-        else if (i === shortest) ad = 'En kısa';
-        else ad = 'Alternatif';
-      }
-      var sure = '';
-      if (row.sureDk != null && isFinite(row.sureDk)) {
-        var total = Math.round(row.sureDk);
-        var h = Math.floor(total / 60);
-        var m = total % 60;
-        sure = h > 0 ? (h + ' sa ' + m + ' dk') : (m + ' dk');
-      }
+      if (list.length > 1) ad = i === shortest ? 'En kısa' : 'Alternatif';
+      var yol = tirYolPlani(row.km);
+      var sure = yol.surusDk ? formatDk(yol.surusDk) + ' sürüş' : '';
       return '<button type="button" class="nk-yol' + (i === state.yolIndex ? ' is-on' : '') + '" data-yol="' + i + '">'
         + esc(ad) + ' · ' + fmt(row.km, 1) + ' km' + (sure ? ' · ' + esc(sure) : '') + '</button>';
     }).join('');
+  }
+
+  function saatEtiket(start, dk) {
+    var end = new Date(start.getTime() + Math.round(dk) * 60000);
+    var hh = String(end.getHours()).padStart(2, '0');
+    var mm = String(end.getMinutes()).padStart(2, '0');
+    var gun = Math.round((new Date(end.getFullYear(), end.getMonth(), end.getDate()) - new Date(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000);
+    var extra = gun === 1 ? 'ertesi gün ' : (gun > 1 ? gun + ' gün sonra ' : '');
+    return extra + hh + ':' + mm;
   }
 
   function renderSaat() {
@@ -707,22 +755,22 @@
     if (!host) return;
     var input = document.getElementById('nkCikisSaat');
     var saat = (input && input.value) || '08:00';
-    var dk = state.route && state.route.sureDk;
-    if (!state.from || !state.to || dk == null || !isFinite(Number(dk))) {
-      host.textContent = 'Varış saati karayolu süresinden hesaplanır.';
+    var plan = truckPlan();
+    if (!state.from || !state.to || !plan) {
+      host.textContent = 'Varış, 60–70 km/sa ve günde 9 saat sürüşe göre hesaplanır.';
       return;
     }
-    var total = Math.round(Number(dk)) * (state.donus ? 2 : 1);
     var bits = String(saat).split(':');
     var start = new Date();
     start.setSeconds(0, 0);
     start.setHours(Number(bits[0]) || 0, Number(bits[1]) || 0, 0, 0);
-    var end = new Date(start.getTime() + total * 60000);
-    var hh = String(end.getHours()).padStart(2, '0');
-    var mm = String(end.getMinutes()).padStart(2, '0');
-    var gun = Math.round((new Date(end.getFullYear(), end.getMonth(), end.getDate()) - new Date(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000);
-    var extra = gun === 1 ? ' · ertesi gün' : (gun > 1 ? ' · ' + gun + ' gün sonra' : '');
-    host.textContent = saat + ' çıkış → ' + hh + ':' + mm + ' varış' + extra + (state.donus ? ' · gidiş-dönüş' : '');
+    var line = saat + ' çıkış → ' + saatEtiket(start, plan.varisDk) + ' varış';
+    line += ' · sürüş ' + formatDk(plan.surusDk) + ' (65 km/sa)';
+    line += ' · 70 km/sa ' + saatEtiket(start, plan.varisHizliDk);
+    line += ' · 60 km/sa ' + saatEtiket(start, plan.varisYavasDk);
+    if (plan.varisDk > plan.surusDk) line += ' · 9 saati aşan sürüş 15 saat dinlenir';
+    if (state.donus) line += ' · gidiş-dönüş';
+    host.textContent = line;
   }
 
   function ringHas(ring, lon, lat) {
