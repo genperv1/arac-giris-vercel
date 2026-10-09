@@ -66,14 +66,14 @@
     openIssuedAt = data.issuedAt;
     var root = document.createElement('div');
     root.id = 'limanGozetmenNotice';
-    var rows = (data.slots || []).map(function (slot) {
+    var rows = (data.slots || []).filter(function (slot) { return slot.loginId && slot.password; }).map(function (slot) {
       return '<li><div class="who">' + esc(slot.label || ('Gözetmen ' + slot.n))
         + '<small>' + esc(person(slot)) + '</small></div><div class="creds"><span>ID <code>'
         + esc(slot.loginId) + '</code></span><span>Şifre <code>' + esc(slot.password) + '</code></span></div></li>';
     }).join('');
     root.innerHTML = '<div class="card" role="dialog" aria-modal="true" aria-labelledby="limanGozetmenNoticeTitle">'
       + '<h2 id="limanGozetmenNoticeTitle">Liman hesapları</h2>'
-      + '<p class="lead">Yedi gözetmen hesabının ID ve şifresi 40 günde bir değişir. İlgili kişilere ikisini birlikte iletin.</p>'
+      + '<p class="lead">Liman giriş hesaplarının ID ve şifresi. İlgili kişilere ikisini birlikte iletin.</p>'
       + '<ul>' + rows + '</ul>'
       + '<button type="button" id="limanGozetmenNoticeOk">Gördüm</button>'
       + '</div>';

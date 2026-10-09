@@ -7,6 +7,8 @@ const {
   prepareState,
   matchLogin,
   applyProfiles,
+  applyCredentials,
+  recordLogin,
   ackNotice,
 } = require('../lib/liman-gozetmen');
 const { registerLimanGozetmenRoutes } = require('../routes/liman-gozetmen-routes');
@@ -20,13 +22,17 @@ function seqRandom(seed) {
   };
 }
 
-test('ilk kayıtta 7 hesabın ID ve şifresi üretilir', () => {
+test('ilk kayıtta gözetmen hesapları üretilir, şirket yetkilileri boş kalır', () => {
   const { state, changed } = prepareState(null, 1_000, seqRandom());
   assert.equal(changed, true);
   assert.equal(state.noticePending, true);
-  assert.equal(state.slots.length, 7);
-  const ids = state.slots.map((slot) => slot.loginId);
-  const passwords = state.slots.map((slot) => slot.password);
+  const gozetmen = state.slots.filter((slot) => slot.grup === 'gozetmen');
+  const sirket = state.slots.filter((slot) => slot.grup === 'sirket');
+  assert.equal(gozetmen.length, 7);
+  assert.equal(sirket.length, 5);
+  sirket.forEach((slot) => assert.equal(slot.loginId, ''));
+  const ids = gozetmen.map((slot) => slot.loginId);
+  const passwords = gozetmen.map((slot) => slot.password);
   assert.equal(new Set(ids).size, 7);
   assert.equal(new Set(passwords).size, 7);
   ids.forEach((id) => assert.match(id, /^[a-z]{4}$/));
@@ -42,17 +48,59 @@ test('giriş verilen ID ve şifreyle olur, başkasının şifresi açmaz', () =>
   assert.equal(matchLogin(state, 'Gözetmen 1', state.slots[0].password), null);
 });
 
-test('40 gün dolmadan şifre aynı kalır, dolunca yedisi birden değişir', () => {
+test('giriş sayısı artar, ID veya şifre değişince sıfırlanır', () => {
+  const { state } = prepareState(null, 1_000, seqRandom());
+  const slot = state.slots[0];
+  const hit = matchLogin(state, slot.loginId, slot.password);
+  assert.equal(recordLogin(state, hit, 2_000), true);
+  assert.equal(recordLogin(state, hit, 3_000), true);
+  assert.equal(slot.loginCount, 2);
+  assert.equal(slot.lastLoginAt, 3_000);
+  const same = applyCredentials(state, [{ grup: slot.grup, n: slot.n, loginId: slot.loginId, password: slot.password }], 4_000);
+  assert.equal(same.error, undefined);
+  assert.equal(state.slots.find((row) => row.n === slot.n && row.grup === slot.grup).loginCount, 2);
+  const changed = applyCredentials(state, [{ grup: slot.grup, n: slot.n, loginId: slot.loginId, password: 'yeni1' }], 5_000);
+  assert.equal(changed.error, undefined);
+  const fresh = state.slots.find((row) => row.grup === slot.grup && row.n === slot.n);
+  assert.equal(fresh.loginCount, 0);
+  assert.equal(fresh.lastLoginAt, 0);
+});
+
+test('Selahattin’in yazdığı ID ve şifre durur, 40 gün sonra da silinmez', () => {
   const first = prepareState(null, 1_000, seqRandom());
   const kept = prepareState(first.state, 1_000 + PERIOD_MS - 1, seqRandom());
   assert.equal(kept.changed, false);
   assert.equal(kept.state.slots[0].password, first.state.slots[0].password);
-  const rotated = prepareState(first.state, 1_000 + PERIOD_MS, seqRandom(20));
-  assert.equal(rotated.changed, true);
-  assert.equal(rotated.state.noticePending, true);
-  assert.notEqual(rotated.state.slots[0].password, first.state.slots[0].password);
-  assert.notEqual(rotated.state.slots[0].loginId, first.state.slots[0].loginId);
-  assert.equal(rotated.state.slots.length, 7);
+  const later = prepareState(first.state, 1_000 + PERIOD_MS, seqRandom(20));
+  assert.equal(later.changed, false);
+  assert.equal(later.state.slots[0].password, first.state.slots[0].password);
+  assert.equal(later.state.slots[0].loginId, first.state.slots[0].loginId);
+});
+
+test('yazılan ID ve şifre 40 gün dolmadan durur, xxr ve tekrar kabul edilmez', () => {
+  const { state } = prepareState(null, 5_000, seqRandom());
+  const gozetmen = state.slots.filter((slot) => slot.grup === 'gozetmen');
+  const slots = gozetmen.map((slot, index) => ({
+    grup: 'gozetmen',
+    n: slot.n,
+    loginId: 'k' + index + 'liman',
+    password: 'sifre' + (index + 1) + 'a',
+  }));
+  const bad = applyCredentials(state, [{ n: 1, loginId: 'xxr', password: 'sifre1' }], 6_000);
+  assert.match(bad.error, /xxr/);
+  assert.notEqual(state.slots[0].loginId, 'xxr');
+  const saved = applyCredentials(state, slots, 6_000);
+  assert.equal(saved.error, undefined);
+  assert.equal(state.slots[0].loginId, 'k0liman');
+  assert.equal(state.slots[0].password, 'sifre1a');
+  assert.equal(state.noticePending, false);
+  const kept = prepareState(state, 6_000 + PERIOD_MS - 1, seqRandom(9));
+  assert.equal(kept.changed, false);
+  assert.equal(kept.state.slots[0].password, 'sifre1a');
+  const short = applyCredentials(state, slots.map((slot, index) => (
+    index === 0 ? { n: 1, loginId: 'ab', password: 'sifre1a' } : slot
+  )), 7_000);
+  assert.match(short.error, /3 ile 12/);
 });
 
 test('ad soyad telefon kaydı şifreyi değiştirmez; bildirim yalnız aynı dönemi kapatır', () => {
@@ -93,18 +141,21 @@ test('giriş ucu doğru gözetmeni açar, amir listesi şifreyi gösterir, başk
     q: kvQ(store),
     requireAmir: pass,
     requireValidSession: pass,
+    JWT_SECRET: 'test-liman-admin',
+    verifyLimanAdmin: async (username, password) => username === 'xxr' && password === 'dogru-sifre',
   }, app);
 
   async function call(key, req) {
     let status = 200;
     let out;
+    const headers = {};
     const res = {
       status(code) { status = code; return this; },
-      setHeader() {},
+      setHeader(name, value) { headers[name] = value; },
       json(data) { out = data; return data; },
     };
     await routes[key](req, res);
-    return { status, out };
+    return { status, out, headers };
   }
 
   const bad = await call('app post /api/liman/gate', {
@@ -114,26 +165,41 @@ test('giriş ucu doğru gözetmeni açar, amir listesi şifreyi gösterir, başk
   assert.equal(bad.status, 401);
 
   const view = await call('api get /liman/gozetmen', { user: { username: 'xxr', role: 'amir' }, headers: {} });
-  assert.equal(view.out.slots.length, 7);
+  assert.equal(view.out.slots.length, 12);
+  assert.equal(view.out.canEditCredentials, true);
   assert.equal(view.out.noticePending, true);
-  assert.match(view.out.slots[2].loginId, /^[a-z]{4}$/);
-  const password = view.out.slots[2].password;
+  const third = view.out.slots.find((slot) => slot.grup === 'gozetmen' && slot.n === 3);
+  assert.match(third.loginId, /^[a-z]{4}$/);
+  const password = third.password;
 
   const good = await call('app post /api/liman/gate', {
-    body: { username: view.out.slots[2].loginId, password },
+    body: { username: third.loginId, password },
     headers: {},
   });
   assert.equal(good.status, 200);
   assert.equal(good.out.n, 3);
+  assert.match(good.headers['Set-Cookie'], /liman_gate=/);
+  assert.match(good.headers['Set-Cookie'], /HttpOnly/);
+  const counted = await call('api get /liman/gozetmen', { user: { username: 'xxr', role: 'amir' }, headers: {} });
+  const countedSlot = counted.out.slots.find((slot) => slot.grup === 'gozetmen' && slot.n === 3);
+  assert.equal(countedSlot.loginCount, 1);
+  assert.ok(countedSlot.lastLoginAt > 0);
 
   const saved = await call('api put /liman/gozetmen', {
     user: { username: 'saban', role: 'amir' },
     body: { slots: [{ n: 3, ad: 'Ayşe', soyad: 'Demir', telefon: '0555 000 11 22' }] },
     headers: {},
   });
-  assert.equal(saved.out.slots[2].ad, 'Ayşe');
-  assert.equal(saved.out.slots[2].password, password);
-  assert.equal(saved.out.slots[2].loginId, view.out.slots[2].loginId);
+  assert.equal(saved.out.slots.find((slot) => slot.grup === 'gozetmen' && slot.n === 3).ad, 'Ayşe');
+  assert.equal(saved.out.slots.find((slot) => slot.grup === 'gozetmen' && slot.n === 3).password, password);
+  assert.equal(saved.out.canEditCredentials, false);
+
+  const ignored = await call('api put /liman/gozetmen', {
+    user: { username: 'saban', role: 'amir' },
+    body: { slots: [{ grup: 'gozetmen', n: 3, loginId: 'baskasi', password: 'baska1' }] },
+    headers: {},
+  });
+  assert.equal(ignored.out.slots.find((slot) => slot.grup === 'gozetmen' && slot.n === 3).loginId, third.loginId);
 
   const denied = await call('api post /liman/gozetmen/ack', {
     user: { username: 'saban', role: 'amir' },
@@ -148,4 +214,57 @@ test('giriş ucu doğru gözetmeni açar, amir listesi şifreyi gösterir, başk
     headers: {},
   });
   assert.equal(acked.out.noticePending, false);
+
+  const wrongAdmin = await call('app post /api/liman/gate', {
+    body: { username: 'XXR', password: 'yanlis' },
+    headers: {},
+  });
+  assert.equal(wrongAdmin.status, 401);
+
+  const admin = await call('app post /api/liman/gate', {
+    body: { username: 'xxr', password: 'dogru-sifre' },
+    headers: {},
+  });
+  assert.equal(admin.status, 200);
+  assert.equal(admin.out.manage, true);
+  assert.equal(typeof admin.out.token, 'string');
+
+  const deniedList = await call('app get /api/liman/gozetmen/tanim', { headers: {} });
+  assert.equal(deniedList.status, 401);
+
+  const listed = await call('app get /api/liman/gozetmen/tanim', {
+    headers: { authorization: 'Bearer ' + admin.out.token },
+  });
+  assert.equal(listed.status, 200);
+  assert.equal(listed.out.slots.length, 12);
+
+  const defined = listed.out.slots.filter((slot) => slot.grup === 'gozetmen').map((slot, index) => ({
+    grup: 'gozetmen',
+    n: slot.n,
+    loginId: 'lim' + (index + 1),
+    password: 'kap' + (index + 1) + 'x',
+  }));
+  defined.push({ grup: 'sirket', n: 1, loginId: 'ofis1', password: 'ofis12' });
+  const wrote = await call('app put /api/liman/gozetmen/tanim', {
+    headers: { authorization: 'Bearer ' + admin.out.token },
+    body: { slots: defined },
+  });
+  assert.equal(wrote.status, 200);
+  assert.equal(wrote.out.slots.find((slot) => slot.grup === 'gozetmen' && slot.n === 1).loginId, 'lim1');
+  assert.equal(wrote.out.slots.find((slot) => slot.grup === 'sirket' && slot.n === 1).loginId, 'ofis1');
+  assert.equal(wrote.out.noticePending, false);
+
+  const entered = await call('app post /api/liman/gate', {
+    body: { username: 'LIM1', password: 'KAP1X' },
+    headers: {},
+  });
+  assert.equal(entered.status, 200);
+  assert.equal(entered.out.n, 1);
+  const office = await call('app post /api/liman/gate', {
+    body: { username: 'ofis1', password: 'ofis12' },
+    headers: {},
+  });
+  assert.equal(office.status, 200);
+  assert.equal(office.out.grup, 'sirket');
+  assert.equal(office.out.label, 'Yetkili 1');
 });

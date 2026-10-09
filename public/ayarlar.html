@@ -805,12 +805,31 @@
     .ay-ban-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
     .ay-goz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: .85rem; }
     @media (max-width: 800px) { .ay-goz-grid { grid-template-columns: 1fr; } }
-    .ay-goz { border: 1px solid var(--rp-border); border-radius: 12px; padding: .85rem; background: #fff; }
-    .ay-goz h3 { margin: 0 0 .35rem; font-size: .95rem; color: #14532d; }
+    .ay-goz-fold { border: 1px solid var(--rp-border); border-radius: 14px; background: #fff; margin-bottom: .75rem; overflow: hidden; }
+    .ay-goz-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .95rem 1rem; font-weight: 800; color: #14532d; }
+    .ay-goz-fold > summary::-webkit-details-marker { display: none; }
+    .ay-goz-fold > summary small { font-weight: 600; color: var(--rp-muted); }
+    .ay-goz-fold > summary::after { content: "▸"; color: #166534; }
+    .ay-goz-fold[open] > summary::after { content: "▾"; }
+    .ay-goz-fold[open] { box-shadow: 0 10px 28px rgba(15, 23, 42, .08); }
+    .ay-goz-fold__body { padding: 0 1rem .2rem; }
+    .ay-goz-fold[open] .ay-goz-fold__body { animation: ayGozGrow .18s ease; }
+    .ay-goz { border: 1px solid var(--rp-border); border-radius: 12px; padding: 0; background: #f8fafc; overflow: hidden; }
+    .ay-goz > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .75rem .85rem; }
+    .ay-goz > summary::-webkit-details-marker { display: none; }
+    .ay-goz > summary strong { color: #14532d; font-size: .95rem; }
+    .ay-goz > summary span { color: var(--rp-muted); font-size: .75rem; font-weight: 600; text-align: right; }
+    .ay-goz__body { padding: 0 .85rem .85rem; }
+    .ay-goz[open] { background: #fff; box-shadow: 0 8px 22px rgba(20, 83, 45, .08); }
+    .ay-goz[open] .ay-goz__body { animation: ayGozGrow .16s ease; }
     .ay-goz label { display: block; font-size: .7rem; font-weight: 600; color: var(--rp-muted); margin: .4rem 0 .15rem; }
     .ay-goz input { width: 100%; padding: .45rem .6rem; border: 1px solid var(--rp-border); border-radius: 8px; font: inherit; }
+    .ay-goz-save { margin-top: .75rem; width: 100%; }
+    .ay-goz__login { margin: .45rem 0 0; font-size: .78rem; font-weight: 700; color: #166534; }
     .ay-goz__pw { margin-top: .55rem; font-size: .82rem; color: #334155; }
     .ay-goz__pw code { font-size: 1.05rem; font-weight: 800; letter-spacing: .04em; background: #eef2ff; padding: .12rem .4rem; border-radius: 6px; }
+    .ay-goz-lead { margin: 0 0 .65rem; color: var(--rp-muted); font-size: .82rem; }
+    @keyframes ayGozGrow { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
     .ay-ozmal-form {
       display: grid;
@@ -928,7 +947,7 @@
             <i class="fas fa-desktop" aria-hidden="true"></i> Kantar cihazları
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-gozetmen">
-            <i class="fas fa-anchor" aria-hidden="true"></i> Liman gözetmenleri
+            <i class="fas fa-anchor" aria-hidden="true"></i> Liman girişleri
           </button>
           <button type="button" class="ay-nav-btn" data-goto="section-yazisma">
             <i class="fas fa-comments" aria-hidden="true"></i> Yazışmalar
@@ -1212,15 +1231,25 @@
     <section id="section-gozetmen" class="ay-panel ay-section" tabindex="-1" aria-labelledby="gozetmenTitle" hidden>
       <div class="ay-panel__head">
         <div>
-          <h2 id="gozetmenTitle">Liman gözetmenleri</h2>
-          <p>Liman sayfası için yedi hesap vardır: Gözetmen 1’den 7’ye. Her hesabın ID’si ve şifresi ayrıdır, 40 günde bir birlikte yenilenir ve Selahattin Toker ekranına düşer. Ad, soyad ve telefonu buradan yazın.</p>
+          <h2 id="gozetmenTitle">Liman giriş hesapları</h2>
+          <p>İki taraf vardır. Şirket yetkilileri şirket içinden, gözetmenler liman tarafından /liman sayfasına girer. ID ve şifreyi Selahattin Toker belirler. Giriş sayılır; liste bu giriş olmadan açılmaz.</p>
         </div>
       </div>
-      <div class="ay-ban-alert" id="gozetmenNext">Şifreler yükleniyor…</div>
-      <div class="ay-goz-grid" id="gozetmenList"></div>
-      <div class="ay-ban-actions">
-        <button type="button" class="ay-btn ay-btn--primary" id="gozetmenSaveBtn">Kaydet</button>
-      </div>
+      <div class="ay-ban-alert" id="gozetmenNext">Hesaplar yükleniyor…</div>
+      <details class="ay-goz-fold" id="sirketFold">
+        <summary>Şirket yetkilileri <small>Şirket içi /liman</small></summary>
+        <div class="ay-goz-fold__body">
+          <p class="ay-goz-lead">Şirket içinden /liman sayfasına bağlanacaklar. Bir kişiye tıklayınca kartı açılır.</p>
+          <div class="ay-goz-grid" id="sirketList"></div>
+        </div>
+      </details>
+      <details class="ay-goz-fold" id="gozetmenFold">
+        <summary>Gözetmenler <small>Liman tarafı</small></summary>
+        <div class="ay-goz-fold__body">
+          <p class="ay-goz-lead">Her gözetmenin hesabı ayrıdır. Bir kişiye tıklayınca kartı açılır.</p>
+          <div class="ay-goz-grid" id="gozetmenList"></div>
+        </div>
+      </details>
     </section>
 
     <section id="section-yazisma" class="ay-panel ay-section" tabindex="-1" aria-labelledby="yazismaTitle" hidden>
@@ -1570,6 +1599,6 @@
   <script src="print-layout-settings.js?v=20261006-no-isg-takip"></script>
   <script src="print-layout-editor.js?v=20261008-trafik"></script>
   <script src="asset-loader.js?v=1.0.12-20260909-formjpg"></script>
-  <script src="ayarlar.js?v=20261009-id7"></script>
+  <script src="ayarlar.js?v=20261009-kapi"></script>
 </body>
 </html>

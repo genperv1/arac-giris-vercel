@@ -5,13 +5,14 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const { pgSsl } = require('../lib/pg-ssl');
 
 const OUT_DIR = path.join(__dirname, '..', 'public', 'assets');
 
 async function main() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: pgSsl(),
   });
   try {
     const meta = await pool.query(

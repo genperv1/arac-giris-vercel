@@ -64,8 +64,8 @@
       hash: 'cihazlar',
     },
     'section-gozetmen': {
-      title: 'Liman gözetmenleri',
-      desc: 'Yedi liman hesabı. ID ve şifre 40 günde bir yenilenir, Selahattin Toker ekranına düşer.',
+      title: 'Liman giriş hesapları',
+      desc: 'Şirket yetkilileri ve gözetmenler. ID ve şifreyi Selahattin Toker belirler.',
       hash: 'gozetmen',
     },
     'section-yazisma': {
@@ -1609,31 +1609,59 @@
     });
   }
 
-  function gozetmenDate(ts) {
-    const n = Number(ts);
-    if (!n) return '—';
-    try {
-      return new Date(n).toLocaleString('tr-TR', { timeZone: TR_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    } catch (e) {
-      return '—';
+  function gozetmenVisits(slot) {
+    const count = Number(slot && slot.loginCount) || 0;
+    const at = Number(slot && slot.lastLoginAt) || 0;
+    if (!count) return 'Henüz giriş yok';
+    let when = '';
+    if (at) {
+      try {
+        when = new Date(at).toLocaleString('tr-TR', {
+          timeZone: 'Europe/Istanbul',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } catch (e) { when = ''; }
     }
+    return count + ' giriş' + (when ? ' · son ' + when : '');
   }
 
-  function renderGozetmen(data) {
-    const box = document.getElementById('gozetmenList');
-    const next = document.getElementById('gozetmenNext');
-    if (next) {
-      next.textContent = 'Sonraki otomatik ID ve şifre: ' + gozetmenDate(data && data.nextAt) + '. Yeniler Selahattin Toker ekranına düşer.';
-    }
-    if (!box) return;
-    const slots = (data && data.slots) || [];
-    box.innerHTML = slots.map((slot) => `<article class="ay-goz" data-n="${slot.n}">
-      <h3>${escapeHtml(slot.label || ('Gözetmen ' + slot.n))}</h3>
+  function gozetmenCard(slot, editable) {
+    const creds = editable
+      ? `<label>ID<input data-field="loginId" value="${escapeHtml(slot.loginId)}" maxlength="12" autocomplete="off" spellcheck="false"></label>
+      <label>Şifre<input data-field="password" value="${escapeHtml(slot.password)}" maxlength="12" autocomplete="off" spellcheck="false"></label>`
+      : `<div class="ay-goz__pw">ID <code>${escapeHtml(slot.loginId || '—')}</code> · Şifre <code>${escapeHtml(slot.password || '—')}</code></div>`;
+    const who = [slot.ad, slot.soyad].filter(Boolean).join(' ') || 'İsim yok';
+    return `<details class="ay-goz" data-grup="${escapeHtml(slot.grup || 'gozetmen')}" data-n="${slot.n}">
+      <summary><strong>${escapeHtml(slot.label || ('Hesap ' + slot.n))}</strong><span>${escapeHtml(who)}</span></summary>
+      <div class="ay-goz__body">
       <label>Ad<input data-field="ad" value="${escapeHtml(slot.ad)}" maxlength="40" autocomplete="off"></label>
       <label>Soyad<input data-field="soyad" value="${escapeHtml(slot.soyad)}" maxlength="40" autocomplete="off"></label>
       <label>Telefon<input data-field="telefon" value="${escapeHtml(slot.telefon)}" maxlength="20" inputmode="tel" autocomplete="off"></label>
-      <div class="ay-goz__pw">ID <code>${escapeHtml(slot.loginId)}</code> · Şifre <code>${escapeHtml(slot.password)}</code></div>
-    </article>`).join('');
+      <p class="ay-goz__login">${escapeHtml(gozetmenVisits(slot))}</p>
+      ${creds}
+      <button type="button" class="ay-btn ay-btn--primary ay-goz-save">Kaydet</button>
+      </div>
+    </details>`;
+  }
+
+  function renderGozetmen(data) {
+    const sirketBox = document.getElementById('sirketList');
+    const box = document.getElementById('gozetmenList');
+    const next = document.getElementById('gozetmenNext');
+    const editable = !!(data && data.canEditCredentials);
+    if (next) {
+      next.textContent = editable
+        ? 'ID ve şifreyi siz yazın. Doğru giriş 12 saatlik kilitli çerez açar; liste bu çerez olmadan gelmez. Kaç kez girildiği kartta görünür. İkisi de boş kalan hesap giriş yapamaz.'
+        : 'ID ve şifreyi Selahattin Toker belirler. Doğru girişten sonra liste 12 saat açık kalır. Kaç kez girildiği kartta görünür.';
+    }
+    const slots = (data && data.slots) || [];
+    const htmlFor = (grup) => slots.filter((slot) => (slot.grup || 'gozetmen') === grup).map((slot) => gozetmenCard(slot, editable)).join('');
+    if (sirketBox) sirketBox.innerHTML = htmlFor('sirket');
+    if (box) box.innerHTML = htmlFor('gozetmen');
   }
 
   async function loadGozetmen() {
@@ -1649,37 +1677,56 @@
     }
   }
 
-  async function saveGozetmen() {
+  function readGozetmenCards() {
     const slots = [];
-    document.querySelectorAll('#gozetmenList .ay-goz').forEach((card) => {
+    document.querySelectorAll('#sirketList .ay-goz, #gozetmenList .ay-goz').forEach((card) => {
       const read = (field) => {
         const input = card.querySelector('[data-field="' + field + '"]');
-        return input ? input.value : '';
+        return input ? input.value : null;
       };
-      slots.push({
+      const row = {
+        grup: card.getAttribute('data-grup') || 'gozetmen',
         n: Number(card.getAttribute('data-n')),
-        ad: read('ad'),
-        soyad: read('soyad'),
-        telefon: read('telefon'),
-      });
+        ad: read('ad') || '',
+        soyad: read('soyad') || '',
+        telefon: read('telefon') || '',
+      };
+      const loginId = read('loginId');
+      const password = read('password');
+      if (loginId != null || password != null) {
+        row.loginId = loginId || '';
+        row.password = password || '';
+      }
+      slots.push(row);
     });
-    const btn = document.getElementById('gozetmenSaveBtn');
-    if (btn) btn.disabled = true;
+    return slots;
+  }
+
+  async function saveGozetmen() {
+    const slots = readGozetmenCards();
+    const buttons = document.querySelectorAll('.ay-goz-save');
+    buttons.forEach((button) => { button.disabled = true; });
     try {
       const res = await apiFetch('/api/liman/gozetmen', { method: 'PUT', body: JSON.stringify({ slots }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Kaydedilemedi');
       renderGozetmen(data);
-      toast('Gözetmen bilgileri kaydedildi.');
+      toast('Liman giriş hesapları kaydedildi.');
     } catch (e) {
       toast(e.message || 'Kaydedilemedi.', true);
     } finally {
-      if (btn) btn.disabled = false;
+      document.querySelectorAll('.ay-goz-save').forEach((button) => { button.disabled = false; });
     }
   }
 
   function bindGozetmenUi() {
-    document.getElementById('gozetmenSaveBtn')?.addEventListener('click', saveGozetmen);
+    document.getElementById('section-gozetmen')?.addEventListener('click', (event) => {
+      const button = event.target.closest('.ay-goz-save');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      saveGozetmen();
+    });
   }
 
   function bindBanUi() {

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   parsePiyasaExpectedPaste,
   sanitizeExpectedItems,
+  layoutExpectedWeek,
   matchExpectedByPlate,
   orderMatchesQuery,
   filterOrdersForSelect,
@@ -162,6 +163,22 @@ test('excelde görünen geç satır gelen araç listesinde kalır', () => {
   assert.equal(hit[0].il, 'TOKAT');
   const byName = filterOrdersForSelect(orders, 'şemes');
   assert.equal(byName.length, 1);
+});
+
+test('yeni eklenen üstte, arşive alınan alt klasörde', () => {
+  const items = sanitizeExpectedItems([
+    { weekKey: '2026:41', cekici: '42 ATT 321', orderKey: 'a', label: 'HP38', addedAt: 1000 },
+    { weekKey: '2026:41', cekici: '34 HF 4886', orderKey: 'b', label: 'HP38', addedAt: 3000, archivedAt: 4000 },
+    { weekKey: '2026:41', cekici: '06 ETZ 736', orderKey: 'c', label: 'CR2', addedAt: 5000 },
+    { weekKey: '2026:40', cekici: '19 ND 921', orderKey: 'd', label: 'I110', addedAt: 9000 },
+  ]);
+  const layout = layoutExpectedWeek(items, '2026:41');
+  assert.deepEqual(layout.active.map((item) => item.cekici), ['06ETZ736', '42ATT321']);
+  assert.deepEqual(layout.archived.map((item) => item.cekici), ['34HF4886']);
+  assert.equal(layout.active[0].addedAt, 5000);
+  assert.equal(layout.archived[0].archivedAt, 4000);
+  assert.equal(matchExpectedByPlate(items, '34 HF 4886', '2026:41').length, 0);
+  assert.equal(matchExpectedByPlate(items, '06 ETZ 736', '2026:41').length, 1);
 });
 
 test('etiket sipariş satırında kelime olarak durur', () => {

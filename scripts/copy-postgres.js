@@ -13,6 +13,7 @@
 
 require('dotenv').config();
 const { Pool } = require('pg');
+const { pgSsl } = require('../lib/pg-ssl');
 
 const TABLES = [
   'users',
@@ -36,7 +37,7 @@ const BATCH = 150;
 function poolFrom(url) {
   return new Pool({
     connectionString: url,
-    ssl: { rejectUnauthorized: false },
+    ssl: pgSsl(),
     max: 2,
     connectionTimeoutMillis: 25000,
     statement_timeout: 180000,

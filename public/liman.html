@@ -171,6 +171,7 @@
     .liman-gate { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 20px; background: #1f4e2a; }
     .liman-gate[hidden] { display: none; }
     .liman-gate__card { width: min(100%, 360px); background: #fff; border-radius: 12px; padding: 22px 20px 18px; box-shadow: 0 16px 40px rgba(0,0,0,.28); }
+    .liman-gate__card--wide { width: min(100%, 680px); max-height: calc(100vh - 40px); overflow: auto; }
     .liman-gate__card h2 { margin: 0; font-size: 1.15rem; color: #14532d; }
     .liman-gate__card p { margin: 6px 0 14px; color: #3f6212; font-size: .9rem; }
     .liman-gate__form { display: flex; flex-direction: column; gap: 10px; }
@@ -178,6 +179,20 @@
     .liman-gate__form input { border: 1px solid #86efac; border-radius: 6px; padding: 10px 12px; font: inherit; font-size: 16px; }
     .liman-gate__form button { margin-top: 4px; border: 0; border-radius: 6px; padding: 10px 14px; background: #166534; color: #fff; font: inherit; font-weight: 800; cursor: pointer; }
     .liman-gate__err { margin: 10px 0 0; color: #b91c1c; font-size: .85rem; font-weight: 700; }
+    .liman-acc { display: grid; grid-template-columns: minmax(120px, 1.3fr) 1fr 1fr; gap: 8px; align-items: end; padding: 8px 0; border-top: 1px solid #dcfce7; }
+    .liman-acc__who { font-size: .82rem; font-weight: 800; color: #14532d; }
+    .liman-acc__who small { display: block; font-weight: 600; color: #3f6212; }
+    .liman-acc__login { display: block; margin-top: 2px; font-size: .72rem; font-weight: 700; color: #166534; }
+    .liman-acc-head { margin: 12px 0 0; font-size: .92rem; color: #14532d; }
+    .liman-acc label { display: flex; flex-direction: column; gap: 4px; font-size: .72rem; font-weight: 700; color: #166534; }
+    .liman-acc input { border: 1px solid #86efac; border-radius: 6px; padding: 8px 10px; font: inherit; font-size: 16px; width: 100%; box-sizing: border-box; }
+    .liman-gate__actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+    .liman-gate__actions button { border: 0; border-radius: 6px; padding: 10px 14px; background: #166534; color: #fff; font: inherit; font-weight: 800; cursor: pointer; }
+    .liman-gate__actions button.secondary { background: #e8f5e9; color: #14532d; }
+    @media (max-width: 760px) {
+      .liman-acc { grid-template-columns: 1fr 1fr; }
+      .liman-acc__who { grid-column: 1 / -1; }
+    }
     a.tel { color: inherit; text-decoration: none; }
     table.grid td.c-sum { display: none; }
     .blok table.grid tr.tot td { font-weight: 800; border-color: #808080; }
@@ -288,17 +303,30 @@
 </head>
 <body class="liman-locked">
   <section id="limanGate" class="liman-gate" aria-label="Liman girişi" hidden>
-    <div class="liman-gate__card">
-      <h2>Liman girişi</h2>
-      <p>Size verilen ID ve şifreyi girin.</p>
-      <form id="limanGateForm" class="liman-gate__form" autocomplete="off">
-        <label for="limanUser">ID</label>
-        <input id="limanUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="ID" autofocus />
-        <label for="limanPwd">Şifre</label>
-        <input id="limanPwd" name="password" type="password" autocomplete="current-password" />
-        <button type="submit">Giriş</button>
-      </form>
-      <p id="limanGateErr" class="liman-gate__err" hidden>Hatalı kullanıcı adı veya şifre.</p>
+    <div class="liman-gate__card" id="limanGateCard">
+      <div id="limanLoginBox">
+        <h2>Liman girişi</h2>
+        <p>Size verilen ID ve şifreyi girin.</p>
+        <form id="limanGateForm" class="liman-gate__form" autocomplete="off">
+          <label for="limanUser">ID</label>
+          <input id="limanUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="ID" autofocus />
+          <label for="limanPwd">Şifre</label>
+          <input id="limanPwd" name="password" type="password" autocomplete="current-password" />
+          <button type="submit">Giriş</button>
+        </form>
+        <p id="limanGateErr" class="liman-gate__err" hidden>Hatalı kullanıcı adı veya şifre.</p>
+      </div>
+      <div id="limanAccounts" hidden>
+        <h2>Liman hesapları</h2>
+        <p>Şirket yetkilileri ve gözetmenler için ID ve şifreyi buradan yazın. /liman girişi bu hesaplarla açılır. Harf ve rakam; büyük küçük fark etmez. İkisi de boş kalan hesap giriş yapamaz.</p>
+        <div id="limanAccountList"></div>
+        <div class="liman-gate__actions">
+          <button type="button" class="secondary" id="limanAccountExit">Çıkış</button>
+          <button type="button" class="secondary" id="limanAccountOpen">Listeyi aç</button>
+          <button type="button" id="limanAccountSave">Kaydet</button>
+        </div>
+        <p id="limanAccountErr" class="liman-gate__err" hidden></p>
+      </div>
     </div>
   </section>
   <header class="top">
@@ -315,6 +343,7 @@
         <div id="ports"></div>
         <input id="plate" class="search" type="search" placeholder="Plaka ara" />
         <button type="button" class="btn btn-print" data-print-current title="Seçili liste A4 yatay, Excel düzeninde yazdırılır">Yazdır</button>
+        <button type="button" class="btn" id="limanHesapBtn" hidden>Hesaplar</button>
         <span class="live" id="liveDot" title="Liste kendiliğinden yenilenir"><i aria-hidden="true"></i><span>Canlı</span></span>
       </div>
     </div>
@@ -325,21 +354,182 @@
   </div>
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
-  <script src="liman-gate.js?v=20261009-oturum"></script>
+  <script src="liman-gate.js?v=20261009-kapi"></script>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
   <script src="liman-xlsx.js?v=20261008-sagtaraf"></script>
-  <script src="liman.js?v=20261009-oturum"></script>
+  <script src="liman.js?v=20261009-kapi"></script>
   <script>
     (function () {
+      function esc(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+      function person(slot) {
+        var name = [slot.ad, slot.soyad].filter(Boolean).join(' ');
+        return name || 'İsim yazılmadı';
+      }
+      function visitText(slot) {
+        var count = Number(slot && slot.loginCount) || 0;
+        var at = Number(slot && slot.lastLoginAt) || 0;
+        if (!count) return 'Henüz giriş yok';
+        var when = '';
+        if (at) {
+          try {
+            when = new Date(at).toLocaleString('tr-TR', {
+              timeZone: 'Europe/Istanbul',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+          } catch (e) { when = ''; }
+        }
+        return count + ' giriş' + (when ? ' · son ' + when : '');
+      }
+      function syncHesapBtn() {
+        var btn = document.getElementById('limanHesapBtn');
+        if (!btn || !window.LimanGate) return;
+        btn.hidden = !window.LimanGate.adminToken();
+      }
+      function showLogin() {
+        var login = document.getElementById('limanLoginBox');
+        var accounts = document.getElementById('limanAccounts');
+        var card = document.getElementById('limanGateCard');
+        var gate = document.getElementById('limanGate');
+        if (login) login.hidden = false;
+        if (accounts) accounts.hidden = true;
+        if (card) card.classList.remove('liman-gate__card--wide');
+        if (gate) gate.hidden = false;
+        document.body.classList.add('liman-locked');
+      }
       function openPage() {
         var gate = document.getElementById('limanGate');
         if (gate) gate.hidden = true;
         document.body.classList.remove('liman-locked');
+        syncHesapBtn();
         if (window.LimanPage && typeof window.LimanPage.start === 'function') window.LimanPage.start();
       }
-      async function boot() {
-        if (window.LimanGate && window.LimanGate.isUnlocked()) {
+      function renderAccounts(data) {
+        var box = document.getElementById('limanAccountList');
+        if (!box) return;
+        var slots = (data && data.slots) || [];
+        function block(title, grup) {
+          var rows = slots.filter(function (slot) { return (slot.grup || 'gozetmen') === grup; }).map(function (slot) {
+            return '<div class="liman-acc" data-grup="' + esc(slot.grup || grup) + '" data-n="' + esc(slot.n) + '">'
+              + '<div class="liman-acc__who">' + esc(slot.label || ('Hesap ' + slot.n))
+              + '<small>' + esc(person(slot)) + '</small>'
+              + '<span class="liman-acc__login">' + esc(visitText(slot)) + '</span></div>'
+              + '<label>ID<input data-field="loginId" value="' + esc(slot.loginId) + '" maxlength="12" autocomplete="off" spellcheck="false"></label>'
+              + '<label>Şifre<input data-field="password" value="' + esc(slot.password) + '" maxlength="12" autocomplete="off" spellcheck="false"></label>'
+              + '</div>';
+          }).join('');
+          return '<h3 class="liman-acc-head">' + esc(title) + '</h3>' + rows;
+        }
+        box.innerHTML = block('Şirket yetkilileri', 'sirket') + block('Gözetmenler', 'gozetmen');
+      }
+      function accountError(message, ok) {
+        var err = document.getElementById('limanAccountErr');
+        if (!err) return;
+        err.style.color = ok ? '#166534' : '#b91c1c';
+        if (!message) { err.hidden = true; err.textContent = ''; return; }
+        err.hidden = false;
+        err.textContent = message;
+      }
+      async function showAccounts() {
+        var login = document.getElementById('limanLoginBox');
+        var accounts = document.getElementById('limanAccounts');
+        var card = document.getElementById('limanGateCard');
+        var gate = document.getElementById('limanGate');
+        if (login) login.hidden = true;
+        if (accounts) accounts.hidden = false;
+        if (card) card.classList.add('liman-gate__card--wide');
+        if (gate) gate.hidden = false;
+        document.body.classList.add('liman-locked');
+        accountError('');
+        var box = document.getElementById('limanAccountList');
+        if (box) box.textContent = 'Yükleniyor…';
+        var data = window.LimanGate ? await window.LimanGate.loadAccounts() : { ok: false, error: 'down' };
+        if (!data || data.error === 'auth') {
+          if (window.LimanGate) window.LimanGate.clearAdminToken();
+          syncHesapBtn();
+          showLogin();
+          var err = document.getElementById('limanGateErr');
+          if (err) { err.hidden = false; err.textContent = 'Oturum kapandı. Tekrar girin.'; }
+          return;
+        }
+        if (!data.ok) {
+          if (box) box.textContent = '';
+          accountError('Liste alınamadı.');
+          return;
+        }
+        renderAccounts(data);
+      }
+      async function saveAccounts() {
+        var slots = [];
+        document.querySelectorAll('#limanAccountList .liman-acc').forEach(function (row) {
+          var read = function (field) {
+            var input = row.querySelector('[data-field="' + field + '"]');
+            return input ? input.value : '';
+          };
+          slots.push({
+            grup: row.getAttribute('data-grup') || 'gozetmen',
+            n: Number(row.getAttribute('data-n')),
+            loginId: read('loginId'),
+            password: read('password'),
+          });
+        });
+        var btn = document.getElementById('limanAccountSave');
+        if (btn) btn.disabled = true;
+        accountError('');
+        var data = { ok: false, error: 'Kayıt şu an yapılamadı.' };
+        try {
+          data = window.LimanGate ? await window.LimanGate.saveAccounts(slots) : data;
+        } catch (e) { /* aşağıda */ }
+        if (btn) btn.disabled = false;
+        if (data && data.error === 'auth') {
+          if (window.LimanGate) window.LimanGate.clearAdminToken();
+          syncHesapBtn();
+          showLogin();
+          return;
+        }
+        if (!data || !data.ok) {
+          accountError((data && data.error) || 'Kaydedilemedi.');
+          return;
+        }
+        renderAccounts(data);
+        accountError('Kaydedildi.', true);
+      }
+      function bindAccountActions() {
+        var save = document.getElementById('limanAccountSave');
+        var exit = document.getElementById('limanAccountExit');
+        var open = document.getElementById('limanAccountOpen');
+        var hesap = document.getElementById('limanHesapBtn');
+        if (save) save.addEventListener('click', saveAccounts);
+        if (exit) exit.addEventListener('click', async function () {
+          if (window.LimanGate && typeof window.LimanGate.logout === 'function') await window.LimanGate.logout();
+          else if (window.LimanGate) window.LimanGate.clearAdminToken();
+          syncHesapBtn();
+          showLogin();
+        });
+        if (open) open.addEventListener('click', function () {
+          if (window.LimanGate) window.LimanGate.markUnlocked();
           openPage();
+        });
+        if (hesap) hesap.addEventListener('click', function () { showAccounts(); });
+      }
+      async function boot() {
+        bindAccountActions();
+        window.addEventListener('liman-login-required', function () {
+          if (window.LimanGate && typeof window.LimanGate.logout === 'function') window.LimanGate.logout();
+          else if (window.LimanGate) window.LimanGate.clearUnlock();
+          showLogin();
+        });
+        if (window.LimanGate && window.LimanGate.adminToken()) {
+          showAccounts();
           return;
         }
         var session = false;
@@ -354,8 +544,20 @@
           openPage();
           return;
         }
-        var gate = document.getElementById('limanGate');
-        if (gate) gate.hidden = false;
+        var gateOk = false;
+        try {
+          var probe = await fetch('/api/liman/version', { credentials: 'same-origin', cache: 'no-store' });
+          gateOk = probe.ok;
+        } catch (e) {
+          gateOk = false;
+        }
+        if (gateOk) {
+          if (window.LimanGate) window.LimanGate.markUnlocked();
+          openPage();
+          return;
+        }
+        if (window.LimanGate) window.LimanGate.clearUnlock();
+        showLogin();
         var form = document.getElementById('limanGateForm');
         if (!form) return;
         form.addEventListener('submit', async function (e) {
@@ -374,6 +576,11 @@
             result = 'down';
           }
           if (btn) btn.disabled = false;
+          if (result === 'manage') {
+            if (err) err.hidden = true;
+            showAccounts();
+            return;
+          }
           if (result !== 'ok') {
             if (err) {
               err.hidden = false;

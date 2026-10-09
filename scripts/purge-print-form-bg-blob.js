@@ -3,11 +3,12 @@
 
 require('dotenv').config();
 const { Pool } = require('pg');
+const { pgSsl } = require('../lib/pg-ssl');
 
 async function main() {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: pgSsl(),
   });
   try {
     const r = await pool.query('DELETE FROM kv_store WHERE key = $1', ['print_form_bg_v1']);

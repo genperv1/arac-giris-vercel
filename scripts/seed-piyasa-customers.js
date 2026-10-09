@@ -3,6 +3,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const { pgSsl } = require('../lib/pg-ssl');
 
 async function main() {
   const seedPath = path.join(__dirname, '..', 'data', 'piyasa-customers-seed.json');
@@ -14,7 +15,7 @@ async function main() {
   const parsed = JSON.parse(raw);
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: pgSsl(),
   });
   await pool.query(
     'INSERT INTO kv_store(key, value) VALUES($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value',

@@ -6,6 +6,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const { pgSsl } = require('../lib/pg-ssl');
 
 async function main() {
   if (!process.env.DATABASE_URL) {
@@ -17,7 +18,7 @@ async function main() {
 
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: pgSsl(),
   });
 
   try {

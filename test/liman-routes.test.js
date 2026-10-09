@@ -225,17 +225,21 @@ test('listeyi kapatma, açma ve kaldırma yalnız Selahattin Toker hesabında', 
   assert.deepEqual(wiped.archive, []);
 });
 
-test('liman okuma uçları oturumsuz çalışır (canEdit false, kapalı günler görünür)', async () => {
+test('liman okuma uçları girişsiz 401, girişli gözetmen listeyi görür', async () => {
   const k = harness({ username: 'AVDAN', role: 'admin' });
   await k.call('put /liman/snapshot', '95.3.27.82', { site: 'AVDAN', fileName: '03.10.2026.xlsx', blocks: [block('YD1 / LOT NO 1 / EVYAP', 'AVDAN')] });
   const anon = harness(undefined);
   Object.assign(anon.store, k.store);
-  const view = await anon.call('get /liman', '5.5.5.5');
+  const locked = await anon.call('get /liman', '5.5.5.5');
+  assert.equal(locked.code, 'LIMAN_LOGIN_REQUIRED');
+  const ver = await anon.call('get /liman/version', '5.5.5.5');
+  assert.equal(ver.code, 'LIMAN_LOGIN_REQUIRED');
+  const viewer = harness({ username: 'gozetmen', role: 'user' });
+  Object.assign(viewer.store, k.store);
+  const view = await viewer.call('get /liman', '5.5.5.5');
   assert.equal(view.ok, true);
   assert.equal(view.canEdit, false);
   assert.equal(view.days.length, 1);
-  const ver = await anon.call('get /liman/version', '5.5.5.5');
-  assert.ok(ver.v);
 });
 
 test('publicApp verilince GET + kantar yazma uçları /api öneki ile app\'e, amir uçları router\'a bağlanır', () => {
@@ -304,14 +308,18 @@ test('publicApp modunda oturumsuz kantar gönderimi 401 + günlükte "denied"; n
   assert.equal(exp.out.code, 'SESSION_EXPIRED');
   // Geçerli JWT: nabız kabul edilir, sürüm değişmez (liman sayfası yeniden yüklenmez)
   const good = jwt.sign({ username: 'AVDAN', role: 'admin' }, 'test-secret', { expiresIn: '1h' });
-  const before = (await run('get /api/liman/version', { headers: {} })).out.v;
+  const viewer = { headers: { cookie: 'auth_token=' + good } };
+  const locked = await run('get /api/liman', { headers: {} });
+  assert.equal(locked.statusCode, 401);
+  assert.equal(locked.out.code, 'LIMAN_LOGIN_REQUIRED');
+  const before = (await run('get /api/liman/version', viewer)).out.v;
   const hb = await run('put /api/liman/heartbeat', { headers: { 'x-forwarded-for': '9.9.9.9', cookie: 'auth_token=' + good }, cookies: { auth_token: good }, body: { excelLoaded: false } });
   assert.equal(hb.statusCode, 200);
   assert.equal(hb.out.site, 'AVDAN');
-  const after = (await run('get /api/liman/version', { headers: {} })).out.v;
+  const after = (await run('get /api/liman/version', viewer)).out.v;
   assert.equal(before, after);
-  // Anonim görünüm: nabız görünür, günlük görünmez
-  const anon = (await run('get /api/liman', { headers: {} })).out;
+  // Girişli kantar: nabız görünür, günlük görünmez
+  const anon = (await run('get /api/liman', viewer)).out;
   assert.equal(anon.sites.AVDAN.hasList, false);
   assert.ok(anon.sites.AVDAN.heartbeatAt);
   assert.equal(anon.sites.AVDAN.heartbeatExcel, false);
@@ -320,16 +328,16 @@ test('publicApp modunda oturumsuz kantar gönderimi 401 + günlükte "denied"; n
   // Okuma sonucu: başarılı okuma zamanı saklanır, sonraki başarısız okumada korunur
   const hdr = { headers: { 'x-forwarded-for': '9.9.9.9', cookie: 'auth_token=' + good }, cookies: { auth_token: good } };
   await run('put /api/liman/heartbeat', Object.assign({ body: { excelLoaded: true, readOk: true } }, hdr));
-  const okView = (await run('get /api/liman', { headers: {} })).out.sites.AVDAN;
+  const okView = (await run('get /api/liman', viewer)).out.sites.AVDAN;
   assert.equal(okView.heartbeatReadOk, true);
   assert.ok(okView.heartbeatReadOkAt);
   await run('put /api/liman/heartbeat', Object.assign({ body: { excelLoaded: true, readOk: false, readReason: 'permission' } }, hdr));
-  const badView = (await run('get /api/liman', { headers: {} })).out.sites.AVDAN;
+  const badView = (await run('get /api/liman', viewer)).out.sites.AVDAN;
   assert.equal(badView.heartbeatReadOk, false);
   assert.equal(badView.heartbeatReadReason, 'permission');
   assert.equal(badView.heartbeatReadOkAt, okView.heartbeatReadOkAt);
   await run('put /api/liman/heartbeat', Object.assign({ body: { excelLoaded: true } }, hdr));
-  const keptView = (await run('get /api/liman', { headers: {} })).out.sites.AVDAN;
+  const keptView = (await run('get /api/liman', viewer)).out.sites.AVDAN;
   assert.equal(keptView.heartbeatReadOk, false);
   assert.equal(keptView.heartbeatReadReason, 'permission');
   // Amir görünümü: günlükte 2 red + nabızlar
@@ -399,7 +407,7 @@ test('nakliyeci (GPM / AKYÜZ) yalnız amire gider; ortak çekimde iki firma bir
   assert.equal(amirBlock.tasiyici, 'GPM + AKYÜZ');
   assert.deepEqual(amirBlock.rows.map((r) => r.tasiyici), ['GPM', 'AKYÜZ']);
 
-  const anon = harness(undefined);
+  const anon = harness({ username: 'gozetmen', role: 'user' });
   Object.assign(anon.store, k.store);
   const anonBlock = (await anon.call('get /liman', '5.5.5.5')).days[0].blocks[0];
   assert.equal('tasiyici' in anonBlock, false);
@@ -449,7 +457,7 @@ test('sürüm ucu son takip formu baskısını da döner (liman İÇERİDE için
   });
   const call = async () => {
     let out;
-    await routes['get /liman/version']({ headers: {} }, { json: (d) => { out = d; }, setHeader() {}, status() { return this; } });
+    await routes['get /liman/version']({ headers: {}, user: { username: 'AVDAN', role: 'admin' } }, { json: (d) => { out = d; }, setHeader() {}, status() { return this; } });
     return out;
   };
   const a = await call();

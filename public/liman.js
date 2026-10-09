@@ -31,6 +31,10 @@
   async function api(path, options) {
     var res = await fetch(freshUrl(path), Object.assign({ credentials: 'same-origin', cache: 'no-store' }, options || {}));
     var data = await res.json().catch(function () { return {}; });
+    if (res.status === 401) {
+      try { window.dispatchEvent(new CustomEvent('liman-login-required')); } catch (e) { /* ignore */ }
+      throw new Error(data.error || 'Liman girişi gerekli');
+    }
     if (!res.ok) throw new Error(data.error || 'İstek olmadı');
     return data;
   }
@@ -1303,9 +1307,13 @@
     var pullDeparted = !opts || opts.departed !== false || !state.reports;
     if (pullDeparted) {
       var since = Date.now() - 3 * 24 * 60 * 60 * 1000;
-      // Oturumsuz çıkış akışı (liman görevlisi giriş yapmaz). Baskı değişmediyse tekrar inmez.
+      // Çıkış akışı da aynı kapı çerezini ister. Baskı değişmediyse tekrar inmez.
       var res = await fetch(freshUrl('/api/liman/departed?since=' + since), { credentials: 'same-origin', cache: 'no-store' });
       if (gen !== viewGeneration) return;
+      if (res.status === 401) {
+        try { window.dispatchEvent(new CustomEvent('liman-login-required')); } catch (e) { /* ignore */ }
+        throw new Error('Liman girişi gerekli');
+      }
       state.reports = res.ok ? await res.json() : (state.reports || []);
     }
     var data = await api('/api/liman');
@@ -1549,5 +1557,5 @@
   }
 
   window.LimanPage = { start: start };
-  if (!window.LimanGate || typeof window.LimanGate.isUnlocked !== 'function' || window.LimanGate.isUnlocked()) start();
+  if (!window.LimanGate) start();
 })();

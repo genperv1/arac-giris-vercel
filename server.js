@@ -16,6 +16,7 @@ const cron = require('node-cron');
 const crypto = require('crypto');
 const { validatePlateFormat, compactPlate, compactRecordPlates } = require('./lib/plate-format');
 const { envNumber, resolveSecret, warnIfDefaultSecret } = require('./lib/env');
+const { pgSsl } = require('./lib/pg-ssl');
 const { applySupabaseSecurity } = require('./lib/supabase-security');
 const { createAuthSessionMiddleware, extractAuthTokenFromRequest } = require('./lib/auth-session');
 const { createClientSiteResolver } = require('./lib/client-site');
@@ -134,7 +135,7 @@ const URLENCODED_BODY_LIMIT = process.env.URLENCODED_BODY_LIMIT || '2mb';
 // ✅ POSTGRESQL CONNECTION POOLING: Advanced configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: pgSsl(),
   // Connection pool settings
   max: PG_POOL_MAX, // maximum pool size
   min: PG_POOL_MIN, // minimum pool size
@@ -1235,7 +1236,6 @@ const createAuth = require('./user');
 const JWT_SECRET = resolveSecret('JWT_SECRET', {
   fallback: 'dev_secret_change_me',
   forbidden: ['dev_secret_change_me'],
-  deriveFrom: process.env.DATABASE_URL,
 });
 /** Oturum süresi (saat). .env: AUTH_SESSION_HOURS=6 */
 const AUTH_SESSION_HOURS = envNumber('AUTH_SESSION_HOURS', 6, { min: 1, max: 168 });
@@ -1323,6 +1323,18 @@ const routeCtx = {
   AUTH_SESSION_EXPIRES,
   requireSettingsAccess,
   sessionRenewLimiter,
+  verifyLimanAdmin: async (username, password) => {
+    const name = String(username || '').trim().toLowerCase();
+    if (name !== 'xxr') return false;
+    try {
+      const row = await q('SELECT password_hash FROM users WHERE username = $1', ['xxr']);
+      const hash = row.rows[0] && row.rows[0].password_hash;
+      if (!hash) return false;
+      return await bcrypt.compare(String(password || ''), String(hash));
+    } catch (e) {
+      return false;
+    }
+  },
 };
 
 registerAuthRoutes(api, routeCtx);

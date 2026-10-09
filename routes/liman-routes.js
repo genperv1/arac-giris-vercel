@@ -7,10 +7,11 @@ const { daysFromSheetState, siteHasBlocks, sanitizeBlocks, carryTasiyici, retain
 const { buildArchiveFromPrints } = require('../lib/liman-archive-recover');
 const { extractAuthTokenFromRequest } = require('../lib/auth-session');
 const { canManageLimanList } = require('../lib/amir-user');
+const { GATE_COOKIE, GATE_PURPOSE } = require('../lib/liman-gozetmen');
 const { printHistoryListColumns, printHistoryKantarSelect, printHistoryExcelDaySelect, mapPrintHistoryRowToReport } = require('../lib/print-history-report-map');
 
-// Liman görevlisi / gözetmen oturum açmadan bakar: okuma uçları herkese açık,
-// çıkış akışı en fazla bu kadar geriye gider.
+// Liman listesi ofis oturumu ya da liman kapı çerezi ister.
+// Çıkış akışı en fazla bu kadar geriye gider.
 const DEPARTED_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const DEPARTED_MAX_ROWS = 3000;
 const STAMP_REFRESH_MS = 120000;
@@ -67,8 +68,8 @@ function loadSiteIps() {
 
 /**
  * api: JWT korumalı router (kantar gönderimi, amir işlemleri).
- * publicApp: opsiyonel; verilirse GET uçları buraya oturumsuz bağlanır
- * (ana express app, '/api' router'ından önce) — liman görevlisi giriş yapmadan bakar.
+ * publicApp: opsiyonel; verilirse GET uçları ana uygulamaya bağlanır.
+ * Ofis oturumu veya liman kapı çerezi yoksa 401 döner.
  */
 function registerLimanRoutes(api, ctx, publicApp) {
   const { q, sendApiError, requireValidSession, requireAmir, sanitizeString, getClientIp, normalizeClientIp, formatReportInstant, presence } = ctx;
@@ -91,6 +92,43 @@ function registerLimanRoutes(api, ctx, publicApp) {
       }
     }
     next();
+  }
+
+  function readNamedCookie(req, name) {
+    const raw = req && req.headers && req.headers.cookie;
+    if (typeof raw !== 'string' || !raw) return '';
+    const parts = raw.split(';');
+    for (let i = 0; i < parts.length; i++) {
+      const idx = parts[i].indexOf('=');
+      if (idx <= 0) continue;
+      if (parts[i].slice(0, idx).trim() !== name) continue;
+      const value = parts[i].slice(idx + 1).trim();
+      try { return decodeURIComponent(value); } catch (e) { return value; }
+    }
+    return '';
+  }
+
+  /** Ofis oturumu (req.user) veya liman kapı çerezi. İkisi de yoksa liste verilmez. */
+  function limanReaderAllowed(req) {
+    if (req.user) return true;
+    const token = readNamedCookie(req, GATE_COOKIE);
+    if (!token || !jwtSecret) return false;
+    try {
+      const decoded = jwt.verify(token, jwtSecret);
+      if (!decoded || decoded.purpose !== GATE_PURPOSE) return false;
+      req.limanGate = decoded;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function rejectLimanReader(res) {
+    return res.status(401).json({
+      ok: false,
+      error: 'Liman girişi gerekli',
+      code: 'LIMAN_LOGIN_REQUIRED',
+    });
   }
 
   // --- Gönderim günlüğü (bellekte, son 40 olay): amir "kantar gönderdi mi, neden reddedildi?" görür ---
@@ -745,6 +783,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   reader.get(readPrefix + '/liman', attachOptionalUser, async (req, res) => {
     try {
+      if (!limanReaderAllowed(req)) return rejectLimanReader(res);
       noStore(res);
       const state = await readState();
       return res.json(await attachArchive(viewFor(req, state), state));
@@ -753,8 +792,9 @@ function registerLimanRoutes(api, ctx, publicApp) {
     }
   });
 
-  reader.get(readPrefix + '/liman/version', async (req, res) => {
+  reader.get(readPrefix + '/liman/version', attachOptionalUser, async (req, res) => {
     try {
+      if (!limanReaderAllowed(req)) return rejectLimanReader(res);
       await ensureStamps();
       const lastPrint = await lastPrintMark();
       noStore(res);
@@ -766,10 +806,11 @@ function registerLimanRoutes(api, ctx, publicApp) {
 
   /**
    * Sarılmış (çıkış yapmış) işareti için kantar baskılarının küçültülmüş akışı.
-   * /api/reports oturum ister; burada yalnız plaka eşlemesi ve şoför/telefon için gereken alanlar döner.
+   * Listeyle aynı kapı: ofis oturumu veya liman çerezi ister. Şoför adı ve telefon giriş yapana görünür.
    */
   reader.get(readPrefix + '/liman/departed', attachOptionalUser, async (req, res) => {
     try {
+      if (!limanReaderAllowed(req)) return rejectLimanReader(res);
       const now = Date.now();
       let since = Number(req.query && req.query.since);
       if (!Number.isFinite(since) || since <= 0 || now - since > DEPARTED_MAX_WINDOW_MS) since = now - 3 * 24 * 60 * 60 * 1000;

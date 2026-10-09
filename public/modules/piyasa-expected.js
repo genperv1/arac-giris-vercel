@@ -226,6 +226,8 @@
         tc: tcDigits(raw.tc),
         printedAt: printedAtMs(raw.printedAt),
         basimYeri: normalizeBasimYeri(raw.basimYeri),
+        addedAt: printedAtMs(raw.addedAt),
+        archivedAt: printedAtMs(raw.archivedAt),
       };
       if (indexByKey.has(item.id)) out[indexByKey.get(item.id)] = item;
       else if (out.length < 400) {
@@ -234,6 +236,20 @@
       }
     }
     return out;
+  }
+
+  function layoutExpectedWeek(items, weekKey) {
+    const week = String(weekKey || '').trim();
+    const active = [];
+    const archived = [];
+    sanitizeExpectedItems(items).forEach((item) => {
+      if (week && item.weekKey !== week) return;
+      if (item.archivedAt) archived.push(item);
+      else active.push(item);
+    });
+    active.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+    archived.sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+    return { active, archived };
   }
 
   function platesMissingFromRegistry(plates, vehicles) {
@@ -343,7 +359,7 @@
     const week = String(weekKey || '').trim();
     if (!isPlateNorm(key) || !week) return [];
     return sanitizeExpectedItems(items).filter((item) => {
-      return item.weekKey === week && (item.cekici === key || item.dorse === key);
+      return item.weekKey === week && !item.archivedAt && (item.cekici === key || item.dorse === key);
     });
   }
 
@@ -388,6 +404,7 @@
   const api = {
     parsePiyasaExpectedPaste,
     sanitizeExpectedItems,
+    layoutExpectedWeek,
     normExpectedPlate,
     matchExpectedByPlate,
     orderMatchesQuery,
@@ -789,25 +806,53 @@
     }
   }
 
-  function renderSavedExpected(host, items) {
-    const week = currentExpectedWeekKey();
-    const mine = (items || []).filter((item) => item.weekKey === week);
-    if (!mine.length) {
-      host.innerHTML = '<div class="gea-section-title">Bu hafta kayıtlı</div><div class="gea-empty">Henüz araç yok. Metni yapıştırıp sipariş satırını seçin.</div>';
-      return;
+  function expectedSavedRow(item, mode, newestAt, markNew) {
+    const printed = formatExpectedPrintLine(item);
+    const isNew = mode === 'active' && markNew && item.addedAt && item.addedAt === newestAt;
+    const plate = '<div class="gea-plate">' + esc(formatPlateShow(item.cekici))
+      + ' <span class="gea-arrow">→</span> ' + esc(item.label || item.firma || '—')
+      + (isNew ? ' <span class="gea-new">Yeni</span>' : '')
+      + '</div>'
+      + (printed ? '<div class="gea-status">' + esc(printed) + '</div>' : '<div class="gea-meta">Henüz basılmadı</div>');
+    if (mode === 'archive') {
+      return '<div class="gea-saved is-archived" data-saved-row data-id="' + esc(item.id) + '">'
+        + '<div class="gea-saved-main">' + plate + '</div>'
+        + '<button type="button" class="gea-mini" data-restore="' + esc(item.id) + '">Geri al</button>'
+        + '</div>';
     }
-    host.innerHTML = '<div class="gea-section-title">Bu hafta kayıtlı <span class="gea-count">' + mine.length + '</span></div>'
-      + mine.map((item) => {
-        const printed = formatExpectedPrintLine(item);
-        return '<div class="gea-saved" data-saved-row data-id="' + esc(item.id) + '">'
-          + '<button type="button" class="gea-saved-main" data-edit="' + esc(item.id) + '" title="Düzenle">'
-          + '<div class="gea-plate">' + esc(formatPlateShow(item.cekici)) + ' <span class="gea-arrow">→</span> ' + esc(item.label || item.firma || '—') + '</div>'
-          + (printed ? '<div class="gea-status">' + esc(printed) + '</div>' : '<div class="gea-meta">Henüz basılmadı</div>')
-          + '</button>'
-          + '<button type="button" class="gea-mini" data-edit="' + esc(item.id) + '">Düzenle</button>'
-          + '<button type="button" class="gea-del" data-del="' + esc(item.id) + '">Sil</button>'
-          + '</div>';
-      }).join('');
+    return '<div class="gea-saved' + (isNew ? ' is-new' : '') + '" data-saved-row data-id="' + esc(item.id) + '">'
+      + '<button type="button" class="gea-saved-main" data-edit="' + esc(item.id) + '" title="Düzenle">' + plate + '</button>'
+      + '<button type="button" class="gea-mini" data-edit="' + esc(item.id) + '">Düzenle</button>'
+      + '<button type="button" class="gea-arch" data-archive="' + esc(item.id) + '">Arşive</button>'
+      + '</div>';
+  }
+
+  function renderSavedExpected(host, items, opts) {
+    const week = currentExpectedWeekKey();
+    const layout = layoutExpectedWeek(items, week);
+    const active = layout.active;
+    const archived = layout.archived;
+    const newestAt = active.reduce((max, item) => Math.max(max, item.addedAt || 0), 0);
+    const markNew = active.some((item) => (item.addedAt || 0) > 0 && (item.addedAt || 0) < newestAt);
+    const archiveOpen = !!(opts && opts.archiveOpen);
+    let html = '';
+    if (!active.length) {
+      html += '<div class="gea-section-title">Bu hafta kayıtlı</div>'
+        + '<div class="gea-empty">'
+        + (archived.length ? 'Görünen araç yok. Çıkanlar arşiv klasöründe.' : 'Henüz araç yok. Metni yapıştırıp sipariş satırını seçin.')
+        + '</div>';
+    } else {
+      html += '<div class="gea-section-title">Bu hafta kayıtlı <span class="gea-count">' + active.length + '</span></div>'
+        + active.map((item) => expectedSavedRow(item, 'active', newestAt, markNew)).join('');
+    }
+    if (archived.length) {
+      html += '<details class="gea-folder"' + (archiveOpen ? ' open' : '') + '>'
+        + '<summary class="gea-folder-sum">Arşiv <span class="gea-count">' + archived.length + '</span></summary>'
+        + '<div class="gea-folder-body">'
+        + archived.map((item) => expectedSavedRow(item, 'archive', 0)).join('')
+        + '</div></details>';
+    }
+    host.innerHTML = html;
   }
 
   async function openExpectedPasteModal() {
@@ -852,8 +897,15 @@
       + '#piyasaExpectedOverlay .gea-mini,#piyasaExpectedOverlay .gea-del{height:32px;padding:0 10px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;background:#fff;white-space:nowrap;}'
       + '#piyasaExpectedOverlay .gea-mini{border:1px solid #e7e5e4;color:#44403c;}'
       + '#piyasaExpectedOverlay .gea-mini:hover{background:#fafaf9;}'
-      + '#piyasaExpectedOverlay .gea-del{border:1px solid #fecaca;color:#b91c1c;}'
-      + '#piyasaExpectedOverlay .gea-del:hover{background:#fef2f2;}'
+      + '#piyasaExpectedOverlay .gea-arch{height:32px;padding:0 10px;border-radius:8px;border:1px solid #e7e5e4;background:#fff;color:#57534e;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}'
+      + '#piyasaExpectedOverlay .gea-arch:hover{background:#fafaf9;}'
+      + '#piyasaExpectedOverlay .gea-saved.is-new{border-color:#fdba74;background:#fff7ed;}'
+      + '#piyasaExpectedOverlay .gea-new{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:#ffedd5;color:#9a3412;font-size:10px;font-weight:800;vertical-align:1px;}'
+      + '#piyasaExpectedOverlay .gea-folder{margin-top:14px;border:1px solid #e7e5e4;border-radius:12px;background:#fafaf9;}'
+      + '#piyasaExpectedOverlay .gea-folder-sum{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;list-style:none;font-size:13px;font-weight:700;color:#44403c;}'
+      + '#piyasaExpectedOverlay .gea-folder-sum::-webkit-details-marker{display:none;}'
+      + '#piyasaExpectedOverlay .gea-folder-body{padding:0 8px 8px;}'
+      + '#piyasaExpectedOverlay .gea-folder .gea-saved{background:#fff;}'
       + '#piyasaExpectedOverlay .gea-input{width:100%;box-sizing:border-box;margin-top:8px;height:36px;border:1px solid #e7e5e4;border-radius:8px;padding:0 10px;font:inherit;font-size:13px;background:#fff;color:#1c1917;outline:none;}'
       + '#piyasaExpectedOverlay .gea-input:focus{border-color:#c2410c;}'
       + '#piyasaExpectedOverlay .gea-editor{width:100%;flex:1 1 100%;min-width:0;}'
@@ -955,6 +1007,8 @@
             tc: fieldValue('tc'),
             printedAt: samePlate ? item.printedAt : 0,
             basimYeri: samePlate ? item.basimYeri : '',
+            addedAt: samePlate ? (item.addedAt || Date.now()) : Date.now(),
+            archivedAt: 0,
           }]));
           await loadExpectedArrivals(true);
           renderSavedExpected(savedHost, _expectedItems);
@@ -973,17 +1027,36 @@
         if (item && row) fillExpectedEditor(row, item, orders);
         return;
       }
-      const btn = target.closest && target.closest('button[data-del]');
-      if (!btn) return;
-      const id = btn.getAttribute('data-del');
-      btn.disabled = true;
+      const restoreBtn = target.closest && target.closest('button[data-restore]');
+      if (restoreBtn) {
+        const id = restoreBtn.getAttribute('data-restore');
+        restoreBtn.disabled = true;
+        try {
+          const items = await loadExpectedArrivals(true);
+          await saveExpectedItems(items.map((item) => (
+            item.id === id ? Object.assign({}, item, { archivedAt: 0 }) : item
+          )));
+          renderSavedExpected(savedHost, _expectedItems);
+        } catch (e) {
+          restoreBtn.disabled = false;
+          if (typeof toast === 'function') toast('Kayıt geri alınamadı.', 'warn');
+        }
+        return;
+      }
+      const archiveBtn = target.closest && target.closest('button[data-archive]');
+      if (!archiveBtn) return;
+      const id = archiveBtn.getAttribute('data-archive');
+      archiveBtn.disabled = true;
       try {
         const items = await loadExpectedArrivals(true);
-        await saveExpectedItems(items.filter((item) => item.id !== id));
-        renderSavedExpected(savedHost, _expectedItems);
+        const now = Date.now();
+        await saveExpectedItems(items.map((item) => (
+          item.id === id ? Object.assign({}, item, { archivedAt: now }) : item
+        )));
+        renderSavedExpected(savedHost, _expectedItems, { archiveOpen: true });
       } catch (e) {
-        btn.disabled = false;
-        if (typeof toast === 'function') toast('Kayıt silinemedi.', 'warn');
+        archiveBtn.disabled = false;
+        if (typeof toast === 'function') toast('Kayıt arşive alınamadı.', 'warn');
       }
     });
     overlay.querySelector('#piyasaExpectedSave').onclick = async () => {
@@ -1024,17 +1097,22 @@
         prev.forEach((item) => {
           if (item && item.printedAt) keptPrint.set(item.id, item);
         });
+        const addedAt = Date.now();
         fresh.forEach((row) => {
+          row.addedAt = addedAt;
+          row.archivedAt = 0;
           const old = keptPrint.get(weekKey + ':' + normExpectedPlate(row.cekici));
           if (!old) return;
           row.printedAt = old.printedAt;
           row.basimYeri = old.basimYeri;
         });
-        await saveExpectedItems(prev.filter((item) => !drop.has(item.id)).concat(fresh));
+        await saveExpectedItems(fresh.concat(prev.filter((item) => !drop.has(item.id))));
         area.value = '';
         preview.innerHTML = '';
         parsed = [];
         renderSavedExpected(savedHost, _expectedItems);
+        const freshRow = savedHost.querySelector('.gea-saved.is-new');
+        if (freshRow && freshRow.scrollIntoView) freshRow.scrollIntoView({ block: 'nearest' });
         const missing = platesMissingFromRegistry(fresh.map((row) => row.cekici), registryVehicles());
         if (missing.length) {
           const lines = missing.map((plate) => formatPlateShow(plate)).join('\n');
