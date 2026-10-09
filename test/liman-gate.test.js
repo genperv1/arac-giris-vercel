@@ -22,6 +22,9 @@ test('liman giriş kapısı şifreyi tarayıcıda tutmaz, sunucuya sorar', () =>
   assert.match(page, /\/api\/liman\/version/);
   assert.match(page, /liman-login-required/);
   assert.match(page, /id="limanGate"[^>]*hidden/);
+  assert.match(page, /id="limanCikisBtn"/);
+  assert.match(page, /leaveLiman/);
+  assert.match(page, /LimanGate\.logout/);
   const liman = fs.readFileSync(path.join(__dirname, '../public/liman.js'), 'utf8');
   const startFn = liman.slice(liman.indexOf('function start()'), liman.indexOf('window.LimanPage'));
   assert.doesNotMatch(startFn, /isUnlocked/);
