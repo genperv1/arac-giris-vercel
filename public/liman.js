@@ -1432,8 +1432,7 @@
   });
 
   async function init() {
-    // Bu sayfa oturum istemez: gözetmen ve liman görevlisi adresi açıp bakar.
-    // Oturum varsa (amir) yalnız yetki/presence için kullanılır; yoksa salt okunur devam eder.
+    // Giriş kapısı (gnp) açılmadan liste çekilmez. Oturum varsa yalnız yetki/presence için kullanılır.
     if (window.SessionManager && typeof SessionManager.requireValidSession === 'function') {
       try { await SessionManager.requireValidSession(); } catch (e) { /* oturumsuz görünüm */ }
     }
@@ -1508,5 +1507,14 @@
     }
   }
 
-  init();
+  var started = false;
+  function start() {
+    if (started) return;
+    if (window.LimanGate && typeof window.LimanGate.isUnlocked === 'function' && !window.LimanGate.isUnlocked()) return;
+    started = true;
+    init();
+  }
+
+  window.LimanPage = { start: start };
+  start();
 })();

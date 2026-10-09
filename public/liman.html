@@ -161,6 +161,21 @@
     .xs-bad { background: #f97316; color: #fff; }
     .xs-none { background: rgba(255,255,255,.1); color: #d1d5db; }
     .toast { position: fixed; bottom: 36px; right: 16px; background: #14532d; color: #fff; padding: 10px 14px; display: none; }
+    body.liman-locked { overflow: hidden; }
+    body.liman-locked .top,
+    body.liman-locked .wrap,
+    body.liman-locked .tabbar,
+    body.liman-locked .toast { visibility: hidden; }
+    .liman-gate { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 20px; background: #1f4e2a; }
+    .liman-gate[hidden] { display: none; }
+    .liman-gate__card { width: min(100%, 360px); background: #fff; border-radius: 12px; padding: 22px 20px 18px; box-shadow: 0 16px 40px rgba(0,0,0,.28); }
+    .liman-gate__card h2 { margin: 0; font-size: 1.15rem; color: #14532d; }
+    .liman-gate__card p { margin: 6px 0 14px; color: #3f6212; font-size: .9rem; }
+    .liman-gate__form { display: flex; flex-direction: column; gap: 10px; }
+    .liman-gate__form label { font-size: .78rem; font-weight: 700; color: #166534; }
+    .liman-gate__form input { border: 1px solid #86efac; border-radius: 6px; padding: 10px 12px; font: inherit; font-size: 16px; }
+    .liman-gate__form button { margin-top: 4px; border: 0; border-radius: 6px; padding: 10px 14px; background: #166534; color: #fff; font: inherit; font-weight: 800; cursor: pointer; }
+    .liman-gate__err { margin: 10px 0 0; color: #b91c1c; font-size: .85rem; font-weight: 700; }
     a.tel { color: inherit; text-decoration: none; }
     table.grid td.c-sum { display: none; }
     .blok table.grid tr.tot td { font-weight: 800; border-color: #808080; }
@@ -269,7 +284,21 @@
     }
   </style>
 </head>
-<body>
+<body class="liman-locked">
+  <section id="limanGate" class="liman-gate" aria-label="Liman girişi">
+    <div class="liman-gate__card">
+      <h2>Liman girişi</h2>
+      <p>Listeyi görmek için kullanıcı adı ve şifre girin.</p>
+      <form id="limanGateForm" class="liman-gate__form" autocomplete="off">
+        <label for="limanUser">Kullanıcı adı</label>
+        <input id="limanUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" autofocus />
+        <label for="limanPwd">Şifre</label>
+        <input id="limanPwd" name="password" type="password" autocomplete="current-password" />
+        <button type="submit">Giriş</button>
+      </form>
+      <p id="limanGateErr" class="liman-gate__err" hidden>Hatalı kullanıcı adı veya şifre.</p>
+    </div>
+  </section>
   <header class="top">
     <div class="top-inner">
       <div class="title-row">
@@ -294,8 +323,45 @@
   </div>
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
+  <script src="liman-gate.js?v=20261009-gate"></script>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
   <script src="liman-xlsx.js?v=20261008-sagtaraf"></script>
-  <script src="liman.js?v=20261009-gold"></script>
+  <script src="liman.js?v=20261009-gate"></script>
+  <script>
+    (function () {
+      function openPage() {
+        var gate = document.getElementById('limanGate');
+        if (gate) gate.hidden = true;
+        document.body.classList.remove('liman-locked');
+        if (window.LimanPage && typeof window.LimanPage.start === 'function') window.LimanPage.start();
+      }
+      function boot() {
+        if (window.LimanGate && window.LimanGate.isUnlocked()) {
+          openPage();
+          return;
+        }
+        var form = document.getElementById('limanGateForm');
+        if (!form) return;
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var userEl = document.getElementById('limanUser');
+          var pwdEl = document.getElementById('limanPwd');
+          var err = document.getElementById('limanGateErr');
+          var user = userEl ? userEl.value : '';
+          var pwd = pwdEl ? pwdEl.value : '';
+          if (!window.LimanGate || !window.LimanGate.checkLogin(user, pwd)) {
+            if (err) err.hidden = false;
+            if (pwdEl) { pwdEl.value = ''; pwdEl.focus(); }
+            return;
+          }
+          window.LimanGate.markUnlocked();
+          if (err) err.hidden = true;
+          openPage();
+        });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
 </body>
 </html>
