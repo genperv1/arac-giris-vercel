@@ -68,8 +68,33 @@
     .nk-yollar:empty { display: none; }
     .nk-yol { border: 1px solid #d6d3d1; background: #fff; border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: #1c1917; }
     .nk-yol.is-on { background: #1c1917; border-color: #1c1917; color: #fff7ed; }
-    .nk-gecilen { margin: 8px 2px 0; font-size: 13px; color: #3f4a34; line-height: 1.4; }
-    .nk-gecilen:empty { display: none; }
+    .nk-gecilen, .nk-kopru { margin: 0; }
+    .nk-gecilen:empty, .nk-kopru:empty { display: none; }
+    .nk-ozet { margin-top: 12px; display: grid; gap: 10px; }
+    .nk-ozet-kicker {
+      font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: #a16207; font-weight: 800;
+    }
+    .nk-iller { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+    .nk-il-chip {
+      background: #1c1917; color: #fff7ed; border-radius: 999px;
+      padding: 8px 14px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
+    }
+    .nk-il-arrow { color: #a8a29e; font-size: 22px; font-weight: 700; line-height: 1; }
+    .nk-kopru-card {
+      background: #1c1917; color: #fff7ed; border-radius: 16px; padding: 16px 18px;
+      display: flex; flex-wrap: wrap; gap: 18px 32px; align-items: flex-end;
+      border-top: 3px solid #e7c27a;
+    }
+    .nk-kopru-card span {
+      display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #e7c27a; font-weight: 800;
+    }
+    .nk-kopru-card b {
+      display: block; font-size: 32px; font-weight: 720; letter-spacing: -0.03em; line-height: 1;
+    }
+    .nk-kopru-card small { display: block; margin-top: 6px; color: #d6d3d1; font-size: 14px; }
+    .nk-kopru-note { width: 100%; margin: 4px 0 0; font-size: 14px; color: #d6d3d1; line-height: 1.4; }
     .nk-dolum { margin: 8px 0 0; font-size: 13px; color: #1c1917; background: #f4f7f5; border-radius: 8px; padding: 8px 10px; line-height: 1.4; }
     .nk-dolum:empty { display: none; }
     .nk-end { stroke: #fff; stroke-width: 2; }
@@ -81,15 +106,15 @@
     .nk-dot.is-plain { fill: #1c1917; }
     .nk-pin-label { font-size: 11px; font-weight: 700; fill: #1c1917; paint-order: stroke; stroke: #fff; stroke-width: 3; }
     .nk-port { cursor: pointer; }
-    .nk-port-mark { fill: #0c4a6e; stroke: #fff; stroke-width: 1.4; }
-    .nk-port.is-to .nk-port-mark { fill: #0f766e; }
-    .nk-port-label { font-size: 10px; font-weight: 750; fill: #0c4a6e; paint-order: stroke; stroke: #f7fbff; stroke-width: 3px; }
-    .nk-bridge-mark { fill: #9a3412; stroke: #fff; stroke-width: 1.2; }
+    .nk-port-mark { fill: #dc2626; stroke: #fff; }
+    .nk-port.is-to .nk-port-mark { fill: #9f1239; }
+    .nk-port-hole { fill: #fff; pointer-events: none; }
+    .nk-port-name { font-family: "Segoe UI", sans-serif; font-weight: 700; fill: #3d4a34; stroke: #f7fbf2; paint-order: stroke; stroke-linejoin: round; dominant-baseline: middle; }
+    .nk-bridge-mark { fill: #9a3412; stroke: #fff; }
     .nk-bridge-mark.is-ban { fill: #78716c; }
-    .nk-bridge-label { font-size: 10px; font-weight: 800; fill: #9a3412; paint-order: stroke; stroke: #fff7ed; stroke-width: 3px; }
-    .nk-bridge-label.is-ban { fill: #57534e; }
-    .nk-kopru { margin: 8px 2px 0; font-size: 13px; color: #7c2d12; line-height: 1.45; }
-    .nk-kopru:empty { display: none; }
+    .nk-bridge-name { font-family: "Segoe UI", sans-serif; font-weight: 700; fill: #9a3412; stroke: #fff7ed; paint-order: stroke; stroke-linejoin: round; pointer-events: none; }
+    .nk-bridge-name.is-ban { fill: #57534e; }
+    .nk-port-name { font-family: "Segoe UI", sans-serif; font-weight: 700; fill: #3d4a34; stroke: #f7fbf2; paint-order: stroke; stroke-linejoin: round; dominant-baseline: middle; }
     .nk-side h2 { margin: 0 0 8px; font-size: 15px; }
     .nk-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
     .nk-tab { text-align: left; }
@@ -183,8 +208,10 @@
       </div>
       <div id="nkYollar" class="nk-yollar"></div>
       <svg id="nkMap" class="nk-svg" viewBox="0 0 1000 460" role="img" aria-label="Türkiye haritası"></svg>
-      <p id="nkGecilen" class="nk-gecilen"></p>
-      <p id="nkKopru" class="nk-kopru"></p>
+      <div class="nk-ozet">
+        <div id="nkGecilen" class="nk-gecilen"></div>
+        <div id="nkKopru" class="nk-kopru"></div>
+      </div>
     </section>
 
     <section class="nk-card nk-side">
@@ -245,7 +272,7 @@
     </section>
   </main>
 
-  <script src="nakliye-liman.js?v=20261009-liman"></script>
-  <script src="nakliye.js?v=20261009-liman"></script>
+  <script src="nakliye-liman.js?v=20261009-alti"></script>
+  <script src="nakliye.js?v=20261009-yazi"></script>
 </body>
 </html>

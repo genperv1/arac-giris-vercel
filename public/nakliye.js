@@ -348,70 +348,11 @@
     return linePath(state.route && state.route.cizgi, box);
   }
 
-  function labelYs(items) {
-    var used = [];
-    var out = [];
-    for (var i = 0; i < items.length; i++) {
-      var y = items[i].y;
-      for (var u = 0; u < used.length; u++) {
-        if (Math.abs(used[u].x - items[i].x) < 58 && Math.abs(used[u].y - y) < 12) y += 12;
-      }
-      used.push({ x: items[i].x, y: y });
-      out.push(y);
-    }
-    return out;
-  }
-
-  function portMarkup(box) {
-    var rows = limanlar();
-    var placed = [];
-    for (var i = 0; i < rows.length; i++) {
-      var xy = project(rows[i].lon, rows[i].lat, box);
-      placed.push({ row: rows[i], x: xy[0], y: xy[1] });
-    }
-    var ys = labelYs(placed.map(function (item) { return { x: item.x, y: item.y - 8 }; }));
-    var html = '';
-    for (var p = 0; p < placed.length; p++) {
-      var on = state.to && state.to.limanId === placed[p].row.id;
-      var dy = ys[p] - (placed[p].y - 8);
-      var cy = placed[p].y + dy;
-      html += '<g class="nk-port' + (on ? ' is-to' : '') + '" data-liman="' + esc(placed[p].row.id) + '">';
-      html += '<circle class="nk-port-mark" cx="' + placed[p].x.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="8"></circle>';
-      html += '<text class="nk-port-label" x="' + (placed[p].x + 10).toFixed(1) + '" y="' + ys[p].toFixed(1) + '">' + esc(placed[p].row.ad) + '</text>';
-      html += '</g>';
-    }
-    return html;
-  }
-
   function kopruDurumu() {
     var api = window.NK_LIMAN;
     var cizgi = state.route && state.route.cizgi;
     if (!api || typeof api.gecen !== 'function' || !cizgi) return { acik: [], kapali: [] };
     return api.gecen(cizgi);
-  }
-
-  function bridgeMarkup(box) {
-    var api = window.NK_LIMAN;
-    if (!api) return '';
-    var durum = kopruDurumu();
-    var html = '';
-    var list = api.kopruler || [];
-    for (var i = 0; i < list.length; i++) {
-      var bridge = list[i];
-      var xy = project(bridge.lon, bridge.lat, box);
-      var crossed = false;
-      for (var a = 0; a < durum.acik.length; a++) if (durum.acik[a].id === bridge.id) crossed = true;
-      var banned = false;
-      for (var b = 0; b < durum.kapali.length; b++) if (durum.kapali[b].id === bridge.id) banned = true;
-      var label = bridge.ad;
-      if (crossed) label += ' · ' + fmt(bridge.sinif4, 0) + ' TL';
-      else if (banned) label += ' · tıra kapalı';
-      html += '<g class="nk-bridge">';
-      html += '<rect class="nk-bridge-mark' + (bridge.tir ? '' : ' is-ban') + '" x="' + (xy[0] - 4).toFixed(1) + '" y="' + (xy[1] - 4).toFixed(1) + '" width="8" height="8" transform="rotate(45 ' + xy[0].toFixed(1) + ' ' + xy[1].toFixed(1) + ')"></rect>';
-      html += '<text class="nk-bridge-label' + (bridge.tir ? '' : ' is-ban') + '" x="' + (xy[0] + 8).toFixed(1) + '" y="' + (xy[1] + 14).toFixed(1) + '">' + esc(label) + '</text>';
-      html += '</g>';
-    }
-    return html;
   }
 
   function renderMap() {
@@ -467,10 +408,8 @@
     } else {
       document.getElementById('nkMapHint').textContent = 'Limanlar haritada. Bir limana basınca varış orası olur.';
     }
-    if (fromPt) html += '<circle class="nk-end is-from" cx="' + fromPt[0].toFixed(1) + '" cy="' + fromPt[1].toFixed(1) + '" r="7"></circle>';
-    if (toPt) html += '<circle class="nk-end is-to" cx="' + toPt[0].toFixed(1) + '" cy="' + toPt[1].toFixed(1) + '" r="7"></circle>';
-    html += portMarkup(box);
-    html += bridgeMarkup(box);
+    if (fromPt) html += '<circle class="nk-end is-from" cx="' + fromPt[0].toFixed(1) + '" cy="' + fromPt[1].toFixed(1) + '" r="4"></circle>';
+    if (toPt) html += '<circle class="nk-end is-to" cx="' + toPt[0].toFixed(1) + '" cy="' + toPt[1].toFixed(1) + '" r="4"></circle>';
     svg.innerHTML = html;
     renderLabels();
   }
@@ -545,7 +484,85 @@
       if (est > span * 0.9) size = Math.max(userPx(7), span * 0.9 / (name.length * 0.54 || 1));
       addMapText(g, 'nk-il-label', pt[0], pt[1], size, name);
     }
+    drawMapMarks(g);
+    var ends = svg.querySelectorAll('.nk-end');
+    var endR = userPx(4.5);
+    for (var e = 0; e < ends.length; e++) ends[e].setAttribute('r', endR.toFixed(2));
     svg.appendChild(g);
+  }
+
+  function svgNode(name) {
+    return document.createElementNS('http://www.w3.org/2000/svg', name);
+  }
+
+  function drawMapMarks(g) {
+    var u = userPx(1);
+    var ports = limanlar();
+    var used = [];
+    for (var i = 0; i < ports.length; i++) {
+      var xy = project(ports[i].lon, ports[i].lat, TURKEY);
+      if (!seenOnMap(xy[0], xy[1])) continue;
+      var dy = 0;
+      for (var guard = 0; guard < 5; guard++) {
+        var hit = false;
+        for (var k = 0; k < used.length; k++) {
+          if (Math.abs(used[k][0] - xy[0]) < u * 78 && Math.abs(used[k][1] - (xy[1] + dy)) < u * 12) {
+            dy += u * 12;
+            hit = true;
+            break;
+          }
+        }
+        if (!hit) break;
+      }
+      used.push([xy[0], xy[1] + dy]);
+      var on = state.to && state.to.limanId === ports[i].id;
+      var pin = svgNode('g');
+      pin.setAttribute('class', 'nk-port' + (on ? ' is-to' : ''));
+      pin.setAttribute('data-liman', ports[i].id);
+      var r = 3.6 * u;
+      var cy = xy[1] - 7 * u;
+      var d = 'M' + xy[0].toFixed(1) + ',' + xy[1].toFixed(1)
+        + 'C' + (xy[0] - 1.3 * u).toFixed(1) + ',' + (xy[1] - 3.2 * u).toFixed(1)
+        + ' ' + (xy[0] - r).toFixed(1) + ',' + (xy[1] - 3.8 * u).toFixed(1)
+        + ' ' + (xy[0] - r).toFixed(1) + ',' + cy.toFixed(1)
+        + 'A' + r.toFixed(2) + ',' + r.toFixed(2) + ' 0 1 1 ' + (xy[0] + r).toFixed(1) + ',' + cy.toFixed(1)
+        + 'C' + (xy[0] + r).toFixed(1) + ',' + (xy[1] - 3.8 * u).toFixed(1)
+        + ' ' + (xy[0] + 1.3 * u).toFixed(1) + ',' + (xy[1] - 3.2 * u).toFixed(1)
+        + ' ' + xy[0].toFixed(1) + ',' + xy[1].toFixed(1) + 'Z';
+      var path = svgNode('path');
+      path.setAttribute('class', 'nk-port-mark');
+      path.setAttribute('d', d);
+      path.setAttribute('stroke-width', (u * 0.8).toFixed(2));
+      pin.appendChild(path);
+      var hole = svgNode('circle');
+      hole.setAttribute('class', 'nk-port-hole');
+      hole.setAttribute('cx', xy[0].toFixed(1));
+      hole.setAttribute('cy', cy.toFixed(1));
+      hole.setAttribute('r', (1.3 * u).toFixed(2));
+      pin.appendChild(hole);
+      addMapText(pin, 'nk-port-name', xy[0] + 6 * u, xy[1] - 7 * u + dy, userPx(11), ports[i].ad);
+      g.appendChild(pin);
+    }
+    var api = window.NK_LIMAN;
+    if (!api || !api.kopruler) return;
+    var durum = kopruDurumu();
+    for (var b = 0; b < api.kopruler.length; b++) {
+      var bridge = api.kopruler[b];
+      var bp = project(bridge.lon, bridge.lat, TURKEY);
+      if (!seenOnMap(bp[0], bp[1])) continue;
+      var banned = false;
+      for (var c = 0; c < durum.kapali.length; c++) if (durum.kapali[c].id === bridge.id) banned = true;
+      var s = 2.2 * u;
+      var diamond = svgNode('path');
+      diamond.setAttribute('class', 'nk-bridge-mark' + (bridge.tir ? '' : ' is-ban'));
+      diamond.setAttribute('d', 'M' + bp[0].toFixed(1) + ',' + (bp[1] - s).toFixed(1)
+        + 'L' + (bp[0] + s).toFixed(1) + ',' + bp[1].toFixed(1)
+        + 'L' + bp[0].toFixed(1) + ',' + (bp[1] + s).toFixed(1)
+        + 'L' + (bp[0] - s).toFixed(1) + ',' + bp[1].toFixed(1) + 'Z');
+      diamond.setAttribute('stroke-width', (u * 0.6).toFixed(2));
+      g.appendChild(diamond);
+      addMapText(g, 'nk-bridge-name' + (bridge.tir ? '' : ' is-ban'), bp[0] + 4 * u, bp[1], userPx(10), (bridge.kisa || bridge.ad) + (banned ? ' kapalı' : ''));
+    }
   }
 
   function renderResults() {
@@ -586,40 +603,43 @@
     if (!host) return;
     var durum = kopruDurumu();
     if (!state.route || state.route.kaynak === 'kus-ucusu' || (!durum.acik.length && !durum.kapali.length)) {
-      host.textContent = '';
+      host.innerHTML = '';
       return;
     }
     var carpan = state.donus ? 2 : 1;
-    var parts = [];
     var toplam4 = 0;
     var toplam5 = 0;
+    var cards = '';
     for (var i = 0; i < durum.acik.length; i++) {
       var bridge = durum.acik[i];
       toplam4 += bridge.sinif4 * carpan;
       toplam5 += bridge.sinif5 * carpan;
-      parts.push(bridge.ad + ' · 4-5 dingil ' + fmt(bridge.sinif4 * carpan, 0) + ' TL · 6+ dingil ' + fmt(bridge.sinif5 * carpan, 0) + ' TL');
+      cards += '<div><span>' + esc(bridge.ad) + '</span><b>' + fmt(bridge.sinif4 * carpan, 0) + ' TL</b><small>4-5 dingil · 6+ dingil ' + fmt(bridge.sinif5 * carpan, 0) + ' TL</small></div>';
     }
-    var text = parts.join(' · ');
     var yssVar = false;
     for (var j = 0; j < durum.acik.length; j++) if (durum.acik[j].id === 'yss') yssVar = true;
+    var note = '';
     if (durum.kapali.length) {
       var names = durum.kapali.map(function (row) { return row.ad; }).join(', ');
       var yss = null;
       var list = (window.NK_LIMAN && window.NK_LIMAN.kopruler) || [];
       for (var k = 0; k < list.length; k++) if (list[k].id === 'yss') yss = list[k];
-      text += (text ? ' ' : '') + names + ' çizgide. Tır bu köprüden geçmez.';
+      note = esc(names) + ' çizgide. Tır bu köprüden geçmez.';
       if (yss && !yssVar) {
         toplam4 += yss.sinif4 * carpan;
         toplam5 += yss.sinif5 * carpan;
-        text += ' Tır geçişi Yavuz Sultan Selim: 4-5 dingil ' + fmt(yss.sinif4 * carpan, 0) + ' TL, 6+ dingil ' + fmt(yss.sinif5 * carpan, 0) + ' TL.';
+        cards += '<div><span>Yavuz Sultan Selim</span><b>' + fmt(yss.sinif4 * carpan, 0) + ' TL</b><small>Tır geçişi · 6+ dingil ' + fmt(yss.sinif5 * carpan, 0) + ' TL</small></div>';
       }
     }
     if (toplam4) {
-      text += ' Köprü toplamı ' + fmt(toplam4, 0) + ' TL';
-      if (sonuc && sonuc.tutar != null) text += '. Mazot ile birlikte ' + fmt(round2(sonuc.tutar + toplam4), 2) + ' TL';
-      text += '. Ücret 1 Temmuz 2026 KGM tarifesidir, KDV dahildir.';
+      cards += '<div><span>Köprü toplamı</span><b>' + fmt(toplam4, 0) + ' TL</b></div>';
+      if (sonuc && sonuc.tutar != null) {
+        cards += '<div><span>Mazot ile birlikte</span><b>' + fmt(round2(sonuc.tutar + toplam4), 2) + ' TL</b></div>';
+      }
     }
-    host.textContent = text;
+    if (!cards && !note) { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="nk-kopru-card">' + cards
+      + '<p class="nk-kopru-note">' + (note ? note + ' ' : '') + '1 Temmuz 2026 KGM tarifesi, KDV dahil.' + (state.donus ? ' Gidiş-dönüş iki geçiş.' : '') + '</p></div>';
   }
 
   function renderYollar() {
@@ -705,7 +725,7 @@
     var host = document.getElementById('nkGecilen');
     if (!host) return;
     var cizgi = state.route && state.route.cizgi;
-    if (!state.from || !state.to || !cizgi || cizgi.length < 2) { host.textContent = ''; return; }
+    if (!state.from || !state.to || !cizgi || cizgi.length < 2) { host.innerHTML = ''; return; }
     var runs = [];
     for (var i = 0; i < cizgi.length; i++) {
       var name = ilAdiAt(cizgi[i][0], cizgi[i][1]);
@@ -726,7 +746,12 @@
     var names = runs.map(function (row) { return row.name; });
     var last = ilAdiAt(cizgi[cizgi.length - 1][0], cizgi[cizgi.length - 1][1]);
     if (last && names[names.length - 1] !== last) names.push(last);
-    host.textContent = names.length ? ('Geçilen iller: ' + names.join(' → ')) : '';
+    if (!names.length) { host.innerHTML = ''; return; }
+    host.innerHTML = '<div class="nk-ozet-kicker">Geçilen iller</div><div class="nk-iller">'
+      + names.map(function (name, i) {
+        return (i ? '<span class="nk-il-arrow">→</span>' : '') + '<span class="nk-il-chip">' + esc(name) + '</span>';
+      }).join('')
+      + '</div>';
   }
 
   function renderDolum() {

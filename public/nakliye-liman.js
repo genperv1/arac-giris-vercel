@@ -6,26 +6,16 @@
     { id: 'dp-yarimca', ad: 'DP World Yarımca', ara: 'evyap dp world yarimca', il: 'Kocaeli', ilce: 'Körfez', plaka: 41, lat: 40.7635, lon: 29.7511 },
     { id: 'evyap-korfez', ad: 'Evyap Körfez', ara: 'evyap dp world korfez', il: 'Kocaeli', ilce: 'Körfez', plaka: 41, lat: 40.7746, lon: 29.7124 },
     { id: 'yilport', ad: 'Yılport', ara: 'yilport dilovasi gebze', il: 'Kocaeli', ilce: 'Dilovası', plaka: 41, lat: 40.7692, lon: 29.5367 },
-    { id: 'limas', ad: 'Limaş', ara: 'limas basiskele', il: 'Kocaeli', ilce: 'Başiskele', plaka: 41, lat: 40.7129, lon: 29.8831 },
-    { id: 'kumport', ad: 'Kumport', ara: 'kumport ambarli', il: 'İstanbul', ilce: 'Beylikdüzü', plaka: 34, lat: 40.9685, lon: 28.6816 },
-    { id: 'marport', ad: 'Marport', ara: 'marport ambarli', il: 'İstanbul', ilce: 'Beylikdüzü', plaka: 34, lat: 40.9647, lon: 28.6733 },
-    { id: 'mardas', ad: 'Mardaş', ara: 'mardas ambarli', il: 'İstanbul', ilce: 'Beylikdüzü', plaka: 34, lat: 40.9633, lon: 28.6783 },
-    { id: 'asyaport', ad: 'Asyaport', ara: 'asya port tekirdag barbaros', il: 'Tekirdağ', ilce: 'Süleymanpaşa', plaka: 59, lat: 40.8987, lon: 27.4681 },
-    { id: 'borusan', ad: 'Borusan', ara: 'borusan gemlik', il: 'Bursa', ilce: 'Gemlik', plaka: 16, lat: 40.4136, lon: 29.0865 },
     { id: 'gemport', ad: 'Gemport', ara: 'gemport gemlik', il: 'Bursa', ilce: 'Gemlik', plaka: 16, lat: 40.4165, lon: 29.1111 },
-    { id: 'rodaport', ad: 'Rodaport', ara: 'rodaport gemlik', il: 'Bursa', ilce: 'Gemlik', plaka: 16, lat: 40.4100, lon: 29.0867 },
-    { id: 'haydarpasa', ad: 'Haydarpaşa', ara: 'haydarpasa', il: 'İstanbul', ilce: 'Kadıköy', plaka: 34, lat: 41.0056, lon: 29.0119 },
-    { id: 'alsancak', ad: 'Alsancak', ara: 'alsancak izmir', il: 'İzmir', ilce: 'Konak', plaka: 35, lat: 38.4432, lon: 27.1552 },
-    { id: 'port-akdeniz', ad: 'Port Akdeniz', ara: 'akdeniz port antalya', il: 'Antalya', ilce: 'Konyaaltı', plaka: 7, lat: 36.8398, lon: 30.6123 },
-    { id: 'mersin', ad: 'Mersin', ara: 'mersin mip', il: 'Mersin', ilce: 'Akdeniz', plaka: 33, lat: 36.7998, lon: 34.6361 }
+    { id: 'rodaport', ad: 'Rodaport', ara: 'rodaport gemlik', il: 'Bursa', ilce: 'Gemlik', plaka: 16, lat: 40.4100, lon: 29.0867 }
   ];
 
   var kopruler = [
-    { id: 'osmangazi', ad: 'Osmangazi', lat: 40.7547, lon: 29.5158, yaricapKm: 1.0, sinif4: 2950, sinif5: 3720, tir: true },
-    { id: 'yss', ad: 'Yavuz Sultan Selim', lat: 41.2031, lon: 29.1117, yaricapKm: 0.7, sinif4: 690, sinif5: 860, tir: true },
-    { id: 'canakkale', ad: '1915 Çanakkale', lat: 40.3397, lon: 26.6368, yaricapKm: 1.1, sinif4: 2925, sinif5: 5560, tir: true },
-    { id: 'fsm', ad: 'Fatih Sultan Mehmet', lat: 41.0914, lon: 29.0612, yaricapKm: 0.55, tir: false },
-    { id: 'temmuz', ad: '15 Temmuz', lat: 41.0455, lon: 29.0344, yaricapKm: 0.5, tir: false }
+    { id: 'osmangazi', ad: 'Osmangazi', kisa: 'Osmangazi', lat: 40.7547, lon: 29.5158, yaricapKm: 1.0, sinif4: 2950, sinif5: 3720, tir: true },
+    { id: 'yss', ad: 'Yavuz Sultan Selim', kisa: 'Yavuz Selim', lat: 41.2031, lon: 29.1117, yaricapKm: 0.7, sinif4: 690, sinif5: 860, tir: true },
+    { id: 'canakkale', ad: '1915 Çanakkale', kisa: 'Çanakkale', lat: 40.3397, lon: 26.6368, yaricapKm: 1.1, sinif4: 2925, sinif5: 5560, tir: true },
+    { id: 'fsm', ad: 'Fatih Sultan Mehmet', kisa: 'FSM', lat: 41.0914, lon: 29.0612, yaricapKm: 0.55, tir: false },
+    { id: 'temmuz', ad: '15 Temmuz', kisa: '15 Temmuz', lat: 41.0455, lon: 29.0344, yaricapKm: 0.5, tir: false }
   ];
 
   function distKm(lon1, lat1, lon2, lat2) {
