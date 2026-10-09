@@ -8,7 +8,6 @@ const {
   ackGirisNotice,
   girisNoticeText,
 } = require('../lib/amir-giris-notice');
-const { unreadScareNotices, ackScareNotice } = require('../lib/selahattin-scare');
 
 const NOTICE_KV = 'amir_giris_notices_v1';
 
@@ -97,8 +96,7 @@ function registerAmirNoticeRoutes(api, ctx) {
   api.get('/amir-notices', requireAmir, async (req, res) => {
     try {
       const items = unreadGirisNotices(await readItems(), noticeUser(req), Date.now(), noticeClient(req));
-      const scare = await unreadScareNotices(q, noticeUser(req), noticeClient(req), Date.now());
-      return res.json({ ok: true, items: items.concat(scare) });
+      return res.json({ ok: true, items });
     } catch (err) {
       return sendApiError(res, err, 500, 'AMIR_NOTICE_READ_FAILED');
     }
@@ -108,9 +106,6 @@ function registerAmirNoticeRoutes(api, ctx) {
     try {
       const id = String(req.params.id || '').trim();
       const user = noticeUser(req);
-      if (await ackScareNotice(q, id, user, noticeClient(req), Date.now())) {
-        return res.json({ ok: true });
-      }
       const result = await withLock(async () => {
         const current = await readItems();
         const next = ackGirisNotice(current, id, user, Date.now(), noticeClient(req));

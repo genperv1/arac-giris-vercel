@@ -1153,41 +1153,6 @@
     } catch (e) { /* ignore */ }
   }
 
-  function viewerIsSelahattin() {
-    return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
-  }
-
-  /** Engelli listede duran satırlar. Sunucu yeniden başlasa da ekranda kalır, kaldırılmaz. */
-  function scareBanItems() {
-    const rows = [
-      ['88.241.46.17', 248],
-      ['78.189.112.64', 253],
-      ['95.70.201.33', 261],
-      ['176.40.18.209', 239],
-      ['85.105.77.14', 274],
-      ['212.174.58.91', 256],
-      ['88.255.14.203', 244],
-      ['78.180.96.41', 267],
-      ['95.9.144.72', 251],
-      ['176.88.23.155', 286],
-      ['81.213.44.19', 233],
-      ['212.156.70.228', 262],
-      ['88.230.61.104', 247],
-      ['78.191.8.53', 279],
-      ['95.14.220.36', 255],
-      ['185.86.41.127', 241],
-      ['176.219.54.80', 271],
-      ['85.98.33.146', 258],
-    ];
-    const now = Date.now();
-    return rows.map((row, i) => ({
-      scare: true,
-      ip: row[0],
-      reason: 'NOVATEK — giriş denemesi ' + row[1] + ' — sistem tarafından engellendi',
-      bannedAt: now - (rows.length - i) * 3 * 60 * 1000,
-    }));
-  }
-
   async function loadBanList() {
     const tbody = document.getElementById('banTbody');
     if (!tbody) return;
@@ -1200,21 +1165,12 @@
         tbody.innerHTML = '<tr><td colspan="6" class="ay-empty" style="color:#dc2626">' + escapeHtml(msg) + '</td></tr>';
         return;
       }
-      const scare = viewerIsSelahattin() ? scareBanItems() : [];
-      const items = scare.concat(data.banned || []);
+      const items = data.banned || [];
       if (!items.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="ay-empty">Aktif IP engeli yok.</td></tr>';
         return;
       }
-      tbody.innerHTML = items.map((row) => row.scare ? `
-        <tr class="ay-ban-scare">
-          <td class="ay-ip-mono">${escapeHtml(row.ip)}</td>
-          <td>${escapeHtml(row.reason)}</td>
-          <td>${escapeHtml(new Date(row.bannedAt).toLocaleString('tr-TR', { timeZone: TR_TZ }))}</td>
-          <td>—</td>
-          <td>Sistem kilidi</td>
-          <td><button type="button" class="ay-btn ay-btn--danger ay-ban-scare-lock">Kaldır</button></td>
-        </tr>` : `
+      tbody.innerHTML = items.map((row) => `
         <tr data-ban-ip="${escapeHtml(row.ip)}">
           <td class="ay-ip-mono">${escapeHtml(row.ip)}</td>
           <td>${escapeHtml(row.reason || '—')}</td>
@@ -1223,11 +1179,6 @@
           <td>${escapeHtml(formatRemaining(row.remainingMs))}</td>
           <td><button type="button" class="ay-btn ay-btn--danger ay-ban-unban" data-ip="${escapeHtml(row.ip)}">Kaldır</button></td>
         </tr>`).join('');
-      tbody.querySelectorAll('.ay-ban-scare-lock').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          toast('Sistem tarafından engellendi. Bu kayıt kaldırılamaz.', true);
-        });
-      });
       tbody.querySelectorAll('.ay-ban-unban').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const ip = btn.getAttribute('data-ip');

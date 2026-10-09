@@ -16,6 +16,7 @@ const cron = require('node-cron');
 const crypto = require('crypto');
 const { validatePlateFormat, compactPlate, compactRecordPlates } = require('./lib/plate-format');
 const { envNumber, resolveSecret, warnIfDefaultSecret } = require('./lib/env');
+const { createOriginVerifyMiddleware } = require('./lib/origin-verify');
 const { pgSsl } = require('./lib/pg-ssl');
 const { applySupabaseSecurity } = require('./lib/supabase-security');
 const { createAuthSessionMiddleware, extractAuthTokenFromRequest } = require('./lib/auth-session');
@@ -38,8 +39,7 @@ const {
 const { broadcastEvent, broadcastReportUpdate, broadcastToUsers, registerSseRoutes } = require('./lib/sse');
 const { deleteCikanlarForPrintHistory } = require('./lib/piyasa-cikanlar');
 const { registerAuthRoutes } = require('./routes/auth-routes');
-const { registerOzmalRoutes, registerDriverAuthRoutes } = require('./routes/ozmal-routes');
-const { registerDriverTripRoutes } = require('./routes/driver-trip-routes');
+const { registerOzmalRoutes } = require('./routes/ozmal-routes');
 const { registerVehicleRoutes } = require('./routes/vehicles-routes');
 const { registerProblemRoutes } = require('./routes/problems-routes');
 const { registerDailyRoutes } = require('./routes/daily-routes');
@@ -756,6 +756,13 @@ async function q(text, params = [], options = {}) {
 }
 
 const app = express();
+
+// Cloudflare gizli origin başlığı. off iken etkisiz. Railway /health yolu muaf;
+// Host başlığı hiçbir yolu muaf etmez. API, SSE, Excel ajanı ve statik dosyadan önce.
+app.use(createOriginVerifyMiddleware({
+  mode: process.env.ORIGIN_VERIFY_MODE,
+  secret: process.env.ORIGIN_VERIFY_SECRET,
+}));
 
 app.use(
   compression({
@@ -1557,8 +1564,19 @@ api.post("/kv/:key", auth.verifyToken, async (req, res) => {
 });
 
 
-const SHIFT_NOTES_DELETE_PASSWORD = String(process.env.SHIFT_NOTES_DELETE_PASSWORD || '543723');
-warnIfDefaultSecret('SHIFT_NOTES_DELETE_PASSWORD', SHIFT_NOTES_DELETE_PASSWORD, '543723');
+const SHIFT_NOTES_DELETE_PASSWORD = String(process.env.SHIFT_NOTES_DELETE_PASSWORD || '');
+if (process.env.NODE_ENV === 'production' && !SHIFT_NOTES_DELETE_PASSWORD) {
+  console.error('[security] SHIFT_NOTES_DELETE_PASSWORD tanımlı değil. Amir dışı vardiya notu silme reddedilir.');
+}
+
+function shiftNoteDeletePasswordOk(provided) {
+  const expected = SHIFT_NOTES_DELETE_PASSWORD;
+  if (!expected) return false;
+  const given = Buffer.from(String(provided || '').trim(), 'utf8');
+  const want = Buffer.from(expected, 'utf8');
+  if (!want.length || given.length !== want.length) return false;
+  return crypto.timingSafeEqual(given, want);
+}
 
 function parseOperationNoteRules(raw) {
   try {
@@ -1703,11 +1721,13 @@ api.patch('/operation-notes/:id', requireValidSession, async (req, res) => {
 api.delete('/operation-notes/:id', async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
-    const password = String((req.body && req.body.password) || '');
-    if (!requestHasAmirSession(req) && password !== SHIFT_NOTES_DELETE_PASSWORD) {
-      return res.status(403).json({ ok: false, error: 'invalid password' });
-    }
     if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+    if (!requestHasAmirSession(req)) {
+      const password = req.body && typeof req.body.password === 'string' ? req.body.password : '';
+      if (!shiftNoteDeletePasswordOk(password)) {
+        return res.status(403).json({ ok: false, error: 'Şifre hatalı.' });
+      }
+    }
     const r = await q('DELETE FROM operation_notes WHERE id = $1 RETURNING id', [id]);
     if (!r.rows[0]) return res.status(404).json({ ok: false, error: 'not found' });
     res.json({ ok: true, id });
@@ -2227,6 +2247,9 @@ async function initializeApp() {
       await prepareSchema();
       await piyasaServer.seedPiyasaCustomersIfEmpty();
       console.log("✅ Connected to PostgreSQL and ensured schema.");
+      try {
+        await pool.query('DELETE FROM kv_store WHERE key = $1', ['selahattin_scare_once_v3']);
+      } catch (_) {}
       
       // Periodic health monitoring (every 15 minutes)
       setInterval(async () => {
@@ -2404,24 +2427,6 @@ function startServerWithPortFallback(basePort) {
         console.log(`⚠️ Port ${basePort} dolu olduğu için ${port} kullanılıyor.`);
       }
       console.log(`✅ Server listening on http://localhost:${port}`);
-      console.log('ℹ️ Şoför dış girişi kapalı');
-      const { ensureScareStarted, watchScareNotices, dueCount, FIRST_DELAY_MS } = require('./lib/selahattin-scare');
-      ensureScareStarted(q, Date.now()).then((state) => {
-        const now = Date.now();
-        const ready = dueCount(state.startedAt, now);
-        const firstAt = Number(state.startedAt) + FIRST_DELAY_MS;
-        if (now < firstAt) {
-          const min = Math.max(1, Math.ceil((firstAt - now) / 60000));
-          console.log('ℹ️ NOVATEK ilk bildirime ~' + min + ' dk var (bir kez, yeniden başlamada sürmeye devam eder).');
-        } else {
-          console.log('ℹ️ NOVATEK bildirim sırası açık: ' + ready + '/18 (yeniden başlasa da aynı saatten sürer).');
-        }
-        watchScareNotices(q, (notice) => {
-          try { broadcastToUsers('amir_giris', notice, ['AMIR']); } catch (e) {}
-        });
-      }).catch((e) => {
-        console.warn('NOVATEK bildirimleri başlatılamadı', e && e.message ? e.message : e);
-      });
     });
 
     server.on('error', (err) => {
