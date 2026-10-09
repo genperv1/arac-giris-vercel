@@ -47,6 +47,8 @@ const { registerExcelAgentRoutes } = require('./routes/excel-agent-routes');
 const { createExcelAgentStore } = require('./lib/excel-agent-store');
 const { registerReportsRoutes } = require('./routes/reports-routes');
 const { registerLimanRoutes, STATE_KEY: LIMAN_STATE_KEY } = require('./routes/liman-routes');
+const { registerLimanGozetmenRoutes } = require('./routes/liman-gozetmen-routes');
+const { KV_KEY: LIMAN_GOZETMEN_KEY } = require('./lib/liman-gozetmen');
 const { registerHealthRoutes } = require('./routes/health-routes');
 const { registerAdminBanRoutes } = require('./routes/admin-ban-routes');
 const { registerBackupRoutes } = require('./routes/backup-routes');
@@ -1415,6 +1417,7 @@ registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
 // Liman okuma uçları (GET /api/liman, /version, /departed) oturumsuz: app'e bağlanır, '/api' router'ından önce eşleşir.
 registerLimanRoutes(api, routeCtx, app);
+registerLimanGozetmenRoutes(api, routeCtx, app);
 
 api.get('/presence', requireValidSession, (req, res) => {
   presence.touch(req.user);
@@ -1434,7 +1437,7 @@ registerNakliyeRoutes(api, routeCtx, app);
 api.get("/kv/:key", async (req, res) => {
   try {
     const key = sanitizeString(req.params.key, 100);
-    if (isBlockedKvKey(key) || key === 'piyasa_expected_v1' || key === LIMAN_STATE_KEY) return res.json(null);
+    if (isBlockedKvKey(key) || key === 'piyasa_expected_v1' || key === LIMAN_STATE_KEY || key === LIMAN_GOZETMEN_KEY) return res.json(null);
     const r = await q("SELECT value FROM kv_store WHERE key = $1", [key]);
     if (!r.rows[0]) return res.json(null);
     try { return res.json(JSON.parse(r.rows[0].value)); } catch { return res.json(r.rows[0].value); }

@@ -4707,110 +4707,8 @@ html.logged-in #mainApp,
   margin: 0 auto;
 }
 
-.login-screen__hero {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(1.5rem, 4vw, 3rem);
-  color: #f8fafc;
-}
-
-.login-screen__hero-inner {
-  max-width: 28rem;
-  width: 100%;
-}
-
-.login-screen__hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.85rem;
-  margin-bottom: 1.5rem;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(8px);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #c7d2fe;
-}
-
-.login-screen__hero-badge i {
-  color: #a5b4fc;
-}
-
-.login-screen__hero-logo {
-  display: block;
-  width: auto;
-  max-width: 10rem;
-  height: auto;
-  max-height: 5.5rem;
-  object-fit: contain;
-  margin-bottom: 1.25rem;
-  filter: brightness(0) invert(1) drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
-}
-
-.login-screen__hero-title {
-  margin: 0 0 0.65rem;
-  font-size: clamp(1.75rem, 4vw, 2.35rem);
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  color: #fff;
-}
-
-.login-screen__hero-lead {
-  margin: 0 0 1.75rem;
-  font-size: 1rem;
-  line-height: 1.55;
-  color: #94a3b8;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-weight: 400;
-}
-
-.login-screen__features {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.login-screen__features li {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  color: #cbd5e1;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-}
-
-.login-screen__features i {
-  flex-shrink: 0;
-  width: 2rem;
-  height: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
-  font-size: 0.85rem;
-}
-
-.login-screen__hero-foot {
-  margin: 2rem 0 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #64748b;
-}
-
 .login-screen__panel {
+  grid-column: 2;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -4838,13 +4736,6 @@ html.logged-in #mainApp,
   align-items: center;
   gap: 1rem;
   margin-bottom: 1.75rem;
-}
-
-.login-screen__card-logo {
-  flex-shrink: 0;
-  width: 3.5rem;
-  height: auto;
-  object-fit: contain;
 }
 
 .login-screen__card-title {
@@ -5340,39 +5231,11 @@ html.allow-ui-motion:not(.reduce-motion-os) .login-loading__spinner {
     max-width: 28rem;
   }
 
-  .login-screen__hero {
-    padding: 2rem 1.5rem 1.25rem;
-    text-align: center;
-  }
-
-  .login-screen__hero-inner {
-    max-width: none;
-  }
-
-  .login-screen__hero-badge {
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .login-screen__hero-logo {
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  .login-screen__features {
-    text-align: left;
-    max-width: 20rem;
-    margin: 0 auto;
-  }
-
-  .login-screen__hero-foot {
-    display: none;
-  }
-
   .login-screen__panel {
+    grid-column: 1;
     box-shadow: none;
     border-radius: 24px 24px 0 0;
-    margin-top: -0.5rem;
+    margin-top: 0;
   }
 }
 
@@ -5380,10 +5243,6 @@ html.allow-ui-motion:not(.reduce-motion-os) .login-loading__spinner {
   .login-screen__card {
     border-radius: 16px;
     box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
-  }
-
-  .login-screen__card-head .login-screen__card-logo {
-    display: none;
   }
 
   .login-user__baret {

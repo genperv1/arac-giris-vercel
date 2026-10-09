@@ -288,10 +288,10 @@
   <section id="limanGate" class="liman-gate" aria-label="Liman girişi">
     <div class="liman-gate__card">
       <h2>Liman girişi</h2>
-      <p>Listeyi görmek için kullanıcı adı ve şifre girin.</p>
+      <p>Size verilen ID ve şifreyi girin.</p>
       <form id="limanGateForm" class="liman-gate__form" autocomplete="off">
-        <label for="limanUser">Kullanıcı adı</label>
-        <input id="limanUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" autofocus />
+        <label for="limanUser">ID</label>
+        <input id="limanUser" name="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="ID" autofocus />
         <label for="limanPwd">Şifre</label>
         <input id="limanPwd" name="password" type="password" autocomplete="current-password" />
         <button type="submit">Giriş</button>
@@ -323,7 +323,7 @@
   </div>
   <div class="tabbar" id="sheetTabs"></div>
   <div class="toast" id="toast"></div>
-  <script src="liman-gate.js?v=20261009-gate"></script>
+  <script src="liman-gate.js?v=20261009-gozetmen"></script>
   <script src="nakliye-bekleyen-core.js?v=20261006-liman-nocache"></script>
   <script src="liman-xlsx.js?v=20261008-sagtaraf"></script>
   <script src="liman.js?v=20261009-gate"></script>
@@ -342,19 +342,32 @@
         }
         var form = document.getElementById('limanGateForm');
         if (!form) return;
-        form.addEventListener('submit', function (e) {
+        form.addEventListener('submit', async function (e) {
           e.preventDefault();
           var userEl = document.getElementById('limanUser');
           var pwdEl = document.getElementById('limanPwd');
           var err = document.getElementById('limanGateErr');
+          var btn = form.querySelector('button');
           var user = userEl ? userEl.value : '';
           var pwd = pwdEl ? pwdEl.value : '';
-          if (!window.LimanGate || !window.LimanGate.checkLogin(user, pwd)) {
-            if (err) err.hidden = false;
+          if (btn) btn.disabled = true;
+          var result = 'down';
+          try {
+            result = window.LimanGate ? await window.LimanGate.login(user, pwd) : 'down';
+          } catch (errLogin) {
+            result = 'down';
+          }
+          if (btn) btn.disabled = false;
+          if (result !== 'ok') {
+            if (err) {
+              err.hidden = false;
+              err.textContent = result === 'locked'
+                ? 'Çok fazla deneme. Biraz sonra tekrar deneyin.'
+                : (result === 'down' ? 'Giriş şu an yapılamadı.' : 'Hatalı kullanıcı adı veya şifre.');
+            }
             if (pwdEl) { pwdEl.value = ''; pwdEl.focus(); }
             return;
           }
-          window.LimanGate.markUnlocked();
           if (err) err.hidden = true;
           openPage();
         });

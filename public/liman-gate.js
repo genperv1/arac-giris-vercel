@@ -1,10 +1,8 @@
-// liman-gate.js — /liman giriş kapısı (kullanıcı adı + şifre)
+// liman-gate.js — /liman giriş kapısı. Şifre sunucuda, dört gözetmen için ayrıdır.
 (function (root) {
   'use strict';
 
-  var USERNAME = 'gnp';
-  var PASSWORD = 'gp1451';
-  var STORAGE_KEY = 'liman_gate_v1';
+  var STORAGE_KEY = 'liman_gate_v2';
 
   function storage() {
     try {
@@ -35,13 +33,30 @@
     try {
       var store = storage();
       if (store) store.removeItem(STORAGE_KEY);
+      if (root.sessionStorage) root.sessionStorage.removeItem('liman_gate_v1');
     } catch (e) { /* ignore */ }
   }
 
-  function checkLogin(username, password) {
-    var user = String(username == null ? '' : username).trim().toLowerCase();
-    var pass = String(password == null ? '' : password).trim();
-    return user === USERNAME && pass === PASSWORD;
+  async function login(username, password) {
+    var res;
+    try {
+      res = await fetch('/api/liman/gate', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username, password: password }),
+      });
+    } catch (e) {
+      return 'down';
+    }
+    if (res.status === 401 || res.status === 400) return 'bad';
+    if (res.status === 429) return 'locked';
+    if (!res.ok) return 'down';
+    var data = {};
+    try { data = await res.json(); } catch (e) { return 'down'; }
+    if (!data || !data.ok) return 'bad';
+    markUnlocked();
+    return 'ok';
   }
 
   var api = {
@@ -49,7 +64,7 @@
     isUnlocked: isUnlocked,
     markUnlocked: markUnlocked,
     clearUnlock: clearUnlock,
-    checkLogin: checkLogin
+    login: login
   };
 
   if (typeof root !== 'undefined') root.LimanGate = api;

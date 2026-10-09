@@ -1455,6 +1455,7 @@ function startPostLoginTasks() {
   } catch(e) {}
   try { if (typeof startReportCache === 'function') startReportCache(); } catch(e) {}
   try { if (typeof window.amirGirisNoticePull === 'function') window.amirGirisNoticePull(); } catch (e) {}
+  try { if (typeof window.limanGozetmenNoticePull === 'function') window.limanGozetmenNoticePull(); } catch (e) {}
 }
 
 // Session monitoring to prevent white screen on token expiry

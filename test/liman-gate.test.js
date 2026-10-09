@@ -1,14 +1,16 @@
 'use strict';
 
 const test = require('node:test');
-const assert = require('node:assert');
-const gate = require('../public/liman-gate');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 
-test('LimanGate accepts only gnp / gp1451', () => {
-  assert.equal(gate.checkLogin('gnp', 'gp1451'), true);
-  assert.equal(gate.checkLogin(' GNP ', ' gp1451 '), true);
-  assert.equal(gate.checkLogin('GNP', 'gp1451'), true);
-  assert.equal(gate.checkLogin('gnp', 'wrong'), false);
-  assert.equal(gate.checkLogin('admin', 'gp1451'), false);
-  assert.equal(gate.checkLogin('', ''), false);
+test('liman giriş kapısı şifreyi tarayıcıda tutmaz, sunucuya sorar', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../public/liman-gate.js'), 'utf8');
+  assert.match(src, /\/api\/liman\/gate/);
+  assert.doesNotMatch(src, /gp1451/);
+  assert.doesNotMatch(src, /checkLogin/);
+  const page = fs.readFileSync(path.join(__dirname, '../public/liman.html'), 'utf8');
+  assert.match(page, /ID ve şifre/);
+  assert.match(page, /LimanGate\.login/);
 });

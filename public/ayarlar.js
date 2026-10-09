@@ -19,7 +19,7 @@
 
   const AY_SECTIONS = [
     'section-plaka', 'section-pasif', 'section-eksik', 'section-ozmal',
-    'section-imza', 'section-yazdir', 'section-ban', 'section-cihazlar', 'section-yazisma', 'section-yedek',
+    'section-imza', 'section-yazdir', 'section-ban', 'section-cihazlar', 'section-gozetmen', 'section-yazisma', 'section-yedek',
   ];
 
   const SECTION_META = {
@@ -62,6 +62,11 @@
       title: 'Kantar cihazları',
       desc: 'Kantar hesaplarının hatırlanan bilgisayarları — oturum şifresiz yenilenir; şüpheli cihazı düşürün.',
       hash: 'cihazlar',
+    },
+    'section-gozetmen': {
+      title: 'Liman gözetmenleri',
+      desc: 'Yedi liman hesabı. ID ve şifre 40 günde bir yenilenir, Selahattin Toker ekranına düşer.',
+      hash: 'gozetmen',
     },
     'section-yazisma': {
       title: 'Yazışmalar',
@@ -220,6 +225,7 @@
   function runSectionLoader(id) {
     if (id === 'section-ban') loadBanList();
     if (id === 'section-cihazlar') loadDeviceList();
+    if (id === 'section-gozetmen') loadGozetmen();
     if (id === 'section-ozmal') loadOzmalEntriesFull().then(renderOzmalTable);
     if (id === 'section-pasif') loadPasifDriversTable();
     if (id === 'section-eksik') loadIncompleteVehicles();
@@ -1627,6 +1633,79 @@
     });
   }
 
+  function gozetmenDate(ts) {
+    const n = Number(ts);
+    if (!n) return '—';
+    try {
+      return new Date(n).toLocaleString('tr-TR', { timeZone: TR_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return '—';
+    }
+  }
+
+  function renderGozetmen(data) {
+    const box = document.getElementById('gozetmenList');
+    const next = document.getElementById('gozetmenNext');
+    if (next) {
+      next.textContent = 'Sonraki otomatik ID ve şifre: ' + gozetmenDate(data && data.nextAt) + '. Yeniler Selahattin Toker ekranına düşer.';
+    }
+    if (!box) return;
+    const slots = (data && data.slots) || [];
+    box.innerHTML = slots.map((slot) => `<article class="ay-goz" data-n="${slot.n}">
+      <h3>${escapeHtml(slot.label || ('Gözetmen ' + slot.n))}</h3>
+      <label>Ad<input data-field="ad" value="${escapeHtml(slot.ad)}" maxlength="40" autocomplete="off"></label>
+      <label>Soyad<input data-field="soyad" value="${escapeHtml(slot.soyad)}" maxlength="40" autocomplete="off"></label>
+      <label>Telefon<input data-field="telefon" value="${escapeHtml(slot.telefon)}" maxlength="20" inputmode="tel" autocomplete="off"></label>
+      <div class="ay-goz__pw">ID <code>${escapeHtml(slot.loginId)}</code> · Şifre <code>${escapeHtml(slot.password)}</code></div>
+    </article>`).join('');
+  }
+
+  async function loadGozetmen() {
+    const box = document.getElementById('gozetmenList');
+    if (box && !box.childElementCount) box.innerHTML = '<p class="ay-empty">Yükleniyor…</p>';
+    try {
+      const res = await apiFetch('/api/liman/gozetmen');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Liste alınamadı');
+      renderGozetmen(data);
+    } catch (e) {
+      if (box) box.innerHTML = '<p class="ay-empty">Gözetmen listesi açılamadı.</p>';
+    }
+  }
+
+  async function saveGozetmen() {
+    const slots = [];
+    document.querySelectorAll('#gozetmenList .ay-goz').forEach((card) => {
+      const read = (field) => {
+        const input = card.querySelector('[data-field="' + field + '"]');
+        return input ? input.value : '';
+      };
+      slots.push({
+        n: Number(card.getAttribute('data-n')),
+        ad: read('ad'),
+        soyad: read('soyad'),
+        telefon: read('telefon'),
+      });
+    });
+    const btn = document.getElementById('gozetmenSaveBtn');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await apiFetch('/api/liman/gozetmen', { method: 'PUT', body: JSON.stringify({ slots }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Kaydedilemedi');
+      renderGozetmen(data);
+      toast('Gözetmen bilgileri kaydedildi.');
+    } catch (e) {
+      toast(e.message || 'Kaydedilemedi.', true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function bindGozetmenUi() {
+    document.getElementById('gozetmenSaveBtn')?.addEventListener('click', saveGozetmen);
+  }
+
   function bindBanUi() {
     document.getElementById('banRefreshBtn')?.addEventListener('click', loadBanList);
     document.getElementById('banClearAllBtn')?.addEventListener('click', clearAllBans);
@@ -2089,6 +2168,7 @@
     document.getElementById('settingsLogoutSideBtn')?.addEventListener('click', logoutFromSettings);
 
     bindBanUi();
+    bindGozetmenUi();
     bindDeviceUi();
     bindBackupUi();
     bindPrintFormBgUi();
@@ -2119,6 +2199,8 @@
       'section-ozmal': 'section-ozmal',
       ban: 'section-ban',
       'section-ban': 'section-ban',
+      gozetmen: 'section-gozetmen',
+      'section-gozetmen': 'section-gozetmen',
       yazisma: 'section-yazisma',
       'section-yazisma': 'section-yazisma',
       yedek: 'section-yedek',
