@@ -324,10 +324,8 @@
 
   var _ignoreLocalDrop = false;
 
-  function isDroppedSource(name) {
-    if (_ignoreLocalDrop) return false;
-    var s = excelStem(name);
-    return !!(s && dropStemSet()[s]);
+  function isDroppedSource() {
+    return false;
   }
 
   function forgetDroppedSources(stems) {
@@ -1101,10 +1099,8 @@
   async function refreshFromStored(permPromise, onlyNames, presetFiles, opts) {
     if (_busy) return { ok: false, msg: 'Güncelleme sürüyor.' };
     var silent = !!(opts && opts.silent);
-    // İlk Güncelle veriyi yazar. Excel ancak bir sonraki elle Güncelle'de silinir.
-    var confirmDrop = !silent && readDropArm().length > 0;
+    try { sessionStorage.removeItem(DROP_ARM_KEY); } catch (eArm) {}
     _silentRun = silent;
-    _ignoreLocalDrop = true;
     setRefreshBusy(true);
     var okNames = [];
     var failNames = [];
@@ -1117,19 +1113,6 @@
       }
 
       var sources = listLoadedSourceNames();
-      sources = sources.filter(function (n) { return !isDroppedSource(n); });
-      if (!sources.length && listLoadedSourceNames().length) {
-        if (!confirmDrop) sources = listLoadedSourceNames();
-      }
-      if (!sources.length && listLoadedSourceNames().length && confirmDrop) {
-        try {
-          if (typeof window.applyLimanDropFiles === 'function') {
-            window.applyLimanDropFiles(listLoadedSourceNames());
-          }
-        } catch (e) {}
-        heartbeat(true, { ok: true });
-        return { ok: true, settled: true, msg: 'Tamamlanan liste kantardan silindi. Limanda duruyor.' };
-      }
       if (Array.isArray(onlyNames) && onlyNames.length) {
         var allow = Object.create(null);
         onlyNames.forEach(function (n) {
@@ -1193,15 +1176,6 @@
       }
 
       if (!okNames.length) {
-        if (!failNames.length && confirmDrop) {
-          try {
-            if (typeof window.applyLimanDropFiles === 'function') {
-              window.applyLimanDropFiles(listLoadedSourceNames());
-            }
-          } catch (e) {}
-          heartbeat(true, { ok: true });
-          return { ok: true, settled: true, msg: 'Tamamlanan liste kantardan silindi. Limanda duruyor.' };
-        }
         if (!failNames.length) {
           failNames = listLoadedSourceNames().slice();
         }
@@ -1219,10 +1193,7 @@
       var limanNote = '';
       try {
         if (typeof window.publishLimanFromStore === 'function') {
-          var pub = await Promise.resolve(window.publishLimanFromStore(true, {
-            confirmDrop: confirmDrop,
-            keepDropped: true,
-          }));
+          var pub = await Promise.resolve(window.publishLimanFromStore(true, { keepDropped: true }));
           if (pub && pub.sent) {
             if (!pub.ok) {
               limanNote = pub.status === 401
@@ -1248,12 +1219,6 @@
           }
         }
       } catch (e) {}
-      if (!silent) {
-        if (confirmDrop && pub && pub.ok) writeDropArm([]);
-        else if (!confirmDrop && pub && Array.isArray(pub.dropPending) && pub.dropPending.length) {
-          writeDropArm(pub.dropPending);
-        }
-      }
       if (limanNote && !silent && typeof window.showToast === 'function') {
         var limanBad = /GÖNDERİLEMEDİ/.test(limanNote);
         window.showToast(limanNote, limanBad ? 'error' : (/aynı|yok/.test(limanNote) ? 'warn' : 'success'), limanBad ? 9000 : 3200);

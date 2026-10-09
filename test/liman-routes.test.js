@@ -675,7 +675,7 @@ test('kantar Excel silince kitap düşmez; güncelleme ve yeni kitap işlenir, b
   assert.equal(view.days.length, 2);
 });
 
-test('tamamlanan Excel bir daha işlenmez; kantar silsin diye adı döner', async () => {
+test('bitmiş Excel silinmez; sonraki Güncelle son aracın tonajını da yazar', async () => {
   const { call } = harness({ username: 'AVDAN', role: 'admin' });
   const book = (title, fileName, giden) => ({
     title, liman: 'EVYAP', fileName,
@@ -690,8 +690,7 @@ test('tamamlanan Excel bir daha işlenmez; kantar silsin diye adı döner', asyn
     ],
   });
   assert.deepEqual(first.dropFiles, []);
-  assert.ok(first.dropPending.includes('05.10.2026'));
-  assert.equal(first.dropPending.includes('06.10.2026'), false);
+  assert.deepEqual(first.dropPending, []);
   let view = await call('get /liman', '1.1.1.1');
   assert.equal(view.days.find((d) => d.dateKey === '2026-10-05').blocks[0].rows[0].giden, '26000');
 
@@ -708,8 +707,7 @@ test('tamamlanan Excel bir daha işlenmez; kantar silsin diye adı döner', asyn
     ],
   });
   assert.equal(again.settled, undefined);
-  assert.ok(again.dropFiles.includes('05.10.2026'));
-  assert.equal(again.dropFiles.includes('06.10.2026'), false);
+  assert.deepEqual(again.dropFiles, []);
   view = await call('get /liman', '1.1.1.1');
   assert.equal(view.days.find((d) => d.dateKey === '2026-10-05').blocks[0].rows[0].giden, '27000');
   assert.equal(view.days.find((d) => d.dateKey === '2026-10-06').blocks[0].rows[0].giden, '500');
@@ -719,18 +717,16 @@ test('tamamlanan Excel bir daha işlenmez; kantar silsin diye adı döner', asyn
     fileName: '05.10.2026.xlsx',
     blocks: [book('YD05 / LOT NO 1 / EVYAP', '05.10.2026.xlsx', '9')],
   });
-  assert.equal(onlyDone.settled, true);
-  assert.equal(onlyDone.unchanged, true);
+  assert.equal(onlyDone.settled, undefined);
   view = await call('get /liman', '1.1.1.1');
-  assert.equal(view.days.find((d) => d.dateKey === '2026-10-05').blocks[0].rows[0].giden, '27000');
+  assert.equal(view.days.find((d) => d.dateKey === '2026-10-05').blocks[0].rows[0].giden, '9');
   assert.equal(view.days.find((d) => d.dateKey === '2026-10-06').blocks[0].rows[0].giden, '500');
 
   const beat = await call('put /liman/heartbeat', '95.3.27.82', { site: 'AVDAN', excelLoaded: true });
-  assert.ok(beat.dropFiles.includes('05.10.2026'));
-  assert.equal(beat.dropFiles.includes('06.10.2026'), false);
+  assert.deepEqual(beat.dropFiles, []);
 });
 
-test('tamamlanan dosya hangi kantarda yüklüyse oradan da düşer', async () => {
+test('bitmiş dosya kantarda durur, adı listeden düşmez', async () => {
   const done = (title, fileName) => ({
     title, liman: 'EVYAP', fileName,
     rows: [{ sira: '1', plaka: '43RY761', giden: '26000' }],
@@ -773,19 +769,16 @@ test('tamamlanan dosya hangi kantarda yüklüyse oradan da düşer', async () =>
       open('YD06 / LOT NO 3 / EVYAP', '06.10.2026.xlsx'),
     ],
   });
-  assert.ok(confirmed.dropFiles.includes('05.10.2026'), JSON.stringify(confirmed));
+  assert.deepEqual(confirmed.dropFiles, []);
   Object.assign(osb.store, avdan.store);
   const view = await osb.call('get /liman', '1.1.1.1');
-  assert.equal(view.sites.AVDAN.fileName, '06.10.2026.xlsx');
-  assert.equal(view.sites['1.OSB'].fileName, '');
-  assert.equal(view.sites['1.OSB'].heartbeatFile, '');
-  assert.equal(view.sites['1.OSB'].heartbeatExcel, false);
+  assert.ok(String(view.sites.AVDAN.fileName).indexOf('05.10.2026') >= 0);
+  assert.ok(String(view.sites.AVDAN.fileName).indexOf('06.10.2026') >= 0);
+  assert.ok(String(view.sites['1.OSB'].fileName).indexOf('05.10.2026') >= 0);
   const beat = await osb.call('put /liman/heartbeat', '195.175.103.150', {
     site: '1.OSB', excelLoaded: true, fileName: '05.10.2026.xlsx',
   });
-  assert.ok(beat.dropFiles.includes('05.10.2026'));
-  assert.ok(beat.dropFiles.includes('03.10.2026-YD28'));
-  assert.equal(beat.dropFiles.includes('06.10.2026'), false);
+  assert.deepEqual(beat.dropFiles, []);
   const day5 = view.days.find((d) => d.dateKey === '2026-10-05');
   assert.ok(day5 && day5.blocks.length >= 1);
 });

@@ -1654,28 +1654,9 @@ async function stripSettledDailySources(targets) {
   }));
 }
 
-/** Tamamlanan Excel kantarda kalmasın: bir daha okunmaz, yüklü listeden silinir. Limandaki liste durur. */
-function applyLimanDropFiles(list) {
-  const stems = rememberLimanDropFiles(list);
-  if (!stems.size) return Promise.resolve(false);
-  try {
-    if (window.IhracatExcelSource && typeof window.IhracatExcelSource.forgetDroppedSources === 'function') {
-      window.IhracatExcelSource.forgetDroppedSources(Array.from(stems));
-    }
-  } catch (e) {}
-  if (_applyingLimanDrops) return Promise.resolve(false);
-  _applyingLimanDrops = true;
-  const sources = (typeof listIhracatExcelSources === 'function' ? listIhracatExcelSources() : [])
-    .filter((name) => stems.has(limanFileStem(name)));
-  const targets = sources.length ? sources : Array.from(stems);
-  return Promise.resolve(stripSettledDailySources(targets)).then((changed) => {
-    if (changed && typeof window.showToast === 'function') {
-      window.showToast('Tamamlanan liste kantardan silindi. Limanda duruyor.', 'success');
-    }
-    return !!changed;
-  }).finally(() => {
-    _applyingLimanDrops = false;
-  });
+/** Bitmiş Excel kantardan silinmez. Güncelle yalnız veriyi yazar. */
+function applyLimanDropFiles() {
+  return Promise.resolve(false);
 }
 
 try { window.applyLimanDropFiles = applyLimanDropFiles; } catch (e) {}
@@ -1708,15 +1689,10 @@ function publishLimanSnapshot(rows, meta, opts) {
       disarida: !!(row && row.disarida),
     }));
     let fileName = (meta && (meta.fileName || (Array.isArray(meta.files) ? meta.files.join(' + ') : ''))) || '';
-    // Güncelle veriyi eksiksiz gönderir. Silinmiş dosyayı ayıklamak yalnız arka plan gönderimindedir.
-    if (limanDroppedStems().size && !(opts && opts.keepDropped)) {
-      list = list.filter((row) => !limanSourceDropped(row && row.fileName));
-      blocks = (blocks || []).filter((block) => !limanSourceDropped(block && block.fileName));
-      fileName = String(fileName).split(/\s+\+\s+/).map((part) => part.trim()).filter((part) => part && !limanSourceDropped(part)).join(' + ');
-    }
+    try { localStorage.removeItem(LIMAN_DROP_KEY); } catch (e) {}
     // Boş liste limanı silmesin. Kantar Excel'i silse de kayıtlı kitap durur; kapatma amirde.
     if (!list.length && !(blocks && blocks.length)) {
-      return Promise.resolve({ sent: false, reason: limanDroppedStems().size ? 'settled' : 'empty' });
+      return Promise.resolve({ sent: false, reason: 'empty' });
     }
     const body = JSON.stringify({
       site,
