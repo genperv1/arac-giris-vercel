@@ -15,3 +15,8 @@ excel-ajan/ayar.txt
 excel-ajan/durum.txt
 excel-ajan/*.bak
 excel-ajan/*.yeni
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/

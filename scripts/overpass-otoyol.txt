@@ -1,0 +1,4 @@
+[out:json][timeout:150];
+area["ISO3166-1"="TR"][admin_level=2]->.a;
+way["highway"="motorway"](area.a);
+out tags geom;

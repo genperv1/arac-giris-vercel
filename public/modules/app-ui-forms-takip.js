@@ -3774,6 +3774,8 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                         </div>
                     </section>
 
+                    <div id="gpmMailHome" class="gpm-mail-home" hidden></div>
+
                     <div id="vehicleList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 vehicle-list-grid">
                         ${state.vehiclesLoading ? vehicleListSkeletonHTML() : (
                             filteredVehicles.length === 0
@@ -3821,6 +3823,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
               if (typeof window.__piyasaRebind === 'function') window.__piyasaRebind();
               if (typeof window.initPiyasaModule === 'function') window.initPiyasaModule();
             } catch (e) { console.warn('Piyasa rebind:', e); }
+            try { if (window.GpmMailbox && typeof window.GpmMailbox.sync === 'function') window.GpmMailbox.sync(); } catch (e) {}
         }
         render.full = function () { render({ full: true }); };
         window.render = render;

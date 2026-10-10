@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
-  <script src="session-manager.js?v=20261010l-mesaj"></script>
+  <script src="session-manager.js?v=20261010w-sistem"></script>
   <style>
     html, body.nk-page { max-width: 100%; overflow-x: hidden; }
     body.nk-page {
@@ -57,7 +57,16 @@
     .nk-il.is-to { fill: #8fcec2; filter: none; }
     .nk-il.is-both { fill: #e0b07a; filter: none; }
     .nk-il.is-dim { fill: #e7e2d8; stroke: #d6d0c6; }
-    .nk-route-case, .nk-route, .nk-route-dash, .nk-route-air, .nk-route-alt, .nk-end, .nk-pin-label, .nk-il-label, .nk-bridge { pointer-events: none; }
+    .nk-route-case, .nk-route, .nk-route-dash, .nk-route-air, .nk-route-alt, .nk-route-toll, .nk-otoyol, .nk-end, .nk-pin-label, .nk-il-label, .nk-sea-name, .nk-dollar, .nk-bridge { pointer-events: none; }
+    .nk-otoyol { fill: none; stroke: #c2410c; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0.72; }
+    .nk-route-toll { fill: none; stroke: #15803d; stroke-width: 5.4; stroke-linecap: round; stroke-linejoin: round; }
+    .nk-sea-name { font-family: Palatino, Georgia, serif; font-style: italic; font-weight: 700; fill: #1a4f6e; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: #e7f4fb; stroke-linejoin: round; }
+    .nk-dollar-badge { fill: #15803d; stroke: #fff; }
+    .nk-dollar-text { fill: #fff; font-weight: 800; text-anchor: middle; dominant-baseline: central; font-family: "Segoe UI", sans-serif; }
+    .nk-legend { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: #57534e; }
+    .nk-legend-road, .nk-legend-toll { display: inline-block; width: 18px; height: 4px; border-radius: 99px; }
+    .nk-legend-road { background: #c2410c; }
+    .nk-legend-toll { width: 16px; height: 16px; border-radius: 99px; background: #15803d; color: #fff; font-size: 11px; font-weight: 800; line-height: 16px; text-align: center; }
     .nk-il-label { text-anchor: middle; dominant-baseline: middle; font-family: "Segoe UI", sans-serif; paint-order: stroke; stroke-linejoin: round; fill: #3d4a34; font-weight: 700; stroke: #f7fbf2; }
     .nk-route-case { fill: none; stroke: #4a433c; stroke-width: 6.6; stroke-linecap: round; stroke-linejoin: round; }
     .nk-route { fill: none; stroke: #f0c84a; stroke-width: 3.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -139,6 +148,17 @@
     }
     .nk-origin:hover { background: #e7f6ee; }
     .nk-origin.is-on { background: #1f7a4d; color: #fff; }
+    .nk-manual {
+      margin-top: 10px; background: #faf7f2; border: 1px dashed #d6d3d1;
+      border-radius: 12px; padding: 10px;
+    }
+    .nk-manual-kicker {
+      margin: 0 0 8px; font-size: 11px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: #78716c; font-weight: 800;
+    }
+    .nk-pick-hint { margin: 8px 0 0; font-size: 12px; color: #57534e; line-height: 1.4; }
+    .nk-manual .nk-search { margin-bottom: 0; }
+    .nk-manual .nk-ilce-list { max-height: 140px; }
     .nk-origin-card {
       display: flex; gap: 10px; align-items: flex-start; margin-top: 10px;
       background: #f4f7f5; border-radius: 14px; padding: 12px;
@@ -160,7 +180,7 @@
     .nk-check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 8px 0; }
     .nk-field { font-size: 12px; color: #57534e; }
     .nk-field input { margin-top: 4px; }
-    .nk-results { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .nk-results { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .nk-stat { background: #1c1917; color: #fff7ed; border-radius: 12px; padding: 12px 14px; }
     .nk-stat span { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #e7c27a; }
     .nk-stat b { display: block; margin-top: 4px; font-size: 26px; font-weight: 650; line-height: 1.1; }
@@ -192,7 +212,7 @@
       <div>
         <div class="nk-kicker">Tır nakliyesi</div>
         <h1 class="nk-title">Nakliye</h1>
-        <p class="nk-sub">Çıkışı tek tıkla seçin. Varış il, ilçe veya liman olsun.</p>
+        <p class="nk-sub">Çıkış Kütahya. Başka yer için alta yazın veya haritadan seçin.</p>
       </div>
       <div class="nk-header-side">
         <div class="nk-amir">Şaban Lahaçlar</div>
@@ -205,6 +225,7 @@
     <section class="nk-card nk-map-card">
       <div class="nk-map-bar">
         <p id="nkMapHint">Limanlar haritada. Bir limana basınca varış orası olur.</p>
+        <p class="nk-legend"><i class="nk-legend-road"></i> Otoyol <i class="nk-legend-toll">$</i> Paralı</p>
       </div>
       <div id="nkYollar" class="nk-yollar"></div>
       <svg id="nkMap" class="nk-svg" viewBox="0 0 1000 460" role="img" aria-label="Türkiye haritası"></svg>
@@ -212,11 +233,29 @@
         <div id="nkGecilen" class="nk-gecilen"></div>
         <div id="nkKopru" class="nk-kopru"></div>
       </div>
+      <section class="nk-results" aria-live="polite">
+        <div class="nk-stat"><span>Mesafe</span><b id="nkKm">—</b><small id="nkSure">60–70 km/sa</small></div>
+        <div class="nk-stat"><span>Mazot</span><b id="nkMazot">—</b><small id="nkMazotWhere">Çıkış fiyatı</small></div>
+        <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Yüklü</small></div>
+        <div class="nk-stat"><span>Tahmini tutar</span><b id="nkTutar">—</b><small id="nkFormula">km × litre / 100</small></div>
+        <p class="nk-note">Yüklü 37 L/100 km (1 litre ≈ 2,7 km). Boş 22 L/100 km (1 litre ≈ 4,5 km). Süre: 4 saatlik sürüşte ortalama 60–70 km/sa, 24 saatte 9 saat sürüş hakkı. 9 saati aşan yol 15 saat dinlenmeden sonra devam eder.</p>
+        <p id="nkDunFark" class="nk-note"></p>
+      </section>
     </section>
 
     <section class="nk-card nk-side">
       <h2>Çıkış</h2>
       <div class="nk-origins" id="nkOrigins"></div>
+      <div class="nk-manual">
+        <p class="nk-manual-kicker">Başka yer</p>
+        <button type="button" class="nk-btn" id="nkPickFrom">Haritadan seç</button>
+        <div class="nk-search">
+          <input id="nkFromSearch" type="search" placeholder="İl, ilçe veya liman yazın" autocomplete="off">
+          <div id="nkFromSuggest" class="nk-suggest" hidden></div>
+        </div>
+        <div id="nkFromIlce" class="nk-ilce-list"></div>
+        <p class="nk-pick-hint" id="nkPickHint">Kutuya yazınca çıkış orası olur. Haritaya basarak seçmek için düğmeyi açın. Kapalıyken harita tıklaması varış seçer.</p>
+      </div>
       <div class="nk-origin-card" id="nkOriginCard" hidden>
         <div class="nk-origin-pin" aria-hidden="true"><i class="fas fa-map-marker-alt"></i></div>
         <div>
@@ -255,15 +294,6 @@
       <p id="nkDolum" class="nk-dolum"></p>
     </section>
 
-    <section class="nk-results" aria-live="polite">
-      <div class="nk-stat"><span>Mesafe</span><b id="nkKm">—</b><small id="nkSure">60–70 km/sa</small></div>
-      <div class="nk-stat"><span>Mazot</span><b id="nkMazot">—</b><small id="nkMazotWhere">Çıkış fiyatı</small></div>
-      <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Yüklü</small></div>
-      <div class="nk-stat"><span>Tahmini tutar</span><b id="nkTutar">—</b><small id="nkFormula">km × litre / 100</small></div>
-      <p class="nk-note">Yüklü 37 L/100 km (1 litre ≈ 2,7 km). Boş 22 L/100 km (1 litre ≈ 4,5 km). Süre: 4 saatlik sürüşte ortalama 60–70 km/sa, 24 saatte 9 saat sürüş hakkı. 9 saati aşan yol 15 saat dinlenmeden sonra devam eder.</p>
-      <p id="nkDunFark" class="nk-note"></p>
-    </section>
-
     <section class="nk-card nk-prices">
       <h2 id="nkPriceTitle">Mazot fiyatı</h2>
       <p id="nkPriceLead">İl fiyatları yükleniyor.</p>
@@ -271,7 +301,7 @@
     </section>
   </main>
 
-  <script src="nakliye-liman.js?v=20261009-alti"></script>
-  <script src="nakliye.js?v=20261010-yuklu"></script>
+  <script src="nakliye-liman.js?v=20261010-ucret"></script>
+  <script src="nakliye.js?v=20261010-ucret"></script>
 </body>
 </html>

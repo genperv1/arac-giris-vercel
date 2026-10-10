@@ -5,13 +5,13 @@
   var H = 460;
   var TURKEY = { minLon: 25.6, maxLon: 44.9, minLat: 35.7, maxLat: 42.2 };
   var CIKISLAR = [
-    { id: 'ist-fabrika', ad: 'İstanbul Fabrika', adres: 'Ayazağa Mah. Kemerburgaz Cad. No:24 Sarıyer / İSTANBUL', plaka: 34, il: 'İstanbul', ilce: 'Sarıyer', lat: 41.1173, lon: 28.9723 },
-    { id: 'ist-ofis', ad: 'İstanbul Ofis', adres: 'Mimar Sinan Mah. 3. Deniz Sokak No:13/D1 Kemerburgaz Eyüpsultan / İSTANBUL', plaka: 34, il: 'İstanbul', ilce: 'Eyüpsultan', lat: 41.1591, lon: 28.9147 },
     { id: 'kut-fabrika', ad: 'Kütahya Fabrika', adres: '1. Organize Sanayi Bölgesi Rıza Güral Caddesi No:16 Merkez / KÜTAHYA', plaka: 43, il: 'Kütahya', ilce: 'Merkez', lat: 39.3989, lon: 30.1124 },
     { id: 'maden', ad: 'Maden Sahası', adres: 'Teşvikiye Köyü 4. Kd Sokak Merkez / KÜTAHYA', plaka: 43, il: 'Kütahya', ilce: 'Merkez', lat: 39.2857, lon: 30.3142 }
   ];
   var state = {
     side: 'to',
+    pickFrom: false,
+    fromFocus: null,
     from: null,
     to: null,
     focus: null,
@@ -26,6 +26,8 @@
     yolIndex: 0,
     places: null,
     geo: null,
+    otoyol: null,
+    ucret: [],
     boxes: {},
   };
   var routeCtl = null;
@@ -236,6 +238,8 @@
     var site = null;
     for (var i = 0; i < CIKISLAR.length; i++) if (CIKISLAR[i].id === id) site = CIKISLAR[i];
     if (!site) return;
+    state.pickFrom = false;
+    state.fromFocus = null;
     state.from = {
       plaka: site.plaka, il: site.il, ilce: site.ilce,
       lat: site.lat, lon: site.lon, tesis: site.ad, adres: site.adres, id: site.id
@@ -244,6 +248,76 @@
     fillPrice();
     render();
     scheduleRoute();
+  }
+
+  function setCustomFrom(place) {
+    state.from = {
+      plaka: place.plaka,
+      il: place.il,
+      ilce: place.ilce || null,
+      lat: place.lat,
+      lon: place.lon,
+      tesis: place.tesis,
+      adres: place.adres || 'Elle seçildi',
+      id: null,
+      liman: !!place.liman,
+      ad: place.ad || '',
+      limanId: place.limanId || null,
+    };
+    state.fromFocus = place.plaka;
+    state.side = 'to';
+    fillPrice();
+    render();
+    scheduleRoute();
+  }
+
+  function selectFromIl(plaka) {
+    var il = ilByPlaka(plaka);
+    var center = ilCenter(plaka);
+    if (!il || !center) return;
+    setCustomFrom({
+      plaka: plaka,
+      il: il.ad,
+      ilce: null,
+      lat: center.lat,
+      lon: center.lon,
+      tesis: il.ad,
+      adres: 'Elle seçildi · il merkezi',
+    });
+  }
+
+  function selectFromIlce(row) {
+    var il = ilByPlaka(row.plaka);
+    if (!il || row.lat == null || row.lon == null) return;
+    setCustomFrom({
+      plaka: row.plaka,
+      il: il.ad,
+      ilce: row.ad,
+      lat: row.lat,
+      lon: row.lon,
+      tesis: il.ad + ' / ' + row.ad,
+      adres: 'Elle seçildi',
+    });
+  }
+
+  function selectFromLiman(id) {
+    var rows = limanlar();
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].id !== id) continue;
+      setCustomFrom({
+        plaka: rows[i].plaka,
+        il: rows[i].il,
+        ilce: rows[i].ilce,
+        lat: rows[i].lat,
+        lon: rows[i].lon,
+        liman: true,
+        ad: rows[i].ad,
+        limanId: rows[i].id,
+        tesis: rows[i].ad,
+        adres: rows[i].ilce + ' / ' + rows[i].il,
+      });
+      return;
+    }
   }
 
   function choose(place) {
@@ -384,6 +458,27 @@
       document.getElementById('nkOriginAddr').textContent = state.from.adres;
     }
     document.getElementById('nkToLine').textContent = state.to ? placeLabel(state.to) : 'İl ve ilçe seçilmedi';
+    renderManual();
+  }
+
+  function renderManual() {
+    var btn = document.getElementById('nkPickFrom');
+    if (btn) btn.classList.toggle('is-on', !!state.pickFrom);
+    var hint = document.getElementById('nkPickHint');
+    if (hint) {
+      hint.textContent = state.pickFrom
+        ? 'Açık. Haritadaki ile veya limana basın, çıkış orası olur. İlçeyi alttaki düğmelerden seçin. Kütahya düğmesi bunu kapatır.'
+        : 'Kutuya yazınca çıkış orası olur. Haritaya basarak seçmek için düğmeyi açın. Kapalıyken harita tıklaması varış seçer.';
+    }
+    var host = document.getElementById('nkFromIlce');
+    if (!host) return;
+    if (!state.pickFrom || !state.fromFocus) { host.innerHTML = ''; return; }
+    var rows = ilcelerOf(state.fromFocus).slice().sort(function (a, b) { return a.ad.localeCompare(b.ad, 'tr'); });
+    var current = state.from;
+    host.innerHTML = rows.map(function (row) {
+      var on = current && !current.id && current.plaka === row.plaka && foldTr(current.ilce) === foldTr(row.ad);
+      return '<button type="button" class="nk-chip' + (on ? ' is-on' : '') + '" data-from-ilce="' + esc(row.ad) + '" data-plaka="' + row.plaka + '">' + esc(row.ad) + '</button>';
+    }).join('');
   }
 
   function renderLimanlar() {
@@ -429,6 +524,59 @@
     return api.gecen(cizgi);
   }
 
+  var DENIZLER = [
+    { ad: 'KARADENİZ', lon: 37.6, lat: 42.02, px: 15 },
+    { ad: 'MARMARA', lon: 28.0, lat: 40.63, px: 11 },
+    { ad: 'EGE', lon: 26.05, lat: 37.55, px: 13 },
+    { ad: 'AKDENİZ', lon: 31.5, lat: 36.16, px: 15 }
+  ];
+
+  function otoyolPath(box) {
+    var yollar = (state.otoyol && state.otoyol.yollar) || [];
+    var d = '';
+    for (var i = 0; i < yollar.length; i++) {
+      var koord = yollar[i].koord;
+      if (!koord || koord.length < 2) continue;
+      for (var p = 0; p < koord.length; p++) {
+        var xy = project(koord[p][0], koord[p][1], box);
+        d += (p ? 'L' : 'M') + xy[0].toFixed(1) + ' ' + xy[1].toFixed(1);
+      }
+    }
+    return d;
+  }
+
+  function syncUcret() {
+    var api = window.NK_LIMAN;
+    var cizgi = state.route && state.route.cizgi;
+    var yollar = (state.otoyol && state.otoyol.yollar) || [];
+    if (!api || typeof api.ucretliParcalar !== 'function' || !cizgi || !yollar.length || (state.route && state.route.kaynak === 'kus-ucusu')) {
+      state.ucret = [];
+      return;
+    }
+    state.ucret = api.ucretliParcalar(cizgi, yollar);
+  }
+
+  function netUcret4() {
+    var api = window.NK_LIMAN;
+    var parts = state.ucret || [];
+    if (!api || typeof api.otoyolBedel !== 'function') return 0;
+    var n = 0;
+    for (var i = 0; i < parts.length; i++) {
+      var bedel = api.otoyolBedel(parts[i].ad, parts[i].km);
+      if (bedel) n += bedel.sinif4;
+    }
+    return n;
+  }
+
+  function ucretAdlari() {
+    var names = [];
+    var parts = state.ucret || [];
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].ad && names.indexOf(parts[i].ad) < 0) names.push(parts[i].ad);
+    }
+    return names;
+  }
+
   function renderMap() {
     var svg = document.getElementById('nkMap');
     if (!state.geo) { svg.innerHTML = ''; return; }
@@ -450,6 +598,8 @@
       else if (toHere) cls += ' is-to';
       html += '<path class="' + cls + '" vector-effect="non-scaling-stroke" data-plaka="' + plaka + '" d="' + pathOf(f.geometry, box) + '"><title>' + esc(f.properties.name) + '</title></path>';
     }
+    var net = otoyolPath(box);
+    if (net) html += '<path class="nk-otoyol" vector-effect="non-scaling-stroke" d="' + net + '"></path>';
     var fromPt = state.from ? project(state.from.lon, state.from.lat, box) : null;
     var toPt = state.to ? project(state.to.lon, state.to.lat, box) : null;
     if (fromPt && toPt) {
@@ -470,17 +620,28 @@
           html += '<path class="nk-route-case" vector-effect="non-scaling-stroke" d="' + road + '"></path>';
           html += '<path class="nk-route" vector-effect="non-scaling-stroke" marker-end="url(#nkRoadArrow)" d="' + road + '"></path>';
           html += '<path class="nk-route-dash" vector-effect="non-scaling-stroke" d="' + road + '"></path>';
+          var tollParts = state.ucret || [];
+          for (var t = 0; t < tollParts.length; t++) {
+            var toll = linePath(tollParts[t].cizgi, box);
+            if (toll) html += '<path class="nk-route-toll" vector-effect="non-scaling-stroke" d="' + toll + '"></path>';
+          }
         }
-        document.getElementById('nkMapHint').textContent = 'Buradan ' + fromName + ' → buraya ' + toName + ' · ' + (kus ? 'kuş uçuşu' : 'karayolu');
+        var ucretAd = ucretAdlari();
+        var net = netUcret4();
+        document.getElementById('nkMapHint').textContent = 'Buradan ' + fromName + ' → buraya ' + toName + ' · ' + (kus ? 'kuş uçuşu' : 'karayolu') + (ucretAd.length ? ' · paralı ' + ucretAd.join(', ') + (net ? ' · net ' + fmt(net, 0) + ' TL' : '') : '') + (state.pickFrom ? ' · haritadan çıkış açık' : '');
       } else {
         document.getElementById('nkMapHint').textContent = 'Karayolu çiziliyor: ' + fromName + ' → ' + toName;
       }
       html += '<text class="nk-pin-label" x="' + (fromPt[0] + 10).toFixed(1) + '" y="' + (fromPt[1] - 8).toFixed(1) + '">Buradan · ' + esc(fromName) + '</text>';
       html += '<text class="nk-pin-label" x="' + (toPt[0] + 10).toFixed(1) + '" y="' + (toPt[1] - 8).toFixed(1) + '">Buraya · ' + esc(toName) + '</text>';
     } else if (fromPt) {
-      document.getElementById('nkMapHint').textContent = 'Çıkış hazır. Limana veya varış iline basın.';
+      document.getElementById('nkMapHint').textContent = state.pickFrom
+        ? 'Çıkış seçimi açık. Başka ile veya limana basın, çıkış değişir.'
+        : 'Çıkış hazır. Limana veya varış iline basın.';
     } else {
-      document.getElementById('nkMapHint').textContent = 'Limanlar haritada. Bir limana basınca varış orası olur.';
+      document.getElementById('nkMapHint').textContent = state.pickFrom
+        ? 'Çıkış seçimi açık. Haritadan bir ile veya limana basın.'
+        : 'Limanlar haritada. Bir limana basınca varış orası olur.';
     }
     if (fromPt) html += '<circle class="nk-end is-from" cx="' + fromPt[0].toFixed(1) + '" cy="' + fromPt[1].toFixed(1) + '" r="4"></circle>';
     if (toPt) html += '<circle class="nk-end is-to" cx="' + toPt[0].toFixed(1) + '" cy="' + toPt[1].toFixed(1) + '" r="4"></circle>';
@@ -526,6 +687,7 @@
     node.setAttribute('stroke-width', (size * 0.28).toFixed(2));
     node.textContent = text;
     parent.appendChild(node);
+    return node;
   }
 
   var labelFrame = 0;
@@ -558,7 +720,9 @@
       if (est > span * 0.9) size = Math.max(userPx(7), span * 0.9 / (name.length * 0.54 || 1));
       addMapText(g, 'nk-il-label', pt[0], pt[1], size, name);
     }
+    drawSeas(g);
     drawMapMarks(g);
+    drawDollars(g);
     var ends = svg.querySelectorAll('.nk-end');
     var endR = userPx(4.5);
     for (var e = 0; e < ends.length; e++) ends[e].setAttribute('r', endR.toFixed(2));
@@ -567,6 +731,60 @@
 
   function svgNode(name) {
     return document.createElementNS('http://www.w3.org/2000/svg', name);
+  }
+
+  function drawSeas(g) {
+    for (var i = 0; i < DENIZLER.length; i++) {
+      var sea = DENIZLER[i];
+      if (ilAdiAt(sea.lon, sea.lat)) continue;
+      var xy = project(sea.lon, sea.lat, TURKEY);
+      if (!seenOnMap(xy[0], xy[1])) continue;
+      var size = userPx(sea.px);
+      var node = addMapText(g, 'nk-sea-name', xy[0], xy[1], size, sea.ad);
+      if (node) node.setAttribute('letter-spacing', (size * 0.1).toFixed(2));
+    }
+  }
+
+  function drawDollars(g) {
+    var u = userPx(1);
+    var used = [];
+    function near(x, y) {
+      for (var i = 0; i < used.length; i++) {
+        if (Math.hypot(used[i][0] - x, used[i][1] - y) < 16 * u) return true;
+      }
+      return false;
+    }
+    function badge(x, y) {
+      if (!seenOnMap(x, y) || near(x, y)) return;
+      used.push([x, y]);
+      var mark = svgNode('g');
+      mark.setAttribute('class', 'nk-dollar');
+      var r = 7.2 * u;
+      var c = svgNode('circle');
+      c.setAttribute('class', 'nk-dollar-badge');
+      c.setAttribute('cx', x.toFixed(1));
+      c.setAttribute('cy', y.toFixed(1));
+      c.setAttribute('r', r.toFixed(2));
+      c.setAttribute('stroke-width', (u * 1.1).toFixed(2));
+      mark.appendChild(c);
+      addMapText(mark, 'nk-dollar-text', x, y, userPx(11), '$');
+      g.appendChild(mark);
+    }
+    var durum = kopruDurumu();
+    for (var b = 0; b < durum.acik.length; b++) {
+      var bp = project(durum.acik[b].lon, durum.acik[b].lat, TURKEY);
+      badge(bp[0], bp[1] - 8 * u);
+    }
+    var parts = state.ucret || [];
+    for (var p = 0; p < parts.length; p++) {
+      var line = parts[p].cizgi || [];
+      if (line.length < 2) continue;
+      var step = Math.max(1, Math.floor(line.length / Math.max(1, Math.round(parts[p].km / 45))));
+      for (var i = Math.floor(step / 2); i < line.length; i += step) {
+        var xy = project(line[i][0], line[i][1], TURKEY);
+        badge(xy[0], xy[1]);
+      }
+    }
   }
 
   function drawMapMarks(g) {
@@ -687,7 +905,8 @@
     var host = document.getElementById('nkKopru');
     if (!host) return;
     var durum = kopruDurumu();
-    if (!state.route || state.route.kaynak === 'kus-ucusu' || (!durum.acik.length && !durum.kapali.length)) {
+    var ucretAd = ucretAdlari();
+    if (!state.route || state.route.kaynak === 'kus-ucusu' || (!durum.acik.length && !durum.kapali.length && !ucretAd.length)) {
       host.innerHTML = '';
       return;
     }
@@ -718,13 +937,40 @@
     }
     if (toplam4) {
       cards += '<div><span>Köprü toplamı</span><b>' + fmt(toplam4, 0) + ' TL</b></div>';
-      if (sonuc && sonuc.tutar != null) {
-        cards += '<div><span>Mazot ile birlikte</span><b>' + fmt(round2(sonuc.tutar + toplam4), 2) + ' TL</b></div>';
+    }
+    var yol4 = 0;
+    var yol5 = 0;
+    var yolSatir = [];
+    var parcalar = state.ucret || [];
+    for (var u = 0; u < parcalar.length; u++) {
+      var parca = parcalar[u];
+      var bedel = window.NK_LIMAN && window.NK_LIMAN.otoyolBedel
+        ? window.NK_LIMAN.otoyolBedel(parca.ad, parca.km)
+        : null;
+      if (!bedel) {
+        yolSatir.push(parca.ad);
+        continue;
       }
+      yol4 += bedel.sinif4 * carpan;
+      yol5 += bedel.sinif5 * carpan;
+      yolSatir.push(parca.ad + ' · ' + parca.km + ' km');
+    }
+    if (yol4) {
+      cards += '<div><span>Net ücret</span><b>' + fmt(yol4, 0) + ' TL</b><small>'
+        + esc(yolSatir.join(' · ')) + ' · 4-5 dingil · 6+ dingil ' + fmt(yol5, 0) + ' TL</small></div>';
+    } else if (ucretAd.length) {
+      cards += '<div><span>Paralı otoyol</span><b>' + esc(ucretAd.join(' · ')) + '</b></div>';
+    }
+    var gecis = toplam4 + yol4;
+    if (gecis && sonuc && sonuc.tutar != null) {
+      cards += '<div><span>Mazot ile birlikte</span><b>' + fmt(round2(sonuc.tutar + gecis), 2) + ' TL</b></div>';
     }
     if (!cards && !note) { host.innerHTML = ''; return; }
+    var dipnot = (toplam4 || yol4)
+      ? ((note ? note + ' ' : '') + '1 Temmuz 2026 KGM tarifesi, KDV dahil. Net ücret güzergâhtaki paralı kesimin gişe tutarı.' + (state.donus ? ' Gidiş-dönüş iki geçiş.' : ''))
+      : 'Yeşil $ paralı otoyol ve tırın geçtiği köprüyü gösterir.';
     host.innerHTML = '<div class="nk-kopru-card">' + cards
-      + '<p class="nk-kopru-note">' + (note ? note + ' ' : '') + '1 Temmuz 2026 KGM tarifesi, KDV dahil.' + (state.donus ? ' Gidiş-dönüş iki geçiş.' : '') + '</p></div>';
+      + '<p class="nk-kopru-note">' + dipnot + '</p></div>';
   }
 
   function renderYollar() {
@@ -901,6 +1147,7 @@
   }
 
   function render() {
+    syncUcret();
     renderOrigin();
     renderLimanlar();
     renderIlceler();
@@ -1187,15 +1434,32 @@
     return hits.slice(0, 14);
   }
 
-  function showSuggest(hits) {
-    var box = document.getElementById('nkSuggest');
-    if (!hits.length) { box.hidden = true; box.innerHTML = ''; return; }
+  function fillSuggest(box, hits) {
+    if (!box) return;
+    if (!hits.length) { box.hidden = true; box.innerHTML = ''; box._hits = []; return; }
     box.hidden = false;
     box.innerHTML = hits.map(function (hit, idx) {
       var text = hit.kind === 'il' ? hit.ad : (hit.kind === 'liman' ? (hit.ad + ' · ' + hit.il) : (hit.il + ' / ' + hit.ad));
       return '<button type="button" data-idx="' + idx + '">' + esc(text) + '</button>';
     }).join('');
     box._hits = hits;
+  }
+
+  function showSuggest(hits) {
+    fillSuggest(document.getElementById('nkSuggest'), hits);
+  }
+
+  function applySearchHit(hit, asFrom) {
+    if (!hit) return;
+    if (asFrom) {
+      if (hit.kind === 'il') selectFromIl(hit.plaka);
+      else if (hit.kind === 'liman') selectFromLiman(hit.id);
+      else selectFromIlce(hit);
+      return;
+    }
+    if (hit.kind === 'il') selectIl(hit.plaka, false);
+    else if (hit.kind === 'liman') selectLiman(hit.id);
+    else selectIlce(hit, true);
   }
 
   var mapView = { x: 0, y: 0, w: W, h: H };
@@ -1306,12 +1570,41 @@
       if (!btn) return;
       selectOrigin(btn.getAttribute('data-origin'));
     });
+    document.getElementById('nkPickFrom').addEventListener('click', function () {
+      state.pickFrom = !state.pickFrom;
+      if (state.pickFrom && state.from && !state.from.id) state.fromFocus = state.from.plaka;
+      render();
+    });
+    document.getElementById('nkFromIlce').addEventListener('click', function (ev) {
+      var btn = ev.target.closest ? ev.target.closest('[data-from-ilce]') : null;
+      if (!btn) return;
+      var plaka = Number(btn.getAttribute('data-plaka'));
+      var ad = btn.getAttribute('data-from-ilce');
+      var rows = ilcelerOf(plaka);
+      for (var i = 0; i < rows.length; i++) if (rows[i].ad === ad) selectFromIlce(rows[i]);
+    });
+    var fromSearch = document.getElementById('nkFromSearch');
+    fromSearch.addEventListener('input', function () { fillSuggest(document.getElementById('nkFromSuggest'), searchHits(fromSearch.value)); });
+    document.getElementById('nkFromSuggest').addEventListener('click', function (ev) {
+      var btn = ev.target.closest ? ev.target.closest('[data-idx]') : null;
+      if (!btn) return;
+      var hit = document.getElementById('nkFromSuggest')._hits[Number(btn.getAttribute('data-idx'))];
+      document.getElementById('nkFromSuggest').hidden = true;
+      fromSearch.value = '';
+      applySearchHit(hit, true);
+    });
     document.getElementById('nkMap').addEventListener('click', function (ev) {
       if (mapSkipClick) { mapSkipClick = false; return; }
       var port = ev.target.closest ? ev.target.closest('[data-liman]') : null;
-      if (port) { selectLiman(port.getAttribute('data-liman')); return; }
+      if (port) {
+        if (state.pickFrom) selectFromLiman(port.getAttribute('data-liman'));
+        else selectLiman(port.getAttribute('data-liman'));
+        return;
+      }
       var path = ev.target.closest ? ev.target.closest('[data-plaka]') : null;
-      if (path) selectIl(Number(path.getAttribute('data-plaka')), false);
+      if (!path) return;
+      if (state.pickFrom) selectFromIl(Number(path.getAttribute('data-plaka')));
+      else selectIl(Number(path.getAttribute('data-plaka')), false);
     });
     document.getElementById('nkLimanlar').addEventListener('click', function (ev) {
       var btn = ev.target.closest ? ev.target.closest('[data-liman]') : null;
@@ -1339,9 +1632,7 @@
       var hit = document.getElementById('nkSuggest')._hits[Number(btn.getAttribute('data-idx'))];
       document.getElementById('nkSuggest').hidden = true;
       search.value = '';
-      if (hit.kind === 'il') selectIl(hit.plaka, false);
-      else if (hit.kind === 'liman') selectLiman(hit.id);
-      else selectIlce(hit, true);
+      applySearchHit(hit, false);
     });
     document.getElementById('nkPresets').addEventListener('click', function (ev) {
       var btn = ev.target.closest ? ev.target.closest('[data-litre]') : null;
@@ -1386,9 +1677,11 @@
     Promise.all([
       fetch('data/tr-iller.geojson?v=20261008-nakliye', { cache: 'force-cache' }).then(function (r) { return r.json(); }),
       fetch('data/tr-ilceler.json?v=20261008-nakliye', { cache: 'force-cache' }).then(function (r) { return r.json(); }),
+      fetch('data/tr-otoyol.json?v=20261010-yol', { cache: 'force-cache' }).then(function (r) { return r.json(); }).catch(function () { return null; }),
     ]).then(function (pair) {
       state.geo = pair[0];
       state.places = pair[1];
+      state.otoyol = pair[2];
       (state.geo.features || []).forEach(function (f) {
         state.boxes[Number(f.properties.number)] = geomBox(f.geometry);
       });

@@ -1366,7 +1366,7 @@
         }
         const s = document.createElement('script');
         s.id = 'gpmMailScript';
-        s.src = '/mailbox.js?v=20261010l-mesaj';
+        s.src = '/mailbox.js?v=20261010w-sistem';
         s.async = true;
         s.onload = function () {
             try { if (window.GpmMailbox && typeof window.GpmMailbox.sync === 'function') window.GpmMailbox.sync(); } catch (e) { /* ignore */ }

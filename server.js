@@ -65,6 +65,8 @@ const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerKantarNudgeRoutes } = require('./routes/kantar-nudge-routes');
 const { registerChatRoutes } = require('./routes/chat-routes');
 const { registerMailboxRoutes } = require('./routes/mailbox-routes');
+const { createMailboxStore } = require('./lib/mailbox-store');
+const { tickMailReminders } = require('./lib/mail-reminders');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerNakliyeRoutes } = require('./routes/nakliye-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
@@ -1312,6 +1314,8 @@ const DEVICE_TOKEN_DAYS = envNumber('DEVICE_TOKEN_DAYS', 30, { min: 1, max: 365 
 const deviceTokens = createDeviceTokenStore(q, { days: DEVICE_TOKEN_DAYS });
 const excelAgentStore = createExcelAgentStore(q);
 
+const mailboxStore = createMailboxStore({ q });
+
 const routeCtx = {
   q,
   presence,
@@ -1329,6 +1333,7 @@ const routeCtx = {
   broadcastEvent,
   broadcastToUsers,
   broadcastReportUpdate,
+  mailboxStore,
   piyasaServer,
   normPlateForLookup,
   VEH_PLATE_NORM_SQL_CEK,
@@ -2290,6 +2295,18 @@ async function initializeApp() {
         }
       } else {
         console.log('Report cleanup disabled (REPORT_CLEANUP_ENABLED=false).');
+      }
+
+      try {
+        const runMailReminders = () => {
+          tickMailReminders({ q, store: mailboxStore, broadcastToUsers }).catch((e) => {
+            console.error('Otomatik posta:', e && e.message ? e.message : e);
+          });
+        };
+        cron.schedule('* * * * *', runMailReminders, { timezone: process.env.CRON_TIMEZONE || 'Europe/Istanbul' });
+        runMailReminders();
+      } catch (e) {
+        console.error('Otomatik posta zamanlanamadı:', e.message || e);
       }
 
       try {

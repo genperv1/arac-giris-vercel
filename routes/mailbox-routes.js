@@ -5,7 +5,7 @@ const { inboxKeyFromUsername } = require('../lib/kantar-nudge');
 
 function registerMailboxRoutes(api, ctx) {
   const { sendApiError, requireValidSession, sanitizeString, broadcastToUsers, presence } = ctx;
-  const store = ctx.mailboxStore || createMailboxStore();
+  const store = ctx.mailboxStore || createMailboxStore({ q: ctx.q });
 
   function touchPresence(req) {
     try {
@@ -30,78 +30,128 @@ function registerMailboxRoutes(api, ctx) {
     if (result.code === 'SELF') {
       return res.status(400).json({ ok: false, code: 'SELF', error: 'Kendinize mesaj gönderilemez' });
     }
+    if (result.code === 'FORBIDDEN') {
+      return res.status(403).json({ ok: false, code: 'FORBIDDEN', error: 'Bu işlem yalnız Burak K. için' });
+    }
     if (result.code === 'MISSING') {
       return res.status(404).json({ ok: false, code: 'MISSING', error: 'Konu bulunamadı' });
     }
     return res.status(400).json({ ok: false, code: result.code || 'BAD_TARGET', error: 'Hedef bulunamadı' });
   }
 
-  function fan(type, data) {
+  function fan(type, data, keys) {
     try {
-      if (typeof broadcastToUsers === 'function') broadcastToUsers(type, data, MAIL_KEYS);
+      if (typeof broadcastToUsers === 'function') broadcastToUsers(type, data, keys);
     } catch (e) { /* ignore */ }
   }
 
-  api.post('/mailbox', requireValidSession, (req, res) => {
+  function fanThread(type, saved) {
+    if (!saved) return;
+    const keys = typeof store.audience === 'function' ? store.audience(saved) : MAIL_KEYS.slice();
+    keys.forEach((key) => {
+      const view = typeof store.present === 'function' ? store.present(saved, key) : saved;
+      fan(type, view, [key]);
+    });
+  }
+
+  function targetsOf(body) {
+    const raw = body && body.to;
+    const list = Array.isArray(raw) ? raw : String(raw || '').split(',');
+    return list.map((item) => sanitizeString(item, 20)).filter(Boolean);
+  }
+
+  api.post('/mailbox', requireValidSession, async (req, res) => {
     try {
       touchPresence(req);
       const body = req.body || {};
-      const result = store.open(
+      const result = await store.open(
         mine(req),
-        sanitizeString(body.to || '', 20),
+        targetsOf(body),
         sanitizeString(body.subject || '', 80),
-        sanitizeString(body.text || '', 400),
+        sanitizeString(body.text || '', 1500),
         sanitizeString(body.kind || '', 12),
         sanitizeString(body.page || '', 120),
+        sanitizeString(body.plate || '', 16),
       );
       if (!result.ok) return fail(res, result);
-      fan('mailbox_opened', result.thread);
+      const saved = result.saved || result.thread;
+      fanThread('mailbox_opened', saved);
       return res.json({ ok: true, thread: result.thread });
     } catch (err) {
       return sendApiError(res, err, 500, 'MAILBOX_OPEN_FAILED');
     }
   });
 
-  api.post('/mailbox/reply', requireValidSession, (req, res) => {
+  api.post('/mailbox/reply', requireValidSession, async (req, res) => {
     try {
       touchPresence(req);
       const body = req.body || {};
-      const result = store.reply(
+      const result = await store.reply(
         mine(req),
         sanitizeString(body.id || '', 80),
-        sanitizeString(body.text || '', 400),
+        sanitizeString(body.text || '', 1500),
       );
       if (!result.ok) return fail(res, result);
-      fan('mailbox_reply', result.thread);
+      fanThread('mailbox_reply', result.saved || result.thread);
       return res.json({ ok: true, thread: result.thread });
     } catch (err) {
       return sendApiError(res, err, 500, 'MAILBOX_REPLY_FAILED');
     }
   });
 
-  api.post('/mailbox/read', requireValidSession, (req, res) => {
+  api.post('/mailbox/read', requireValidSession, async (req, res) => {
     try {
       touchPresence(req);
       const id = sanitizeString((req.body && req.body.id) || '', 80);
-      const result = store.markRead(mine(req), id);
+      const result = await store.markRead(mine(req), id);
       if (!result.ok) return fail(res, result);
+      if (result.read && result.saved) {
+        const tell = [result.saved.from, 'BURAK'];
+        fan('mailbox_read', { id: result.read.id, by: result.read.by, readAt: result.read.readAt }, tell);
+      }
       return res.json({ ok: true, read: result.read });
     } catch (err) {
       return sendApiError(res, err, 500, 'MAILBOX_READ_FAILED');
     }
   });
 
-  api.get('/mailbox', requireValidSession, (req, res) => {
+  api.get('/mailbox', requireValidSession, async (req, res) => {
     try {
       touchPresence(req);
       res.setHeader('Cache-Control', 'no-store');
-      return res.json({
-        ok: true,
-        threads: store.list(),
-        clearedAt: store.clearedAt(),
+      const result = await store.list(mine(req), {
+        q: sanitizeString((req.query && req.query.q) || '', 80),
       });
+      if (!result.ok) return fail(res, result);
+      return res.json({ ok: true, threads: result.threads, unread: result.unread });
     } catch (err) {
       return sendApiError(res, err, 500, 'MAILBOX_LIST_FAILED');
+    }
+  });
+
+  api.post('/mailbox/pin', requireValidSession, async (req, res) => {
+    try {
+      touchPresence(req);
+      const body = req.body || {};
+      const result = await store.pin(mine(req), sanitizeString(body.id || '', 80), !!body.pinned);
+      if (!result.ok) return fail(res, result);
+      fanThread('mailbox_reply', result.saved || result.thread);
+      return res.json({ ok: true, thread: result.thread });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'MAILBOX_PIN_FAILED');
+    }
+  });
+
+  api.post('/mailbox/share', requireValidSession, async (req, res) => {
+    try {
+      touchPresence(req);
+      const body = req.body || {};
+      const result = await store.share(mine(req), sanitizeString(body.id || '', 80), body.shared !== false);
+      if (!result.ok) return fail(res, result);
+      fanThread('mailbox_reply', result.saved || result.thread);
+      return res.json({ ok: true, thread: result.thread });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'MAILBOX_SHARE_FAILED');
     }
   });
 
@@ -116,13 +166,13 @@ function registerMailboxRoutes(api, ctx) {
     });
   }
 
-  api.post('/mailbox/remove', requireBurak, (req, res) => {
+  api.post('/mailbox/remove', requireBurak, async (req, res) => {
     try {
       touchPresence(req);
       const id = sanitizeString((req.body && req.body.id) || '', 80);
-      const result = store.remove(id);
+      const result = await store.remove(id, mine(req));
       if (!result.ok) return fail(res, result);
-      fan('mailbox_removed', { id: result.id });
+      fan('mailbox_removed', { id: result.id }, result.viewers || MAIL_KEYS);
       return res.json({ ok: true, id: result.id });
     } catch (err) {
       return sendApiError(res, err, 500, 'MAILBOX_REMOVE_FAILED');

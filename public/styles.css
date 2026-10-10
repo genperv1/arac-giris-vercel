@@ -2359,6 +2359,38 @@ body.kiosk-mode .app-nav--amir #raporlarLinkGunluk {
     margin-left: 0;
     min-width: 0;
   }
+
+  /* Telefonda amir menüsü: yazılar taşmasın, eşit ikon şeridi */
+  .app-nav--amir:not(.app-nav--saban) {
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.28rem;
+    padding: 0.4rem 0.35rem;
+    overflow: visible;
+  }
+
+  .app-nav--amir:not(.app-nav--saban) > .amir-nav-btn {
+    justify-content: center;
+    align-items: center;
+    gap: 0;
+    min-height: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .app-nav--amir:not(.app-nav--saban) .amir-nav-btn__copy {
+    display: none !important;
+  }
+
+  .app-nav--amir:not(.app-nav--saban) .amir-nav-btn__icon,
+  .app-nav--amir:not(.app-nav--saban) .iht-radar--menu {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    border-radius: 12px;
+  }
 }
 
 .app-tools-menu--nested {
