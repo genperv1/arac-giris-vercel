@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="tailwind-built.css">
   <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
-  <script src="session-manager.js?v=20261007-chatfree"></script>
+  <script src="session-manager.js?v=20261010l-mesaj"></script>
   <style>
     html, body.nk-page { max-width: 100%; overflow-x: hidden; }
     body.nk-page {
@@ -237,7 +237,7 @@
       <h2 style="margin-top:14px">Tır tüketimi</h2>
       <div class="nk-presets" id="nkPresets">
         <button type="button" class="nk-btn" data-preset="bos" data-litre="22">Boş · 22 L</button>
-        <button type="button" class="nk-btn nk-btn--primary" data-preset="agir" data-litre="37">Ağır yüklü · 37 L</button>
+        <button type="button" class="nk-btn nk-btn--primary" data-preset="agir" data-litre="37">Yüklü · 37 L</button>
       </div>
       <label class="nk-field">100 km’de litre
         <input id="nkLitre" class="nk-price-input" inputmode="decimal" value="37">
@@ -258,9 +258,9 @@
     <section class="nk-results" aria-live="polite">
       <div class="nk-stat"><span>Mesafe</span><b id="nkKm">—</b><small id="nkSure">60–70 km/sa</small></div>
       <div class="nk-stat"><span>Mazot</span><b id="nkMazot">—</b><small id="nkMazotWhere">Çıkış fiyatı</small></div>
-      <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Ağır yüklü</small></div>
+      <div class="nk-stat"><span>Tahmini yakıt</span><b id="nkLitreOut">—</b><small id="nkTuketimNote">Yüklü</small></div>
       <div class="nk-stat"><span>Tahmini tutar</span><b id="nkTutar">—</b><small id="nkFormula">km × litre / 100</small></div>
-      <p class="nk-note">Amirin son yazdığı tüketim: boş 22, ağır yüklü 37 L/100 km. Süre: 4 saatte ortalama 60–70 km, 24 saatte 9 saat sürüş. 9 saati aşan yol 15 saat dinlenmeden sonra devam eder.</p>
+      <p class="nk-note">Yüklü 37 L/100 km (1 litre ≈ 2,7 km). Boş 22 L/100 km (1 litre ≈ 4,5 km). Süre: 4 saatlik sürüşte ortalama 60–70 km/sa, 24 saatte 9 saat sürüş hakkı. 9 saati aşan yol 15 saat dinlenmeden sonra devam eder.</p>
       <p id="nkDunFark" class="nk-note"></p>
     </section>
 
@@ -272,6 +272,6 @@
   </main>
 
   <script src="nakliye-liman.js?v=20261009-alti"></script>
-  <script src="nakliye.js?v=20261010-son"></script>
+  <script src="nakliye.js?v=20261010-yuklu"></script>
 </body>
 </html>

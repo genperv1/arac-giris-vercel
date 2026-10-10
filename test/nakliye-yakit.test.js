@@ -17,14 +17,14 @@ const {
   samePlaceName,
 } = require('../lib/nakliye-yakit');
 
-test('ağır yüklü tır 100 km mazot tutarını hesaplar', () => {
+test('yüklü tır 100 km mazot tutarını hesaplar', () => {
   const sonuc = tahminiYakit({ km: 100, litrePer100: TIR_TUKETIM.agir, fiyatTl: 90, donus: false });
   assert.equal(sonuc.litre, 37);
   assert.equal(sonuc.tutarTl, 3330);
   assert.equal(sonuc.mesafeKm, 100);
 });
 
-test('amirin son tüketimi boş 22, ağır yüklü 37', () => {
+test('amirin son tüketimi boş 22, yüklü 37', () => {
   assert.equal(TIR_TUKETIM.bos, 22);
   assert.equal(TIR_TUKETIM.agir, 37);
 });

@@ -1348,50 +1348,105 @@ let sonuc = {
             }
         }
 
-        // Verileri yükle (araç + şoför geçmişi tek sunucu isteğiyle)
+        let _vehicleLoadGen = 0;
+
+        function _paintVehicleCount(n) {
+            if (!state.vehiclesPartial && !state.vehiclesLoading) return;
+            const count = Number(n);
+            if (!Number.isFinite(count) || count < 0) return;
+            state.vehicleTotalHint = count;
+            const chip = document.getElementById('chipDriverCountValue');
+            if (chip) chip.textContent = String(count);
+        }
+
+        function _finishVehicleBookkeeping(gen) {
+            if (gen !== _vehicleLoadGen) return;
+            try {
+                populateSoforHistoryFromVehicles(state.vehicles);
+            } catch (e) {}
+            try {
+                let changed = false;
+                const all = (state.vehicles || []).map(v => {
+                    const old = v.iletisim || '';
+                    const neu = formatPhoneForInput(old);
+                    if (neu && neu !== old) { changed = true; return { ...v, iletisim: neu }; }
+                    return v;
+                });
+                if (changed && window.storage && window.storage.save) {
+                    all.forEach(v => window.storage.save('vehicle_' + v.id, v));
+                    state.vehicles = all;
+                }
+            } catch (e) {}
+            try { cleanDuplicatePlates(); } catch (e) {}
+            try { firmaStorage.load(); } catch (e) {}
+            try { eslestirmeStorage.load(); } catch (e) {}
+            try { autoDailySnapshot(); } catch (e) {}
+            if (gen !== _vehicleLoadGen) return;
+            state.vehicleTotalHint = (state.vehicles || []).length;
+            try {
+                if (typeof refreshAppPartial === 'function') refreshAppPartial();
+                else if (typeof updateVehicleList === 'function') updateVehicleList();
+            } catch (e) {}
+        }
+
+        // Verileri yükle. Sayı ve ilk kartlar tam listeyi beklemez.
         async function loadVehicles() {
+            const gen = ++_vehicleLoadGen;
             state.searchTerm = '';
             state.showAll = false;
             state.vehiclesLoading = true;
+            state.vehiclesPartial = true;
             try {
                 if (typeof updateVehicleList === 'function') updateVehicleList();
                 else if (typeof render === 'function') render({ full: true });
             } catch (e) {}
 
+            fetch('/api/vehicles/count', { credentials: 'same-origin', cache: 'no-store' })
+                .then(async (resp) => {
+                    if (!resp.ok || gen !== _vehicleLoadGen) return;
+                    const body = await resp.json();
+                    _paintVehicleCount(body && body.count);
+                })
+                .catch(() => {});
+
+            const previewLimit = Math.min(80, Math.max(parseInt(state.listLimit, 10) || 18, 18));
+            fetch('/api/vehicles?limit=' + previewLimit, { credentials: 'same-origin', cache: 'no-store' })
+                .then(async (resp) => {
+                    if (!resp.ok || gen !== _vehicleLoadGen || !state.vehiclesPartial) return;
+                    const headerCount = resp.headers.get('X-Vehicle-Count');
+                    if (headerCount != null && headerCount !== '') _paintVehicleCount(headerCount);
+                    const rows = await resp.json();
+                    if (gen !== _vehicleLoadGen || !state.vehiclesPartial) return;
+                    if (!Array.isArray(rows) || !rows.length) return;
+                    state.vehicles = rows;
+                    state.vehiclesLoading = false;
+                    try {
+                        if (typeof refreshAppPartial === 'function') refreshAppPartial();
+                        else if (typeof updateVehicleList === 'function') updateVehicleList();
+                    } catch (e) {}
+                })
+                .catch(() => {});
+
             try {
                 if (window.storage && typeof window.storage._readAll === 'function') {
                     await window.storage._readAll();
                 }
+                if (gen !== _vehicleLoadGen) return;
                 state.vehicles = storage.loadAll();
+                state.vehiclesPartial = false;
+                state.vehicleTotalHint = (state.vehicles || []).length;
                 try {
                   if (window.Report && typeof window.Report.getEvents === 'function') {
                     state.reports = window.Report.getEvents();
                   }
                 } catch (e) { /* ignore */ }
-                populateSoforHistoryFromVehicles(state.vehicles);
-                // Telefonları otomatik formatla ve kaydet
-                try {
-                    let changed = false;
-                    const all = state.vehicles.map(v => {
-                        const old = v.iletisim || '';
-                        const neu = formatPhoneForInput(old);
-                        if (neu && neu !== old) { changed = true; return { ...v, iletisim: neu }; }
-                        return v;
-                    });
-                    if (changed && window.storage && window.storage.save) {
-                        all.forEach(v => window.storage.save('vehicle_' + v.id, v));
-                        state.vehicles = all;
-                    }
-                } catch (e) {}
-
-                cleanDuplicatePlates();
-                firmaStorage.load();
-                eslestirmeStorage.load();
-                autoDailySnapshot();
             } catch (e) {
                 console.error('loadVehicles hata:', e);
+                if (gen !== _vehicleLoadGen) return;
+                state.vehiclesPartial = false;
             }
 
+            if (gen !== _vehicleLoadGen) return;
             state.vehiclesLoading = false;
             try {
                 if (typeof refreshAppPartial === 'function') refreshAppPartial();
@@ -1400,6 +1455,7 @@ let sonuc = {
             try { if (typeof updateVehicleList === 'function') updateVehicleList(); } catch (e) {}
             try { _ihracatFetchRemotePrintReports(true); } catch (e) {}
             try { handlePendingEditVehicle(); } catch (e) {}
+            setTimeout(() => _finishVehicleBookkeeping(gen), 0);
         }
 
         // Form verilerini güncelle

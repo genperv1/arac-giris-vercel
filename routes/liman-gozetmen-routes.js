@@ -20,8 +20,9 @@ const {
 
 const MANAGE_PURPOSE = 'liman-gozetmen-admin';
 
-function signManageToken(ctx) {
-  return jwt.sign({ purpose: MANAGE_PURPOSE, username: 'xxr' }, ctx.JWT_SECRET, { expiresIn: '2h' });
+function signManageToken(ctx, username) {
+  const name = String(username || 'xxr').trim().toLowerCase() === 'burak' ? 'burak' : 'xxr';
+  return jwt.sign({ purpose: MANAGE_PURPOSE, username: name }, ctx.JWT_SECRET, { expiresIn: '2h' });
 }
 
 function gateCookieOptions(ctx) {
@@ -57,7 +58,8 @@ function readManageToken(ctx, req) {
   if (!token || !ctx.JWT_SECRET) return null;
   try {
     const decoded = jwt.verify(token, ctx.JWT_SECRET);
-    if (!decoded || decoded.purpose !== MANAGE_PURPOSE || String(decoded.username || '').toLowerCase() !== 'xxr') return null;
+    const name = String(decoded && decoded.username || '').toLowerCase();
+    if (!decoded || decoded.purpose !== MANAGE_PURPOSE || (name !== 'xxr' && name !== 'burak')) return null;
     return decoded;
   } catch (e) {
     return null;
@@ -135,8 +137,9 @@ function registerLimanGozetmenRoutes(api, ctx, publicApp) {
           return res.status(500).json({ ok: false, error: 'Giriş şu an yapılamadı.' });
         }
         res.setHeader('Cache-Control', 'no-store');
-        writeGateCookie(res, signGateToken(ctx, { grup: 'admin', n: 0, loginId: 'xxr' }), gateCookieOptions(ctx), false);
-        return res.json({ ok: true, manage: true, token: signManageToken(ctx) });
+        const adminId = String(username || '').trim().toLowerCase() === 'burak' ? 'burak' : 'xxr';
+        writeGateCookie(res, signGateToken(ctx, { grup: 'admin', n: 0, loginId: adminId }), gateCookieOptions(ctx), false);
+        return res.json({ ok: true, manage: true, token: signManageToken(ctx, adminId) });
       }
       const hit = await withLock(async () => {
         const now = Date.now();

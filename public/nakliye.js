@@ -21,6 +21,7 @@
     mazot: null,
     mazotError: '',
     route: null,
+    routeError: '',
     yollar: [],
     yolIndex: 0,
     places: null,
@@ -47,10 +48,12 @@
 
   function isSaban() {
     try {
+      const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+      if (id === 'saban' || id === 'burak') return true;
       if (window.SessionManager && typeof window.SessionManager.isSabanUser === 'function') {
         return !!window.SessionManager.isSabanUser();
       }
-      return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'saban';
+      return false;
     } catch (e) {
       return false;
     }
@@ -76,7 +79,7 @@
   var TIR_SURUS = { kmSaatMin: 60, kmSaatMax: 70, blokSaat: 4, gunlukSaat: 9, pencereSaat: 24 };
   var PRESET_AD = {
     bos: 'Boş',
-    agir: 'Ağır yüklü',
+    agir: 'Yüklü',
   };
 
   function surusDakika(km, kmSaat) {
@@ -642,7 +645,7 @@
     document.getElementById('nkKm').textContent = hasEnds && state.route ? fmt(sonuc.mesafe, 1) + ' km' : '—';
     var sure = document.getElementById('nkSure');
     var plan = truckPlan();
-    if (!state.route) sure.textContent = hasEnds ? 'Mesafe hesaplanıyor' : 'İki nokta seçin';
+    if (!state.route) sure.textContent = hasEnds ? (state.routeError || 'Mesafe hesaplanıyor') : 'İki nokta seçin';
     else if (state.route.kaynak === 'ayni') sure.textContent = 'Çıkış ve varış aynı yer';
     else {
       var onEk = state.route.kaynak === 'kus-ucusu' ? 'Kuş uçuşu, yol payı %30 · ' : '';
@@ -668,8 +671,10 @@
         ? ('Son doğrulanmış fiyat · ' + (mazotWhen() || 'kayıt tarihi yok') + ' · güncel değil')
         : 'km × litre / 100';
     }
-    var note = (PRESET_AD[state.preset] || 'Tüketim') + ' · ' + fmt(state.litrePer100, 1) + ' L/100 km';
-    if (state.preset === 'elle') note = fmt(state.litrePer100, 1) + ' L/100 km';
+    var litreNot = fmt(state.litrePer100, 1) + ' L/100 km';
+    if (state.litrePer100 > 0) litreNot += ' · 1 L ≈ ' + fmt(100 / state.litrePer100, 1) + ' km';
+    var note = (PRESET_AD[state.preset] || 'Tüketim') + ' · ' + litreNot;
+    if (state.preset === 'elle') note = litreNot;
     document.getElementById('nkTuketimNote').textContent = note;
     renderSaat();
     renderGecilen();
@@ -914,6 +919,106 @@
     state.yollar = yollar;
     state.yolIndex = 0;
     state.route = yollar[0] || null;
+    state.routeError = state.route ? '' : 'Yol hesaplanamadı';
+  }
+
+  function round4(n) { return Math.round(Number(n) * 10000) / 10000; }
+
+  function havelineKm(a, b) {
+    var lat1 = Number(a && a.lat);
+    var lon1 = Number(a && a.lon);
+    var lat2 = Number(b && b.lat);
+    var lon2 = Number(b && b.lon);
+    if (![lat1, lon1, lat2, lon2].every(isFinite)) return null;
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLon = (lon2 - lon1) * Math.PI / 180;
+    var s1 = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+      + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(s1)));
+  }
+
+  function downsampleCoords(coords, max) {
+    var list = (coords || []).filter(function (pt) {
+      return pt && isFinite(Number(pt[0])) && isFinite(Number(pt[1]));
+    });
+    if (list.length <= max) return list.map(function (pt) { return [round4(pt[0]), round4(pt[1])]; });
+    var out = [];
+    var step = (list.length - 1) / (max - 1);
+    for (var i = 0; i < max; i++) {
+      var pt = list[Math.round(i * step)];
+      out.push([round4(pt[0]), round4(pt[1])]);
+    }
+    return out;
+  }
+
+  function yollarFromOsrm(body) {
+    var routes = (body && body.routes) || [];
+    var out = [];
+    for (var i = 0; i < routes.length && out.length < 3; i++) {
+      var route = routes[i];
+      if (!route || !isFinite(Number(route.distance))) continue;
+      var coords = route.geometry && route.geometry.coordinates;
+      out.push({
+        km: round1(Number(route.distance) / 1000),
+        sureDk: Math.max(0, Math.round(Number(route.duration || 0) / 60)),
+        cizgi: downsampleCoords(coords, 180),
+        kaynak: 'karayolu',
+      });
+    }
+    return out;
+  }
+
+  function kusUcusuRota(from, to) {
+    var straight = havelineKm(from, to);
+    if (straight == null) return null;
+    return {
+      km: round1(straight * 1.3),
+      sureDk: null,
+      cizgi: [[Number(from.lon), Number(from.lat)], [Number(to.lon), Number(to.lat)]],
+      kaynak: 'kus-ucusu',
+    };
+  }
+
+  function paintRoute() {
+    try { render(); }
+    catch (e) { renderResults(); renderYollar(); }
+  }
+
+  function useFallbackRoute(ctl) {
+    var url = 'https://router.project-osrm.org/route/v1/driving/'
+      + Number(state.from.lon).toFixed(5) + ',' + Number(state.from.lat).toFixed(5) + ';'
+      + Number(state.to.lon).toFixed(5) + ',' + Number(state.to.lat).toFixed(5)
+      + '?overview=simplified&geometries=geojson&alternatives=true';
+    return fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } })
+      .then(function (res) { if (!res.ok) throw new Error('osrm'); return res.json(); })
+      .then(function (body) {
+        if (ctl.signal.aborted) return;
+        var yollar = yollarFromOsrm(body);
+        if (!yollar.length) throw new Error('osrm');
+        state.yollar = yollar;
+        state.yolIndex = 0;
+        state.route = yollar[0];
+        state.routeError = '';
+        paintRoute();
+      })
+      .catch(function (err) {
+        if ((err && err.name === 'AbortError') || ctl.signal.aborted) return;
+        var rota = kusUcusuRota(state.from, state.to);
+        if (!rota) {
+          state.route = null;
+          state.yollar = [];
+          state.routeError = 'Yol hesaplanamadı';
+          renderResults();
+          renderYollar();
+          return;
+        }
+        state.yollar = [rota];
+        state.yolIndex = 0;
+        state.route = rota;
+        state.routeError = '';
+        paintRoute();
+      });
   }
 
   function scheduleRoute() {
@@ -922,6 +1027,7 @@
       state.route = null;
       state.yollar = [];
       state.yolIndex = 0;
+      state.routeError = '';
       renderResults();
       renderYollar();
       return;
@@ -931,26 +1037,40 @@
       state.route = { km: 0, sureDk: 0, cizgi: [], kaynak: 'ayni' };
       state.yollar = [state.route];
       state.yolIndex = 0;
+      state.routeError = '';
       render();
       return;
     }
     routeCtl = new AbortController();
     var ctl = routeCtl;
+    var settled = false;
+    state.route = null;
+    state.yollar = [];
+    state.routeError = '';
+    renderResults();
+    var timer = setTimeout(function () {
+      if (settled || ctl.signal.aborted) return;
+      settled = true;
+      useFallbackRoute(ctl);
+    }, 8000);
     var q = 'olon=' + encodeURIComponent(state.from.lon) + '&olat=' + encodeURIComponent(state.from.lat)
       + '&dlon=' + encodeURIComponent(state.to.lon) + '&dlat=' + encodeURIComponent(state.to.lat);
     apiFetch('/api/nakliye/mesafe?' + q, { signal: ctl.signal })
       .then(function (res) { if (!res.ok) throw new Error('mesafe'); return res.json(); })
       .then(function (data) {
-        if (ctl.signal.aborted) return;
+        if (settled || ctl.signal.aborted) return;
         applyRoutes(data);
-        render();
+        if (!state.route || !isFinite(Number(state.route.km))) throw new Error('bos');
+        settled = true;
+        clearTimeout(timer);
+        paintRoute();
       })
       .catch(function (err) {
         if (err && err.name === 'AbortError') return;
-        state.route = null;
-        state.yollar = [];
-        renderResults();
-        renderYollar();
+        if (settled || ctl.signal.aborted) return;
+        settled = true;
+        clearTimeout(timer);
+        useFallbackRoute(ctl);
       });
   }
 

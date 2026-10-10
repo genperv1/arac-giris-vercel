@@ -58,12 +58,13 @@ const { registerBackupRoutes } = require('./routes/backup-routes');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { isAmirIdentity } = require('./lib/amir-user');
-const { createPresence } = require('./lib/presence');
+const { createPresence, kantarSeenFromLiman } = require('./lib/presence');
 const { createDeviceTokenStore } = require('./lib/device-tokens');
 const { registerPiyasaRoutes } = require('./routes/piyasa-routes');
 const { registerAmirNoticeRoutes } = require('./routes/amir-notice-routes');
 const { registerKantarNudgeRoutes } = require('./routes/kantar-nudge-routes');
 const { registerChatRoutes } = require('./routes/chat-routes');
+const { registerMailboxRoutes } = require('./routes/mailbox-routes');
 const { registerPlakaStatsRoutes } = require('./routes/plaka-stats-routes');
 const { registerNakliyeRoutes } = require('./routes/nakliye-routes');
 const { registerSignaturesRoutes, registerSignatureImageRoute } = require('./routes/signatures-routes');
@@ -1261,6 +1262,50 @@ const piyasaServer = createPiyasaServerApi({
 });
 
 const presence = createPresence();
+const KANTAR_PRESENCE_KV = 'kantar_presence_seen_v1';
+let kantarPresenceSaveTimer = null;
+
+function scheduleKantarPresenceSave() {
+  if (kantarPresenceSaveTimer) return;
+  kantarPresenceSaveTimer = setTimeout(() => {
+    kantarPresenceSaveTimer = null;
+    const body = JSON.stringify(presence.kantarSeen());
+    q(
+      `INSERT INTO kv_store(key, value) VALUES ($1, $2)
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+      [KANTAR_PRESENCE_KV, body]
+    ).catch(() => {});
+  }, 1500);
+}
+
+const presenceTouch = presence.touch.bind(presence);
+const presenceRemove = presence.remove.bind(presence);
+presence.touch = (user) => {
+  presenceTouch(user);
+  scheduleKantarPresenceSave();
+};
+presence.remove = (username) => {
+  presenceRemove(username);
+  scheduleKantarPresenceSave();
+};
+
+async function loadKantarPresence() {
+  try {
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', [KANTAR_PRESENCE_KV]);
+    const raw = r.rows && r.rows[0] && r.rows[0].value;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object') presence.seed(parsed);
+  } catch (_) { /* ilk açılışta kayıt olmayabilir */ }
+  try {
+    const r = await q('SELECT value FROM kv_store WHERE key = $1', ['liman_state_v1']);
+    const raw = r.rows && r.rows[0] && r.rows[0].value;
+    const fromLiman = kantarSeenFromLiman(raw ? JSON.parse(raw) : null);
+    const before = presence.kantarSeen();
+    presence.seed(fromLiman);
+    const after = presence.kantarSeen();
+    if (after.AVDAN !== before.AVDAN || after['1.OSB'] !== before['1.OSB']) scheduleKantarPresenceSave();
+  } catch (_) { /* liman listesi yoksa açık görülen saat kalır */ }
+}
 
 /** Kantar PC "hatırlanan cihaz" anahtarı (gün). .env: DEVICE_TOKEN_DAYS=30 */
 const DEVICE_TOKEN_DAYS = envNumber('DEVICE_TOKEN_DAYS', 30, { min: 1, max: 365 });
@@ -1315,9 +1360,9 @@ const routeCtx = {
   sessionRenewLimiter,
   verifyLimanAdmin: async (username, password) => {
     const name = String(username || '').trim().toLowerCase();
-    if (name !== 'xxr') return false;
+    if (name !== 'xxr' && name !== 'burak') return false;
     try {
-      const row = await q('SELECT password_hash FROM users WHERE username = $1', ['xxr']);
+      const row = await q('SELECT password_hash FROM users WHERE username = $1', [name]);
       const hash = row.rows[0] && row.rows[0].password_hash;
       if (!hash) return false;
       return await bcrypt.compare(String(password || ''), String(hash));
@@ -1431,6 +1476,7 @@ registerPiyasaRoutes(api, routeCtx);
 registerAmirNoticeRoutes(api, routeCtx);
 registerKantarNudgeRoutes(api, routeCtx);
 registerChatRoutes(api, routeCtx);
+registerMailboxRoutes(api, routeCtx);
 registerProblemRoutes(api, routeCtx);
 registerReportsRoutes(api, routeCtx);
 // Liman okuma uçları (GET /api/liman, /version, /departed) oturumsuz: app'e bağlanır, '/api' router'ından önce eşleşir.
@@ -2261,12 +2307,18 @@ async function initializeApp() {
         console.error('device_tokens tablosu oluşturulamadı:', e && e.message ? e.message : e);
       }
       try {
+        await loadKantarPresence();
+      } catch (e) {
+        console.error('Kantar son görülme okunamadı:', e && e.message ? e.message : e);
+      }
+      try {
         await auth.ensureUsersTable();
         // Şifreler .env'den gelir; tanımlı değilse DB'deki mevcut hesaba dokunulmaz.
         const seedUsers = [
           { username: 'AVDAN', envKey: 'KANTAR_AVDAN_PASSWORD', role: 'admin' },
           { username: '1.OSB', envKey: 'KANTAR_1OSB_PASSWORD', role: 'admin' },
           { username: 'xxr', envKey: 'XXR_PASSWORD', role: 'amir' },
+          { username: 'burak', envKey: 'BURAK_PASSWORD', role: 'amir' },
           { username: 'saban', envKey: 'AMIR_PASSWORD', role: 'amir' },
           { username: 'ugur', envKey: 'UGUR_PASSWORD', role: 'amir' },
         ];
@@ -2317,6 +2369,26 @@ async function initializeApp() {
           await pool.query(`UPDATE users SET role = 'amir' WHERE username = 'ugur' AND COALESCE(role, '') <> 'amir'`);
         } catch (e) {
           console.log('ugur role setup skipped:', e && e.message ? e.message : e);
+        }
+        try {
+          const burakRow = await pool.query('SELECT id FROM users WHERE username = $1', ['burak']);
+          if (!burakRow.rows[0]) {
+            const src = await pool.query('SELECT password_hash FROM users WHERE username = $1', ['xxr']);
+            const hash = src.rows[0] && src.rows[0].password_hash;
+            if (hash) {
+              const id = String(Date.now()) + Math.random().toString(16).slice(2);
+              await pool.query(
+                `INSERT INTO users(id, username, password_hash, role, meta, created_at)
+                 VALUES($1,$2,$3,$4,$5,$6)`,
+                [id, 'burak', hash, 'amir', JSON.stringify({ role: 'amir', name: 'BURAK KARATAŞ' }), Date.now()]
+              );
+              console.log('User ensured: burak (Selahattin ile aynı şifre)');
+            }
+          } else {
+            await pool.query(`UPDATE users SET role = 'amir' WHERE username = 'burak' AND COALESCE(role, '') <> 'amir'`);
+          }
+        } catch (e) {
+          console.log('burak user setup skipped:', e && e.message ? e.message : e);
         }
       } catch (e) {
         console.error('Failed to ensure users table or create default user:', e && e.message ? e.message : e);

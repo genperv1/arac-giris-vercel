@@ -25,6 +25,7 @@
         if (upper === 'AVDAN') return 'AVDAN';
         if (upper === '1.OSB' || upper === '1OSB' || upper === 'OSB') return '1.OSB';
         if (upper === 'AMIR' || raw === 'AMİR' || upper === 'SELAHATTİN' || upper === 'SELAHATTIN' || upper === 'XXR') return 'AMIR';
+        if (upper === 'BURAK' || upper === 'BURAKKARATAŞ' || upper === 'BURAKKARATAS') return 'BURAK';
         if (upper === 'SABAN' || upper === 'ŞABAN') return 'SABAN';
         if (upper === 'UGUR' || upper === 'UĞUR') return 'UGUR';
         return '';
@@ -58,6 +59,7 @@
         const k = siteKey(key);
         if (k === 'AVDAN') return '/login-baret-avdan.png?v=20261003c';
         if (k === '1.OSB') return '/login-baret-osb.png?v=20261003c';
+        if (k === 'BURAK') return '/login-burak.png?v=20261010i';
         return '/login-baret-amir.png?v=20261003c';
     }
 
@@ -208,7 +210,7 @@
 
     function shortName(key) {
         const k = siteKey(key);
-        return ({ AMIR: 'SELAHATTİN', SABAN: 'ŞABAN', UGUR: 'UĞUR', AVDAN: 'AVDAN', '1.OSB': '1.OSB' })[k] || k || '—';
+        return ({ AMIR: 'SELAHATTİN', BURAK: 'BURAK', SABAN: 'ŞABAN', UGUR: 'UĞUR', AVDAN: 'AVDAN', '1.OSB': '1.OSB' })[k] || k || '—';
     }
 
     function paintBadge() {

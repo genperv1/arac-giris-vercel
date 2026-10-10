@@ -32,7 +32,7 @@ function requireSaban(ctx) {
     }
     ctx.requireAmir(req, res, () => {
       const username = String((req.user && req.user.username) || '').trim().toLowerCase();
-      if (username === 'saban') return next();
+      if (username === 'saban' || username === 'burak') return next();
       return res.status(403).json({ ok: false, error: 'Bu sayfa Şaban Lahaçlar hesabına açıktır.' });
     });
   };

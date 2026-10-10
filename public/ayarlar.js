@@ -2261,6 +2261,7 @@
       try { await fetch('/api/logout', { method: 'POST', credentials: 'include' }); } catch (e) { /* ignore */ }
       try {
         localStorage.removeItem('isLoggedIn');
+        try { window.dispatchEvent(new CustomEvent('gpm-session-closed')); } catch (e) { /* ignore */ }
         localStorage.removeItem('currentUserId');
         localStorage.removeItem('currentUserRole');
         localStorage.removeItem('currentClientSite');
@@ -2351,7 +2352,7 @@
       try {
         var amirRole = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
         var amirId = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-        amirSession = amirRole === 'amir' || amirId === 'xxr' || amirId === 'saban' || amirId === 'ugur';
+        amirSession = amirRole === 'amir' || amirId === 'xxr' || amirId === 'burak' || amirId === 'saban' || amirId === 'ugur';
       } catch (e) { amirSession = false; }
       if (sessionOk && !amirSession) {
         try {

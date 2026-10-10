@@ -237,6 +237,21 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             });
 
             // Nakliye bekleyenleri (plaka verilecek BBT özeti)
+            document.getElementById('plakaAyirmaMenuButton')?.addEventListener('click', async () => {
+                const _plakaUser = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+                const _plakaOk = _plakaUser === 'xxr' || _plakaUser === 'burak' || (window.SessionManager && typeof window.SessionManager.isLeadAmirUser === 'function' && window.SessionManager.isLeadAmirUser());
+                if (!_plakaOk) return;
+                if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
+                    const isValidSession = await window.SessionManager.requireValidSession();
+                    if (!isValidSession) return;
+                }
+                if (window.SessionManager && typeof window.SessionManager.openAppPage === 'function') {
+                    window.SessionManager.openAppPage('plaka.html');
+                } else {
+                    location.href = 'plaka.html';
+                }
+            });
+
             document.getElementById('limanMenuButton')?.addEventListener('click', async () => {
                 if (!(window.SessionManager && typeof window.SessionManager.isAmirUser === 'function' && window.SessionManager.isAmirUser())) return;
                 document.querySelectorAll('details.app-split-nav__details').forEach((el) => { el.open = false; });
@@ -265,7 +280,9 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             });
 
             document.getElementById('nakliyeMenuButton')?.addEventListener('click', async () => {
-                if (!(window.SessionManager && typeof window.SessionManager.isSabanUser === 'function' && window.SessionManager.isSabanUser())) return;
+                const _toolUser = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+                const _toolOk = _toolUser === 'saban' || _toolUser === 'burak' || (window.SessionManager && typeof window.SessionManager.isSabanUser === 'function' && window.SessionManager.isSabanUser());
+                if (!_toolOk) return;
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
@@ -278,7 +295,9 @@ window.syncClientSiteFromServer = syncClientSiteFromServer;
             });
 
             document.getElementById('gelecekAraclarMenuButton')?.addEventListener('click', async () => {
-                if (!(window.SessionManager && typeof window.SessionManager.isSabanUser === 'function' && window.SessionManager.isSabanUser())) return;
+                const _toolUser = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+                const _toolOk = _toolUser === 'saban' || _toolUser === 'burak' || (window.SessionManager && typeof window.SessionManager.isSabanUser === 'function' && window.SessionManager.isSabanUser());
+                if (!_toolOk) return;
                 if (window.SessionManager && typeof window.SessionManager.requireValidSession === 'function') {
                     const isValidSession = await window.SessionManager.requireValidSession();
                     if (!isValidSession) return;
@@ -1219,6 +1238,7 @@ function enterAppWithDelay(ms = 0) {
       if (mainApp) {
         mainApp.style.setProperty('display', 'block', 'important');
       }
+      try { if (window.GpmMailbox && typeof window.GpmMailbox.sync === 'function') window.GpmMailbox.sync(); } catch (e) {}
 
       try {
         if (window.DailyStore && typeof DailyStore.ensureReady === 'function') {
@@ -1713,8 +1733,9 @@ function stopSessionMonitoring() {
           // 8. Update DOM visibility
           const mainApp = document.getElementById('mainApp');
           const loginScreen = document.getElementById('loginScreen');
-          if (mainApp) mainApp.style.display = 'none';
-          if (loginScreen) loginScreen.style.display = 'flex';
+          try { isEnteringApp = false; } catch (e) {}
+          if (mainApp) mainApp.style.setProperty('display', 'none', 'important');
+          if (loginScreen) loginScreen.style.setProperty('display', 'flex', 'important');
           console.log('DOM visibility güncellendi');
           
           // 9. Remove loading overlay

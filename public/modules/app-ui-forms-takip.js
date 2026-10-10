@@ -2864,7 +2864,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                 }
                 const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
                 const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-                return role === 'amir' || id === 'xxr';
+                return role === 'amir' || id === 'xxr' || id === 'burak';
             } catch (e) {
                 return false;
             }
@@ -2872,7 +2872,8 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
 
         function _sessionIsSelahattin() {
             try {
-                return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
+                const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+                return id === 'xxr' || id === 'burak';
             } catch (e) {
                 return false;
             }
@@ -3192,7 +3193,10 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const el = document.getElementById('searchResultCount');
             if (!el) return;
             const filtered = filterVehicles();
-            const text = _searchMetaText(filtered.length, (state.vehicles || []).length);
+            let text = _searchMetaText(filtered.length, _registeredDriverCount());
+            if (state.vehiclesPartial && (state.searchTerm || '').trim()) {
+                text = text ? (text + ' · liste tamamlanıyor') : 'Liste tamamlanıyor';
+            }
             el.textContent = text;
             el.classList.toggle('hidden', !text);
         }
@@ -3340,6 +3344,15 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             }
         }
 
+        function _registeredDriverCount() {
+            const loaded = (state.vehicles || []).length;
+            const hint = Number(state.vehicleTotalHint);
+            if (Number.isFinite(hint) && hint > loaded && (state.vehiclesPartial || state.vehiclesLoading || loaded === 0)) {
+                return hint;
+            }
+            return loaded;
+        }
+
         function updateStatusBarPartial() {
             const _excelMeta = (typeof loadDailyMeta === 'function') ? (loadDailyMeta() || {}) : {};
             const _excelCnt = (typeof loadDailyShipments === 'function') ? ((loadDailyShipments() || []).length || 0) : 0;
@@ -3357,7 +3370,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
                 piyCount: _piyasaCnt,
                 piyLine: '-',
             };
-            const _totalVehicleCount = (state.vehicles || []).length;
+            const _totalVehicleCount = _registeredDriverCount();
             const _statusMeta = _appStatusMeta();
             const countChip = document.getElementById('chipDriverCountValue');
             if (countChip) countChip.textContent = String(_totalVehicleCount);
@@ -3492,11 +3505,17 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             };
             const _ihrChipText = _buildIhracatChipText(_excelStatusInfo);
             const _piyChipText = _buildPiyasaChipText(_excelStatusInfo);
-            const _totalVehicleCount = (state.vehicles || []).length;
+            const _totalVehicleCount = _registeredDriverCount();
             const _statusMeta = _appStatusMeta();
             const _amirPiyasa = _sessionIsAmir();
             const _piyasaHeaderActions = _amirPiyasa && !_sessionIsSelahattin();
             const _amirMark = _amirPiyasa ? String(_statusMeta.userLabel || '') : '';
+            const _amirTitle = (_amirPiyasa && window.SessionManager && typeof window.SessionManager.amirRoleTitle === 'function')
+                ? window.SessionManager.amirRoleTitle()
+                : '';
+            const _amirDev = (function () {
+                try { return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'burak'; } catch (e) { return false; }
+            })();
             const _sabanNav = (function () {
                 try {
                     if (window.SessionManager && typeof window.SessionManager.isSabanUser === 'function') {
@@ -3552,7 +3571,11 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
         <button type="button" id="limanMenuButton" class="amir-nav-btn amir-nav-btn--liman" title="Liman — birleşik ihracat listesi">
           <span class="amir-nav-btn__icon amir-nav-btn__icon--liman" aria-hidden="true"><i class="fas fa-anchor"></i></span>
           <span class="amir-nav-btn__copy"><b>Liman</b><small>Birleşik liste</small></span>
-        </button>`}
+        </button>
+        ${_sessionIsSelahattin() ? `<button type="button" id="plakaAyirmaMenuButton" class="amir-nav-btn" title="Plaka ayırma — şoför ve telefon">
+          <span class="amir-nav-btn__icon amir-nav-btn__icon--plaka" aria-hidden="true"><i class="fas fa-id-card"></i></span>
+          <span class="amir-nav-btn__copy"><b>Plaka Ayırma</b><small>Şoför · telefon</small></span>
+        </button>` : ''}`}
         ${_sabanNav ? `
         <details class="saban-liste saban-hesap">
           <summary class="amir-nav-btn" title="Ayarlar ve çıkış">
@@ -3639,18 +3662,28 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
             const _searchMeta = _searchMetaText(filteredVehicles.length, _totalVehicleCount);
             const _connChipClass = _statusMeta.online ? 'chip-ok' : 'chip-alert';
             const _connLabel = _statusMeta.online ? 'Çevrimiçi' : 'Çevrimdışı';
+            const _adminTools = _amirDev ? `<div class="saban-header-tools app-header-admin-tools">
+          <button type="button" id="nakliyeMenuButton" class="saban-nakliye-btn" title="Tır nakliyesi — il, ilçe, mazot ve tahmini yakıt">
+            <span class="saban-nakliye-btn__icon" aria-hidden="true"><i class="fas fa-truck"></i></span>
+            <span class="saban-nakliye-btn__copy"><b>Nakliye</b><small>Mesafe · mazot</small></span>
+          </button>
+          <button type="button" id="gelecekAraclarMenuButton" class="saban-gelecek-btn saban-gelecek-btn--steady" title="Piyasa Excel — gelecek araçlar">
+            <span class="saban-gelecek-btn__icon" aria-hidden="true"><i class="fas fa-truck-moving"></i></span>
+            <span class="saban-gelecek-btn__copy"><b>Gelecek Araçlar</b><small>Piyasa Excel</small></span>
+          </button>
+        </div>` : '';
             app.innerHTML = `
                 <div class="max-w-7xl mx-auto">
                     <div class="app-sticky-top">
                     <header class="app-header mb-3" role="banner">
   <div class="app-header-toolbar">
     <button type="button" class="app-header-brand${_amirPiyasa ? ' app-header-brand--amir' : ''}" id="appHeaderRefreshBtn" title="${_amirPiyasa ? _amirMark : 'Listeyi yenile (sunucusuz)'}" aria-label="${_amirPiyasa ? _amirMark : 'Listeyi yenile'}">
-      <img class="app-header-logo${_amirPiyasa ? ' app-header-logo--amir' : ''}" src="${_amirPiyasa ? '/logo-amir.png?v=20260929b' : '/logo.png'}" alt="${_amirPiyasa ? _amirMark : 'Logo'}" />
-      ${_amirPiyasa ? `<span class="app-header-amir-mark app-header-amir-mark--name">${_amirMark}</span>` : ''}
+      <img class="app-header-logo${_amirPiyasa ? ' app-header-logo--amir' : ''}${_amirDev ? ' app-header-logo--bilgi' : ''}" src="${_amirPiyasa ? (_amirDev ? '/logo-bilgi-islem.png?v=20261010h' : '/logo-amir.png?v=20260929b') : '/logo.png'}" alt="${_amirPiyasa ? _amirMark : 'Logo'}" />
+      ${_amirPiyasa ? `<span class="app-header-amir-mark app-header-amir-mark--name">${_amirDev ? '<span class="app-header-code">&lt;/&gt;</span>' : ''}${_amirMark}${_amirTitle ? `<small>${_amirTitle}${_amirDev ? '<span class="app-header-code">&lt;/&gt;</span>' : ''}</small>` : ''}</span>` : ''}
     </button>
     <div class="app-header-menus">
       ${_navHtml}
-      <div class="app-header-status${_sabanNav ? ' app-header-status--centered' : ''}" id="quickStatusRow">
+      <div class="app-header-status${_sabanNav ? ' app-header-status--centered' : ''}${_amirDev ? ' app-header-status--admin' : ''}" id="quickStatusRow">
         ${_sabanNav ? `<div class="saban-header-tools">
           <button type="button" id="nakliyeMenuButton" class="saban-nakliye-btn" title="Tır nakliyesi — il, ilçe, mazot ve tahmini yakıt">
             <span class="saban-nakliye-btn__icon" aria-hidden="true"><i class="fas fa-truck"></i></span>
@@ -3674,7 +3707,7 @@ document.querySelectorAll('.eslestirme-duzenle-btn').forEach(btn => {
           </div>
         </div>
         ${(_sabanNav || _amirPiyasa) ? '' : `<span class="status-chip" id="chipDriverCount" title="Kayıtlı şoför kartı sayısı">Tanımlı şoför: <b id="chipDriverCountValue">${_totalVehicleCount}</b></span>`}
-        ${_sessionIsSelahattin() ? _kantarExcelStatusHtml(_piyChipText, _piyasaCnt) : ((_sabanNav || _amirPiyasa) ? '' : `<div class="app-header-excel-pair">
+        ${_sessionIsSelahattin() ? (_amirDev ? `<div class="app-header-admin-side">${_adminTools}${_kantarExcelStatusHtml(_piyChipText, _piyasaCnt)}</div>` : _kantarExcelStatusHtml(_piyChipText, _piyasaCnt)) : ((_sabanNav || _amirPiyasa) ? '' : `<div class="app-header-excel-pair">
         <div class="app-header-ihracat-excel">
           <button type="button" id="chipIhracat" class="status-chip status-chip--excel ${_excelCnt>0?'chip-ok':'chip-warn'}" title="${_excelCnt>0?('İHRACAT Excel: '+_ihrInfoLine):'İHRACAT Excel yüklü değil'}">${_kantarExcelMark}İHRACAT: <b id="chipIhracatText">${_ihrChipText}</b></button>
           <span class="app-header-ihracat-excel__actions">

@@ -1019,7 +1019,34 @@ body.kiosk-mode .vehicle-card__value{
   font-size: 0.68rem;
   line-height: 1.15;
   text-align: center;
-  max-width: 8.5rem;
+  max-width: 9.5rem;
+}
+
+.app-header-amir-mark--name small {
+  display: block;
+  margin-top: 0.12rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  opacity: 0.82;
+  white-space: nowrap;
+}
+
+.app-header-code {
+  display: block;
+  margin-bottom: 0.08rem;
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #0f766e;
+}
+
+.app-header-amir-mark--name small .app-header-code {
+  display: inline;
+  margin: 0 0 0 0.28rem;
+  font-size: 0.9em;
 }
 
 .app-header-menus {
@@ -1037,7 +1064,10 @@ body.kiosk-mode .vehicle-card__value{
   align-items: flex-start;
   gap: 0.4rem;
   font-size: 0.75rem;
-  overflow-x: auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .app-header-excel-pair {
@@ -1168,16 +1198,43 @@ html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
 }
 
 .status-chip.presence-chip {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 0.6rem;
+  gap: 0.72rem;
+  border-radius: 14px;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.presence-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.presence-row--sites {
+  justify-content: center;
+  width: 100%;
+  gap: 1.15rem;
+  font-size: 0.95rem;
+}
+
+.presence-row--people {
+  font-size: 0.88rem;
 }
 
 .presence-item {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.28rem;
   font-weight: 700;
   opacity: 0.7;
+  white-space: nowrap;
 }
 
 .presence-item i {
@@ -1188,8 +1245,18 @@ html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
 }
 
 .presence-item small {
+  flex: 0 0 auto;
   font-weight: 600;
   font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.presence-seen {
+  margin-left: 0.28rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  opacity: 0.92;
 }
 
 .presence-item.is-on {
@@ -1203,6 +1270,28 @@ html:not(.reduce-motion-os) .app-header-ihracat-excel__refresh.is-busy::after {
 
 .presence-item.is-on small {
   color: #16a34a;
+}
+
+.presence-item--dev {
+  letter-spacing: 0.01em;
+}
+
+.presence-dev-name {
+  color: inherit;
+}
+
+.presence-code {
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #0f766e;
+  margin-left: 0.12rem;
+}
+
+.presence-item--dev.is-on i {
+  background: #14b8a6;
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.28);
 }
 
 .presence-item.is-nudge {
@@ -1259,12 +1348,13 @@ body.session-amir .app-header::before {
 
 body.session-amir .app-header-status {
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   gap: 0.4rem;
   padding: 0.35rem;
-  overflow: visible;
+  overflow: hidden;
   border-radius: 14px;
   background:
     radial-gradient(120% 140% at 100% 0%, rgba(234, 88, 12, 0.16), transparent 46%),
@@ -1408,6 +1498,15 @@ html:not(.allow-ui-motion):not(.reduce-motion-os) .saban-gelecek-btn {
   animation: saban-gelecek-blink 0.9s steps(1, end) infinite !important;
 }
 
+html:not(.reduce-motion-os) .saban-gelecek-btn--steady,
+html:not(.allow-ui-motion):not(.reduce-motion-os) .saban-gelecek-btn--steady {
+  animation: none !important;
+  background: #ef4444;
+  border-color: #fecaca;
+  box-shadow: 0 8px 18px rgba(127, 29, 29, 0.35);
+  filter: none;
+}
+
 .saban-gelecek-btn:hover {
   animation: none !important;
   background: #b91c1c;
@@ -1496,39 +1595,179 @@ body.session-amir .app-header-excel-pair {
 }
 
 body.session-amir .app-header-status:not(.app-header-status--centered) {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  column-gap: 0.55rem;
+  justify-content: flex-start;
+  column-gap: 0.35rem;
   row-gap: 0.28rem;
+  overflow: hidden;
 }
 
-body.session-amir .app-header-status:not(.app-header-status--centered) > .status-stack,
+body.session-amir .app-header-status:not(.app-header-status--centered) > .status-stack {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
 body.session-amir .app-header-status:not(.app-header-status--centered) > .app-header-excel-pair {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: center;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  overflow: hidden;
+}
+
+body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  max-width: none;
+}
+
+body.session-amir .app-header-status.app-header-status--admin {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+}
+
+body.session-amir .app-header-status.app-header-status--admin > .status-stack {
+  flex: 1 1 0;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-header-admin-side {
+  margin-left: auto;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(11rem, 1fr);
+  grid-template-rows: auto auto;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: end;
+  column-gap: 0.5rem;
+  row-gap: 0.28rem;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding-right: 0.15rem;
+}
+
+.app-header-admin-side .saban-header-tools {
+  grid-column: 1;
+  grid-row: 1;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+body.session-amir .app-header-admin-side .saban-nakliye-btn,
+body.session-amir .app-header-admin-side .saban-gelecek-btn {
+  min-width: 0;
+  overflow: hidden;
+}
+
+body.session-amir .app-header-admin-side .saban-nakliye-btn__copy,
+body.session-amir .app-header-admin-side .saban-gelecek-btn__copy {
+  min-width: 0;
+  overflow: hidden;
+}
+
+body.session-amir .app-header-admin-side .saban-nakliye-btn__copy b,
+body.session-amir .app-header-admin-side .saban-nakliye-btn__copy small,
+body.session-amir .app-header-admin-side .saban-gelecek-btn__copy b,
+body.session-amir .app-header-admin-side .saban-gelecek-btn__copy small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.session-amir .app-header-admin-side > .app-header-excel-pair {
   display: contents;
 }
 
-body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row--top {
-  grid-column: 1;
-  grid-row: 1;
-  justify-content: flex-start;
-}
-
-body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row:not(.status-stack__row--top) {
-  grid-column: 1;
-  grid-row: 2;
-  justify-content: flex-start;
-}
-
-body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:first-child {
+body.session-amir .app-header-admin-side .app-header-ihracat-excel:first-child {
   grid-column: 2;
   grid-row: 1;
+  align-items: flex-start;
+  align-self: center;
+  justify-self: end;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
-body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:last-child {
-  grid-column: 2;
+body.session-amir .app-header-admin-side .app-header-ihracat-excel:last-child {
+  grid-column: 1 / -1;
   grid-row: 2;
+  justify-self: stretch;
+  align-items: flex-end;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+body.session-amir .app-header-status--admin .presence-row--people {
+  font-size: 0.8rem;
+}
+
+body.session-amir .app-header-status--admin .status-stack__row {
+  gap: 0.28rem;
+}
+
+body.session-amir .app-header-status--admin .status-stack .status-chip {
+  font-size: 0.7rem;
+  padding: 0.16rem 0.38rem;
+}
+
+body.session-amir .app-header-admin-side .saban-nakliye-btn,
+body.session-amir .app-header-admin-side .saban-gelecek-btn {
+  min-height: 2.7rem;
+  padding: 0.28rem 0.65rem 0.28rem 0.4rem;
+  gap: 0.4rem;
+}
+
+body.session-amir .app-header-status .presence-chip {
+  flex-wrap: nowrap;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  white-space: normal;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  row-gap: 0.35rem;
+}
+
+body.session-amir .presence-row--sites,
+body.session-amir .presence-row--people {
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-width: 0;
+  row-gap: 0.15rem;
 }
 
 body.session-amir .app-header-ihracat-excel {
@@ -1536,11 +1775,11 @@ body.session-amir .app-header-ihracat-excel {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  overflow: visible;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
+  overflow: hidden;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 0.28rem;
 }
 
 body.session-amir .app-header-ihracat-excel__actions {
@@ -1557,38 +1796,43 @@ body.session-amir .app-header-ihracat-excel__actions:not(:has(:not(.hidden))) {
 }
 
 body.session-amir .app-header-ihracat-excel .status-chip--excel {
-  flex: 1 1 12rem;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
   width: auto;
-  min-width: min(100%, 12rem);
   max-width: 100%;
+  min-width: 0;
   height: auto;
-  overflow: visible;
-  white-space: normal;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 body.session-amir .app-header-ihracat-excel .status-chip--excel b {
-  display: inline;
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .piyasa-update-clock {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   margin-left: 0.35rem;
   padding: 0.18rem 0.55rem;
   border-radius: 8px;
   background: #fde047;
   color: #14532d !important;
-  font-size: 1.35rem;
+  font-size: clamp(0.72rem, 1.35vw, 1.2rem);
   font-weight: 900 !important;
   letter-spacing: 0.04em;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  max-width: 100%;
   box-shadow: 0 0 0 2px #facc15, 0 2px 8px rgba(0, 0, 0, 0.28);
 }
 
@@ -1596,14 +1840,31 @@ body.session-amir .app-header-ihracat-excel .status-chip--excel b {
   display: none !important;
 }
 
+body.session-amir .app-header-ihracat-excel .status-chip--excel b.piyasa-update-clock {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
 body.session-amir .app-header-ihracat-excel .kantar-excel-sites {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
   gap: 0.12rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: auto;
-  white-space: normal;
+  overflow: hidden;
+  white-space: nowrap;
   line-height: 1.35;
   padding-top: 0.32rem;
   padding-bottom: 0.32rem;
@@ -1622,11 +1883,21 @@ body.session-amir .kantar-excel-line .kantar-excel-mark {
 
 body.session-amir .kantar-excel-line {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.32rem;
+  width: 100%;
   max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+body.session-amir .kantar-excel-line b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 body.session-amir .app-header-status .app-header-ihracat-excel__refresh {
@@ -1659,17 +1930,12 @@ body.session-amir .app-header-piyasa-clear {
 }
 
 @media (max-width: 720px) {
-  body.session-amir .app-header-status:not(.app-header-status--centered) {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto;
-  }
-
-  body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row--top,
-  body.session-amir .app-header-status:not(.app-header-status--centered) .status-stack__row:not(.status-stack__row--top),
-  body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:first-child,
-  body.session-amir .app-header-status:not(.app-header-status--centered) .app-header-excel-pair > .app-header-ihracat-excel:last-child {
-    grid-column: 1;
-    grid-row: auto;
+  body.session-amir .app-header-status:not(.app-header-status--centered) > .status-stack,
+  body.session-amir .app-header-status:not(.app-header-status--centered) > .app-header-excel-pair {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   body.session-amir .app-header-status {
@@ -1689,16 +1955,18 @@ body.session-amir .app-header-piyasa-clear {
 
   body.session-amir .app-header-excel-pair,
   body.session-amir .app-header-ihracat-excel {
-    flex: 1 1 100%;
-    width: 100%;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
     max-width: 100%;
-    overflow: visible;
+    overflow: hidden;
   }
 
   body.session-amir .app-header-ihracat-excel .status-chip--excel {
-    min-height: 2.5rem;
-    font-size: 0.8rem;
-    padding: 0.35rem 0.6rem;
+    min-height: 0;
+    font-size: 0.75rem;
+    padding: 0.28rem 0.55rem;
+    white-space: nowrap;
   }
 
   body.session-amir .app-header-status .app-header-ihracat-excel__refresh,
@@ -1777,17 +2045,34 @@ body.session-amir .app-header-piyasa-clear {
   background: rgba(153, 27, 27, 0.5);
 }
 
+.amir-nav-btn__icon--plaka {
+  color: #bfdbfe;
+  background: rgba(30, 64, 175, 0.45);
+}
+
 .amir-nav-btn__copy {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.08rem;
   line-height: 1.15;
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
-.amir-nav-btn__copy b {
+.amir-nav-btn__copy b,
+.amir-nav-btn__copy small {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.amir-nav-btn__copy b {
   font-size: 0.84rem;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -1795,16 +2080,10 @@ body.session-amir .app-header-piyasa-clear {
 }
 
 .amir-nav-btn__copy small {
-  margin-top: 0.12rem;
   font-size: 0.68rem;
   font-weight: 500;
-  color: #d6d3d1;
-}
-
-.amir-nav-btn--ship .amir-nav-btn__copy small {
-  max-width: none;
-  white-space: normal;
   line-height: 1.2;
+  color: #d6d3d1;
 }
 
 .amir-nav-btn--ship {
@@ -4720,7 +4999,7 @@ html.logged-in #mainApp,
 
 .login-screen__card {
   width: 100%;
-  max-width: 26.5rem;
+  max-width: 34rem;
   padding: clamp(1.5rem, 3vw, 2rem);
   margin: auto 0;
   border-radius: 20px;
@@ -4762,12 +5041,12 @@ html.logged-in #mainApp,
 
 .login-users {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.5rem;
 }
 
 .login-user {
-  grid-column: span 3;
+  grid-column: span 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4803,14 +5082,17 @@ html.logged-in #mainApp,
 }
 
 .login-user__name small {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #64748b;
+  margin-top: 0.12rem;
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  color: #111;
+  white-space: nowrap;
 }
 
 .login-user--person {
-  grid-column: span 2;
+  grid-column: span 1;
 }
 
 .login-user--person .login-user__baret {
@@ -4818,14 +5100,16 @@ html.logged-in #mainApp,
 }
 
 .login-user__name--person {
+  min-height: 3.2rem;
   font-size: 0.68rem;
   line-height: 1.2;
   letter-spacing: 0.01em;
   text-align: center;
+  justify-content: flex-start;
 }
 
 .login-user.is-selected .login-user__name small {
-  color: #6366f1;
+  color: #111;
 }
 
 .login-user:hover {
@@ -4856,6 +5140,46 @@ html.logged-in #mainApp,
   background: #eef2ff;
   color: #3730a3;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+.login-user--dev {
+  border-color: #99f6e4;
+  background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 58%);
+}
+
+.login-user--dev:hover {
+  border-color: #2dd4bf;
+  background: linear-gradient(180deg, #ccfbf1 0%, #fff 58%);
+}
+
+.login-user__line {
+  white-space: nowrap;
+}
+
+.login-user__code {
+  display: inline;
+  margin-left: 0.15rem;
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #0f766e;
+  white-space: nowrap;
+}
+
+.login-user--dev .login-user__name small {
+  font-family: inherit;
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  color: #111;
+  white-space: normal;
+}
+
+.login-user__photo {
+  object-fit: contain;
+  object-position: center bottom;
 }
 
 .login-field__label {
@@ -5256,6 +5580,15 @@ html.allow-ui-motion:not(.reduce-motion-os) .login-loading__spinner {
   .login-user {
     font-size: 0.68rem;
     padding: 0.25rem 0.08rem 0.45rem;
+  }
+
+  .login-users {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .login-user,
+  .login-user--person {
+    grid-column: span 1;
   }
 }
 

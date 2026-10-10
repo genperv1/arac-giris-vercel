@@ -266,6 +266,7 @@
     function forgetLocalLogin() {
         try { localStorage.removeItem('isLoggedIn'); } catch (e) { /* ignore */ }
         try { window.dispatchEvent(new CustomEvent('gpm-session-closed')); } catch (e) { /* ignore */ }
+        try { if (window.GpmMailbox && typeof window.GpmMailbox.sync === 'function') window.GpmMailbox.sync(); } catch (e) { /* ignore */ }
     }
 
     // Oturum süresi dolu uyarısını göster
@@ -812,6 +813,7 @@
         startSessionKeepAlive();
         startPresence();
         startNudge();
+        ensureMailboxScript();
     }
 
     // Public API
@@ -819,7 +821,7 @@
         try {
             const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
             const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-            return role === 'amir' || id === 'xxr' || id === 'saban' || id === 'ugur';
+            return role === 'amir' || id === 'xxr' || id === 'burak' || id === 'saban' || id === 'ugur';
         } catch (e) {
             return false;
         }
@@ -842,7 +844,22 @@
         if (id === 'saban') return 'ŞABAN LAHAÇLAR';
         if (id === 'ugur') return 'UĞUR AKTAŞ';
         if (id === 'xxr') return 'SELAHATTİN TOKER';
+        if (id === 'burak') return 'BURAK KARATAŞ';
         return 'GENPER · AMİR';
+    }
+
+    function amirRoleTitle() {
+        const id = currentUserKey();
+        if (id === 'burak') return 'SOFTWARE DEVELOPER';
+        if (id === 'xxr') return 'GENEL AMİR';
+        if (id === 'saban') return 'PİYASA SORUMLUSU';
+        if (id === 'ugur') return 'İHRACAT SORUMLUSU';
+        return '';
+    }
+
+    function isLeadAmirUser() {
+        const id = currentUserKey();
+        return id === 'xxr' || id === 'burak';
     }
 
     // Kim çevrimiçi: 2 dk'da bir küçük istek. Liste/nabız zaten hemen online yazar; sık yoklama gerekmez.
@@ -906,6 +923,7 @@
         if (upper === 'AVDAN') return 'AVDAN';
         if (upper === '1.OSB' || upper === '1OSB' || upper === 'OSB') return '1.OSB';
         if (upper === 'AMIR' || raw === 'AMİR' || upper === 'SELAHATTİN' || upper === 'SELAHATTIN' || upper === 'XXR') return 'AMIR';
+        if (upper === 'BURAK' || upper === 'BURAKKARATAŞ' || upper === 'BURAKKARATAS') return 'BURAK';
         if (upper === 'SABAN' || upper === 'ŞABAN') return 'SABAN';
         if (upper === 'UGUR' || upper === 'UĞUR') return 'UGUR';
         return '';
@@ -913,7 +931,7 @@
 
     function canDirectMessage() {
         const id = currentUserKey();
-        return id === 'xxr' || id === 'saban';
+        return id === 'xxr' || id === 'burak' || id === 'saban';
     }
 
     function canOpenChat(key) {
@@ -933,11 +951,11 @@
     }
 
     function isPersonPresenceKey(key) {
-        return key === 'AMIR' || key === 'SABAN' || key === 'UGUR';
+        return key === 'AMIR' || key === 'BURAK' || key === 'SABAN' || key === 'UGUR';
     }
 
     function presencePersonName(key) {
-        return ({ AMIR: 'SELAHATTİN TOKER', SABAN: 'ŞABAN LAHAÇLAR', UGUR: 'UĞUR AKTAŞ' })[presenceSiteKey(key)] || '';
+        return ({ AMIR: 'SELAHATTİN TOKER', BURAK: 'BURAK KARATAŞ', SABAN: 'ŞABAN LAHAÇLAR', UGUR: 'UĞUR AKTAŞ' })[presenceSiteKey(key)] || '';
     }
 
     function nudgeSenderName(nudge) {
@@ -954,43 +972,75 @@
         }
     }
 
-    /** Tek chip: "AVDAN ● · 1.OSB ○ · AMİR ●" — amir online tesise basınca titre */
+    function presenceFace(key, label) {
+        const names = { AMIR: 'SELAHATTİN', SABAN: 'ŞABAN', UGUR: 'UĞUR', BURAK: 'BURAK' };
+        const name = names[key];
+        if (!name) return label;
+        if (key === 'BURAK') return '<span class="presence-dev-name">' + name + '</span> <span class="presence-code">&lt;/&gt;</span>';
+        return name;
+    }
+
+    function presenceSeenClock(lastSeen) {
+        const d = new Date(lastSeen);
+        if (!lastSeen || !Number.isFinite(d.getTime())) return '';
+        const parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Europe/Istanbul',
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).formatToParts(d);
+        const bit = (type) => (parts.find((p) => p.type === type) || {}).value || '';
+        const time = bit('hour') + ':' + bit('minute');
+        const todayParts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Europe/Istanbul',
+            day: '2-digit',
+            month: '2-digit',
+        }).formatToParts(new Date());
+        const todayBit = (type) => (todayParts.find((p) => p.type === type) || {}).value || '';
+        if (bit('day') === todayBit('day') && bit('month') === todayBit('month')) return time;
+        return bit('day') + '.' + bit('month') + ' ' + time;
+    }
+
+    function presenceItemHtml(key, label, online, lastSeen) {
+        let cls = online ? 'presence-item is-on' : 'presence-item';
+        const seenClock = (key === 'AVDAN' || key === '1.OSB') ? presenceSeenClock(lastSeen) : '';
+        let title = online ? 'çevrimiçi' : (lastSeen ? 'son görülme ' + presenceSeenClock(lastSeen) : 'çevrimdışı');
+        let small = online ? 'online' : 'offline';
+        const status = nudgeStatusLabel(key);
+        if (status) {
+            small = status;
+            title += ' · ' + status;
+        }
+        if (key === 'BURAK') cls += ' presence-item--dev';
+        if (seenClock && online === false) small += ' <span class="presence-seen">( ' + seenClock + ' )</span>';
+        const onlineAttr = online == null ? '' : ' data-online="' + (online ? '1' : '0') + '"';
+        return '<span class="' + cls + '" data-presence-key="' + key + '"' + onlineAttr + ' title="' + title + '"><i aria-hidden="true"></i>' + presenceFace(key, label) + ' <small>' + small + '</small></span>';
+    }
+
+    /** Üst sıra kantar, alt sıra Selahattin · Şaban · Uğur · Burak. */
     function presenceChipHtml(list) {
-        const items = (list || []).map((p) => {
+        const source = (list && list.length) ? list : [
+            { key: 'AVDAN', label: 'AVDAN' },
+            { key: '1.OSB', label: '1.OSB' },
+            { key: 'AMIR', label: 'SELAHATTİN' },
+            { key: 'SABAN', label: 'ŞABAN' },
+            { key: 'UGUR', label: 'UĞUR' },
+            { key: 'BURAK', label: 'BURAK' },
+        ];
+        const peopleOrder = { AMIR: 0, SABAN: 1, UGUR: 2, BURAK: 3 };
+        const top = [];
+        const bottom = [];
+        source.forEach((p) => {
             const key = presenceSiteKey(p && (p.key || p.label));
-            const online = !!(p && p.online);
-            const label = (p && p.label) || key;
-            let cls = online ? 'presence-item is-on' : 'presence-item';
-            let title = online ? 'çevrimiçi' : (p.lastSeen ? 'son görülme ' + new Date(p.lastSeen).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'çevrimdışı');
-            let extra = '';
-            let small = online ? 'online' : 'offline';
-            if (canOpenChat(key)) {
-                cls += ' is-chat';
-                title = label + ' ile yazış';
-                extra = ' role="button" tabindex="0"';
-                const unread = chatUnreadCount(key);
-                if (unread) {
-                    cls += ' is-unread';
-                    small = unread + ' yeni';
-                    title = unread + ' yeni mesaj · ' + label;
-                }
-                const status = nudgeStatusLabel(key);
-                if (status && !unread) {
-                    small = status;
-                    title += ' · ' + status;
-                }
-            }
-            return '<span class="' + cls + '" data-presence-key="' + key + '" data-online="' + (online ? '1' : '0') + '" title="' + title + '"' + extra + '><i aria-hidden="true"></i>' + label + ' <small>' + small + '</small></span>';
-        }).join('');
-        if (items) return items;
-        return [['AVDAN', 'AVDAN'], ['1.OSB', '1.OSB'], ['SELAHATTİN', 'AMIR'], ['ŞABAN', 'SABAN'], ['UĞUR', 'UGUR']].map((pair) => {
-            const chat = canOpenChat(pair[1]);
-            const unread = chat ? chatUnreadCount(pair[1]) : 0;
-            const cls = 'presence-item' + (chat ? ' is-chat' : '') + (unread ? ' is-unread' : '');
-            const extra = chat ? ' role="button" tabindex="0"' : '';
-            const small = unread ? (unread + ' yeni') : '…';
-            return '<span class="' + cls + '" data-presence-key="' + pair[1] + '" title="' + (chat ? (pair[0] + ' ile yazış') : '') + '"' + extra + '><i aria-hidden="true"></i>' + pair[0] + ' <small>' + small + '</small></span>';
-        }).join('');
+            if (!key) return;
+            const html = presenceItemHtml(key, (p && p.label) || key, list && list.length ? !!p.online : null, p && p.lastSeen);
+            if (key === 'AVDAN' || key === '1.OSB') top.push(html);
+            else bottom.push({ key: key, html: html });
+        });
+        bottom.sort((a, b) => (peopleOrder[a.key] - peopleOrder[b.key]));
+        return '<span class="presence-row presence-row--sites">' + top.join('') + '</span><span class="presence-row presence-row--people">' + bottom.map((item) => item.html).join('') + '</span>';
     }
 
     const NUDGE_COOLDOWN_MS = 8 * 1000;
@@ -1077,9 +1127,9 @@
         const style = document.createElement('style');
         style.id = 'gpmNudgeStyle';
         style.textContent = ''
-            + '.presence-item.is-nudge,.presence-item.is-chat{cursor:pointer;user-select:none}'
-            + '.presence-item.is-nudge:hover,.presence-item.is-chat:hover{filter:brightness(1.18)}'
-            + '.presence-item.is-nudge:focus,.presence-item.is-chat:focus{outline:2px solid rgba(134,239,172,.7);outline-offset:2px}'
+            + '.presence-item.is-nudge{cursor:pointer;user-select:none}'
+            + '.presence-item.is-nudge:hover{filter:brightness(1.18)}'
+            + '.presence-item.is-nudge:focus{outline:2px solid rgba(134,239,172,.7);outline-offset:2px}'
             + '.presence-item.is-nudge-off{cursor:not-allowed}'
             + '.presence-item.is-unread small{color:#ea580c;font-weight:800}'
             + 'body.session-amir .presence-item.is-unread small{color:#fdba74}'
@@ -1303,8 +1353,24 @@
         if (document.getElementById('gpmMsnScript')) return;
         const s = document.createElement('script');
         s.id = 'gpmMsnScript';
-        s.src = '/msn-chat.js?v=20261007-chatfree';
+        s.src = '/msn-chat.js?v=20261010d-foto';
         s.async = true;
+        document.head.appendChild(s);
+    }
+
+    function ensureMailboxScript() {
+        const ready = document.getElementById('gpmMailScript');
+        if (ready) {
+            try { if (window.GpmMailbox && typeof window.GpmMailbox.sync === 'function') window.GpmMailbox.sync(); } catch (e) { /* ignore */ }
+            return;
+        }
+        const s = document.createElement('script');
+        s.id = 'gpmMailScript';
+        s.src = '/mailbox.js?v=20261010l-mesaj';
+        s.async = true;
+        s.onload = function () {
+            try { if (window.GpmMailbox && typeof window.GpmMailbox.sync === 'function') window.GpmMailbox.sync(); } catch (e) { /* ignore */ }
+        };
         document.head.appendChild(s);
     }
 
@@ -1384,18 +1450,6 @@
         if (bindNudgeControls.bound) return;
         bindNudgeControls.bound = true;
         document.addEventListener('pointerdown', unlockNudgeAudio, true);
-        document.addEventListener('click', (ev) => {
-            const el = ev.target && ev.target.closest && ev.target.closest('.presence-item[data-presence-key]');
-            if (!el) return;
-            onPresenceNudgeActivate(el);
-        });
-        document.addEventListener('keydown', (ev) => {
-            if (ev.key !== 'Enter' && ev.key !== ' ') return;
-            const el = ev.target && ev.target.closest && ev.target.closest('.presence-item.is-chat');
-            if (!el) return;
-            ev.preventDefault();
-            onPresenceNudgeActivate(el);
-        });
     }
 
     async function pullNudge() {
@@ -1494,7 +1548,9 @@
         isAmirUser,
         clientIsAmir: isAmirUser,
         isSabanUser,
+        isLeadAmirUser,
         amirDisplayLabel,
+        amirRoleTitle,
         withSessionCheck,
         addSessionCheckToButton,
         addSessionCheckToForm,
@@ -1521,7 +1577,7 @@
         bindNudgeControls();
         if (isLikelyLoggedIn()) {
             startNudge();
-            ensureMsnScript();
+            ensureMailboxScript();
         }
     }
 

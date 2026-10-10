@@ -2689,7 +2689,7 @@ function _headerNoteIsAmir() {
     }
     const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
     const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-    return role === 'amir' || id === 'xxr';
+    return role === 'amir' || id === 'xxr' || id === 'burak';
   } catch (e) {
     return false;
   }
@@ -2697,7 +2697,8 @@ function _headerNoteIsAmir() {
 
 function _headerNoteIsSelahattin() {
   try {
-    return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
+    const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+    return id === 'xxr' || id === 'burak';
   } catch (e) {
     return false;
   }
@@ -2745,6 +2746,7 @@ function _headerNoteAuthorLabel(author) {
   if (id === 'saban') return 'ŞABAN LAHAÇLAR';
   if (id === 'ugur') return 'UĞUR AKTAŞ';
   if (id === 'xxr') return 'SELAHATTİN TOKER';
+  if (id === 'burak') return 'BURAK KARATAŞ';
   if (!id) return '';
   return id.toLocaleUpperCase('tr-TR');
 }

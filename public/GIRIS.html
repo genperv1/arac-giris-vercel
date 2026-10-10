@@ -37,7 +37,41 @@
         <link rel="manifest" href="manifest.webmanifest">
         <title>Araç Plaka Takip Sistemi</title>
         <link rel="stylesheet" href="tailwind-built.css">
-        <link rel="stylesheet" href="styles.css?v=1.0.113-20261009-isg-unsign">
+        <link rel="stylesheet" href="styles.css?v=1.0.156-20261010-burak-beyaz">
+        <style>
+            .amir-nav-btn__copy {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                justify-content: center !important;
+                gap: 0.08rem !important;
+                min-width: 0 !important;
+                flex: 1 1 auto !important;
+                overflow: hidden !important;
+                line-height: 1.15 !important;
+            }
+            .amir-nav-btn__copy b,
+            .amir-nav-btn__copy small {
+                display: block !important;
+                position: static !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+                margin: 0 !important;
+            }
+            .amir-nav-btn__copy b {
+                font-size: 0.84rem !important;
+                font-weight: 700 !important;
+                color: #fff7ed !important;
+            }
+            .amir-nav-btn__copy small {
+                font-size: 0.68rem !important;
+                font-weight: 500 !important;
+                color: #d6d3d1 !important;
+            }
+        </style>
         <link rel="stylesheet" href="vendor/font-awesome/css/all.min.css">
     </head>
     <body class="min-h-screen text-gray-700">
@@ -73,15 +107,19 @@
                                     </button>
                                     <button type="button" class="login-user login-user--person login-user--lead" data-user="xxr" aria-pressed="false">
                                         <img class="login-user__baret" src="login-baret-amir.png?v=20261003c" alt="" width="120" height="136" decoding="async">
-                                        <span class="login-user__name login-user__name--person">SELAHATTİN<br>TOKER</span>
+                                        <span class="login-user__name login-user__name--person">SELAHATTİN<br>TOKER<small>GENEL AMİR</small></span>
                                     </button>
                                     <button type="button" class="login-user login-user--person" data-user="saban" aria-pressed="false">
                                         <img class="login-user__baret" src="login-baret-amir.png?v=20261003c" alt="" width="120" height="136" decoding="async">
-                                        <span class="login-user__name login-user__name--person">ŞABAN<br>LAHAÇLAR</span>
+                                        <span class="login-user__name login-user__name--person">ŞABAN<br>LAHAÇLAR<small>PİYASA SORUMLUSU</small></span>
                                     </button>
                                     <button type="button" class="login-user login-user--person" data-user="ugur" aria-pressed="false">
                                         <img class="login-user__baret" src="login-baret-amir.png?v=20261003c" alt="" width="120" height="136" decoding="async">
-                                        <span class="login-user__name login-user__name--person">UĞUR<br>AKTAŞ</span>
+                                        <span class="login-user__name login-user__name--person">UĞUR<br>AKTAŞ<small>İHRACAT SORUMLUSU</small></span>
+                                    </button>
+                                    <button type="button" class="login-user login-user--person login-user--dev" data-user="burak" aria-pressed="false">
+                                        <img class="login-user__baret login-user__photo" src="login-burak.png?v=20261010i" alt="" width="120" height="136" decoding="async">
+                                        <span class="login-user__name login-user__name--person">BURAK K.<small>SOFTWARE<br>DEVELOPER</small></span>
                                     </button>
                                 </div>
                                 <input type="hidden" id="loginId" name="username" value="">
@@ -194,7 +232,7 @@
         <script defer src="modules/report-events.js?v=1.0.2-20260827-printfast"></script>
         <script defer src="errorReporter.js?v=1.0.1-20260718"></script>
         <script defer src="storage.js?v=1.0.4-20261001-etag"></script>
-        <script defer src="session-manager.js?v=20261007-chatfree"></script>
+        <script defer src="session-manager.js?v=20261010l-mesaj"></script>
         <script defer src="sync-manager.js?v=20260804-live-v5"></script>
         <script defer src="network-banner.js?v=1.0.1-20260718"></script>
         <script defer src="issues-sync-bus.js?v=1.0.1-20260718"></script>
@@ -216,21 +254,21 @@
         <script defer src="modules/app-modals.js?v=1.0.1-20260718"></script>
         <script defer src="modules/app-sofor-history.js?v=1.0.1-20260718"></script>
         <!-- app.js modülleri (sıra önemli — paylaşılan global kapsam) -->
-        <script defer src="modules/app-core.js?v=1.0.1-20260718"></script>
+        <script defer src="modules/app-core.js?v=1.0.2-20261010-sofor-say"></script>
         <script defer src="modules/app-ui-utils.js?v=1.0.4-20260913-split"></script>
         <script defer src="nakliye-bekleyen-core.js?v=1.0.15-20261005-firma"></script>
         <script defer src="modules/ihracat-excel-source.js?v=1.0.36-20261007-sil"></script>
-        <script defer src="modules/app-excel-ihracat.js?v=1.0.76-20261008-onceki-hafta"></script>
-        <script defer src="modules/app-shipment-ui.js?v=1.0.5-20261002-kart-ust"></script>
+        <script defer src="modules/app-excel-ihracat.js?v=1.0.77-20261010-burak"></script>
+        <script defer src="modules/app-shipment-ui.js?v=1.0.6-20261010-sofor-say"></script>
         <script defer src="modules/app-signatures-prefs.js?v=1.0.4-20261003-basim-kilit"></script>
         <script defer src="modules/app-ui-forms-pick.js?v=1.0.1-20260718"></script>
-        <script defer src="modules/app-ui-forms-takip.js?v=1.0.116-20261008-gelecek"></script>
+        <script defer src="modules/app-ui-forms-takip.js?v=1.0.125-20261010-sofor-say"></script>
         <script defer src="amir-giris-notice.js?v=20261010-temiz"></script>
-        <script defer src="liman-gozetmen-notice.js?v=20261009-liman2"></script>
-        <script defer src="modules/app-auth.js?v=1.0.33-20261009-gozetmen"></script>
-        <script defer src="modules/isg-form.js?v=1.0.13-20261009-isg-cancel-unsigned"></script>
+        <script defer src="liman-gozetmen-notice.js?v=20261010-burak"></script>
+        <script defer src="modules/app-auth.js?v=1.0.36-20261010-mail"></script>
+        <script defer src="modules/isg-form.js?v=1.0.14-20261010-burak"></script>
         <script defer src="modules/app-issues-core.js?v=1.0.4-20260929-ozmal-star"></script>
-        <script defer src="modules/app-vehicles.js?v=1.0.18-20261006-isg-stamp-fix"></script>
+        <script defer src="modules/app-vehicles.js?v=1.0.19-20261010-sofor-say"></script>
         <script defer src="modules/app-excel-review.js?v=1.0.1-20260718"></script>
         <script defer src="modules/app-ihracat-modal.js?v=1.0.5-20261005-pfk"></script>
         <script defer src="modules/app-ihracat-print.js?v=1.0.6-20260907-excelreplace"></script>

@@ -13,6 +13,7 @@ function senderLabel(username) {
   if (id === 'saban') return 'ŞABAN LAHAÇLAR';
   if (id === 'ugur') return 'UĞUR AKTAŞ';
   if (id === 'xxr') return 'SELAHATTİN TOKER';
+  if (id === 'burak') return 'BURAK KARATAŞ';
   return 'AMİR';
 }
 

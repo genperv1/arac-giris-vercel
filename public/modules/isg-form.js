@@ -110,12 +110,13 @@ function createIsgApi() {
     return !!(record && isFlag(record.controlled));
   }
 
-  /** Onay tiki yalnızca Selahattin Toker (giriş: xxr). */
+  /** Onay tiki: Selahattin Toker (xxr) ve Burak Karataş (burak). */
   function canControlIsg(user) {
     const raw = user && typeof user === 'object'
       ? (user.username || user.id || user.name || '')
       : user;
-    return String(raw || '').trim().toLowerCase() === 'xxr';
+    const id = String(raw || '').trim().toLowerCase();
+    return id === 'xxr' || id === 'burak';
   }
 
   function preserveControl(existing, signed) {

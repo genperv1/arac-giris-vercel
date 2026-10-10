@@ -221,6 +221,8 @@ const USERS = [
         let state = {
             vehicles: [],
             vehiclesLoading: false,
+            vehiclesPartial: false,
+            vehicleTotalHint: 0,
             searchTerm: '',
             incompleteFilter: false,
             quickPlateTerm: '',

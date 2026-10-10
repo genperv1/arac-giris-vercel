@@ -145,10 +145,13 @@ async function deleteVehicle(id) {
                     : (visibleVehicles.map((vehicle) => vehicleCardHTML(vehicle)).join('') + searchMoreHintHTML));
 
             const statsContainer = document.getElementById('stats');
-            if (statsContainer && state.vehicles.length > 0) {
+            const _listedTotal = (typeof _registeredDriverCount === 'function')
+                ? _registeredDriverCount()
+                : state.vehicles.length;
+            if (statsContainer && _listedTotal > 0) {
                 statsContainer.innerHTML = `
                     <p class="text-center text-gray-600">
-                        Toplam <span class="font-bold text-indigo-600">${state.vehicles.length}</span> araç kaydı
+                        Toplam <span class="font-bold text-indigo-600">${_listedTotal}</span> araç kaydı
                         ${state.searchTerm && filteredVehicles.length !== state.vehicles.length ?
                             `| Bulunan: <span class="font-bold text-indigo-600">${filteredVehicles.length}</span>` : ''}
                     </p>

@@ -132,7 +132,7 @@
     try {
       const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
       const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-      return role === 'amir' || id === 'xxr' || id === 'saban' || id === 'ugur';
+      return role === 'amir' || id === 'xxr' || id === 'burak' || id === 'saban' || id === 'ugur';
     } catch (e) {
       return false;
     }

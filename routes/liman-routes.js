@@ -275,7 +275,7 @@ function registerLimanRoutes(api, ctx, publicApp) {
   function isAmirUser(req) {
     const role = String((req.user && req.user.role) || '').toLowerCase();
     const username = String((req.user && req.user.username) || '').toLowerCase();
-    return role === 'amir' || username === 'xxr';
+    return role === 'amir' || username === 'xxr' || username === 'burak';
   }
 
   /** Kapalı gün kaydı: { 'YYYY-MM-DD': { at, by } } — süresi dolanlar ve bozuk anahtarlar atılır. */

@@ -172,6 +172,7 @@ test('only Selahattin can control an ISG form', () => {
   assert.equal(isg.canControlIsg({ username: 'xxr' }), true);
   assert.equal(isg.canControlIsg({ username: 'XXR' }), true);
   assert.equal(isg.canControlIsg('xxr'), true);
+  assert.equal(isg.canControlIsg({ username: 'burak' }), true);
   assert.equal(isg.canControlIsg({ username: 'saban' }), false);
   assert.equal(isg.canControlIsg({ username: 'ugur' }), false);
   assert.equal(isg.canControlIsg({ username: 'AVDAN' }), false);

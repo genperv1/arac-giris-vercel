@@ -16,6 +16,7 @@ const {
   setVehicleListCache,
   invalidateVehicleListCache,
   etagFromFingerprint,
+  countFromFingerprint,
   fetchVehicleFingerprint,
 } = require('../lib/vehicle-list-cache');
 
@@ -40,7 +41,9 @@ function registerVehicleRoutes(api, ctx) {
       const { limit, offset } = parsePagination(req, { defaultLimit: 5000, maxLimit: 20000 });
       const fingerprint = await fetchVehicleFingerprint(q);
       const etag = etagFromFingerprint(fingerprint, limit, offset);
+      const totalCount = countFromFingerprint(fingerprint);
       res.setHeader('ETag', etag);
+      res.setHeader('X-Vehicle-Count', String(totalCount));
       res.setHeader('Cache-Control', 'private, no-cache');
       if (req.headers['if-none-match'] === etag) {
         return res.status(304).end();
@@ -66,6 +69,16 @@ function registerVehicleRoutes(api, ctx) {
       res.json(parsed);
     } catch (err) {
       sendApiError(res, err, 500, 'VEHICLES_LIST_FAILED');
+    }
+  });
+
+  api.get('/vehicles/count', async (req, res) => {
+    try {
+      const fingerprint = await fetchVehicleFingerprint(q);
+      res.setHeader('Cache-Control', 'private, no-cache');
+      res.json({ count: countFromFingerprint(fingerprint) });
+    } catch (err) {
+      sendApiError(res, err, 500, 'VEHICLES_COUNT_FAILED');
     }
   });
 

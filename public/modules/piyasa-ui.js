@@ -1075,7 +1075,7 @@
       }
       const role = String(localStorage.getItem('currentUserRole') || '').trim().toLowerCase();
       const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
-      return role === 'amir' || id === 'xxr';
+      return role === 'amir' || id === 'xxr' || id === 'burak';
     } catch (e) {
       return false;
     }

@@ -10,7 +10,8 @@
   function isSelahattin() {
     try {
       if (localStorage.getItem('isLoggedIn') !== 'true') return false;
-      return String(localStorage.getItem('currentUserId') || '').trim().toLowerCase() === 'xxr';
+      const id = String(localStorage.getItem('currentUserId') || '').trim().toLowerCase();
+      return id === 'xxr' || id === 'burak';
     } catch (e) {
       return false;
     }
