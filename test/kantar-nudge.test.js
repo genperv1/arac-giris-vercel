@@ -226,7 +226,7 @@ test('kantar: titreyen, arkası bulanık, Tamam deyince kapanan evrak notu', () 
   assert.match(sm, /kantar_nudge_ack/);
   assert.match(sm, /NUDGE_RING_MAX = 10/);
   const giris = fs.readFileSync(path.join(__dirname, '../public/GIRIS.html'), 'utf8');
-  assert.match(giris, /session-manager\.js\?v=20261010w-sistem/);
+  assert.match(giris, /session-manager\.js\?v=20261010aa-g16/);
   assert.match(sm, /msn-chat\.js/);
   assert.doesNotMatch(sm, /is-chat/);
   const mail = fs.readFileSync(path.join(__dirname, '../public/mailbox.js'), 'utf8');

@@ -26,6 +26,8 @@
     let sseBound = false;
     let lastFault = '';
     let dingAudio = null;
+    let ozetLog = [];
+    let ozetOn = false;
 
     function siteKey(value) {
         const raw = String(value || '').trim();
@@ -244,7 +246,7 @@
         const style = document.createElement('style');
         style.id = 'gpmMailStyle';
         style.textContent = ''
-            + '#gpmMailDock{position:relative;z-index:5;width:auto;margin:.65rem 0 0;pointer-events:none}'
+            + '#gpmMailDock{position:relative;z-index:5;width:100%;max-width:100%;box-sizing:border-box;margin:.65rem 0 0;pointer-events:none}'
             + '.app-header:has(.gpm-mail:not([hidden])),body.session-amir .app-header:has(.gpm-mail:not([hidden])){overflow:visible}'
             + '.gpm-mail-home{display:none !important}'
             + '#gpmMailRail{pointer-events:auto;display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;padding:6px;border-radius:12px;background:#fff;border:1px solid #e5e7eb}'
@@ -295,8 +297,19 @@
             + '.gpm-mail-msg .bubble{padding:8px 11px;border-radius:14px;background:#f1f5f9;color:#0f172a;font:13.5px/1.4 "Segoe UI",sans-serif;white-space:pre-wrap;word-break:break-word}'
             + '.gpm-mail-msg.me .bubble{background:#0f172a;color:#fff}'
             + '.gpm-mail-msg .time{display:block;margin-top:3px;font:600 10px "Segoe UI",sans-serif;color:#94a3b8;text-align:right}'
+            + '.gpm-ozet-pick{align-self:flex-start;border:1px solid #e5e7eb;background:#fff;color:#0f172a;border-radius:8px;padding:8px 12px;font:700 13px "Segoe UI",sans-serif;cursor:pointer}'
+            + '.gpm-ozet-chat{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff}'
+            + '.gpm-ozet-top{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #f1f5f9}'
+            + '.gpm-ozet-top b{font:700 14px "Segoe UI",sans-serif;color:#0f172a}'
+            + '.gpm-ozet-back{border:0;background:transparent;color:#64748b;font:600 12px "Segoe UI",sans-serif;cursor:pointer}'
+            + '.gpm-ozet-log{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}'
+            + '.gpm-ozet-hint{margin:0;color:#64748b;font:600 13px/1.45 "Segoe UI",sans-serif}'
+            + '.gpm-ozet-ask{display:flex;gap:8px;padding:10px 12px;border-top:1px solid #f1f5f9}'
+            + '.gpm-ozet-ask input{flex:1;width:auto;border:1px solid #e5e7eb;border-radius:8px;padding:9px 11px;font:13.5px/1.35 "Segoe UI",sans-serif;background:#fff;color:#0f172a}'
+            + '.gpm-ozet-ask button{border:1px solid #0f172a;background:#0f172a;color:#fff;border-radius:8px;padding:0 14px;font:600 13px "Segoe UI",sans-serif;cursor:pointer}'
             + '.gpm-mail-compose{display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px;border-top:1px solid #eef2f7}'
             + '.gpm-mail-compose input,.gpm-mail-compose textarea,.gpm-mail-compose select{width:100%;box-sizing:border-box;border:1px solid #e5e7eb;border-radius:8px;padding:9px 11px;font:13.5px/1.35 "Segoe UI",sans-serif;background:#fff;color:#0f172a}'
+            + '.gpm-mail-compose .gpm-ozet-ask input{width:auto;flex:1}'
             + '.gpm-mail-compose textarea{resize:none;height:96px}'
             + '.gpm-mail-compose input:focus,.gpm-mail-compose textarea:focus,.gpm-mail-compose select:focus{outline:2px solid rgba(15,23,42,.12);border-color:#94a3b8;background:#fff}'
             + '.gpm-mail-row{display:flex;gap:8px}'
@@ -307,7 +320,7 @@
             + '.gpm-mail-del{margin-right:auto;border:1px solid #fecaca;background:#fff;color:#b91c1c;font:700 12px/1 "Segoe UI",sans-serif;border-radius:999px;padding:8px 12px;cursor:pointer}'
             + '.gpm-mail-note{margin:0;color:#64748b;font:600 12px/1.4 "Segoe UI",sans-serif}'
             + '.gpm-mail-err{margin:0;color:#b91c1c;font:700 12px/1.3 "Segoe UI",sans-serif}'
-            + '@media (max-width:720px){#gpmMailRail{flex-wrap:wrap}.gpm-mail-tile{flex:1;height:34px;padding:0 8px;font-size:12px}.gpm-mail-write{flex:1 1 auto}.gpm-mail-body{flex-direction:column}.gpm-mail-list{width:100%;max-height:160px;border-right:0;border-bottom:1px solid #f1f5f9}}';
+            + '@media (max-width:720px){#gpmMailRail{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;align-items:stretch}.gpm-mail-tile{flex-direction:column;height:auto;min-height:54px;padding:7px 2px;gap:3px;font-size:11px;line-height:1.1}.gpm-mail-tile > span:not(.n){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gpm-mail-write{grid-column:1 / -1;margin:0;width:100%;height:38px;justify-content:center}.gpm-mail-body{flex-direction:column}.gpm-mail-list{width:100%;max-height:160px;border-right:0;border-bottom:1px solid #f1f5f9}}';
         document.head.appendChild(style);
     }
 
@@ -682,6 +695,101 @@
         return Array.prototype.slice.call(wrap.querySelectorAll('input[data-person]:checked')).map(function (el) { return el.value; });
     }
 
+    function paintOzetChat(main) {
+        main.textContent = '';
+        const chat = document.createElement('div');
+        chat.className = 'gpm-ozet-chat';
+        const top = document.createElement('div');
+        top.className = 'gpm-ozet-top';
+        const name = document.createElement('b');
+        name.textContent = 'Özet';
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.className = 'gpm-ozet-back';
+        back.textContent = 'Mesaja dön';
+        back.addEventListener('click', function () {
+            ozetOn = false;
+            paint();
+        });
+        top.appendChild(name);
+        top.appendChild(back);
+        const log = document.createElement('div');
+        log.className = 'gpm-ozet-log';
+        paintOzetLog(log);
+        const row = document.createElement('form');
+        row.className = 'gpm-ozet-ask';
+        const input = document.createElement('input');
+        input.maxLength = 500;
+        input.placeholder = 'Yaz…';
+        const ask = document.createElement('button');
+        ask.type = 'submit';
+        ask.textContent = 'Gönder';
+        row.addEventListener('submit', function (e) {
+            e.preventDefault();
+            askOzet(input, log, ask);
+        });
+        row.appendChild(input);
+        row.appendChild(ask);
+        chat.appendChild(top);
+        chat.appendChild(log);
+        chat.appendChild(row);
+        main.appendChild(chat);
+        input.focus();
+    }
+
+    function paintOzetLog(log) {
+        log.textContent = '';
+        if (!ozetLog.length) {
+            const hint = document.createElement('p');
+            hint.className = 'gpm-ozet-hint';
+            hint.textContent = 'Limana, piyasa listesine ve bugünün raporuna bakıp cevap veririm. Konuştuklarımızı hatırlarım.';
+            log.appendChild(hint);
+            return;
+        }
+        ozetLog.forEach(function (row) {
+            const wrap = document.createElement('div');
+            wrap.className = 'gpm-mail-msg' + (row.me ? ' me' : '');
+            const who = document.createElement('div');
+            who.className = 'who';
+            who.textContent = row.me ? 'Sen' : 'Özet';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.textContent = row.text;
+            wrap.appendChild(who);
+            wrap.appendChild(bubble);
+            log.appendChild(wrap);
+        });
+        log.scrollTop = log.scrollHeight;
+    }
+
+    async function askOzet(input, log, ask) {
+        const text = String(input.value || '').trim();
+        if (!text) return;
+        input.value = '';
+        ozetLog.push({ me: true, text: text });
+        paintOzetLog(log);
+        if (ask) ask.disabled = true;
+        try {
+            const res = await fetch('/api/ozet', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: ozetLog.map(function (row) {
+                        return { role: row.me ? 'user' : 'assistant', text: row.text };
+                    }),
+                }),
+            });
+            const data = await res.json().catch(function () { return {}; });
+            ozetLog.push({ me: false, text: (data && data.reply) || 'Şu an bakamadım, bir daha dene.' });
+        } catch (e) {
+            ozetLog.push({ me: false, text: 'Şu an bakamadım, bir daha dene.' });
+        }
+        if (ask) ask.disabled = false;
+        paintOzetLog(log);
+        while (ozetLog.length > 24) ozetLog.shift();
+    }
+
     function paintCompose(main) {
         const hata = mode === 'hata' || (boxName === 'hata' && mode !== 'new');
         main.textContent = '';
@@ -747,6 +855,17 @@
         send.className = 'gpm-mail-send';
         send.textContent = hata ? 'Burak K.’ye bildir' : 'Gönder';
         form.appendChild(note);
+        if (!hata) {
+            const pick = document.createElement('button');
+            pick.type = 'button';
+            pick.className = 'gpm-ozet-pick';
+            pick.textContent = 'Özet';
+            pick.addEventListener('click', function () {
+                ozetOn = true;
+                paint();
+            });
+            form.appendChild(pick);
+        }
         form.appendChild(people);
         form.appendChild(subject);
         form.appendChild(plate);
@@ -788,8 +907,9 @@
         const main = panel.querySelector('.gpm-mail-main');
         paintList(list);
         const title = panel.querySelector('.gpm-mail-title');
-        if (title) title.textContent = mode === 'new' ? 'Yeni mesaj' : boxLabel(boxName);
-        if (mode === 'new' || mode === 'hata' || (boxName === 'hata' && !current())) paintCompose(main);
+        if (title) title.textContent = mode === 'new' && ozetOn ? 'Özet' : (mode === 'new' ? 'Yeni mesaj' : boxLabel(boxName));
+        if (mode === 'new' && ozetOn) paintOzetChat(main);
+        else if (mode === 'new' || mode === 'hata' || (boxName === 'hata' && !current())) paintCompose(main);
         else paintThread(main);
         launch();
     }

@@ -2,9 +2,11 @@
 
 const { createMailboxStore, MAIL_KEYS } = require('../lib/mailbox-store');
 const { inboxKeyFromUsername } = require('../lib/kantar-nudge');
+const { speak, istanbulDateKey } = require('../lib/ozet-bot');
+const { isoWeekInfoFromMs } = require('../lib/piyasa-cikanlar');
 
 function registerMailboxRoutes(api, ctx) {
-  const { sendApiError, requireValidSession, sanitizeString, broadcastToUsers, presence } = ctx;
+  const { sendApiError, requireValidSession, requireAmir, sanitizeString, broadcastToUsers, presence, q } = ctx;
   const store = ctx.mailboxStore || createMailboxStore({ q: ctx.q });
 
   function touchPresence(req) {
@@ -165,6 +167,62 @@ function registerMailboxRoutes(api, ctx) {
       });
     });
   }
+
+  api.post('/ozet', requireValidSession, async (req, res) => {
+    try {
+      touchPresence(req);
+      const body = req.body || {};
+      const incoming = Array.isArray(body.messages) ? body.messages : [];
+      const messages = incoming.slice(-12).map((row) => ({
+        role: row && row.role === 'assistant' ? 'assistant' : 'user',
+        text: sanitizeString(row && row.text, 500),
+      })).filter((row) => row.text);
+      if (!messages.length && body.text) messages.push({ role: 'user', text: sanitizeString(body.text, 500) });
+      const now = new Date();
+      const day = istanbulDateKey(now);
+      const start = Date.parse(day + 'T00:00:00+03:00');
+      let liman = {};
+      let piyasa = {};
+      let reports = [];
+      let cikanlar = [];
+      if (typeof q === 'function') {
+        const [limanRow, piyasaRow, reportRow] = await Promise.all([
+          q('SELECT value FROM kv_store WHERE key = $1', ['liman_state_v1']),
+          q('SELECT value FROM kv_store WHERE key = $1', ['piyasa_state_v1']),
+          q(
+            `SELECT plaka, sofor, firma, malzeme, sevk_yeri, tarih
+             FROM print_history WHERE tarih >= $1 AND tarih < $2
+             ORDER BY tarih DESC LIMIT 30`,
+            [start, start + 24 * 60 * 60 * 1000],
+          ),
+        ]);
+        const limanRaw = limanRow && limanRow.rows && limanRow.rows[0] && limanRow.rows[0].value;
+        const piyasaRaw = piyasaRow && piyasaRow.rows && piyasaRow.rows[0] && piyasaRow.rows[0].value;
+        try { liman = limanRaw ? JSON.parse(limanRaw) : {}; } catch (e) { liman = {}; }
+        try { piyasa = piyasaRaw ? JSON.parse(piyasaRaw) : {}; } catch (e) { piyasa = {}; }
+        reports = (reportRow && reportRow.rows) || [];
+        const weekInfo = isoWeekInfoFromMs(now.getTime());
+        const weekNo = weekInfo ? String(weekInfo.week) : '';
+        if (weekNo) {
+          const cikanRow = await q(
+            `SELECT plaka, sofor, firma, malzeme, sehir, sevk_yeri, miktar, tarih, hafta
+             FROM piyasa_cikanlar
+             WHERE hafta = $1 OR hafta LIKE $2
+             ORDER BY tarih DESC
+             LIMIT 800`,
+            [weekNo, weekNo + '.%'],
+          );
+          cikanlar = (cikanRow && cikanRow.rows) || [];
+        }
+      }
+      return res.json({
+        ok: true,
+        reply: speak(messages, { liman, piyasa, reports, cikanlar, now }),
+      });
+    } catch (err) {
+      return sendApiError(res, err, 500, 'OZET_FAILED');
+    }
+  });
 
   api.post('/mailbox/remove', requireBurak, async (req, res) => {
     try {
